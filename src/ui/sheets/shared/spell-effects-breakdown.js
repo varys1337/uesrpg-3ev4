@@ -114,36 +114,22 @@ export function prepareSpellEffectsBreakdown(actor) {
  */
 function _formatDuration(ae) {
   const dur = ae.duration ?? {};
-  const seconds = Number(dur.seconds ?? 0);
-  const rounds = Number(dur.rounds ?? 0);
-  const startTime = Number(dur.startTime ?? 0);
-  const startRound = Number(dur.startRound ?? 0);
+  const value = dur.value;
+  if (value == null && dur.expiry == null) return "Permanent";
+  if (!(Number(value) > 0)) return "Instant / No duration";
+  if (dur.expired === true) return "Expired";
 
-  if (seconds === Infinity || rounds === Infinity) return "Permanent";
-  if (seconds <= 0 && rounds <= 0) return "Instant / No duration";
+  const label = String(dur.label ?? "").trim();
+  if (label) return label;
 
-  // Combat-based
-  if (dur.combat && game?.combat?.id === dur.combat) {
-    const currentRound = Number(game.combat.round ?? 0);
-    const elapsed = currentRound - startRound;
-    const remaining = Math.max(0, rounds - elapsed);
-    return `${remaining} round${remaining !== 1 ? "s" : ""} remaining`;
-  }
-
-  // Time-based
-  if (seconds > 0 && startTime > 0) {
-    const now = Number(game.time?.worldTime ?? 0);
-    const elapsed = Math.max(0, now - startTime);
-    const remaining = Math.max(0, seconds - elapsed);
-
+  const remaining = Number(dur.remaining);
+  const units = String(dur.units ?? "").trim();
+  if (Number.isFinite(remaining)) {
     if (remaining <= 0) return "Expired";
-    if (remaining < 60) return `${Math.ceil(remaining)}s remaining`;
-    if (remaining < 3600) return `${Math.ceil(remaining / 60)}min remaining`;
-    if (remaining < 86400) return `${Math.round(remaining / 3600 * 10) / 10}hr remaining`;
-    return `${Math.round(remaining / 86400 * 10) / 10} days remaining`;
+    const singular = units.endsWith("s") ? units.slice(0, -1) : units;
+    const unitLabel = remaining === 1 ? singular : units;
+    return `${remaining} ${unitLabel} remaining`;
   }
-
-  if (rounds > 0) return `${rounds} round${rounds !== 1 ? "s" : ""}`;
   return "Active";
 }
 

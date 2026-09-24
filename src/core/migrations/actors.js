@@ -20,13 +20,14 @@ import {
 import { buildDefaultWorshipData, buildDefaultWorshipDomainState } from "../religion/worship-store.js";
 import { cleanSystemDataWithModel, isTypeDataModelsEnabled } from "../data-models/registry.js";
 import { NPC_THREAT_LEGACY_KEY_MAP } from "../rules/npc-threat-templates.js";
+import { MIGRATION_REVISIONS } from "./revisions.js";
 
 const MODULE_ID = SYSTEM_ID;
-const _ACTORS_MIGRATION_REVISION = 1;
+const _ACTORS_MIGRATION_REVISION = MIGRATION_REVISIONS.actors;
 const _NPC_THREAT_TEMPLATE_KEYS_MIGRATION_KEY = "npcThreatTemplateKeysV1";
-const _NPC_THREAT_TEMPLATE_KEYS_MIGRATION_REVISION = 2;
+const _NPC_THREAT_TEMPLATE_KEYS_MIGRATION_REVISION = MIGRATION_REVISIONS.npcThreatTemplateKeysV1;
 const _NPC_THREAT_TEMPLATE_OPTIONS_MIGRATION_KEY = "npcThreatTemplateOptionsV1";
-const _NPC_THREAT_TEMPLATE_OPTIONS_MIGRATION_REVISION = 2;
+const _NPC_THREAT_TEMPLATE_OPTIONS_MIGRATION_REVISION = MIGRATION_REVISIONS.npcThreatTemplateOptionsV1;
 const WARFARE_CONDITION_INIT_FLAG_PATH = `flags.${SYSTEM_ID}.warfareConditionInitialized`;
 
 function _buildResistanceDefaults() {
@@ -728,7 +729,7 @@ export async function normalizeActors() {
 // ---------------------------------------------------------------------------
 
 const _WF_NEUTRAL_LANE_MIGRATION_KEY = "warfareUnitNeutralLanesV1";
-const _WF_NEUTRAL_LANE_MIGRATION_REVISION = 1;
+const _WF_NEUTRAL_LANE_MIGRATION_REVISION = MIGRATION_REVISIONS.warfareUnitNeutralLanesV1;
 
 /**
  * Copies legacy Warfare Unit fields into canonical neutral lanes.

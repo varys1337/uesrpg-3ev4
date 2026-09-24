@@ -36,8 +36,8 @@ import { hasTalent } from "../traits/talents-api.js";
  * @property {boolean} hasProcedural - whether actor has Procedural Enchanting talent
  * @property {number} enchantRankAlternative - Enchant rank (for Procedural Enchanting choice)
  */
-export async function executeEnchantTest(actor, penalty, { effectiveEnchantRank = 0 } = {}) {
-  const baseTN = getEnchantTN(actor);
+export async function executeEnchantTest(actor, penalty, { effectiveEnchantRank = 0, baseTarget = null } = {}) {
+  const baseTN = Number.isFinite(Number(baseTarget)) ? Number(baseTarget) : getEnchantTN(actor);
   const finalTN = Math.max(1, baseTN + Number(penalty ?? 0));
 
   const result = await doTestRoll(actor, {
@@ -63,6 +63,7 @@ export async function executeEnchantTest(actor, penalty, { effectiveEnchantRank 
   return {
     tn: finalTN,
     roll: result.rollTotal,
+    rollObject: result.roll ?? null,
     success: isSuccess,
     isCritSuccess,
     isCritFailure,
@@ -107,6 +108,7 @@ export async function executeSalvageEnergyRoll(actor, baseTN) {
   return {
     success: result.isSuccess,
     roll: result.rollTotal,
+    rollObject: result.roll ?? null,
     degrees: result.degree ?? 1,
   };
 }

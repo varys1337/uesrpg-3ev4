@@ -11,7 +11,7 @@
  */
 
 import { applyDefaults } from "./apply-defaults.js";
-import { DEFAULTS } from "./item-defaults.generated.js";
+import { ITEM_TYPE_MODEL_SEEDS } from "../data-models/defaults.generated.js";
 import { SYSTEM_ID, UESRPG } from "../constants.js";
 import { getWeaponBaseReachState } from "../homebrew/reach-length/weapon.js";
 import {
@@ -31,14 +31,15 @@ import {
 } from "../items/armor-coverage.js";
 
 const MODULE_ID = SYSTEM_ID;
-const _SOCIAL_ITEM_RETIREMENT_CLEANUP_REVISION = 1;
-const _ITEM_LEGACY_REPAIR_REVISION = 1;
-const _RULE_ELEMENT_RETIREMENT_CLEANUP_REVISION = 1;
-const _ITEMS_MIGRATION_REVISION = 1;
-const _SCROLL_CASTING_CONTROLS_REVISION = 1;
-const _SCROLL_CONSUME_ON_CAST_REVISION = 1;
-const _SPELL_DAMAGE_TYPE_NORMALIZATION_REVISION = 1;
+const _SOCIAL_ITEM_RETIREMENT_CLEANUP_REVISION = MIGRATION_REVISIONS.socialItemRetirementCleanup;
+const _ITEM_LEGACY_REPAIR_REVISION = MIGRATION_REVISIONS.itemLegacyRepair;
+const _RULE_ELEMENT_RETIREMENT_CLEANUP_REVISION = MIGRATION_REVISIONS.ruleElementRetirementCleanup;
+const _ITEMS_MIGRATION_REVISION = MIGRATION_REVISIONS.items;
+const _SCROLL_CASTING_CONTROLS_REVISION = MIGRATION_REVISIONS.scrollCastingControls;
+const _SCROLL_CONSUME_ON_CAST_REVISION = MIGRATION_REVISIONS.scrollConsumeOnCast;
+const _SPELL_DAMAGE_TYPE_NORMALIZATION_REVISION = MIGRATION_REVISIONS.spellDamageTypeNormalization;
 const _NPC_ARMOR_COVERAGE_DEFAULTS_REVISION = MIGRATION_REVISIONS.npcArmorCoverageDefaultsV1;
+const _ITEM_DEFAULT_IGNORE_PATHS = Object.freeze({ armor: Object.freeze(["item_cat"]) });
 const _RETIRED_SOCIAL_ITEM_TYPES = new Set(["language", "faction"]);
 const _RETIRED_RULE_ELEMENT_ITEM_TYPES = new Set(["trait", "talent", "power"]);
 const _SPELL_DAMAGE_TYPES = new Set(["none", "physical", "fire", "frost", "shock", "poison", "disease", "magic", "silver", "sunlight", "healing", "temporaryhealing", "temporary healing"]);
@@ -149,10 +150,7 @@ function _applyLegacyArmorTypedFields(system) {
 }
 
 function _supportedItemTypes() {
-  const supported = new Set(Object.keys(DEFAULTS?.itemSystem ?? {}));
-  supported.add("equipment");
-  supported.add("item");
-  return supported;
+  return new Set(Object.keys(ITEM_TYPE_MODEL_SEEDS));
 }
 
 async function _cleanupRetiredSocialItems() {
@@ -675,20 +673,79 @@ function _normalizeAmmoSystem(item, sys = {}) {
   return update;
 }
 
+function _getNormalizedItemType(item) {
+  const sourceType = String(item?.type ?? "");
+  if (!sourceType) return "";
+  if (sourceType === "item") return "equipment";
+  if (sourceType !== "armor") return sourceType;
+
+  const system = item?.system ?? {};
+  const isLegacyShield = (
+    system.isShield === true ||
+    String(system.item_cat ?? "").trim().toLowerCase() === "shield" ||
+    String(system.category ?? "").trim().toLowerCase() === "shield"
+  );
+  return isLegacyShield ? "shield" : sourceType;
+}
+
+function _isTypeChangeUpdate(item, update) {
+  return (
+    Object.prototype.hasOwnProperty.call(update ?? {}, "type") &&
+    String(update.type ?? "") !== String(item?.type ?? "")
+  );
+}
+
+function _createForcedTypeChangeUpdate(update) {
+  return {
+    _id: update._id,
+    type: update.type,
+    system: foundry.data.operators.ForcedReplacement.create(update.system ?? {}),
+  };
+}
+
+function _typeChangeReference(item, targetType, { actor = null } = {}) {
+  return {
+    scope: actor ? "actor" : "world",
+    actorId: actor?.id ?? null,
+    actorName: actor?.name ?? null,
+    itemId: item?.id ?? null,
+    itemName: item?.name ?? "",
+    fromType: String(item?.type ?? ""),
+    toType: String(targetType ?? ""),
+  };
+}
+
+function _assertTypeChangesApplied(typeChangeUpdates, getCurrentItem, context = {}) {
+  const failures = [];
+  for (const { item, update } of typeChangeUpdates) {
+    const current = getCurrentItem(item.id);
+    if (current && String(current.type ?? "") === String(update.type ?? "")) continue;
+    failures.push(_typeChangeReference(current ?? item, update.type, context));
+  }
+  if (!failures.length) return;
+
+  const error = new Error(`Item subtype replacement failed for ${failures.length} document(s).`);
+  error.migrationTelemetry = {
+    attempted: typeChangeUpdates.length,
+    converted: Math.max(0, typeChangeUpdates.length - failures.length),
+    failures: failures.length,
+    references: failures,
+  };
+  throw error;
+}
+
 async function _processWorldItems(modeLabel, { silent = false } = {}) {
   const supportedTypes = _supportedItemTypes();
   const updates = [];
-  const legacyPlanned = [];
+  const typeChangeUpdates = [];
   for (const item of game.items.contents) {
     if (!supportedTypes.has(item.type)) continue;
     const update = _normalizeItemSystem(item);
-    if (update) {
-      update._id = item.id;
-      updates.push(update);
-      if (item.type === "item" && update.type === "equipment") {
-        legacyPlanned.push(item.id);
-      }
-    }
+    if (!update) continue;
+
+    update._id = item.id;
+    if (_isTypeChangeUpdate(item, update)) typeChangeUpdates.push({ item, update });
+    else updates.push(update);
   }
 
   if (updates.length) {
@@ -696,31 +753,34 @@ async function _processWorldItems(modeLabel, { silent = false } = {}) {
     await Item.updateDocuments(updates, { diff: false });
   }
 
+  if (typeChangeUpdates.length) {
+    if (!silent) console.log(`${MODULE_ID} | ${modeLabel} ${typeChangeUpdates.length} world item subtype conversion(s)`);
+    const replacements = typeChangeUpdates.map(({ update }) => _createForcedTypeChangeUpdate(update));
+    await Item.updateDocuments(replacements, { diff: false });
+    _assertTypeChangesApplied(typeChangeUpdates, (id) => game.items.get(id));
+  }
+
   return {
-    plannedLegacyConversions: legacyPlanned.length,
+    plannedTypeConversions: typeChangeUpdates.length,
+    convertedTypeConversions: typeChangeUpdates.length,
   };
 }
 
 async function _processActorItems(modeLabel, { silent = false } = {}) {
   const supportedTypes = _supportedItemTypes();
-  let plannedLegacyConversions = 0;
+  let plannedTypeConversions = 0;
+  let convertedTypeConversions = 0;
   for (const actor of game.actors.contents) {
     const updates = [];
     const typeChangeUpdates = [];
     for (const item of actor.items.contents) {
       if (!supportedTypes.has(item.type)) continue;
       const update = _normalizeItemSystem(item);
-      if (update) {
-        update._id = item.id;
-        if (Object.prototype.hasOwnProperty.call(update, "type") && String(update.type ?? "") !== String(item.type ?? "")) {
-          typeChangeUpdates.push({ item, update });
-        } else {
-          updates.push(update);
-        }
-        if (item.type === "item" && update.type === "equipment") {
-          plannedLegacyConversions += 1;
-        }
-      }
+      if (!update) continue;
+
+      update._id = item.id;
+      if (_isTypeChangeUpdate(item, update)) typeChangeUpdates.push({ item, update });
+      else updates.push(update);
     }
 
     if (updates.length) {
@@ -729,90 +789,72 @@ async function _processActorItems(modeLabel, { silent = false } = {}) {
     }
 
     if (typeChangeUpdates.length) {
-      if (!silent) console.log(`${MODULE_ID} | ${modeLabel} ${typeChangeUpdates.length} type-conversion item(s) on actor ${actor.name}`);
-
-      const directUpdates = typeChangeUpdates.map(({ update }) => {
-        const clean = { _id: update._id, type: update.type, system: update.system ?? {} };
-        if (Object.prototype.hasOwnProperty.call(update, "system.-=equippped")) {
-          clean["system.-=equippped"] = null;
-        }
-        return clean;
-      });
-
-      let remainingFallback = [];
-      try {
-        await actor.updateEmbeddedDocuments("Item", directUpdates, { diff: false, recursive: false });
-      } catch (err) {
-        remainingFallback = typeChangeUpdates;
-        if (_debugEnabled()) {
-          console.warn(`${MODULE_ID} | Direct embedded type-conversion update failed, using recreate/delete fallback`, {
-            actor: actor.name,
-            err,
-          });
-        }
-      }
-
-      if (!remainingFallback.length) {
-        const lingering = typeChangeUpdates.filter(({ item }) => actor.items.get(item.id)?.type === "item");
-        remainingFallback = lingering;
-      }
-
-      if (remainingFallback.length) {
-        for (const { item, update } of remainingFallback) {
-          try {
-            const source = item.toObject();
-            delete source._id;
-            source.type = update.type;
-            source.system = update.system ?? source.system ?? {};
-            await actor.createEmbeddedDocuments("Item", [source], { keepId: false });
-            await actor.deleteEmbeddedDocuments("Item", [item.id]);
-          } catch (err) {
-            if (_debugEnabled()) {
-              console.warn(`${MODULE_ID} | Embedded type-conversion fallback failed`, {
-                actor: actor.name,
-                item: item.name,
-                itemId: item.id,
-                err,
-              });
-            }
-          }
-        }
-      }
+      if (!silent) console.log(`${MODULE_ID} | ${modeLabel} ${typeChangeUpdates.length} item subtype conversion(s) on actor ${actor.name}`);
+      plannedTypeConversions += typeChangeUpdates.length;
+      const replacements = typeChangeUpdates.map(({ update }) => _createForcedTypeChangeUpdate(update));
+      await actor.updateEmbeddedDocuments("Item", replacements, { diff: false });
+      _assertTypeChangesApplied(typeChangeUpdates, (id) => actor.items.get(id), { actor });
+      convertedTypeConversions += typeChangeUpdates.length;
     }
   }
 
-  return { plannedLegacyConversions };
+  return { plannedTypeConversions, convertedTypeConversions };
 }
 
-function _collectLegacyItemReferences() {
+function _collectPendingItemTypeConversions() {
   const refs = [];
   for (const item of game.items.contents ?? []) {
-    if (item?.type === "item") refs.push(`WorldItem:${item.id}:${item.name ?? ""}`);
+    const targetType = _getNormalizedItemType(item);
+    if (targetType && targetType !== item?.type) {
+      refs.push(_typeChangeReference(item, targetType));
+    }
   }
   for (const actor of game.actors.contents ?? []) {
     for (const item of actor.items.contents ?? []) {
-      if (item?.type === "item") refs.push(`ActorItem:${actor.id}:${actor.name ?? ""}:${item.id}:${item.name ?? ""}`);
+      const targetType = _getNormalizedItemType(item);
+      if (targetType && targetType !== item?.type) {
+        refs.push(_typeChangeReference(item, targetType, { actor }));
+      }
     }
   }
   return refs;
 }
 
 async function _repairLegacyItemTypeCutoverIfNeeded() {
-  const before = _collectLegacyItemReferences();
+  const before = _collectPendingItemTypeConversions();
   if (!before.length) {
-    return { attempted: false, beforeCount: 0, afterCount: 0, remaining: [] };
+    return {
+      attempted: false,
+      beforeCount: 0,
+      converted: 0,
+      worldConverted: 0,
+      actorConverted: 0,
+      afterCount: 0,
+      failures: 0,
+      remaining: [],
+    };
   }
 
-  await _processWorldItems("Repairing", { silent: true });
-  await _processActorItems("Repairing", { silent: true });
-  const after = _collectLegacyItemReferences();
-
-  return {
+  const worldResult = await _processWorldItems("Repairing", { silent: true });
+  const actorResult = await _processActorItems("Repairing", { silent: true });
+  const after = _collectPendingItemTypeConversions();
+  const telemetry = {
     attempted: true,
     beforeCount: before.length,
+    converted: Math.max(0, before.length - after.length),
+    worldConverted: Number(worldResult?.convertedTypeConversions ?? 0),
+    actorConverted: Number(actorResult?.convertedTypeConversions ?? 0),
     afterCount: after.length,
+    failures: after.length,
     remaining: after,
   };
+
+  if (after.length) {
+    const error = new Error(`Legacy Item subtype repair left ${after.length} document(s) unconverted.`);
+    error.migrationTelemetry = telemetry;
+    throw error;
+  }
+  return telemetry;
 }
 
 async function _backfillScrollCastingControlsWorld(defaultRequireTraining, defaultConsumeMagicka, defaultConsumeOnCast = true) {
@@ -933,46 +975,37 @@ async function _runSpellDamageTypeNormalizationPass({ state }) {
 }
 
 async function _runLegacyItemRepairPasses({ state }) {
-  try {
-    const socialCleanup = await _cleanupRetiredSocialItems();
-    const repaired = await _repairLegacyItemTypeCutoverIfNeeded();
-    const needsSocialStamp = !isMigrationRevisionApplied("socialItemRetirementCleanup", _SOCIAL_ITEM_RETIREMENT_CLEANUP_REVISION, state);
-    const needsRepairStamp = !isMigrationRevisionApplied("itemLegacyRepair", _ITEM_LEGACY_REPAIR_REVISION, state);
-    if (!repaired.attempted && socialCleanup.totalDeleted === 0 && !needsSocialStamp && !needsRepairStamp) return;
+  const socialCleanup = await _cleanupRetiredSocialItems();
+  const repaired = await _repairLegacyItemTypeCutoverIfNeeded();
+  const needsSocialStamp = !isMigrationRevisionApplied("socialItemRetirementCleanup", _SOCIAL_ITEM_RETIREMENT_CLEANUP_REVISION, state);
+  const needsRepairStamp = !isMigrationRevisionApplied("itemLegacyRepair", _ITEM_LEGACY_REPAIR_REVISION, state);
+  if (!repaired.attempted && socialCleanup.totalDeleted === 0 && !needsSocialStamp && !needsRepairStamp) return;
 
-    if (socialCleanup.totalDeleted > 0 || needsSocialStamp) {
-      markMigrationRevisionApplied(state, "socialItemRetirementCleanup", _SOCIAL_ITEM_RETIREMENT_CLEANUP_REVISION, socialCleanup);
-    }
-    markMigrationRevisionApplied(state, "itemLegacyRepair", _ITEM_LEGACY_REPAIR_REVISION, {
-      attempted: repaired.attempted,
-      beforeCount: repaired.beforeCount,
-      afterCount: repaired.afterCount
+  if (socialCleanup.totalDeleted > 0 || needsSocialStamp) {
+    markMigrationRevisionApplied(state, "socialItemRetirementCleanup", _SOCIAL_ITEM_RETIREMENT_CLEANUP_REVISION, socialCleanup);
+  }
+  markMigrationRevisionApplied(state, "itemLegacyRepair", _ITEM_LEGACY_REPAIR_REVISION, {
+    attempted: repaired.attempted,
+    beforeCount: repaired.beforeCount,
+    converted: repaired.converted,
+    worldConverted: repaired.worldConverted,
+    actorConverted: repaired.actorConverted,
+    afterCount: repaired.afterCount,
+    failures: repaired.failures,
+  });
+  await setMigrationState(state);
+
+  if (socialCleanup.totalDeleted > 0 && _debugEnabled()) {
+    console.log(`${MODULE_ID} | Retired social item cleanup complete`, socialCleanup);
+  }
+
+  if (_debugEnabled()) {
+    console.log(`${MODULE_ID} | Legacy Item subtype self-repair complete`, {
+      converted: repaired.converted,
+      worldConverted: repaired.worldConverted,
+      actorConverted: repaired.actorConverted,
+      remaining: repaired.afterCount,
     });
-    await setMigrationState(state);
-
-    if (repaired.afterCount > 0 && _debugEnabled()) {
-      console.warn(`${MODULE_ID} | Legacy item->equipment self-repair could not clear all docs`, {
-        before: repaired.beforeCount,
-        remaining: repaired.afterCount,
-        references: repaired.remaining,
-      });
-      return;
-    }
-
-    if (socialCleanup.totalDeleted > 0 && _debugEnabled()) {
-      console.log(`${MODULE_ID} | Retired social item cleanup complete`, socialCleanup);
-      return;
-    }
-
-    if (_debugEnabled()) {
-      console.log(`${MODULE_ID} | Legacy item->equipment self-repair complete`, {
-        converted: Math.max(0, repaired.beforeCount - repaired.afterCount),
-        remaining: repaired.afterCount,
-      });
-    }
-  } catch (err) {
-    console.error(`${MODULE_ID} | Legacy item self-repair failed`, err);
-    ui.notifications?.error?.("UESRPG item migration self-repair failed; check console for details.");
   }
 }
 
@@ -987,30 +1020,35 @@ async function _runVersionedItemMigrationPass({ state }) {
   _combatLegacyItemStats.weaponsEnhancedFromRange = 0;
 
   const migrationTelemetry = {
+    attempted: 0,
     converted: 0,
     skipped: 0,
     failures: 0,
+    worldConverted: 0,
+    actorConverted: 0,
   };
 
-  const legacyBefore = _collectLegacyItemReferences();
+  const legacyBefore = _collectPendingItemTypeConversions();
   const worldResult = await _processWorldItems("Migrating");
   const actorResult = await _processActorItems("Migrating");
-  const legacyAfter = _collectLegacyItemReferences();
+  const legacyAfter = _collectPendingItemTypeConversions();
 
-  migrationTelemetry.converted = Number(worldResult?.plannedLegacyConversions ?? 0) + Number(actorResult?.plannedLegacyConversions ?? 0);
-  migrationTelemetry.skipped = Math.max(0, legacyBefore.length - migrationTelemetry.converted);
+  migrationTelemetry.attempted = legacyBefore.length;
+  migrationTelemetry.converted = Math.max(0, legacyBefore.length - legacyAfter.length);
+  migrationTelemetry.worldConverted = Number(worldResult?.convertedTypeConversions ?? 0);
+  migrationTelemetry.actorConverted = Number(actorResult?.convertedTypeConversions ?? 0);
+  migrationTelemetry.skipped = Math.max(0, legacyBefore.length - migrationTelemetry.converted - legacyAfter.length);
   migrationTelemetry.failures = legacyAfter.length;
 
   console.log(`${MODULE_ID} | Combat legacy weapon migration summary`, {
     weaponsEnhancedFromQualities: _combatLegacyItemStats.weaponsEnhancedFromQualities,
     weaponsEnhancedFromRange: _combatLegacyItemStats.weaponsEnhancedFromRange
   });
-  console.log(`${MODULE_ID} | Legacy item->equipment migration telemetry`, migrationTelemetry);
-  if (legacyAfter.length && _debugEnabled()) {
-    console.warn(`${MODULE_ID} | Stale legacy item docs remain after migration`, {
-      remaining: legacyAfter.length,
-      references: legacyAfter,
-    });
+  console.log(`${MODULE_ID} | Legacy Item subtype migration telemetry`, migrationTelemetry);
+  if (legacyAfter.length) {
+    const error = new Error(`Item migration left ${legacyAfter.length} subtype conversion(s) incomplete.`);
+    error.migrationTelemetry = { ...migrationTelemetry, references: legacyAfter };
+    throw error;
   }
 
   markMigrationRevisionApplied(state, "items", _ITEMS_MIGRATION_REVISION, migrationTelemetry);
@@ -1084,7 +1122,7 @@ export async function migrateNpcArmorCoverageDefaultsIfNeeded() {
 
 export async function migrateItemsIfNeeded() {
   // Lightweight normalization pass; safe to run on every startup.
-  if (!game.user.isGM) return;
+  if (!isActiveGMUser(game.user)) return;
   const state = getMigrationState();
   const needsSocialRetirementCleanup = !isMigrationRevisionApplied("socialItemRetirementCleanup", _SOCIAL_ITEM_RETIREMENT_CLEANUP_REVISION, state);
   const needsItemLegacyRepair = !isMigrationRevisionApplied("itemLegacyRepair", _ITEM_LEGACY_REPAIR_REVISION, state);
@@ -1135,8 +1173,9 @@ export async function migrateItemsIfNeeded() {
     // Record migration version after a successful pass.
     await setMigrationState(state);
   } catch (err) {
-    console.error(`${MODULE_ID} | Item migration failed`, err);
-    ui.notifications?.error?.("UESRPG item migration failed; check console for details.");
+    const error = new Error("UESRPG Item migration failed.", { cause: err });
+    if (err?.migrationTelemetry) error.migrationTelemetry = err.migrationTelemetry;
+    throw error;
   }
 }
 
@@ -1239,18 +1278,11 @@ function _applySystemUpdateObject(system, updateObject = {}) {
 
 function _normalizeItemSystem(item) {
   const sourceType = item?.type;
-  let type = sourceType === "item" ? "equipment" : sourceType;
+  const type = _getNormalizedItemType(item);
   if (!type) return null;
   const sourceSystem = _deepCloneSystem(item.system);
-  const isLegacyArmorShield = (
-    sourceType === "armor" && (
-      sourceSystem?.isShield === true ||
-      String(sourceSystem?.item_cat ?? "").trim().toLowerCase() === "shield" ||
-      String(sourceSystem?.category ?? "").trim().toLowerCase() === "shield"
-    )
-  );
-  if (isLegacyArmorShield) type = "shield";
-  const hasDefaults = Object.prototype.hasOwnProperty.call(DEFAULTS?.itemSystem ?? {}, type);
+  const isLegacyArmorShield = sourceType === "armor" && type === "shield";
+  const hasDefaults = Object.prototype.hasOwnProperty.call(ITEM_TYPE_MODEL_SEEDS, type);
   if (!hasDefaults && type !== "equipment") return null;
 
   let currentSystem = sourceSystem;
@@ -1270,14 +1302,14 @@ function _normalizeItemSystem(item) {
   let system = currentSystem;
   let defaultsChanged = false;
   if (hasDefaults) {
-    const ignorePaths = (DEFAULTS.__meta?.ignorePathsByType?.[type] ?? []).slice();
+    const ignorePaths = (_ITEM_DEFAULT_IGNORE_PATHS[type] ?? []).slice();
     const allowNonNumeric = _NON_NUMERIC_ALLOWLIST[type] ?? [];
     for (const key of allowNonNumeric) {
       if (_isNonNumericString(currentSystem[key])) ignorePaths.push(key);
     }
     const defaultsResult = applyDefaults(
       currentSystem,
-      DEFAULTS.itemSystem[type],
+      ITEM_TYPE_MODEL_SEEDS[type],
       { coerce: true, ignorePaths, clone: false }
     );
     system = defaultsResult.result;

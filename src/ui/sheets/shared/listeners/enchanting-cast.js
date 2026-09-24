@@ -7,9 +7,16 @@ import { AoEService, AOE_SOURCE_TYPES } from "../../../../core/aoe/index.js";
 import { getSpellRangeType, getSpellAoEConfig, getSpellMaxRangeMeters, filterTargetsBySpellRange } from "../../../../core/magic/spell-range.js";
 import { castFromEnchantedItem } from "../../../../core/enchanting/runtime/cast-enchantment-runtime.js";
 import { showSpellOptionsDialog } from "../../../../core/magic/dialogs/spell-options-dialog.js";
+import {
+  canAffordCastEnchantmentSlot,
+  getCastEnchantmentPool,
+  getCastEnchantmentSlots,
+  isCastEnchantmentItemType,
+  resolveStoredEnchantmentSpell,
+  resolveStoredEnchantmentSpellSync,
+} from "../../../../core/enchanting/runtime/cast-enchantment-sources.js";
+import { t } from "../../../../utils/i18n.js";
 
-const _FLAG_NS = "uesrpg-3ev4";
-const _EQUIPMENT_TYPES = new Set(["weapon", "armor", "ammunition", "equipment", "container", "scroll"]);
 
 function _resolveRangeGatedTokenForActor(actor) {
   let token = canvas.tokens?.controlled?.find((t) => t.actor?.id === actor.id) ?? null;
@@ -28,35 +35,9 @@ function _resolveOwnedItem(actor, itemIdOrDoc) {
   return actor.items?.get(String(itemIdOrDoc)) ?? null;
 }
 
-function _getCastSlots(item) {
-  const flags = item?.flags?.[_FLAG_NS] ?? {};
-  const out = [];
-
-  const ext = flags?.itemSpellcasting ?? {};
-  if (ext?.enabled === true) {
-    const extSlots = Array.isArray(ext?.slots) ? ext.slots : [];
-    for (const slot of extSlots) {
-      if (slot?.enabled === false) continue;
-      out.push({ ...slot, sourceLane: "extension" });
-    }
-  }
-
-  const enc = flags?.enchanting;
-  if (enc?.version === 2 && String(enc?.enchantType ?? "").trim().toLowerCase() === "cast") {
-    const cast = enc.cast ?? {};
-    const slots = Array.isArray(cast?.spells) ? cast.spells : [];
-    for (const slot of slots) {
-      if (slot?.enabled === false) continue;
-      out.push({ ...slot, sourceLane: "workshop" });
-    }
-  }
-
-  return out;
-}
-
 function _slotCostSummary(slot) {
   const mode = String(slot?.costMode ?? "soul").trim().toLowerCase();
-  if (mode === "magicka") return "MP";
+  if (mode === "magicka") return `MP ${Number(slot?.cost ?? 0)}`;
   if (mode === "none") return "No Cost";
   return `Soul ${Number(slot?.cost ?? 0)}`;
 }
@@ -92,40 +73,8 @@ function _buildAutomaticSpellOptions(slot) {
   };
 }
 
-async function _resolveSlotSpell(item, slot) {
-  const actor = item?.actor ?? null;
-  const actorSpellItemId = String(slot?.actorSpellItemId ?? "").trim();
-  if (actor && actorSpellItemId) {
-    const embedded = actor.items?.get?.(actorSpellItemId) ?? null;
-    if (embedded?.documentName === "Item" && embedded.type === "spell") return embedded;
-  }
-
-  const uuid = String(slot?.spellUuid ?? "").trim();
-  if (uuid) {
-    try {
-      const spell = await fromUuid(uuid);
-      if (spell?.documentName === "Item" && spell.type === "spell") return spell;
-    } catch (_err) {
-      // Fallback handled below.
-    }
-  }
-  const snap = slot?.snapshot;
-  if (snap && typeof snap === "object") {
-    try {
-      const data = foundry.utils.deepClone(snap);
-      data.type = "spell";
-      if (!String(data.name ?? "").trim()) data.name = String(slot?.label ?? "Stored Spell");
-      const ItemCls = CONFIG?.Item?.documentClass ?? Item;
-      return new ItemCls(data, { temporary: true, parent: actor ?? undefined });
-    } catch (_err) {
-      return null;
-    }
-  }
-  return null;
-}
-
 async function _pickSpellSlot(item) {
-  const slots = _getCastSlots(item);
+  const slots = getCastEnchantmentSlots(item);
   if (!slots.length) return null;
   if (slots.length === 1) return slots[0];
 
@@ -135,7 +84,13 @@ async function _pickSpellSlot(item) {
     const cost = _slotCostSummary(s);
     const bs = Number(s?.bindingStrength ?? 0);
     const lane = String(s?.sourceLane ?? "extension") === "workshop" ? "RAW" : "Ext";
-    return `<option value="${String(s?.sourceLane ?? "extension")}:${String(s?.id ?? "")}">[${lane}] ${label} (L${level}, ${cost}, BS ${bs})</option>`;
+    const pool = getCastEnchantmentPool(item, s?.sourceLane);
+    const resolvable = Boolean(resolveStoredEnchantmentSpellSync(item, s) || s?.snapshot);
+    const affordable = canAffordCastEnchantmentSlot(item, s);
+    const disabled = resolvable && affordable ? "" : " disabled";
+    const value = `${String(s?.sourceLane ?? "extension")}:${String(s?.id ?? "")}`;
+    const optionLabel = `[${lane}] ${label} (L${level}, ${cost}, Pool ${pool.value}/${pool.max}, BS ${bs})${!resolvable ? " - Unresolved" : !affordable ? " - Insufficient energy" : ""}`;
+    return `<option value="${foundry.utils.escapeHTML(value)}"${disabled}>${foundry.utils.escapeHTML(optionLabel)}</option>`;
   }).join("");
 
   const chosen = await customDialog({
@@ -177,11 +132,6 @@ export const onCastEnchantmentAction = asyncGuardSheet(async function onCastEnch
     return;
   }
 
-  if (game.settings.get(_FLAG_NS, "enchanting.enableCastEnchantmentRuntime") !== true) {
-    ui.notifications?.warn?.("Cast Enchantment runtime is disabled.");
-    return;
-  }
-
   const castActionType = String((target ?? event?.currentTarget)?.dataset?.actionType ?? "primary");
   const itemId = (target ?? event?.currentTarget)?.dataset?.itemId ?? null;
   const item = _resolveOwnedItem(actor, sourceItem ?? itemId ?? this.document);
@@ -189,13 +139,17 @@ export const onCastEnchantmentAction = asyncGuardSheet(async function onCastEnch
     ui.notifications?.warn?.("Could not resolve enchanted item.");
     return;
   }
-  if (!_EQUIPMENT_TYPES.has(String(item.type ?? "").toLowerCase())) {
+  if (!isCastEnchantmentItemType(item)) {
     ui.notifications?.warn?.("Only equipment items can be used for item spellcasting.");
     return;
   }
 
   const slot = await _pickSpellSlot(item);
   if (!slot) return;
+  if (!canAffordCastEnchantmentSlot(item, slot)) {
+    ui.notifications?.warn?.(t("UESRPG.Notifications.Magic.ItemNotEnoughSoulEnergy"));
+    return;
+  }
 
   const _preCheckActionGate = async () => {
     const surprise = resolveSurpriseState(actor, { combatContext: game.combat });
@@ -221,7 +175,7 @@ export const onCastEnchantmentAction = asyncGuardSheet(async function onCastEnch
   };
   if (!(await _preCheckActionGate())) return;
 
-  const spell = await _resolveSlotSpell(item, slot);
+  const spell = await resolveStoredEnchantmentSpell(item, slot, { materialize: true });
   if (!spell) {
     ui.notifications?.warn?.("Stored spell reference could not be resolved.");
     return;

@@ -1,6 +1,7 @@
 import {
   doTestRoll,
   computeResultFromRollTotal,
+  getMaximumSuccessDegree,
   formatDegree,
   formatResultOutcomeLabel,
   formatResultSummary,
@@ -10,6 +11,7 @@ import {
 export {
   doTestRoll,
   computeResultFromRollTotal,
+  getMaximumSuccessDegree,
   formatDegree,
   formatResultOutcomeLabel,
   formatResultSummary,
@@ -30,6 +32,7 @@ window.Uesrpg3e = window.Uesrpg3e || {};
 window.Uesrpg3e.roll = window.Uesrpg3e.roll || {};
 window.Uesrpg3e.roll.doTestRoll = window.Uesrpg3e.roll.doTestRoll || doTestRoll;
 window.Uesrpg3e.roll.computeResultFromRollTotal = window.Uesrpg3e.roll.computeResultFromRollTotal || computeResultFromRollTotal;
+window.Uesrpg3e.roll.getMaximumSuccessDegree = window.Uesrpg3e.roll.getMaximumSuccessDegree || getMaximumSuccessDegree;
 window.Uesrpg3e.roll.resolveOpposed = window.Uesrpg3e.roll.resolveOpposed || resolveOpposed;
 window.Uesrpg3e.roll.formatDegree = window.Uesrpg3e.roll.formatDegree || formatDegree;
 window.Uesrpg3e.roll.formatResultOutcomeLabel = window.Uesrpg3e.roll.formatResultOutcomeLabel || formatResultOutcomeLabel;

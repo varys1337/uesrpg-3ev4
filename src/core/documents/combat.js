@@ -20,6 +20,7 @@ import { getActionPointAutomationSetting, getCombatRollModeMessageOptions, isDyn
 import { emitDynamicInitiativeRoundSummary } from "./combat/initiative-ui.js";
 import { refreshActionPointsForCombatActor, resetAllActionPointsForCombat } from "./combat/ap-automation.js";
 import { registerCombatApHooks } from "./combat/hooks.js";
+import { isActiveGMUser } from "../../utils/users.js";
 
 export { getInitiativeTieBreakTuple } from "./combat/initiative-helpers.js";
 
@@ -122,13 +123,6 @@ export class SystemCombat extends Combat {
     const _t0 = _perf ? monoMs() : 0;
     const _combatantsTotal = Array.from(this.turns ?? []).length;
 
-    if (["round", "turn"].includes(this.apAutomationType)) {
-      // Stamp round 1 so the updateCombat hook (which fires when super.startCombat()
-      // broadcasts { started: true, round: 1 }) knows this round was already handled.
-      SystemCombat._apLastProcessedRound.set(this.id, 1);
-      await this.resetAllActionPoints();
-    }
-
     const result = await super.startCombat();
     if (_perf) {
       perfRecord({
@@ -144,12 +138,6 @@ export class SystemCombat extends Combat {
 
   /** @override */
   async nextTurn() {
-    if (this.apAutomationType === "turn") {
-      if (this.round !== 1 || (this.turn + 1) === this.turns.length) {
-        await this._refreshActionPoints(this.nextCombatant()?.actor);
-      }
-    }
-
     return await super.nextTurn();
   }
 
@@ -159,14 +147,6 @@ export class SystemCombat extends Combat {
     const _t0 = _perf ? monoMs() : 0;
     const _combatantsTotal = Array.from(this.turns ?? []).length;
     const _nextRound = this.round + 1;
-
-    if (this.apAutomationType === "round") {
-      // Stamp the NEW round BEFORE restoring so the updateCombat hook (which fires
-      // when super.nextRound() broadcasts the round increment) recognises this round
-      // was already handled and skips the supplementary hook path.
-      SystemCombat._apLastProcessedRound.set(this.id, this.round + 1);
-      await this.resetAllActionPoints();
-    }
 
     const result = await super.nextRound();
     if (_perf) {
@@ -184,16 +164,17 @@ export class SystemCombat extends Combat {
 
   /** @override */
   async _preUpdate(data, options, user) {
-    await super._preUpdate(data, options, user);
+    const allowed = await super._preUpdate(data, options, user);
+    if (allowed === false) return false;
 
-    if (!game.user?.isGM) return;
-    if (!this.dynamicInitiativeEnabled) return;
-    if (!this.started) return;
+    if (!isActiveGMUser(game.user)) return allowed;
+    if (!this.dynamicInitiativeEnabled) return allowed;
+    if (!this.started) return allowed;
 
     const nextRound = Number(data?.round ?? NaN);
-    if (!Number.isFinite(nextRound)) return;
-    if (nextRound <= Number(this.round ?? 0)) return;
-    if (Array.isArray(data?.combatants) && data.combatants.length > 0) return;
+    if (!Number.isFinite(nextRound)) return allowed;
+    if (nextRound <= Number(this.round ?? 0)) return allowed;
+    if (Array.isArray(data?.combatants) && data.combatants.length > 0) return allowed;
 
     const _perf = isPerfEnabled();
     const _t0 = _perf ? monoMs() : 0;
@@ -221,6 +202,7 @@ export class SystemCombat extends Combat {
         durationMs: monoMs() - _t0,
       });
     }
+    return allowed;
   }
 
   /** @override */

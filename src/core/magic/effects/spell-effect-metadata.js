@@ -201,11 +201,13 @@ export function buildSpellEffectMetadataFlags({
   const normalizedCastContext = _normalizeCastContext(derivedCastContext, spellLevel);
   const resolvedActualCost = _num(actualCost ?? costPaid ?? getSpellCost(spell, normalizedCastContext.castLevel) ?? spell?.system?.cost ?? 0, 0);
   const resolvedOriginalCastWorldTime = _num(originalCastWorldTime ?? castWorldTime ?? game?.time?.worldTime ?? 0, 0);
-  const resolvedDurationSeconds = _numericOrNull(durationData?.seconds);
-  const resolvedDurationRounds = _numericOrNull(durationData?.rounds);
-  const resolvedDurationStartTime = _numericOrNull(durationData?.startTime);
-  const resolvedDurationStartRound = _numericOrNull(durationData?.startRound);
-  const resolvedDurationStartTurn = _numericOrNull(durationData?.startTurn);
+  const resolvedDurationValue = _numericOrNull(durationData?.value);
+  const resolvedDurationUnits = _str(durationData?.units);
+  const resolvedDurationSeconds = resolvedDurationUnits === "seconds" ? resolvedDurationValue : null;
+  const resolvedDurationRounds = resolvedDurationUnits === "rounds" ? resolvedDurationValue : null;
+  const resolvedDurationStartTime = _numericOrNull(durationData?.start?.time);
+  const resolvedDurationStartRound = _numericOrNull(durationData?.start?.round);
+  const resolvedDurationStartTurn = _numericOrNull(durationData?.start?.turn);
   const resolvedTargetUuids = _normalizeTargetUuids(targetUuids);
   const castSourceMeta = _buildCastSourceMetadata(castSource, itemCastContext);
 

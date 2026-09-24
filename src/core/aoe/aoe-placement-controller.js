@@ -97,8 +97,7 @@ export async function startPlacement(templateData, options = {}) {
 
     // Create the MeasuredTemplate placeable for preview
     const MeasuredTemplateClass = CONFIG.MeasuredTemplate?.objectClass
-      ?? foundry.canvas?.placeables?.MeasuredTemplate
-      ?? MeasuredTemplate;
+      ?? foundry.canvas.placeables.MeasuredTemplate;
     previewTemplate = new MeasuredTemplateClass(previewDoc);
 
     // Activate the templates layer (this naturally disables token interaction)

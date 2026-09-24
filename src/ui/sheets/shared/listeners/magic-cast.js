@@ -18,11 +18,17 @@ import { getFearActionRestrictions } from "../../../../core/fear/index.js";
 import { ensureBurningTurnActionAllowed } from "../../../../core/conditions/condition-engine.js";
 import { castScrollFromItem, getCastableScrollCandidates } from "../../../../core/magic/scroll-casting.js";
 import { castFromEnchantedItem } from "../../../../core/enchanting/runtime/cast-enchantment-runtime.js";
+import {
+  canAffordCastEnchantmentSlot,
+  collectActorCastEnchantmentSlots,
+  getCastEnchantmentPool,
+  getCastEnchantmentSlots,
+  resolveStoredEnchantmentSpell,
+} from "../../../../core/enchanting/runtime/cast-enchantment-sources.js";
 import { t, tf } from "../../../../utils/i18n.js";
 import { CastSpellService } from "../../../../application/magic/cast-spell-service.js";
+import { isHiddenStoredEnchantmentSpell } from "../../../../core/enchanting/stored-spell-doc.js";
 
-const _FLAG_NS = "uesrpg-3ev4";
-const _EQUIPMENT_TYPES = new Set(["weapon", "armor", "ammunition", "equipment", "container", "scroll"]);
 const _SCHOOL_LABELS = Object.freeze({
   alteration: "Alteration",
   conjuration: "Conjuration",
@@ -58,7 +64,7 @@ function _normalizeCostMode(mode) {
 
 function _slotCostSummary(slot) {
   const mode = _normalizeCostMode(slot?.costMode);
-  if (mode === "magicka") return "MP";
+  if (mode === "magicka") return `MP ${Number(slot?.cost ?? 0)}`;
   if (mode === "none") return "No Cost";
   return `Soul ${Number(slot?.cost ?? 0)}`;
 }
@@ -96,59 +102,6 @@ function _buildAutomaticItemSpellOptions(slot) {
     castLevel: level,
     level
   };
-}
-
-function _resolveItemSpellSlots(item) {
-  const out = [];
-  if (!_EQUIPMENT_TYPES.has(String(item?.type ?? "").toLowerCase())) return out;
-  if (item?.system?.equipped !== true) return out;
-
-  const ext = item?.flags?.[_FLAG_NS]?.itemSpellcasting ?? {};
-  if (ext?.enabled === true) {
-    const extSlots = Array.isArray(ext?.slots) ? ext.slots : [];
-    for (const slot of extSlots) {
-      if (slot?.enabled === false) continue;
-      out.push({ ...slot, sourceLane: "extension", sourceItem: item });
-    }
-  }
-
-  const enchanting = item?.flags?.[_FLAG_NS]?.enchanting;
-  if (enchanting?.version === 2 && String(enchanting?.enchantType ?? "").trim().toLowerCase() === "cast") {
-    const workshopSlots = Array.isArray(enchanting?.cast?.spells) ? enchanting.cast.spells : [];
-    for (const slot of workshopSlots) {
-      if (slot?.enabled === false) continue;
-      out.push({ ...slot, sourceLane: "workshop", sourceItem: item });
-    }
-  }
-
-  return out;
-}
-
-async function _resolveSpellFromSlot(slot) {
-  const uuid = String(slot?.spellUuid ?? "").trim();
-  if (uuid) {
-    try {
-      const spell = await fromUuid(uuid);
-      if (spell?.documentName === "Item" && spell.type === "spell") return spell;
-    } catch (_err) {
-      // fallback below
-    }
-  }
-
-  const snap = slot?.snapshot;
-  if (snap && typeof snap === "object") {
-    try {
-      const data = foundry.utils.deepClone(snap);
-      data.type = "spell";
-      if (!String(data.name ?? "").trim()) data.name = String(slot?.label ?? "Stored Spell");
-      const ItemCls = CONFIG?.Item?.documentClass ?? Item;
-      return new ItemCls(data, { temporary: true });
-    } catch (_err) {
-      return null;
-    }
-  }
-
-  return null;
 }
 
 function _normalizeSchoolKey(spell) {
@@ -205,24 +158,27 @@ function _buildItemSpellSource(slot, spell) {
   const schoolKey = _normalizeSchoolKey(spell);
   const laneLabel = String(slot?.sourceLane ?? "extension") === "workshop" ? "RAW" : "Ext";
   const spellLabel = String(spell?.name ?? slot?.label ?? t("UESRPG.UI.Unknown"));
+  const affordable = canAffordCastEnchantmentSlot(item, slot);
+  const pool = getCastEnchantmentPool(item, slot?.sourceLane);
   return {
-    value: `itemspell:${item?.id ?? ""}:${slot?.id ?? ""}`,
+    value: `itemspell:${item?.id ?? ""}:${slot?.sourceLane ?? "extension"}:${slot?.id ?? ""}`,
     type: "itemspell",
     spell,
     spellName: spellLabel,
     sourceLabel: String(item?.name ?? t("UESRPG.UI.Item", "Item")),
     schoolKey,
     schoolLabel: _schoolLabel(schoolKey),
-    detail: `L${level}, ${_slotCostSummary(slot)}`,
-    optionLabel: `${spellLabel} - Item: ${item?.name ?? t("UESRPG.UI.Item", "Item")} [${laneLabel}] (${_schoolLabel(schoolKey)} L${level}, ${_slotCostSummary(slot)})`,
+    disabled: !affordable,
+    detail: `L${level}, ${_slotCostSummary(slot)}, ${pool.value}/${pool.max}`,
+    optionLabel: `${spellLabel} - Item: ${item?.name ?? t("UESRPG.UI.Item", "Item")} [${laneLabel}] (${_schoolLabel(schoolKey)} L${level}, ${_slotCostSummary(slot)}, ${pool.value}/${pool.max})${affordable ? "" : " - Insufficient energy"}`,
   };
 }
 
 function _collectKnownSpellSources(actor, castActionType) {
   const spellsAll = actor?.itemTypes?.spell ?? [];
   const spellsByAction = String(castActionType) === "secondary"
-    ? spellsAll.filter(s => s?.system?.isInstant === true)
-    : spellsAll;
+    ? spellsAll.filter(s => !isHiddenStoredEnchantmentSpell(s) && s?.system?.isInstant === true)
+    : spellsAll.filter((spell) => !isHiddenStoredEnchantmentSpell(spell));
   return spellsByAction
     .filter((s) => canActorCastSpell(actor, s))
     .map(_buildKnownSpellSource);
@@ -234,15 +190,14 @@ async function _collectScrollSources(actor, castActionType) {
 }
 
 async function _collectItemSpellSources(actor, castActionType) {
-  const itemRuntimeEnabled = game.settings.get(_FLAG_NS, "enchanting.enableCastEnchantmentRuntime") === true;
-  if (!itemRuntimeEnabled) return [];
-
-  const itemSpellCandidatesAll = Array.from(actor?.items ?? []).flatMap((item) => _resolveItemSpellSlots(item));
+  const itemSpellCandidatesAll = collectActorCastEnchantmentSlots(actor, {
+    requireEquipped: true,
+    instantOnly: String(castActionType) === "secondary",
+  });
   const out = [];
   for (const slot of itemSpellCandidatesAll) {
-    const spellDoc = await _resolveSpellFromSlot(slot);
+    const spellDoc = await resolveStoredEnchantmentSpell(slot.sourceItem, slot, { materialize: true });
     if (!spellDoc) continue;
-    if (String(castActionType) === "secondary" && spellDoc?.system?.isInstant !== true) continue;
     out.push(_buildItemSpellSource(slot, spellDoc));
   }
   return out;
@@ -289,7 +244,7 @@ function _buildCastMagicSourcePickerContent(groups) {
     const selected = idx === 0 ? "checked" : "";
     const disabled = idx === 0 ? "" : "disabled";
     const options = group.sources.map((source) =>
-      `<option value="${_escapeHtml(source.value)}">${_escapeHtml(source.optionLabel)}</option>`
+      `<option value="${_escapeHtml(source.value)}"${source.disabled ? " disabled" : ""}>${_escapeHtml(source.optionLabel)}</option>`
     ).join("");
     return `
       <label class="uesrpg-adv-choice uesrpg-cast-source-school">
@@ -439,12 +394,16 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
       }
 
       if (sourceType === "itemspell") {
+        const sourceLane = String(rest.shift() ?? "extension").trim();
         const slotId = String(rest.join(":") ?? "").trim();
         const sourceItem = actor.items.get(sourceId);
         if (!sourceItem || !slotId) return;
-        const slot = _resolveItemSpellSlots(sourceItem).find((s) => String(s?.id ?? "") === slotId);
+        const slot = getCastEnchantmentSlots(sourceItem, { requireEquipped: true }).find((candidate) =>
+          String(candidate?.sourceLane ?? "extension") === sourceLane
+          && String(candidate?.id ?? "") === slotId
+        );
         if (!slot) return;
-        const spellDoc = await _resolveSpellFromSlot(slot);
+        const spellDoc = await resolveStoredEnchantmentSpell(sourceItem, slot, { materialize: true });
         if (!spellDoc) {
           ui.notifications.warn(t("UESRPG.Notifications.Magic.StoredItemSpellUnresolved"));
           return;

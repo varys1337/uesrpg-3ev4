@@ -19,10 +19,11 @@ import { doTestRoll } from "../../utils/degree-roll-helper.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
 import { t } from "../../utils/i18n.js";
 import {
-  consumeOwnedItem,
+  consumeOwnedItemQuantity,
   createAlchemyChatMessage,
   createOwnedItem,
 } from "./operations.js";
+import { resolveAlchemyIngredientData, getAlchemyIngredients as getAlchemyIngredientsImpl } from "./ingredients.js";
 
 import {
   renderBrewPendingCard,
@@ -64,15 +65,18 @@ import {
   getSpellDamageType,
   isHealingSpell,
 } from "../magic/magicka-utils.js";
-import { computeSkillTN, SKILL_DIFFICULTIES } from "../skills/skill-tn.js";
-import { buildResistanceBonusSection, readResistanceBonusSelections, buildResistanceBonusMods } from "../traits/trait-resistance-ui.js";
-import { normalizeSkillRollOptions } from "../skills/roll-request.js";
-import { getAllCharacteristicOptions, getPreferredSkillCharacteristic, normalizeCharacteristicKey } from "../../utils/maps/characteristics.js";
+import { promptCraftingSkillRollDeclaration } from "../skills/crafting-roll-dialog.js";
 import { computeAlchemyRecipeHash, updateTrialAndErrorState } from "./workflow-state.js";
 import { buildActorItemSnapshot } from "./utils.js";
 
 export function getActorKnownAlchemyEffects(actor) {
   return getActorKnownAlchemyEffectsImpl(actor);
+}
+
+export { resolveAlchemyIngredientData };
+
+export function getAlchemyIngredients(actor, options = {}) {
+  return getAlchemyIngredientsImpl(actor, options);
 }
 
 export async function addActorKnownAlchemyEffect(actor, spell) {
@@ -92,8 +96,8 @@ export function buildDirectAlchemyPayloadForSpell(spell, {
   return buildDirectAlchemyPayloadForSpellImpl(spell, { mode, spellLevel, cost, finalDuration });
 }
 
-export function getAlchemyInventoryState(actor) {
-  return getAlchemyInventoryStateImpl(actor);
+export function getAlchemyInventoryState(actor, options = {}) {
+  return getAlchemyInventoryStateImpl(actor, options);
 }
 
 export function getActorAlchemySpellEffects(actor, mode) {
@@ -104,16 +108,16 @@ export function resolveAlchemyEffectDescriptor(actor, slot, { ingredient = null,
   return resolveAlchemyEffectDescriptorImpl(actor, slot, { ingredient, talents, mode });
 }
 
-export function getAlchemySkill(actor) {
-  return getAlchemySkillImpl(actor);
+export function getAlchemySkill(actor, options = {}) {
+  return getAlchemySkillImpl(actor, options);
 }
 
-export function getAlchemySkillSnapshot(actor, { skill = null } = {}) {
-  return getAlchemySkillSnapshotImpl(actor, { skill });
+export function getAlchemySkillSnapshot(actor, { skill = null, items = null } = {}) {
+  return getAlchemySkillSnapshotImpl(actor, { skill, items });
 }
 
-export function getAlchemyTalents(actor) {
-  return getAlchemyTalentsImpl(actor);
+export function getAlchemyTalents(actor, options = {}) {
+  return getAlchemyTalentsImpl(actor, options);
 }
 
 export function computeEffectiveStrength(ingredient, actor, opts = {}) {
@@ -166,11 +170,16 @@ export async function createPendingBrewMessage(actor, recipe, { nothingVentured 
   const skill = getAlchemySkill(actor, { items: itemSnapshot.items });
   const skillSnapshot = getAlchemySkillSnapshot(actor, { skill, items: itemSnapshot.items });
   const talents = getAlchemyTalents(actor, { items: itemSnapshot.items });
+  const useNothingVentured = Boolean(nothingVentured && talents.hasNothingVentured);
   const trialBonus = talents.hasTrialAndError ? await _getTrialAndErrorBonus(actor, recipe) : 0;
   const validation = validateBrewRecipe(actor, recipe);
+  if (!validation.ok) {
+    ui.notifications?.warn?.(validation.errors.join("\n"));
+    return null;
+  }
 
   const { tn, alchemyRank, penaltyBreakdown, totalMod, brewTime } = computeBrewModifiers(actor, recipe, {
-    nothingVentured,
+    nothingVentured: useNothingVentured,
     trialAndErrorBonus: trialBonus,
     skill,
   });
@@ -197,7 +206,7 @@ export async function createPendingBrewMessage(actor, recipe, { nothingVentured 
   let poisonHtml = "";
   if (recipe.mode === "poison") {
     const ingredient = actor.items.get(recipe.ingredientId);
-    const algData = _getAlchemyFlags(ingredient);
+    const algData = resolveAlchemyIngredientData(ingredient) ?? _getAlchemyFlags(ingredient);
     const depth = Number(algData.depthBase ?? 1);
     const dice = POISON_DICE[depth] ?? "1d4";
     poisonHtml = `<div class="uesrpg-da-row"><span class="k">Ingredient</span><span class="v">${ingredient?.name ?? "?"}</span></div>
@@ -218,7 +227,7 @@ export async function createPendingBrewMessage(actor, recipe, { nothingVentured 
     penaltyRowsHtml,
     warningRowsHtml: "",
     adjustedTN,
-    nothingVentured,
+    nothingVentured: useNothingVentured,
     trialBonus,
     brewTime,
     actorUuid: actor.uuid,
@@ -230,7 +239,7 @@ export async function createPendingBrewMessage(actor, recipe, { nothingVentured 
         type: "brewPending",
         actorUuid: actor.uuid,
         recipe,
-        nothingVentured,
+        nothingVentured: useNothingVentured,
         adjustedTN,
         alchemyRank: skillSnapshot.rank,
         trialBonus,
@@ -249,153 +258,6 @@ export async function createPendingBrewMessage(actor, recipe, { nothingVentured 
   });
 }
 
-async function _promptAlchemyRollDeclaration(actor, skill) {
-  if (!actor || !skill) return null;
-
-  const governingOptions = getAllCharacteristicOptions(actor);
-  const showCharacteristicSelect = governingOptions.length > 0;
-  const defaultCharacteristic = getPreferredSkillCharacteristic(actor, skill)
-    || normalizeCharacteristicKey(skill?.system?.baseCha ?? "")
-    || (governingOptions[0]?.key ?? "");
-  const resistanceSection = buildResistanceBonusSection(actor);
-
-  const getLast = () => {
-    try {
-      const saved = game.settings.get("uesrpg-3ev4", "skillRollLastOptions") ?? {};
-      delete saved.selectedCharacteristicKey;
-      return saved;
-    } catch (_err) {
-      return {};
-    }
-  };
-
-  const setLast = async (patch = {}) => {
-    const previous = getLast();
-    const next = { ...previous, ...patch };
-    next.lastSkillUuidByActor = {
-      ...(previous.lastSkillUuidByActor ?? {}),
-      ...(patch.lastSkillUuidByActor ?? {}),
-    };
-    delete next.selectedCharacteristicKey;
-    try {
-      await game.settings.set("uesrpg-3ev4", "skillRollLastOptions", next);
-    } catch (_err) {
-      // Non-fatal preference persistence.
-    }
-  };
-
-  const last = getLast();
-  const defaults = normalizeSkillRollOptions(last, {
-    difficultyKey: "average",
-    manualMod: 0,
-    useSpec: false,
-    selectedCharacteristicKey: defaultCharacteristic,
-  });
-
-  const difficultyOptions = SKILL_DIFFICULTIES.map((entry) => {
-    const sign = Number(entry.mod ?? 0) >= 0 ? "+" : "";
-    const selected = entry.key === defaults.difficultyKey ? "selected" : "";
-    return `<option value="${entry.key}" ${selected}>${entry.label} (${sign}${entry.mod})</option>`;
-  }).join("\n");
-
-  const specializationText = String(skill?.system?.trainedItems ?? "").trim().length > 0
-    ? ""
-    : ' <span style="opacity:0.75;">(none on this skill)</span>';
-  const hasSpec = String(skill?.system?.trainedItems ?? "").trim().length > 0;
-
-  const content = `
-    <div class="uesrpg-skill-roll">
-      <div class="form-group">
-        <label><b>Difficulty</b></label>
-        <select name="difficultyKey" style="width:100%;">${difficultyOptions}</select>
-      </div>
-      ${showCharacteristicSelect ? `
-        <div class="form-group" style="margin-top:8px;">
-          <label><b>Characteristic</b></label>
-          <select name="selectedCharacteristicKey" style="width:100%;">
-            ${governingOptions.map((option) => `<option value="${option.key}" ${(option.key === (defaults.selectedCharacteristicKey ?? defaultCharacteristic)) ? "selected" : ""}>${option.label}</option>`).join("")}
-          </select>
-        </div>` : ""}
-      <div class="form-group" style="margin-top:8px;">
-        <label style="display:flex; align-items:center; gap:8px;">
-          <input type="checkbox" name="useSpec" ${hasSpec ? "" : "disabled"} ${defaults.useSpec ? "checked" : ""} />
-          <span><b>Use Specialization</b> (+10)</span>${specializationText}
-        </label>
-      </div>
-      <div class="form-group" style="margin-top:8px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
-        <label style="margin:0;"><b>Manual Modifier</b></label>
-        <input name="manualMod" type="number" value="${Number(defaults.manualMod) || 0}" style="width:120px;" />
-      </div>
-      ${resistanceSection.html}
-    </div>
-  `;
-
-  let declaration = null;
-  try {
-    declaration = await customDialog({
-      layout: "workflow",
-      title: `${skill.name} - Roll Options`,
-      content,
-      buttons: {
-        ok: {
-          label: "Roll",
-          callback: (html) => {
-            const root = html instanceof HTMLElement ? html : html?.[0];
-            const difficultyKey = root?.querySelector('select[name="difficultyKey"]')?.value ?? "average";
-            const useSpec = Boolean(root?.querySelector('input[name="useSpec"]')?.checked);
-            const selectedCharacteristicKey = String(
-              root?.querySelector('select[name="selectedCharacteristicKey"]')?.value
-              ?? defaults.selectedCharacteristicKey
-              ?? defaultCharacteristic
-            );
-            const rawManual = root?.querySelector('input[name="manualMod"]')?.value ?? "0";
-            const manualMod = Number.parseInt(String(rawManual), 10) || 0;
-            const resistanceSelected = readResistanceBonusSelections(root, resistanceSection.options);
-            return {
-              ...normalizeSkillRollOptions({ difficultyKey, manualMod, useSpec, selectedCharacteristicKey }, defaults),
-              resistanceSelected,
-            };
-          },
-        },
-        cancel: { label: "Cancel", callback: () => null },
-      },
-      default: "ok",
-      width: 420,
-    });
-  } catch (_err) {
-    declaration = null;
-  }
-
-  if (!declaration) return null;
-
-  declaration = normalizeSkillRollOptions(declaration, defaults);
-  declaration.resistanceSelected = Array.isArray(declaration.resistanceSelected) ? declaration.resistanceSelected : [];
-
-  await setLast({
-    difficultyKey: declaration.difficultyKey,
-    manualMod: declaration.manualMod,
-    useSpec: Boolean(declaration.useSpec),
-    lastSkillUuidByActor: { [actor.uuid]: skill.uuid },
-  });
-
-  const resistanceMods = buildResistanceBonusMods(declaration.resistanceSelected ?? []);
-  const tn = computeSkillTN({
-    actor,
-    skillItem: skill,
-    difficultyKey: declaration.difficultyKey,
-    manualMod: declaration.manualMod,
-    selectedCharacteristicKey: String(declaration.selectedCharacteristicKey ?? defaultCharacteristic),
-    useSpecialization: hasSpec && declaration.useSpec,
-    situationalMods: resistanceMods,
-  });
-
-  return {
-    declaration,
-    tn,
-    hasSpec,
-  };
-}
-
 export async function handleBrewChatAction(messageId) {
   const message = game.messages.get(messageId);
   if (!message) return;
@@ -407,25 +269,13 @@ export async function handleBrewChatAction(messageId) {
     return;
   }
 
-  await message.update({ [`flags.${FLAG_NS}.alchemy.resolving`]: true });
-
-  const freshMsg = game.messages.get(messageId);
-  const freshFlags = freshMsg?.flags?.[FLAG_NS]?.alchemy;
-  if (freshFlags?.resolved) {
-    await message.update({ [`flags.${FLAG_NS}.alchemy.resolving`]: false });
-    ui.notifications.info(t("UESRPG.Notifications.Alchemy.BrewAlreadyResolved"));
-    return;
-  }
-
   const actor = await fromUuid(flags.actorUuid);
   if (!actor) {
-    await message.update({ [`flags.${FLAG_NS}.alchemy.resolving`]: false });
     ui.notifications.error(t("UESRPG.Notifications.Alchemy.ActorNotFoundWithPrefix"));
     return;
   }
 
   if (!actor.isOwner && !game.user.isGM) {
-    await message.update({ [`flags.${FLAG_NS}.alchemy.resolving`]: false });
     ui.notifications.warn(t("UESRPG.Notifications.Alchemy.NotOwnerCannotResolveBrew"));
     return;
   }
@@ -433,21 +283,37 @@ export async function handleBrewChatAction(messageId) {
   const itemSnapshot = buildActorItemSnapshot(actor);
   const skill = getAlchemySkill(actor, { items: itemSnapshot.items });
   if (!skill) {
-    await message.update({ [`flags.${FLAG_NS}.alchemy.resolving`]: false });
     ui.notifications.warn(t("UESRPG.Notifications.Alchemy.NoValidAlchemySkillEntry"));
     return;
   }
 
-  const rollDeclaration = await _promptAlchemyRollDeclaration(actor, skill);
+  const liveValidation = validateBrewRecipe(actor, flags.recipe);
+  if (!liveValidation.ok) {
+    ui.notifications.warn(liveValidation.errors.join("\n"));
+    return;
+  }
+
+  const liveFlags = game.messages.get(messageId)?.flags?.[FLAG_NS]?.alchemy;
+  if (liveFlags?.resolved || liveFlags?.resolving) {
+    ui.notifications.info(t("UESRPG.Notifications.Alchemy.BrewAlreadyResolved"));
+    return;
+  }
+  await message.update({ [`flags.${FLAG_NS}.alchemy.resolving`]: true });
+
+  const talents = getAlchemyTalents(actor, { items: itemSnapshot.items });
+  const skillSnapshot = getAlchemySkillSnapshot(actor, { skill, items: itemSnapshot.items });
+  const useNothingVentured = Boolean(flags.nothingVentured && talents.hasNothingVentured);
+  const trialBonus = talents.hasTrialAndError ? await _getTrialAndErrorBonus(actor, flags.recipe) : 0;
+
+  const rollDeclaration = await promptCraftingSkillRollDeclaration(actor, skill);
   if (!rollDeclaration?.tn) {
     await message.update({ [`flags.${FLAG_NS}.alchemy.resolving`]: false });
     return;
   }
 
-  const { recipe, nothingVentured, alchemyRank } = flags;
-  const trialBonus = Number(flags.trialBonus ?? 0) || 0;
+  const { recipe } = flags;
   const mods = computeBrewModifiers(actor, recipe, {
-    nothingVentured,
+    nothingVentured: useNothingVentured,
     trialAndErrorBonus: trialBonus,
     skill,
   });
@@ -464,8 +330,6 @@ export async function handleBrewChatAction(messageId) {
   const criticalSuccess = Boolean(rollResult.isCriticalSuccess);
   const criticalFail = Boolean(rollResult.isCriticalFailure);
   const doubles = rollTotal % 11 === 0;
-  const talents = getAlchemyTalents(actor, { items: itemSnapshot.items });
-
   let result;
   try {
     result = await resolveBrew(actor, recipe, {
@@ -474,8 +338,8 @@ export async function handleBrewChatAction(messageId) {
       criticalSuccess,
       criticalFail,
       doubles,
-      nothingVentured,
-      alchemyRank,
+      nothingVentured: useNothingVentured,
+      alchemyRank: skillSnapshot.rank,
       adjustedTN,
       talents,
     });
@@ -503,13 +367,17 @@ export async function resolveBrew(actor, recipe, rollCtx) {
     criticalFail = false,
     doubles = false,
     nothingVentured = false,
-    alchemyRank = 0,
     talents: precomputedTalents,
   } = rollCtx;
+
+  const validation = validateBrewRecipe(actor, recipe);
+  if (!validation.ok) throw new Error(validation.errors.join("\n"));
 
   const itemSnapshot = buildActorItemSnapshot(actor);
   const talents = precomputedTalents ?? getAlchemyTalents(actor, { items: itemSnapshot.items });
   const skill = getAlchemySkill(actor, { items: itemSnapshot.items });
+  const alchemyRank = getAlchemySkillSnapshot(actor, { skill, items: itemSnapshot.items }).rank;
+  const useNothingVentured = Boolean(nothingVentured && talents.hasNothingVentured);
   const effects = _getFilledAlchemySlotsImpl(recipe);
   const multiEffect = effects.length > 1;
   const highestSL = Math.max(1, ...effects.map((e) => Number(e.spellLevel ?? 1)));
@@ -520,9 +388,9 @@ export async function resolveBrew(actor, recipe, rollCtx) {
     failed: !success,
     multiEffect,
     exceedsRank,
-    nothingVentured,
+    nothingVentured: useNothingVentured,
     doubles,
-    isMasterAlchemist: talents.isMasterAlchemist && !nothingVentured,
+    isMasterAlchemist: talents.isMasterAlchemist && !useNothingVentured,
   });
 
   await _consumeIngredients(actor, recipe);
@@ -655,20 +523,23 @@ async function _createAlchemyItem(actor, recipe, { backfired = false, backfireRe
 }
 
 async function _consumeIngredients(actor, recipe) {
-  const ids = new Set();
+  const counts = new Map();
 
   if (recipe.mode === "potion" || recipe.mode === "toxin") {
     for (const slot of recipe.slots ?? []) {
-      if (slot?.ingredientId) ids.add(slot.ingredientId);
+      if (slot?.ingredientId && (slot?.effectKey || slot?.spellUuid)) {
+        counts.set(slot.ingredientId, (counts.get(slot.ingredientId) ?? 0) + 1);
+      }
     }
   } else if (recipe.mode === "poison" && recipe.ingredientId) {
-    ids.add(recipe.ingredientId);
+    counts.set(recipe.ingredientId, 1);
   }
 
-  for (const id of ids) {
+  for (const [id, amount] of counts) {
     const item = actor.items.get(id);
     if (!item) continue;
-    await consumeOwnedItem(item);
+    const consumed = await consumeOwnedItemQuantity(item, amount);
+    if (!consumed.ok) throw new Error(consumed.reason || `Unable to consume ingredient ${id}.`);
   }
 }
 

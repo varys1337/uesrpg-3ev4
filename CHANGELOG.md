@@ -1,5 +1,49 @@
 # Changelog
 
+## v14.2.0
+
+### Item data, migrations, and Soul Energy
+
+- Persists Soul Energy configuration changes made from Item and Equipment sheets through the serialized ApplicationV2 form pipeline, canonicalizes `isSoulGem` as Boolean, and recovers configurations whose flag was previously stored as a true-like string or number.
+- Resolves every Actor and Item template inheritance declaration into one canonical TypeDataModel seed set and removes the duplicate legacy Item-default source.
+- Adds an active-GM, revision-gated cleanup migration for accidentally persisted `system.templates` directives while preserving document IDs and all other system data.
+- Replaces private Roll total mutation with public maximized evaluation, formula modifiers, and zero-floor rolls without changing the `rollSpellDamage()` contract.
+- Consolidates Actor, embedded Item, and Active Effect cache invalidation and replaces per-render inventory fingerprint scans with document-driven revision tokens.
+- Centralizes migration revisions, adds deterministic schema and migration validation, and hardens CI and tag releases against mutable published assets.
+- Repairs v14 Item subtype migrations by pairing each `type` change with a forced full `system` replacement while preserving the original world or embedded Item ID.
+- Normalizes nullable Item defaults without recursing into `null`, including existing and legacy shield data.
+- Advances legacy Item repair to revision 2, verifies every subtype conversion, and leaves failed passes pending instead of reporting a false migration success.
+- Canonicalizes every scanned Active Effect through public v14 source snapshots using only `duration.value`, `duration.units`, `duration.expiry`, and native `start` data.
+- Advances the Active Effect duration migration to revision 2, removes legacy duration/change compatibility reads, and preserves active-GM gating, retry behavior, and migration telemetry.
+- Adds a release safeguard against deprecated Active Effect duration-property reads and verifies compatibility with Foundry VTT 14.368.
+- Normalizes system-created Active Effect durations to Foundry v14 fields and adds an idempotent, version-gated world migration for legacy duration anchors.
+- Removes runtime dependencies on private Foundry document storage, expands typed resource and structured Item schemas, and refreshes selected sheet controls with semantic accessible buttons.
+
+### ApplicationV2 sheets and accessibility
+
+- Restores the 14.1.1 PC/NPC portrait, Advancement, and characteristic presentation by preventing neutral semantic controls from inheriting the sidebar's legacy gray button chrome while retaining keyboard and screen-reader behavior.
+- Preserves the original compact two-column Attack Options and horizontal Spell Options form geometry at scaled DPI by removing the over-eager application-width dialog collapse.
+- Prevents Item-sheet close and action flushes from submitting presentation-only fields such as an empty portrait path, eliminating the reported `img` schema validation failure while retaining explicit portrait updates.
+- Strengthens release validation so each broad sidebar button selector must exclude neutral controls and Item submit-on-close data must pass through a document-field allow-list.
+- Restores the stable 14.1.1 Actor, NPC, and Item sheet geometry, row density, tab proportions, portrait sizes, compact action lanes, and parchment styling while retaining native ApplicationV2 controls and accessibility behavior.
+- Separates the shared semantic-control marker from a fully neutral plain-control role so legacy-replacement buttons no longer inherit Foundry input chrome, stretch across rows, overlap portraits, or erase deliberately styled component rules.
+- Preserves the scaling-safe resource sidebar, moves Item and Spell compact layouts below their standard sheet width, and adds release contracts for control roles, portrait sizes, compact rails, and broad-selector isolation.
+- Repairs malformed PC and NPC Magic-tab markup that caused ApplicationV2 to reject the `magic` render part when opening character sheets.
+- Corrects related tag-nesting defects in generic Item, equipment-header, and Invocation templates before they could cause equivalent render failures.
+- Makes well-formed HTML nesting and the single-root ApplicationV2 part contract mandatory release-validation checks.
+- Converts AppV2 actions and tabs to native controls with localized accessible names, visible keyboard focus, native disabled and toggle semantics, and instance-safe application and control identities.
+- Adds one deterministic AppV2 edit queue across Actor, NPC, Group, Warfare Unit, and Item sheets so pending field changes flush before structural actions and close without stale or out-of-order document updates.
+- Moves document hook registration into first-render lifecycle handling, guarantees matching cleanup, and preserves focus, scroll positions, active tabs, and disclosure state across targeted renders.
+- Adds application-owned container-query layouts, bounded dense-table scrolling, high-contrast fallbacks, reduced-motion handling, and stable resizing from 100% through 200% scaling without changing the parchment theme or two-column Actor geometry.
+- Localizes the remaining AppV2 interface text, escapes document-derived generated markup, and expands release validation for semantic controls, accessible names, fixed IDs, raw UI text, unsafe option interpolation, and form-lifecycle regressions.
+- Restores the PC and NPC resource-control rail at 100–200% display scaling with fully reset 16×16 semantic buttons, bounded sidebar sections, and visible keyboard focus without changing the two-column sheet geometry.
+
+### Automation and release safety
+
+- Replaces generic cross-client document mutation sockets with requester-bound, idempotent authority intents and fail-closed native permission handling.
+- Makes combat automation active-GM single-writer and moves action-point and initiative side effects to post-commit hooks with bounded deduplication.
+- Adds Node 24 ESLint checks, dynamic import reachability validation, modern runtime safety contracts, Markdown validation, CI pull-request checks, and SHA-256 deployment verification.
+
 ## v14.1.1
 
 - Repairs PC, NPC, Group, and Warfare Unit sheet part selection so normal and limited layouts are mutually exclusive while valid partial renders remain targeted.

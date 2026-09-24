@@ -17,22 +17,21 @@
  * AppV2 patterns:
  *  - HandlebarsApplicationMixin + ApplicationV2
  *  - All state derived from flagsPayload / build results - no phantom state
- *  - Form submitted via static _onSubmit - buildCast/buildStrike/buildConstant
- *    are called there, then finalizeEnchantment.
+ *  - The instance-bound form handler prepares a pending chat workflow; rolls
+ *    and document mutations are resolved from the chat card.
  *
  * Target: Foundry VTT v14.363+
  */
 
 import {
-  getFilledSoulGems,
+  getSoulGems,
+  isSoulGemResourceUsable,
   resolveSoulGemData,
 } from "../../../core/enchanting/soul-gems.js";
 import { getItemEL, isItemEnchanted } from "../../../core/enchanting/enchant-level.js";
 import { getEnchantTN, getEnchantRank, getEffectiveEnchantRank } from "../../../core/enchanting/penalties.js";
-import { buildCast, buildCastFlagsPayload } from "../../../core/enchanting/builders/build-cast.js";
-import { buildStrike, buildStrikeFlagsPayload } from "../../../core/enchanting/builders/build-strike.js";
-import { buildConstant, buildConstantFlagsPayload } from "../../../core/enchanting/builders/build-constant.js";
-import { finalizeEnchantment, rechargeEnchantment, toggleConstantEnchantment } from "../../../core/enchanting/builders/finalize.js";
+import { rechargeEnchantment, toggleConstantEnchantment } from "../../../core/enchanting/builders/finalize.js";
+import { createPendingEnchantmentMessage } from "../../../core/enchanting/workflow.js";
 import { hasTalent } from "../../../core/traits/talents-api.js";
 
 // Catalog data (JS modules - avoids import assertion browser compatibility issues)
@@ -47,6 +46,10 @@ import { SYSTEM_ID, templatePath } from "../../constants.js";
 import { asyncGuardSheet } from "../../../utils/async-guard.js";
 import { t, tf } from "../../../utils/i18n.js";
 import { activateOpenApplication } from "./application-focus.js";
+import { withApplicationUniqueId } from "./application-identity.js";
+import { readDropData, resolveDroppedItem } from "../../../utils/drop-data.js";
+import { customDialog } from "../../../utils/dialog-v2-helper.js";
+import { clearQueuedRenderPartsState, queueRenderParts } from "../../sheets/v2/shared/sheet-runtime-helpers.js";
 import {
   buildActorStoredSpellOptions,
   buildStoredSpellSnapshot,
@@ -63,22 +66,24 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
 
   /** @override */
   static DEFAULT_OPTIONS = {
-    id: "uesrpg-enchanting-workshop",
+    id: "uesrpg-enchanting-workshop-{id}",
     tag: "form",
     form: {
-      handler: asyncGuardSheet(EnchantingWorkshopAppV2._onSubmit),
+      handler: asyncGuardSheet(EnchantingWorkshopAppV2.prototype._onSubmit),
       closeOnSubmit: false,
       submitOnChange: false,
     },
     actions: {
       modeChange: EnchantingWorkshopAppV2.prototype._onModeChange,
+      chooseResource: EnchantingWorkshopAppV2.prototype._onChooseResource,
+      clearResource: EnchantingWorkshopAppV2.prototype._onClearResource,
     },
     window: {
       resizable: true,
     },
     position: {
-      width: 680,
-      height: 640,
+      width: 720,
+      height: 680,
     },
     classes: ["uesrpg", "enchanting-workshop"],
   };
@@ -124,20 +129,77 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
    * @param {{ actorUuid: string, mode?: string }} options
    */
   constructor(options = {}) {
-    super(options);
+    super(withApplicationUniqueId(options, options.actorUuid ?? "unbound"));
     this._actorUuid = options.actorUuid ?? null;
     this._mode = WORKSHOP_MODES.includes(options.mode) ? options.mode : "cast";
     this._previewResult = null; // Last preview from _onChangeForm
+    this._selection = { targetItemUuid: null, soulGemUuid: null, enchantedItemUuid: null };
+    this._ownedHooks = [];
   }
 
   get title() {
     return t("UESRPG.Apps.EnchantingWorkshop.Title", "Enchanting Workshop");
   }
 
-  async close(options = {}) {
+  _isEligibleTarget(item, mode = this._mode) {
+    if (!item || item.parent?.uuid !== this._actorUuid || resolveSoulGemData(item)) return false;
+    if (mode === "strike") return item.type === "weapon";
+    if (mode === "recharge") return item.flags?.[NAMESPACE]?.enchanting?.enchantType === "cast";
+    if (mode === "toggle") return item.flags?.[NAMESPACE]?.enchanting?.enchantType === "constant";
+    return ["weapon", "armor", "item"].includes(item.type);
+  }
+
+  _resourceDescriptor(item, kind) {
+    if (!item) return null;
+    if (kind === "gem") {
+      const gem = resolveSoulGemData(item);
+      if (!gem) return null;
+      return {
+        uuid: item.uuid,
+        name: item.name,
+        img: item.img,
+        quantity: Math.max(0, Number(item.system?.quantity ?? 1) || 0),
+        meta: gem.isFilled
+          ? tf("UESRPG.Apps.EnchantingWorkshop.Dropzones.GemMeta", { size: gem.soulSize, energy: gem.soulEnergy, capacity: gem.maxSoulEnergy }, `${gem.soulSize} · ${gem.soulEnergy}/${gem.maxSoulEnergy} energy`)
+          : tf("UESRPG.Apps.EnchantingWorkshop.Dropzones.EmptyGemMeta", { size: gem.soulSize, capacity: gem.maxSoulEnergy }, `Empty ${gem.soulSize} · capacity ${gem.maxSoulEnergy}`),
+      };
+    }
+    const enchanting = item.flags?.[NAMESPACE]?.enchanting;
+    const pool = enchanting?.cast?.pool ?? enchanting?.strike?.pool ?? null;
+    return {
+      uuid: item.uuid,
+      name: item.name,
+      img: item.img,
+      quantity: Math.max(1, Number(item.system?.quantity ?? 1) || 1),
+      meta: pool
+        ? tf("UESRPG.Apps.EnchantingWorkshop.Dropzones.PoolMeta", { value: pool.value, max: pool.max }, `Pool ${pool.value}/${pool.max}`)
+        : tf("UESRPG.Apps.EnchantingWorkshop.Dropzones.ItemMeta", { type: item.type, el: getItemEL(item) }, `${item.type} · EL ${getItemEL(item)}`),
+    };
+  }
+
+  async _resolveSelectedActorItem(actor, key) {
+    const uuid = String(this._selection[key] ?? "").trim();
+    if (!uuid) return null;
+    const item = await fromUuid(uuid).catch(() => null);
+    if (item?.documentName !== "Item" || item.parent?.uuid !== actor?.uuid) {
+      this._selection[key] = null;
+      return null;
+    }
+    return actor.items?.get?.(item.id) ?? item;
+  }
+
+  _onClose(options = {}) {
     const key = String(this._actorUuid ?? "").trim();
     if (key) EnchantingWorkshopAppV2.#openByActor.delete(key);
-    return super.close(options);
+    for (const [event, hookId] of this._ownedHooks) Hooks.off(event, hookId);
+    this._ownedHooks = [];
+    clearQueuedRenderPartsState(this);
+    return super._onClose(options);
+  }
+
+  async _onFirstRender(context, options) {
+    await super._onFirstRender(context, options);
+    this._registerDocumentHooks();
   }
 
   /** @override */
@@ -151,32 +213,57 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
     const hasProcedural = actor ? hasTalent(actor, "proceduralenchanting") : false;
     const hasSalvage = actor ? hasTalent(actor, "salvageenergy") : false;
 
-    // Soul Gems
-    const filledGems = actor ? getFilledSoulGems(actor) : [];
-    const gemOptions = filledGems.map(gem => {
+    // Soul Gems. Empty gems remain visible in the UI but can never be selected
+    // as an enchanting resource.
+    const soulGems = actor ? getSoulGems(actor) : [];
+    const gemOptions = soulGems.map(gem => {
       const d = resolveSoulGemData(gem);
+      const quantity = Math.max(1, Number(gem.system?.quantity ?? 1) || 1);
       return {
         uuid: gem.uuid,
         id: gem.id,
         name: gem.name,
         soulEnergy: d?.soulEnergy ?? 0,
+        maxSoulEnergy: d?.maxSoulEnergy ?? 0,
         soulType: d?.soulType ?? "white",
-        soulSize: d?.soulSize ?? "unknown",
-        label: `${gem.name} (${d?.soulType ?? "?"}, ${d?.soulEnergy ?? 0} energy)`,
+        soulSize: d?.soulSize ?? "Unknown",
+        quantity,
+        isFilled: d?.isFilled === true,
+        isReusable: d?.isReusable === true,
+        isUsable: isSoulGemResourceUsable(gem, d),
+        disabled: !isSoulGemResourceUsable(gem, d),
+        recognitionSource: d?.recognitionSource ?? "flags",
+        label: d?.isFilled
+          ? tf("UESRPG.Apps.EnchantingWorkshop.FilledGemOption", {
+              name: gem.name,
+              size: d.soulSize,
+              energy: d.soulEnergy,
+              quantity,
+            })
+          : tf("UESRPG.Apps.EnchantingWorkshop.EmptyGemOption", {
+              name: gem.name,
+              size: d?.soulSize ?? "Unknown",
+              capacity: d?.maxSoulEnergy ?? 0,
+              quantity,
+            }),
       };
     });
+    const soulGemCount = gemOptions.reduce((total, gem) => total + gem.quantity, 0);
+    const filledGemCount = gemOptions
+      .filter(gem => gem.isUsable)
+      .reduce((total, gem) => total + gem.quantity, 0);
+    const emptyGemCount = soulGemCount - filledGemCount;
 
     // Enchantable items (all items with EL > 0 or no EL)
     const enchantableItems = actor
       ? (actor.items ?? []).filter(i => {
           if (!["weapon", "armor", "item"].includes(i.type)) return false;
+          if (resolveSoulGemData(i)) return false;
           if (i.type === "item" && !i.name?.toLowerCase().includes("ammo") &&
               !i.name?.toLowerCase().includes("arrow") &&
               !i.name?.toLowerCase().includes("bolt")) {
-            // For generic items, only show if they look like enchantable gear
-            // (skip soul gems themselves)
-            const flags = i.flags?.[NAMESPACE];
-            if (flags?.isSoulGem) return false;
+            // Generic items remain eligible to preserve the existing workshop
+            // behavior; recognized soul gems were excluded above.
           }
           return true;
         })
@@ -186,6 +273,12 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
     const enchantedItems = actor
       ? (actor.items ?? []).filter(i => isItemEnchanted(i))
       : [];
+    const selectedTargetItem = actor ? await this._resolveSelectedActorItem(actor, "targetItemUuid") : null;
+    const selectedGemItem = actor ? await this._resolveSelectedActorItem(actor, "soulGemUuid") : null;
+    const selectedEnchantedItem = actor ? await this._resolveSelectedActorItem(actor, "enchantedItemUuid") : null;
+    if (selectedTargetItem && !this._isEligibleTarget(selectedTargetItem, this._mode)) this._selection.targetItemUuid = null;
+    if (selectedEnchantedItem && !this._isEligibleTarget(selectedEnchantedItem, this._mode)) this._selection.enchantedItemUuid = null;
+    if (selectedGemItem && !isSoulGemResourceUsable(selectedGemItem)) this._selection.soulGemUuid = null;
 
     // Spell effects catalog
     const spellfxOptions = spellEffectsCatalog.map((entry) => {
@@ -235,12 +328,18 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
       label: "",
       manualSpellUuid: "",
     }));
+    const manifoldEffectSlots = [
+      { index: 1, number: 2 },
+      { index: 2, number: 3 },
+    ];
     const workshopSummary = {
       actorName: actor?.name ?? "No actor selected",
       enchantTN,
       enchantRank,
       itemCount: enchantableItems.length,
-      gemCount: gemOptions.length,
+      gemCount: soulGemCount,
+      filledGemCount,
+      emptyGemCount,
       slotCount: castSlotCount,
       poolRule: t("UESRPG.Apps.EnchantingWorkshop.PoolRule", "Pool max = min(Item EL, Soul Gem Energy)."),
       spellOptionCount: actorSpellOptions.length,
@@ -251,19 +350,54 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
     const enableChargedStrike = game.settings.get(NAMESPACE, "enchanting.enableChargedStrikeVariant") ?? false;
 
     // Mode availability
+    const castEnchantedItems = enchantedItems.filter(i => i.flags?.[NAMESPACE]?.enchanting?.enchantType === "cast");
+    const constantEnchantedItems = enchantedItems.filter(i => i.flags?.[NAMESPACE]?.enchanting?.enchantType === "constant");
     const modeOptions = [
-      { key: "cast",     label: "Create Cast Enchantment",     available: true },
-      { key: "strike",   label: "Create Strike Enchantment",   available: true },
-      { key: "constant", label: "Create Constant Enchantment", available: true },
-      { key: "recharge", label: "Recharge Cast Enchantment",   available: enchantedItems.some(i => i.flags?.[NAMESPACE]?.enchanting?.enchantType === "cast") },
-      { key: "toggle",   label: "Toggle Constant Enchantment", available: enchantedItems.some(i => i.flags?.[NAMESPACE]?.enchanting?.enchantType === "constant") },
-    ];
+      { key: "cast", label: t("UESRPG.Apps.EnchantingWorkshop.Modes.Cast.Label"), description: t("UESRPG.Apps.EnchantingWorkshop.Modes.Cast.Description"), icon: "fas fa-magic", available: true },
+      { key: "strike", label: t("UESRPG.Apps.EnchantingWorkshop.Modes.Strike.Label"), description: t("UESRPG.Apps.EnchantingWorkshop.Modes.Strike.Description"), icon: "fas fa-bolt", available: true },
+      { key: "constant", label: t("UESRPG.Apps.EnchantingWorkshop.Modes.Constant.Label"), description: t("UESRPG.Apps.EnchantingWorkshop.Modes.Constant.Description"), icon: "fas fa-infinity", available: true },
+      { key: "recharge", label: t("UESRPG.Apps.EnchantingWorkshop.Modes.Recharge.Label"), description: t("UESRPG.Apps.EnchantingWorkshop.Modes.Recharge.Description"), unavailableReason: t("UESRPG.Apps.EnchantingWorkshop.Modes.Recharge.Unavailable"), icon: "fas fa-battery-full", available: castEnchantedItems.length > 0 },
+      { key: "toggle", label: t("UESRPG.Apps.EnchantingWorkshop.Modes.Toggle.Label"), description: t("UESRPG.Apps.EnchantingWorkshop.Modes.Toggle.Description"), unavailableReason: t("UESRPG.Apps.EnchantingWorkshop.Modes.Toggle.Unavailable"), icon: "fas fa-toggle-on", available: constantEnchantedItems.length > 0 },
+    ].map(option => ({
+      ...option,
+      active: option.key === this._mode,
+      tooltip: option.available ? option.description : option.unavailableReason,
+    }));
+    const activeMode = modeOptions.find(option => option.active) ?? modeOptions[0];
+    const hasSelectedTarget = this._mode === "recharge" || this._mode === "toggle"
+      ? Boolean(this._selection.enchantedItemUuid)
+      : Boolean(this._selection.targetItemUuid);
+    const hasSelectedGem = this._mode === "toggle" || Boolean(this._selection.soulGemUuid);
+    const canSubmit = Boolean(actor) && hasSelectedTarget && hasSelectedGem && (
+      this._mode === "toggle"
+        ? constantEnchantedItems.length > 0
+        : this._mode === "recharge"
+          ? castEnchantedItems.length > 0 && filledGemCount > 0
+          : enchantableItems.length > 0 && filledGemCount > 0
+    );
 
     return {
       actorUuid: this._actorUuid,
       actorName: actor?.name ?? "No actor selected",
+      actorImg: actor?.img ?? "icons/svg/mystery-man.svg",
+      actorFound: Boolean(actor),
+      controlIdPrefix: this.id,
       mode: this._mode,
       modeOptions,
+      activeMode,
+      canSubmit,
+      selectedTarget: this._resourceDescriptor(
+        this._selection.targetItemUuid ? (actor?.items?.find?.(item => item.uuid === this._selection.targetItemUuid) ?? null) : null,
+        "target",
+      ),
+      selectedGem: this._resourceDescriptor(
+        this._selection.soulGemUuid ? (actor?.items?.find?.(item => item.uuid === this._selection.soulGemUuid) ?? null) : null,
+        "gem",
+      ),
+      selectedEnchanted: this._resourceDescriptor(
+        this._selection.enchantedItemUuid ? (actor?.items?.find?.(item => item.uuid === this._selection.enchantedItemUuid) ?? null) : null,
+        "target",
+      ),
 
       enchantTN,
       enchantRank,
@@ -272,6 +406,11 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
       hasSalvage,
 
       gemOptions,
+      soulGemCount,
+      filledGemCount,
+      emptyGemCount,
+      hasSoulGems: gemOptions.length > 0,
+      hasFilledSoulGems: filledGemCount > 0,
       enchantableItems: enchantableItems.map(i => ({
         uuid: i.uuid, id: i.id, name: i.name, type: i.type,
         el: getItemEL(i),
@@ -281,6 +420,8 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
         uuid: i.uuid, id: i.id, name: i.name, type: i.type,
         enchantType: i.flags?.[NAMESPACE]?.enchanting?.enchantType ?? null,
         pool: i.flags?.[NAMESPACE]?.enchanting?.cast?.pool ?? i.flags?.[NAMESPACE]?.enchanting?.strike?.pool ?? null,
+        constantEnabled: i.flags?.[NAMESPACE]?.enchanting?.constant?.enabled !== false,
+        cursed: i.flags?.[NAMESPACE]?.enchanting?.constant?.cursed === true,
       })),
 
       spellfxOptions,
@@ -292,206 +433,54 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
       enableChargedStrike,
       actorSpellOptions,
       castSpellSlots,
+      manifoldEffectSlots,
       workshopSummary,
 
       preview: this._previewResult,
     };
   }
 
-  /**
-   * AppV2 form submit handler.
-   * Reads the form, builds the enchantment, finalizes it.
-   *
-   * @param {SubmitEvent} event
-   * @param {HTMLFormElement} form
-   * @param {FormDataExtended} formData
-   */
-  static async _onSubmit(event, form, formData) {
-    try {
-      const data = formData?.object ?? {};
+  async _onSubmit(event, form, formData) {
+    const data = formData?.object ?? {};
+    const actor = this._actorUuid ? await fromUuid(this._actorUuid) : null;
+    if (!actor) return ui.notifications?.error(t("UESRPG.Notifications.Enchanting.ActorNotFound"));
+    const mode = this._mode;
+    const enchantedItem = await this._resolveSelectedActorItem(actor, "enchantedItemUuid");
+    const targetItem = await this._resolveSelectedActorItem(actor, "targetItemUuid");
+    const soulGemItem = await this._resolveSelectedActorItem(actor, "soulGemUuid");
 
-      const mode = String(data.mode ?? "cast");
-      const actorUuid = String(data.actorUuid ?? "");
-      const actor = actorUuid ? await fromUuid(actorUuid) : null;
-
-      if (!actor) {
-        ui.notifications?.error(t("UESRPG.Notifications.Enchanting.ActorNotFound"));
-        return;
-      }
-
-      const resolveActorItem = async (ref) => {
-        const r = String(ref ?? "");
-        if (!r) return null;
-
-        // UUID
-        if (r.includes(".") || r.length > 20) {
-          try {
-            const doc = await fromUuid(r);
-            if (doc?.documentName === "Item") return doc;
-          } catch (_e) { /* noop */ }
-        }
-
-        // Item ID on actor
-        return actor.items?.get(r) ?? null;
-      };
-
-      // Special modes that operate on an already-enchanted item
-      if (mode === "recharge" || mode === "toggle") {
-        const enchantedItem = await resolveActorItem(data.enchantedItemUuid);
-        if (!enchantedItem) {
-          ui.notifications?.error(t("UESRPG.Notifications.Enchanting.SelectEnchantedItem"));
-          return;
-        }
-
-        if (mode === "recharge") {
-          const soulGemItem = await resolveActorItem(data.gemUuid);
-          if (!soulGemItem) {
-            ui.notifications?.error(t("UESRPG.Notifications.Enchanting.SelectSoulGem"));
-            return;
-          }
-          await rechargeEnchantment({ actor, enchantedItem, soulGemItem });
-          return;
-        }
-
-        await toggleConstantEnchantment({ actor, enchantedItem });
-        return;
-      }
-
-      const targetItem = await resolveActorItem(data.targetItemUuid);
-      const soulGemItem = await resolveActorItem(data.gemUuid);
-
-      if (!targetItem) {
-        ui.notifications?.error(t("UESRPG.Notifications.Enchanting.SelectTargetItem"));
-        return;
-      }
-      if (!soulGemItem) {
-        ui.notifications?.error(t("UESRPG.Notifications.Enchanting.SelectSoulGem"));
-        return;
-      }
-
-      if (mode === "cast") {
-        const spells = await EnchantingWorkshopAppV2._parseSpellsFromForm(data, actor);
-        if (!spells.length) {
-          ui.notifications?.error(t("UESRPG.Notifications.Enchanting.AddSpell"));
-          return;
-        }
-
-        const result = await buildCast({ actor, targetItem, soulGemItem, spells });
-
-        if (!result?.valid) {
-          const reasons = (result?.errors ?? [t("UESRPG.Notifications.Enchanting.UnknownError")]).join("; ");
-          ui.notifications?.error(tf("UESRPG.Notifications.Enchanting.FailedWithReasons", { reasons }));
-          return;
-        }
-
-        if (!result.anySuccess) {
-          ui.notifications?.warn(t("UESRPG.Notifications.Enchanting.TestFailed"));
-          if (!result.gemPreserved && soulGemItem) {
-            const { consumeSoulGem } = await import("../../../core/enchanting/soul-gems.js");
-            await consumeSoulGem(actor, soulGemItem);
-          }
-          return;
-        }
-
-        const flagsPayload = buildCastFlagsPayload(result, actor, soulGemItem, targetItem, {});
-        await finalizeEnchantment({
-          actor,
-          targetItem,
-          soulGemItem,
-          flagsPayload,
-          buildResult: result,
-          gemPreserved: result.gemPreserved,
-          enchantType: "cast",
-        });
-
-        ui.notifications?.info(tf("UESRPG.Notifications.Enchanting.CastApplied", { item: targetItem.name }));
-        return;
-      }
-
-      if (mode === "strike") {
-        const effects = EnchantingWorkshopAppV2._parseStrikeEffectsFromForm(data);
-        if (!effects.length) {
-          ui.notifications?.error(t("UESRPG.Notifications.Enchanting.SelectStrikeEffect"));
-          return;
-        }
-
-        const result = await buildStrike({ actor, targetItem, soulGemItem, effects });
-
-        if (!result?.valid) {
-          const reasons = (result?.errors ?? [t("UESRPG.Notifications.Enchanting.UnknownError")]).join("; ");
-          ui.notifications?.error(tf("UESRPG.Notifications.Enchanting.FailedWithReasons", { reasons }));
-          return;
-        }
-
-        if (!result.anySuccess) {
-          ui.notifications?.warn(t("UESRPG.Notifications.Enchanting.TestFailed"));
-          if (!result.gemPreserved && soulGemItem) {
-            const { consumeSoulGem } = await import("../../../core/enchanting/soul-gems.js");
-            await consumeSoulGem(actor, soulGemItem);
-          }
-          return;
-        }
-
-        const flagsPayload = buildStrikeFlagsPayload(result, actor, soulGemItem, targetItem, effects);
-        await finalizeEnchantment({
-          actor,
-          targetItem,
-          soulGemItem,
-          flagsPayload,
-          buildResult: result,
-          gemPreserved: result.gemPreserved,
-          enchantType: "strike",
-        });
-
-        ui.notifications?.info(tf("UESRPG.Notifications.Enchanting.StrikeApplied", { item: targetItem.name }));
-        return;
-      }
-
-      if (mode === "constant") {
-        const effects = EnchantingWorkshopAppV2._parseConstantEffectsFromForm(data);
-        if (!effects.length) {
-          ui.notifications?.error(t("UESRPG.Notifications.Enchanting.SelectConstantEffect"));
-          return;
-        }
-
-        const cursed = Boolean(data.cursed);
-        const result = await buildConstant({ actor, targetItem, soulGemItem, effects, cursed });
-
-        if (!result?.valid) {
-          const reasons = (result?.errors ?? [t("UESRPG.Notifications.Enchanting.UnknownError")]).join("; ");
-          ui.notifications?.error(tf("UESRPG.Notifications.Enchanting.FailedWithReasons", { reasons }));
-          return;
-        }
-
-        if (!result.anySuccess) {
-          ui.notifications?.warn(t("UESRPG.Notifications.Enchanting.TestFailed"));
-          if (!result.gemPreserved && soulGemItem) {
-            const { consumeSoulGem } = await import("../../../core/enchanting/soul-gems.js");
-            await consumeSoulGem(actor, soulGemItem);
-          }
-          return;
-        }
-
-        const flagsPayload = buildConstantFlagsPayload(result, actor, soulGemItem, targetItem, effects);
-        await finalizeEnchantment({
-          actor,
-          targetItem,
-          soulGemItem,
-          flagsPayload,
-          buildResult: result,
-          gemPreserved: result.gemPreserved,
-          enchantType: "constant",
-        });
-
-        ui.notifications?.info(tf("UESRPG.Notifications.Enchanting.ConstantApplied", { item: targetItem.name }));
-        return;
-      }
-
-      ui.notifications?.warn(tf("UESRPG.Notifications.Enchanting.UnknownMode", { mode }));
-    } catch (err) {
-      console.error("UESRPG | Enchanting Workshop submit failed", err);
-      ui.notifications?.error(t("UESRPG.Notifications.Enchanting.UnexpectedError"));
+    if (mode === "toggle") {
+      if (!enchantedItem || !this._isEligibleTarget(enchantedItem, mode)) return ui.notifications?.error(t("UESRPG.Notifications.Enchanting.SelectEnchantedItem"));
+      const operation = await toggleConstantEnchantment({ actor, enchantedItem });
+      if (!operation?.ok) ui.notifications?.warn?.(operation?.reason ?? t("UESRPG.Notifications.Enchanting.UnexpectedError"));
+      await queueRenderParts(this, ["form"]);
+      return operation;
     }
+    if (mode === "recharge") {
+      if (!enchantedItem || !this._isEligibleTarget(enchantedItem, mode)) return ui.notifications?.error(t("UESRPG.Notifications.Enchanting.SelectEnchantedItem"));
+      if (!soulGemItem || resolveSoulGemData(soulGemItem)?.isFilled !== true) return ui.notifications?.error(t("UESRPG.Notifications.Enchanting.SelectSoulGem"));
+      const operation = await rechargeEnchantment({ actor, enchantedItem, soulGemItem });
+      if (!operation?.ok) ui.notifications?.warn?.(operation?.reason ?? t("UESRPG.Notifications.Enchanting.UnexpectedError"));
+      await queueRenderParts(this, ["form"]);
+      return operation;
+    }
+    if (!targetItem || !this._isEligibleTarget(targetItem, mode)) return ui.notifications?.error(t("UESRPG.Notifications.Enchanting.SelectTargetItem"));
+    if (!soulGemItem || resolveSoulGemData(soulGemItem)?.isFilled !== true) return ui.notifications?.error(t("UESRPG.Notifications.Enchanting.SelectSoulGem"));
+
+    const request = {
+      mode,
+      targetItemUuid: targetItem.uuid,
+      soulGemUuid: soulGemItem.uuid,
+      cursed: Boolean(data.cursed),
+    };
+    if (mode === "cast") request.spells = await EnchantingWorkshopAppV2._parseSpellsFromForm(data, actor);
+    if (mode === "strike") request.effects = EnchantingWorkshopAppV2._parseStrikeEffectsFromForm(data);
+    if (mode === "constant") request.effects = EnchantingWorkshopAppV2._parseConstantEffectsFromForm(data);
+
+    const created = await createPendingEnchantmentMessage(actor, request);
+    if (!created) return null;
+    ui.notifications?.info?.(t("UESRPG.Apps.EnchantingWorkshop.Chat.Prepared", "Enchanting ritual prepared in chat."));
+    return created;
   }
 
   /**
@@ -600,39 +589,130 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
     return effects;
   }
 
-  /**
-   * Intercept form field changes.
-   *
-   * The Workshop Mode <select> uses name="mode" and triggers a full re-render
-   * because the visible fieldset depends on the selected mode.
-   *
-   * NOTE: data-action="modeChange" on a <select> fires on `click` (when the
-   * dropdown opens), not on `change` (when a value is committed). Overriding
-   * _onChangeForm instead correctly captures the committed value.
-   *
-   * @override
-   * @param {object} formConfig
-   * @param {Event}  event
-   */
-  async _onChangeForm(formConfig, event) {
-    if (event?.target?.name === "mode") {
-      const newMode = String(event.target.value ?? "cast");
-      if (WORKSHOP_MODES.includes(newMode) && newMode !== this._mode) {
-        this._mode = newMode;
-        this._previewResult = null;
-        await this.render({ parts: ["form"] });
-        return;
-      }
-    }
-    if (typeof super._onChangeForm === "function") {
-      return super._onChangeForm(formConfig, event);
+  _onRender(context, options) {
+    super._onRender(context, options);
+    for (const zone of this.element?.querySelectorAll?.("[data-enchant-resource-drop]") ?? []) {
+      zone.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        zone.classList.add("is-dragover");
+      });
+      zone.addEventListener("dragleave", () => zone.classList.remove("is-dragover"));
+      zone.addEventListener("drop", (event) => this._onResourceDrop(event, zone));
     }
   }
 
-  /**
-   * @deprecated No longer wired - mode changes handled in _onChangeForm.
-   * Kept as a no-op so any lingering data-action="modeChange" bindings
-   * don't throw "unknown action" errors.
-   */
-  async _onModeChange(event, target) { /* superseded by _onChangeForm */ }
+  _resourceCandidates(actor, kind) {
+    if (!actor?.items) return [];
+    if (kind === "gem") return getSoulGems(actor).filter((item) => isSoulGemResourceUsable(item));
+    return [...actor.items].filter((item) => this._isEligibleTarget(item, this._mode));
+  }
+
+  async _assignResource(kind, item) {
+    const actor = this._actorUuid ? await fromUuid(this._actorUuid) : null;
+    if (!actor || item?.documentName !== "Item" || item.parent?.uuid !== actor.uuid) {
+      ui.notifications?.warn?.(t("UESRPG.Apps.EnchantingWorkshop.Dropzones.ActorOwnedOnly", "Drop an Item owned by this actor."));
+      return false;
+    }
+    if (kind === "gem") {
+      if (!isSoulGemResourceUsable(item)) {
+        ui.notifications?.warn?.(t("UESRPG.Apps.EnchantingWorkshop.Dropzones.FilledGemOnly", "Drop a filled soul gem with at least one available unit."));
+        return false;
+      }
+      this._selection.soulGemUuid = item.uuid;
+    } else {
+      if (!this._isEligibleTarget(item, this._mode)) {
+        ui.notifications?.warn?.(t("UESRPG.Apps.EnchantingWorkshop.Dropzones.InvalidTarget", "That Item is not eligible for the active enchanting mode."));
+        return false;
+      }
+      this._selection[this._mode === "recharge" || this._mode === "toggle" ? "enchantedItemUuid" : "targetItemUuid"] = item.uuid;
+    }
+    await queueRenderParts(this, ["form"]);
+    return true;
+  }
+
+  async _onResourceDrop(event, zone) {
+    event.preventDefault();
+    zone.classList.remove("is-dragover");
+    const item = await resolveDroppedItem(readDropData(event));
+    await this._assignResource(String(zone.dataset.enchantResourceDrop ?? "target"), item);
+  }
+
+  async _onChooseResource(event, target) {
+    event.preventDefault();
+    const kind = String(target?.dataset?.resourceKind ?? "target");
+    const actor = this._actorUuid ? await fromUuid(this._actorUuid) : null;
+    const candidates = this._resourceCandidates(actor, kind);
+    if (!candidates.length) {
+      ui.notifications?.warn?.(kind === "gem"
+        ? t("UESRPG.Apps.EnchantingWorkshop.OnlyEmptySoulGems")
+        : t("UESRPG.Apps.EnchantingWorkshop.Dropzones.NoEligibleItems", "No eligible actor-owned Items are available."));
+      return;
+    }
+    const esc = (value) => foundry.utils.escapeHTML(String(value ?? ""));
+    const rows = candidates.map((item, index) => {
+      const descriptor = this._resourceDescriptor(item, kind);
+      return `<label class="enchanting-picker-row">
+        <input type="radio" name="resourceUuid" value="${esc(item.uuid)}" ${index === 0 ? "checked" : ""}>
+        <img src="${esc(item.img)}" alt="">
+        <span><strong>${esc(item.name)}</strong><small>${esc(descriptor?.meta)} · ×${descriptor?.quantity ?? 1}</small></span>
+      </label>`;
+    }).join("");
+    const uuid = await customDialog({
+      title: kind === "gem"
+        ? t("UESRPG.Apps.EnchantingWorkshop.Dropzones.ChooseGem", "Choose Soul Gem")
+        : t("UESRPG.Apps.EnchantingWorkshop.Dropzones.ChooseTarget", "Choose Target Item"),
+      content: `<div class="enchanting-picker-list">${rows}</div>`,
+      buttons: {
+        choose: {
+          label: t("UESRPG.Buttons.Select", "Select"),
+          callback: (html) => html?.querySelector?.('input[name="resourceUuid"]:checked')?.value ?? null,
+        },
+        cancel: { label: t("UESRPG.Buttons.Cancel", "Cancel"), callback: () => null },
+      },
+      default: "choose",
+      width: 460,
+    });
+    if (!uuid) return;
+    const item = await fromUuid(uuid).catch(() => null);
+    await this._assignResource(kind, item);
+  }
+
+  async _onClearResource(event, target) {
+    event.preventDefault();
+    const kind = String(target?.dataset?.resourceKind ?? "target");
+    if (kind === "gem") this._selection.soulGemUuid = null;
+    else if (this._mode === "recharge" || this._mode === "toggle") this._selection.enchantedItemUuid = null;
+    else this._selection.targetItemUuid = null;
+    await queueRenderParts(this, ["form"]);
+  }
+
+  _registerDocumentHooks() {
+    if (this._ownedHooks.length) return;
+    const onItemChange = (item) => {
+      if (item?.parent?.uuid !== this._actorUuid || !this.rendered) return;
+      if (!item.parent?.items?.get?.(item.id)) {
+        for (const key of Object.keys(this._selection)) {
+          if (this._selection[key] === item.uuid) this._selection[key] = null;
+        }
+      }
+      void queueRenderParts(this, ["form"]);
+    };
+    this._ownedHooks.push(
+      ["createItem", Hooks.on("createItem", onItemChange)],
+      ["updateItem", Hooks.on("updateItem", onItemChange)],
+      ["deleteItem", Hooks.on("deleteItem", onItemChange)],
+    );
+  }
+
+  async _onModeChange(event, target) {
+    event.preventDefault();
+    const newMode = String(target?.dataset?.mode ?? "");
+    if (!WORKSHOP_MODES.includes(newMode) || target?.hasAttribute?.("disabled")) return;
+    if (newMode === this._mode) return;
+    this._mode = newMode;
+    this._previewResult = null;
+    this._selection.targetItemUuid = null;
+    this._selection.enchantedItemUuid = null;
+    await queueRenderParts(this, ["form"]);
+  }
 }

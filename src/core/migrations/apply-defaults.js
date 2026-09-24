@@ -6,6 +6,7 @@
  * - Wrong-typed keys are coerced where safe (numbers/booleans/strings), otherwise replaced by defaults
  * - Arrays are ensured to be arrays (defaulting to [])
  * - Objects are ensured to be plain objects; nested defaults are applied recursively
+ * - Null defaults fill only missing values and never overwrite meaningful existing data
  *
  * This utility is intentionally conservative to avoid breaking existing worlds:
  * it never deletes keys and never overwrites values that already match the expected type.
@@ -89,6 +90,14 @@ export function applyDefaults(target, defaults, options = {}) {
   function apply(node, def, path) {
     const pathKey = path.join(".");
     if (pathKey && ignore.has(pathKey)) return node;
+
+    if (def === null) {
+      if (node === undefined) {
+        changed = true;
+        return null;
+      }
+      return node;
+    }
 
     const defIsArray = Array.isArray(def);
     const defIsObject = _isPlainObject(def);

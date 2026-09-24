@@ -63,6 +63,103 @@ function normalizeRenderParts(sheet, parts = []) {
 
 const renderQueueStates = new WeakMap();
 const closedRenderQueues = new WeakSet();
+const formUpdateStates = new WeakMap();
+
+function getFormUpdateState(sheet) {
+  let state = formUpdateStates.get(sheet);
+  if (!state) {
+    state = {
+      pending: Promise.resolve(true),
+      lastError: null,
+      notifiedError: null,
+    };
+    formUpdateStates.set(sheet, state);
+  }
+  return state;
+}
+
+function reportFormUpdateFailure(state, error) {
+  state.lastError = error;
+  if (state.notifiedError === error) return;
+  state.notifiedError = error;
+  console.error("UESRPG | ApplicationV2 form update failed", error);
+  ui.notifications?.error?.(t(
+    "UESRPG.Notifications.Sheets.FormSaveFailed",
+    "The document could not be saved. Review the entered values and try again."
+  ));
+}
+
+/**
+ * Serialize an ApplicationV2 document write with any form writes already in
+ * flight for the same sheet. A rejected write is reported once and remains
+ * observable to callers through {@link flushSheetFormUpdates}.
+ *
+ * @param {object} sheet ApplicationV2 sheet instance.
+ * @param {Function} operation Async write operation.
+ * @returns {Promise<*>} The operation result.
+ */
+export function queueSheetFormUpdate(sheet, operation) {
+  if (!sheet || typeof operation !== "function") return Promise.resolve(false);
+  const state = getFormUpdateState(sheet);
+  const run = async () => {
+    state.lastError = null;
+    state.notifiedError = null;
+    try {
+      const result = await operation();
+      if (result === false || result?.ok === false) {
+        throw new Error(t(
+          "UESRPG.Notifications.Sheets.FormSaveFailed",
+          "The document could not be saved. Review the entered values and try again."
+        ));
+      }
+      return result;
+    } catch (error) {
+      reportFormUpdateFailure(state, error);
+      throw error;
+    }
+  };
+  state.pending = state.pending.catch(() => false).then(run);
+  return state.pending;
+}
+
+/** Await every queued form update for a sheet without starting a new write. */
+export async function flushSheetFormUpdates(sheet) {
+  const state = formUpdateStates.get(sheet);
+  if (!state) return true;
+  try {
+    await state.pending;
+    return state.lastError == null;
+  } catch (error) {
+    reportFormUpdateFailure(state, error);
+    return false;
+  }
+}
+
+/**
+ * Flush queued changes and submit the current documented top-level AppV2 form.
+ * The caller supplies its existing normalized submit handler so schema and
+ * allow-list behavior remain owned by the sheet.
+ */
+export async function flushCurrentSheetForm(sheet, submitHandler, event = null) {
+  if (!await flushSheetFormUpdates(sheet)) return false;
+  if (!sheet?.isEditable || !sheet?.document?.isOwner) return true;
+  const form = sheet.form;
+  if (!(form instanceof HTMLFormElement) || !form.isConnected) return true;
+  const FormDataExtended = foundry.applications?.ux?.FormDataExtended;
+  if (typeof FormDataExtended !== "function" || typeof submitHandler !== "function") return false;
+
+  try {
+    const formData = new FormDataExtended(form);
+    const result = await queueSheetFormUpdate(sheet, () => submitHandler.call(sheet, event, form, formData));
+    return result !== false && result?.ok !== false;
+  } catch (_error) {
+    return false;
+  }
+}
+
+export function clearSheetFormUpdateState(sheet) {
+  formUpdateStates.delete(sheet);
+}
 
 function createRenderQueueState() {
   return {
@@ -95,16 +192,101 @@ function settleResolvers(resolvers = []) {
   }
 }
 
+function getRenderRoot(sheet) {
+  if (sheet?.element instanceof HTMLElement) return sheet.element;
+  if (sheet?.form instanceof HTMLElement) return sheet.form.closest(".application") ?? sheet.form;
+  return null;
+}
+
+function escapeSelectorValue(value) {
+  const textValue = String(value ?? "");
+  return globalThis.CSS?.escape ? CSS.escape(textValue) : textValue.replaceAll('"', '\\"');
+}
+
+function describeElement(root, element) {
+  if (!(root instanceof HTMLElement) || !(element instanceof HTMLElement) || !root.contains(element)) return null;
+  const attributes = ["name", "data-role", "data-action", "data-tab", "data-item-id", "data-effect-id"];
+  const selectors = [];
+  for (const attribute of attributes) {
+    const value = element.getAttribute(attribute);
+    if (value) selectors.push(`[${attribute}="${escapeSelectorValue(value)}"]`);
+  }
+  const selector = `${element.tagName.toLowerCase()}${selectors.join("")}`;
+  const matches = Array.from(root.querySelectorAll(selector));
+  const index = matches.indexOf(element);
+  return index >= 0 ? { selector, index } : null;
+}
+
+function resolveElement(root, descriptor) {
+  if (!(root instanceof HTMLElement) || !descriptor?.selector) return null;
+  return root.querySelectorAll(descriptor.selector)?.[descriptor.index] ?? null;
+}
+
+function captureRenderUiState(sheet) {
+  const root = getRenderRoot(sheet);
+  if (!root) return null;
+  const active = root.contains(document.activeElement) ? document.activeElement : null;
+  const focus = describeElement(root, active);
+  if (focus && active instanceof HTMLInputElement) {
+    focus.selectionStart = active.selectionStart;
+    focus.selectionEnd = active.selectionEnd;
+  }
+
+  const scrollSelector = [
+    ".window-content",
+    ".sheet-body",
+    ".tab.active",
+    "[data-role]",
+    "[class*='__scroll']",
+  ].join(",");
+  const scroll = Array.from(root.querySelectorAll(scrollSelector))
+    .map((element) => ({
+      descriptor: describeElement(root, element),
+      left: element.scrollLeft,
+      top: element.scrollTop,
+    }))
+    .filter((entry) => entry.descriptor && (entry.left || entry.top));
+  const disclosures = Array.from(root.querySelectorAll("details"))
+    .map((element) => ({ descriptor: describeElement(root, element), open: element.open }))
+    .filter((entry) => entry.descriptor);
+  return { focus, scroll, disclosures };
+}
+
+function restoreRenderUiState(sheet, state) {
+  if (!state) return;
+  const root = getRenderRoot(sheet);
+  if (!root) return;
+  for (const entry of state.scroll ?? []) {
+    const element = resolveElement(root, entry.descriptor);
+    if (!(element instanceof HTMLElement)) continue;
+    element.scrollLeft = entry.left;
+    element.scrollTop = entry.top;
+  }
+  for (const entry of state.disclosures ?? []) {
+    const element = resolveElement(root, entry.descriptor);
+    if (element instanceof HTMLDetailsElement) element.open = entry.open;
+  }
+  const active = resolveElement(root, state.focus);
+  if (!(active instanceof HTMLElement) || active.matches(":disabled")) return;
+  active.focus({ preventScroll: true });
+  if (active instanceof HTMLInputElement && Number.isInteger(state.focus?.selectionStart)) {
+    active.setSelectionRange(state.focus.selectionStart, state.focus.selectionEnd);
+  }
+}
+
 async function renderQueuedParts(sheet, state, queued) {
   if (state.cancelled || closedRenderQueues.has(sheet)) return;
+  const uiState = captureRenderUiState(sheet);
   try {
     if (queued === null) await sheet.render(true);
     else if (queued.length) await sheet.render({ parts: queued });
+    restoreRenderUiState(sheet, uiState);
     return;
   } catch (partialError) {
     if (state.cancelled || closedRenderQueues.has(sheet)) return;
     try {
       await sheet.render(true);
+      restoreRenderUiState(sheet, uiState);
       console.warn("UESRPG | Partial sheet render failed; full render fallback succeeded.", partialError);
       return;
     } catch (fullError) {

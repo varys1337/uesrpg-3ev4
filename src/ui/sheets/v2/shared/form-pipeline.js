@@ -74,6 +74,22 @@ export function createFormPathMatcher({ exact = [], prefixes = [] } = {}) {
 }
 
 /**
+ * Flatten form data and retain only paths explicitly owned by a sheet.
+ * This keeps presentation-only controls and Document fields such as `img`
+ * out of generic submit-on-close updates unless a sheet deliberately allows
+ * them.
+ *
+ * @param {object} formDataObject Raw FormDataExtended object.
+ * @param {(path: string) => boolean} allowPath Sheet-owned path matcher.
+ * @returns {object} Flat allow-listed form data.
+ */
+export function filterAllowedFormPaths(formDataObject, allowPath) {
+  if (typeof allowPath !== "function") return {};
+  const flatData = foundry.utils.flattenObject(formDataObject ?? {});
+  return Object.fromEntries(Object.entries(flatData).filter(([path]) => allowPath(path)));
+}
+
+/**
  * Build a one-field patch from a form change event target.
  * Returns null when the field is not allow-listed or unchanged.
  *
@@ -137,7 +153,7 @@ export function buildAllowedChangePatch({ document, target, allowPath, normalize
 export function buildAllowedSubmitPatch({ document, formDataObject, allowPath, normalizeValue }) {
   if (!document || typeof allowPath !== "function") return null;
 
-  const flatData = foundry.utils.flattenObject(formDataObject ?? {});
+  const flatData = filterAllowedFormPaths(formDataObject, allowPath);
   const currentFlat = foundry.utils.flattenObject(document.toObject(false));
   const filtered = {};
   for (const [path, value] of Object.entries(flatData)) {

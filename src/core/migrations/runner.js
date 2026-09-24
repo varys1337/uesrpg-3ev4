@@ -6,6 +6,7 @@ import { migrateCombatLegacyIfNeeded } from "./combat-legacy.js";
 import { migrateWarfareFlagDocumentsIfNeeded } from "./warfare-flags.js";
 import { migrateAoeRegionLinksIfNeeded } from "./aoe-region-links.js";
 import { migrateWorldSettingsIfNeeded } from "./settings.js";
+import { migrateSystemTemplateDirectivesIfNeeded } from "./system-template-directives.js";
 import { isActiveGMUser } from "../../utils/users.js";
 import { t, tf } from "../../utils/i18n.js";
 
@@ -42,6 +43,7 @@ export async function runSystemMigrations({
 
       await migrateWorldSettingsIfNeeded();
       await migrateActiveEffectsIfNeeded();
+      await migrateSystemTemplateDirectivesIfNeeded();
       await migrateActorsIfNeeded();
       await migrateItemsIfNeeded();
       await migrateNpcArmorCoverageDefaultsIfNeeded();

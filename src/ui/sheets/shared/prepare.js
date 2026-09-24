@@ -21,9 +21,9 @@ import { hasCondition } from "../../../core/conditions/condition-engine.js";
 import { cachedEnrichHTML } from "../../../utils/enrich-cache.js";
 import { t } from "../../../utils/i18n.js";
 import { buildSpecialActionTooltipText, buildSpecialActionHelpText } from "../../../data/tooltips/index.js";
+import { collectActorCastEnchantmentSlots } from "../../../core/enchanting/runtime/cast-enchantment-sources.js";
+import { isHiddenStoredEnchantmentSpell } from "../../../core/enchanting/stored-spell-doc.js";
 import { SYSTEM_ID } from "../../constants.js";
-const _FLAG_NS = SYSTEM_ID;
-const _EQUIPMENT_TYPES = new Set(["weapon", "armor", "ammunition", "item", "container", "scroll"]);
 
 function _resolveSpellFromUuidSync(uuid) {
   const raw = String(uuid ?? "").trim();
@@ -53,55 +53,6 @@ function _getCastableScrollsSync(actor, { instantOnly = false } = {}) {
     out.push(it);
   }
   return out;
-}
-
-function _resolveSpellFromSlotSync(slot) {
-  const uuid = String(slot?.spellUuid ?? "").trim();
-  if (uuid) {
-    const doc = _resolveSpellFromUuidSync(uuid);
-    if (doc) return doc;
-  }
-  const snap = slot?.snapshot;
-  if (snap && typeof snap === "object") {
-    const isInstant = snap?.system?.isInstant === true;
-    return { system: { isInstant } };
-  }
-  return null;
-}
-
-function _getEquippedItemSpellcastingSlotsSync(actor, { instantOnly = false } = {}) {
-  const slots = [];
-  for (const item of actor?.items ?? []) {
-    if (!_EQUIPMENT_TYPES.has(String(item?.type ?? "").toLowerCase())) continue;
-    if (item?.system?.equipped !== true) continue;
-
-    const ext = item?.flags?.[_FLAG_NS]?.itemSpellcasting ?? {};
-    if (ext?.enabled === true) {
-      const extSlots = Array.isArray(ext?.slots) ? ext.slots : [];
-      for (const slot of extSlots) {
-        if (slot?.enabled === false) continue;
-        if (instantOnly) {
-          const spell = _resolveSpellFromSlotSync(slot);
-          if (spell?.system?.isInstant !== true) continue;
-        }
-        slots.push({ item, slot });
-      }
-    }
-
-    const enchanting = item?.flags?.[_FLAG_NS]?.enchanting;
-    if (enchanting?.version === 2 && String(enchanting?.enchantType ?? "").trim().toLowerCase() === "cast") {
-      const workshopSlots = Array.isArray(enchanting?.cast?.spells) ? enchanting.cast.spells : [];
-      for (const slot of workshopSlots) {
-        if (slot?.enabled === false) continue;
-        if (instantOnly) {
-          const spell = _resolveSpellFromSlotSync(slot);
-          if (spell?.system?.isInstant !== true) continue;
-        }
-        slots.push({ item, slot });
-      }
-    }
-  }
-  return slots;
 }
 
 /**
@@ -161,17 +112,14 @@ export function buildCombatActionsContext(actor) {
 
     const castableScrolls = _getCastableScrollsSync(actor, { instantOnly: false });
     const castableInstantScrolls = _getCastableScrollsSync(actor, { instantOnly: true });
-    const itemRuntimeEnabled = game?.settings?.get?.(_FLAG_NS, "enchanting.enableCastEnchantmentRuntime") === true;
-    const equippedItemSpellSlots = itemRuntimeEnabled ? _getEquippedItemSpellcastingSlotsSync(actor, { instantOnly: false }) : [];
-    const equippedItemInstantSpellSlots = itemRuntimeEnabled ? _getEquippedItemSpellcastingSlotsSync(actor, { instantOnly: true }) : [];
-    const canCastActorSpells = Boolean(
-      actor?.itemTypes?.spell?.length
-      ?? actor?.items?.some?.(i => i.type === "spell")
-    );
-    const canCastActorInstantSpells = Boolean(
-      actor?.itemTypes?.spell?.some?.(s => s?.system?.isInstant === true)
-      ?? actor?.items?.some?.(i => i.type === "spell" && i?.system?.isInstant === true)
-    );
+    const equippedItemSpellSlots = collectActorCastEnchantmentSlots(actor, { requireEquipped: true, instantOnly: false });
+    const equippedItemInstantSpellSlots = collectActorCastEnchantmentSlots(actor, { requireEquipped: true, instantOnly: true });
+    const actorSpells = actor?.itemTypes?.spell
+      ?? actor?.items?.filter?.((item) => item.type === "spell")
+      ?? [];
+    const visibleActorSpells = actorSpells.filter((spell) => !isHiddenStoredEnchantmentSpell(spell));
+    const canCastActorSpells = visibleActorSpells.length > 0;
+    const canCastActorInstantSpells = visibleActorSpells.some((spell) => spell?.system?.isInstant === true);
 
     const inCloseEnabled = isReachLengthHomebrewEnabled();
 

@@ -1,26 +1,26 @@
 <div class="uesrpg-resource-dialog__layout">
   <div class="uesrpg-resource-dialog__body uesrpg-resource-dialog__grid--two-column uesrpg-magicka-barrier-dialog">
     <div class="uesrpg-resource-dialog__group uesrpg-resource-dialog__group--inline form-group">
-      <label class="uesrpg-resource-dialog__label" for="uesrpg-magicka-current">{{localize "UESRPG.Dialogs.MagickaBarrier.Magicka"}}</label>
+      <label class="uesrpg-resource-dialog__label" for="{{controlIdPrefix}}-magicka">{{localize "UESRPG.Dialogs.MagickaBarrier.Magicka"}}</label>
       <div class="uesrpg-resource-dialog__value-control">
-        <input id="uesrpg-magicka-current" type="number" name="magicka" value="{{currentMP}}" min="0" max="{{maxMP}}" />
+        <input id="{{controlIdPrefix}}-magicka" type="number" name="magicka" value="{{currentMP}}" min="0" max="{{maxMP}}" />
         <span class="uesrpg-resource-dialog__maximum">/ {{maxMP}}</span>
       </div>
     </div>
 
     <div class="uesrpg-resource-dialog__group uesrpg-resource-dialog__group--inline form-group">
-      <label class="uesrpg-resource-dialog__label" for="uesrpg-buffer-physical">{{localize "UESRPG.Dialogs.MagickaBarrier.PhysicalBuffer"}}</label>
-      <input id="uesrpg-buffer-physical" type="number" name="bufferPhysical" value="{{physBuf}}" min="0" />
+      <label class="uesrpg-resource-dialog__label" for="{{controlIdPrefix}}-physical">{{localize "UESRPG.Dialogs.MagickaBarrier.PhysicalBuffer"}}</label>
+      <input id="{{controlIdPrefix}}-physical" type="number" name="bufferPhysical" value="{{physBuf}}" min="0" />
     </div>
 
     <div class="uesrpg-resource-dialog__group uesrpg-resource-dialog__group--inline form-group">
-      <label class="uesrpg-resource-dialog__label" for="uesrpg-buffer-magical">{{localize "UESRPG.Dialogs.MagickaBarrier.MagicalBuffer"}}</label>
-      <input id="uesrpg-buffer-magical" type="number" name="bufferMagical" value="{{magBuf}}" min="0" />
+      <label class="uesrpg-resource-dialog__label" for="{{controlIdPrefix}}-magical">{{localize "UESRPG.Dialogs.MagickaBarrier.MagicalBuffer"}}</label>
+      <input id="{{controlIdPrefix}}-magical" type="number" name="bufferMagical" value="{{magBuf}}" min="0" />
     </div>
 
     <div class="uesrpg-resource-dialog__group uesrpg-resource-dialog__group--inline form-group">
-      <label class="uesrpg-resource-dialog__label" for="uesrpg-buffer-elemental">{{localize "UESRPG.Dialogs.MagickaBarrier.ElementalBuffer"}}</label>
-      <input id="uesrpg-buffer-elemental" type="number" name="bufferElemental" value="{{elemBuf}}" min="0" />
+      <label class="uesrpg-resource-dialog__label" for="{{controlIdPrefix}}-elemental">{{localize "UESRPG.Dialogs.MagickaBarrier.ElementalBuffer"}}</label>
+      <input id="{{controlIdPrefix}}-elemental" type="number" name="bufferElemental" value="{{elemBuf}}" min="0" />
     </div>
   </div>
 </div>

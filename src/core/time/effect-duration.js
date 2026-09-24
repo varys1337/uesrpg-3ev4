@@ -3,12 +3,13 @@
  *
  * Central helpers for building Active Effect duration objects.
  *
- * Foundry duration semantics (EffectDurationData):
- *  - Real-time: { startTime, seconds }
- *  - Combat-time: { combat, startRound, startTurn, rounds?, turns? }
+ * Foundry v14 duration semantics (EffectDurationData):
+ *  - { value, units, expiry }
+ * Effect start anchors are owned by the ActiveEffect `start` schema.
  */
 
 import { _num } from "../../utils/coerce.js";
+import { normalizeActiveEffectDurationV14 } from "../active-effects/effect-duration-v14.js";
 
 function _getActorCombatant(combat, actor) {
   if (!combat || !actor) return null;
@@ -36,8 +37,6 @@ function _getActorCombatant(combat, actor) {
  * @returns {object} EffectDurationData-compatible object
  */
 export function buildEffectDuration({ actor, seconds = null, rounds = null, turns = null, preferCombat = true } = {}) {
-  const dur = {};
-
   const sec = seconds == null ? null : _num(seconds, null);
   const rnd = rounds == null ? null : _num(rounds, null);
   const trn = turns == null ? null : _num(turns, null);
@@ -48,20 +47,23 @@ export function buildEffectDuration({ actor, seconds = null, rounds = null, turn
   if (inCombat && actor) {
     const combatant = _getActorCombatant(combat, actor);
     if (combatant) {
-      dur.combat = combat.id ?? null;
-      dur.startRound = _num(combat.round, 0);
-      dur.startTurn = _num(combat.turn, 0);
-
-      if (rnd != null && Number.isFinite(rnd) && rnd > 0) dur.rounds = rnd;
-      if (trn != null && Number.isFinite(trn) && trn > 0) dur.turns = trn;
-
-      // Combat-anchored durations ignore seconds.
-      return dur;
+      if (rnd != null && Number.isFinite(rnd) && rnd > 0) {
+        return normalizeActiveEffectDurationV14({ value: rnd, units: "rounds", expiry: "turnEnd" });
+      }
+      if (trn != null && Number.isFinite(trn) && trn > 0) {
+        return normalizeActiveEffectDurationV14({ value: trn, units: "turns", expiry: "turnEnd" });
+      }
     }
   }
 
-  // Real-time anchor
-  dur.startTime = _num(game?.time?.worldTime, 0);
-  if (sec != null && Number.isFinite(sec) && sec > 0) dur.seconds = sec;
-  return dur;
+  if (sec != null && Number.isFinite(sec) && sec > 0) {
+    return normalizeActiveEffectDurationV14({ value: sec, units: "seconds", expiry: null });
+  }
+  if (rnd != null && Number.isFinite(rnd) && rnd > 0) {
+    return normalizeActiveEffectDurationV14({ value: rnd, units: "rounds", expiry: "turnEnd" });
+  }
+  if (trn != null && Number.isFinite(trn) && trn > 0) {
+    return normalizeActiveEffectDurationV14({ value: trn, units: "turns", expiry: "turnEnd" });
+  }
+  return normalizeActiveEffectDurationV14({});
 }

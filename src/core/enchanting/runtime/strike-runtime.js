@@ -20,6 +20,7 @@ import { STRIKE_ENCHANTMENTS_CATALOG } from "../../../data/strike-enchantments-c
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { SYSTEM_ID } from "../../constants.js";
 import { isDebugEnabled } from "../../../utils/debug.js";
+import { localizeStrikeEnchantment } from "../../../data/spell-i18n.js";
 
 // ---------------------------------------------------------------------------
 // O(1) catalog lookup
@@ -119,11 +120,12 @@ export function collectStrikeEnchantmentEffects(weapon, attackerActor) {
   const attackerActorUuid = attackerActor?.uuid ?? null;
 
   for (const effect of enc.strike.effects) {
-    const catalogEntry = STRIKE_ENCHANTMENTS_BY_KEY.get(_resolveStrikeKey(effect.key));
-    if (!catalogEntry) {
+    const baseCatalogEntry = STRIKE_ENCHANTMENTS_BY_KEY.get(_resolveStrikeKey(effect.key));
+    if (!baseCatalogEntry) {
       console.warn(`UESRPG | Strike enchantment key "${effect.key}" not found in catalog — skipping.`);
       continue;
     }
+    const catalogEntry = localizeStrikeEnchantment(baseCatalogEntry);
 
     if (catalogEntry.effectType === "damage" && catalogEntry.damageType) {
       // Fire, frost, shock: add as typed damage component in the resolve pipeline.
@@ -137,6 +139,7 @@ export function collectStrikeEnchantmentEffects(weapon, attackerActor) {
         damageType: catalogEntry.damageType,
         applyDefenderAdjust: false,
         sourceLabel: `${weaponName} — ${catalogEntry.label}`,
+        displayLabel: catalogEntry.label,
         breakdown: { enchantKey: effect.key, sl: effect.sl },
       });
     } else {

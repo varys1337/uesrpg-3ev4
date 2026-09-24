@@ -8,25 +8,29 @@ import { getCoreRollMode } from "../../../../utils/chat-roll-mode.js";
 import { _getDefenderOutcome, _setDefenderOutcome, _setDefenderAdvantage, _getDefenderEntries, _isMultiDefender } from "../schema.js";
 import { _getBankCommitState, _allDefendersCommitted, _cleanupAutoRollContext, reconcileBankedAutoRollRequest } from "../banking/state.js";
 import { resolveOutcomeRAW as _resolveOutcomeRAW, computeAdvantageRAW as _computeAdvantageRAW } from "../outcome-resolution.js";
-import { applyAoEEvadeOutcome as _applyAoEEvadeOutcome, getTokenMovementAction as _getTokenMovementAction } from "../helpers/workflow.js";
+import {
+  applyAoEEvadeOutcome as _applyAoEEvadeOutcome,
+  getTokenMovementAction as _getTokenMovementAction,
+  getDefenseGatingContext as _getDefenseGatingContext,
+  collectDefenseSensorySituationalMods as _collectDefenseSensorySituationalMods,
+  asNumber as _asNumber,
+  getPreferredWeaponUuid as _getPreferredWeaponUuid,
+  weaponHasQuality as _weaponHasQuality,
+} from "../helpers/workflow.js";
 import { _canControlActor, _emitSuppressedSubRollDice, _logDebug } from "../helpers/util.js";
 import { removeCondition } from "../../../conditions/condition-engine.js";
 import { canDefenderRoll, markDefenderIneligibleForHidden, markDefenderNoDefense } from "./eligibility.js";
-import { getDefenseTalentOverrides, applyDefenderTalentTNMods, getEvadeOverrideContext } from "../../../traits/combat-talents.js";
+import { getDefenseTalentOverrides, applyDefenderTalentTNMods, getEvadeOverrideContext, applyCombatTalentDoSAdjustments } from "../../../traits/combat-talents.js";
 import { hasTalent } from "../../../traits/talents-api.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { _hasUnstoppableMightEligibleWeapons, _promptUnstoppableMightUsage, _getGladiatorContext, _getFreeDefenseReactionContext, _markGladiatorFreeReactionUsed } from "../helpers/talents.js";
 import { DefenseDialog } from "../../defense-dialog.js";
-import { getDefenseGatingContext as _getDefenseGatingContext } from "../helpers/workflow.js";
-import { hasEquippedShield } from "../../tn.js";
+import { hasEquippedShield, listCombatStyles, computeTN } from "../../tn.js";
 import { computeDefenseAvailability, normalizeDefenseType } from "../../defense-options.js";
 import { ActionEconomy } from "../../action-economy.js";
 import { breakAimChainIfPresent as _breakAimChainIfPresent, consumeInspireHeroismEffect as _consumeInspireHeroismEffect } from "../effects.js";
-import { listCombatStyles, computeTN } from "../../tn.js";
-import { collectDefenseSensorySituationalMods as _collectDefenseSensorySituationalMods, asNumber as _asNumber, getPreferredWeaponUuid as _getPreferredWeaponUuid, weaponHasQuality as _weaponHasQuality } from "../helpers/workflow.js";
 import { _resolveItemViaActor } from "../helpers/docs.js";
 import { applyHyperAwarenessToResult } from "../../../traits/awareness-talents.js";
-import { applyCombatTalentDoSAdjustments } from "../../../traits/combat-talents.js";
 import { shouldDeferEvadeApForStepAside } from "../../../traits/mobility-talents.js";
 import { consumeFreeNextDefenseCommit } from "../../activation-state-flags.js";
 import { canUseWardDefense, getPreferredWardDefenseSpell } from "../../ward-defense.js";
@@ -130,7 +134,7 @@ async function _maybeGrantConcussiveNextBash(attacker, data, advantage) {
  */
 export async function handleDefenderCommitNoDefense(ctx) {
   if (isHybridOpposed(ctx?.data) && !requireMassCombatEnabled()) return;
-  const { message, data, defender, defenderData, bankMode, isAoE, _updateCard } = ctx;
+  const { message, data, attacker, defender, defenderData, bankMode, isAoE, _updateCard } = ctx;
 
   if (!bankMode) {
     ui.notifications.warn("Banked choices are not enabled for this opposed test.");

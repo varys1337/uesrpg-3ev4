@@ -45,6 +45,7 @@ import { drinkPotion, applyAlchemyToTarget, pickAlchemyCoatingTarget } from "../
 import { getActorCapabilityFlag } from "../../../../core/active-effects/modifier-evaluator.js";
 import { buildGenericAEExpiry } from "../../../../core/active-effects/expiry.js";
 import { buildEffectChange } from "../../../../utils/compat.js";
+import { t } from "../../../../utils/i18n.js";
 
 const _specialActionLaunchLocks = new Set();
 
@@ -646,7 +647,7 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
 
       const options = candidates.map((c) => {
         const selected = prevItemUuid && c.uuid === prevItemUuid ? " selected" : "";
-        return `<option value="${c.uuid}"${selected}>${c.label}</option>`;
+        return `<option value="${foundry.utils.escapeHTML(c.uuid)}"${selected}>${foundry.utils.escapeHTML(c.label)}</option>`;
       }).join("");
       const defaultSelectedUuid = String(
         (prevItemUuid && candidates.some((c) => c.uuid === prevItemUuid) ? prevItemUuid : (candidates[0]?.uuid ?? ""))
@@ -772,22 +773,24 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
         return;
       }
 
-      const options = candidates.map(i => `<option value="${i.id}">${i.name}</option>`).join("");
+      const options = candidates
+        .map((item) => `<option value="${foundry.utils.escapeHTML(item.id)}">${foundry.utils.escapeHTML(item.name)}</option>`)
+        .join("");
       const content = `
         <div class="uesrpg-use-item-form">
           <div class="form-group">
-            <label>Item</label>
-            <select name="itemId">${options}</select>
+            <label for="uesrpg-use-item-select">${t("UESRPG.Dialogs.UseItem.Item", "Item")}</label>
+            <select id="uesrpg-use-item-select" name="itemId">${options}</select>
           </div>
         </div>
       `;
 
       return customDialog({
         layout: "workflow",
-        title: "Use Item",
+        title: t("UESRPG.Dialogs.UseItem.Title", "Use Item"),
         content,
         yes: {
-          label: "Use",
+          label: t("UESRPG.Dialogs.UseItem.Use", "Use"),
           callback: async (html) => {
             const el = html instanceof HTMLElement ? html : html?.[0];
             const itemId = el?.querySelector("select[name='itemId']")?.value;
@@ -825,8 +828,11 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
             await postActionCard("Use Item", `<p>${item.name}</p>`);
           }
         },
-        no: { label: "Cancel" },
-        defaultButton: "yes"
+        no: { label: t("UESRPG.Buttons.Cancel", "Cancel") },
+        defaultButton: "yes",
+        classes: ["uesrpg-use-item-dialog"],
+        width: 480,
+        resizable: true,
       });
     }
 

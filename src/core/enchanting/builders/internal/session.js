@@ -1,6 +1,7 @@
 import { getItemEL, computePoolMax } from "../../enchant-level.js";
 import { getEffectiveEnchantRank } from "../../penalties.js";
-import { resolveSoulGemData } from "../../soul-gems.js";
+import { isSoulGemResourceUsable, resolveSoulGemData } from "../../soul-gems.js";
+import { t } from "../../../../utils/i18n.js";
 
 export function prepareEnchantBuilderSession({
   actor,
@@ -21,7 +22,24 @@ export function prepareEnchantBuilderSession({
   if (Number.isFinite(maxEntries) && actualEntries > maxEntries && overflowMessage) errors.push(overflowMessage);
 
   const gemData = resolveSoulGemData(soulGemItem);
-  if (!gemData) errors.push("Soul gem item has invalid soul gem flags.");
+  if (!gemData) {
+    errors.push(t(
+      "UESRPG.Notifications.Enchanting.InvalidSoulGem",
+      "The selected item is not a recognized soul gem.",
+    ));
+  }
+  else if (!gemData.isFilled) {
+    errors.push(t(
+      "UESRPG.Notifications.Enchanting.EmptySoulGem",
+      "The selected soul gem is empty and cannot power enchanting.",
+    ));
+  }
+  else if (!isSoulGemResourceUsable(soulGemItem, gemData)) {
+    errors.push(t(
+      "UESRPG.Notifications.Enchanting.ReusableSoulVesselStack",
+      "Reusable soul-energy vessels must have a quantity of one. Split this stack before enchanting.",
+    ));
+  }
 
   const itemEL = getItemEL(targetItem);
   const { poolMax, energyLost } = gemData ? computePoolMax(itemEL, gemData.soulEnergy) : { poolMax: 0, energyLost: 0 };

@@ -18,6 +18,7 @@ import {
   promptAndApplyAllMissingRacialGrants,
   rollbackTrackedRacialGrants,
 } from "./char-gen/racial-grants.js";
+import { withApplicationUniqueId } from "./application-identity.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -105,11 +106,11 @@ export async function applyBirthsignSelection(actor, {
     await promptDialog({
       title: t("UESRPG.Dialogs.CharGen.StarCursedPenaltyTitle"),
       classes: ["uesrpg-chargen-dialog"],
-      content: `<div class="uesrpg-cg-dialog"><div class="form-group"><label>${tf("UESRPG.Dialogs.CharGen.StarCursedPenaltyLabel", { amount: Math.abs(choices.modifier) })}</label><select id="attr-select">${attrOptions}</select></div></div>`,
+      content: `<div class="uesrpg-cg-dialog"><div class="form-group"><label>${tf("UESRPG.Dialogs.CharGen.StarCursedPenaltyLabel", { amount: Math.abs(choices.modifier) })}</label><select data-role="attribute-select">${attrOptions}</select></div></div>`,
       okLabel: t("UESRPG.UI.OK"),
       callback: async (html) => {
         const el = html instanceof HTMLElement ? html : html?.[0];
-        const selectedAttr = el?.querySelector("#attr-select")?.value;
+        const selectedAttr = el?.querySelector('[data-role="attribute-select"]')?.value;
         if (!selectedAttr) return;
         const keyMap = {
           strength: "strChaBonus",
@@ -170,13 +171,13 @@ export class RaceMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
   #administrativeReason = null;
 
   constructor(actor, options = {}) {
-    super(options);
+    super(withApplicationUniqueId(options, `${actor?.uuid ?? "actor"}-${foundry.utils.randomID()}`));
     this.#actor = actor;
     this.#administrativeReason = String(options.administrativeReason ?? "").trim() || null;
   }
 
   static DEFAULT_OPTIONS = {
-    id: "uesrpg-race-menu-v2",
+    id: "uesrpg-race-menu-v2-{id}",
     classes: ["worldbuilding", "uesrpg", "uesrpg-creation-app", "uesrpg-race-menu-app"],
     window: {
       resizable: true,
@@ -215,10 +216,11 @@ export class RaceMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   async _prepareContext(options) {
-    const coreRaceCards = renderRaceCards(coreRaces);
-    const variantRaceCards = renderRaceCards(coreVariants);
-    const khajiitFurstockRaceCards = renderRaceCards(khajiitFurstocks);
-    const expandedRaceCards = renderRaceCards(expandedRaces);
+    const cardOptions = { idPrefix: this.id };
+    const coreRaceCards = renderRaceCards(coreRaces, cardOptions);
+    const variantRaceCards = renderRaceCards(coreVariants, cardOptions);
+    const khajiitFurstockRaceCards = renderRaceCards(khajiitFurstocks, cardOptions);
+    const expandedRaceCards = renderRaceCards(expandedRaces, cardOptions);
 
     return {
       coreRaceCards: coreRaceCards.join(""),
@@ -236,7 +238,7 @@ export class RaceMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
     try {
       const root = this.element;
       const raceSelection = [...root.querySelectorAll(".raceSelect")].filter((i) => i.checked);
-      const customRaceLabel = root.querySelector("#customRace")?.value?.trim() ?? "";
+      const customRaceLabel = root.querySelector('[data-role="custom-race"]')?.value?.trim() ?? "";
 
       if (raceSelection.length < 1 && customRaceLabel === "") {
         ui.notifications.error(t("UESRPG.Notifications.CharGen.SelectRaceOrCustom"));
@@ -353,13 +355,13 @@ export class BirthSignMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2
   #administrativeReason = null;
 
   constructor(actor, options = {}) {
-    super(options);
+    super(withApplicationUniqueId(options, `${actor?.uuid ?? "actor"}-${foundry.utils.randomID()}`));
     this.#actor = actor;
     this.#administrativeReason = String(options.administrativeReason ?? "").trim() || null;
   }
 
   static DEFAULT_OPTIONS = {
-    id: "uesrpg-birthsign-menu-v2",
+    id: "uesrpg-birthsign-menu-v2-{id}",
     classes: ["worldbuilding", "uesrpg", "uesrpg-creation-app", "uesrpg-birthsign-menu-app"],
     window: {
       resizable: true,
@@ -403,21 +405,23 @@ export class BirthSignMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2
 
     for (const signKey in signs) {
       const s = signs[signKey];
-      const traitItems = s.traits.map((t) => `<li>${t}</li>`).join("");
-      const normalId = `sign-${toSlug(signKey)}`;
-      const cursedId = `sign-${toSlug(signKey)}-cursed`;
+      const traitItems = s.traits.map((entry) => `<li>${foundry.utils.escapeHTML(entry)}</li>`).join("");
+      const normalId = `${toSlug(this.id)}-sign-${toSlug(signKey)}`;
+      const cursedId = `${toSlug(this.id)}-sign-${toSlug(signKey)}-cursed`;
+      const escapedSignKey = foundry.utils.escapeHTML(signKey);
+      const escapedName = foundry.utils.escapeHTML(s.name);
       signCards.push(`
         <div class="menu-card">
-            <input class="signSelect" type="radio" id="${normalId}" name="signRadio" value="${signKey}">
-            <input class="signSelect signSelect--cursed" type="radio" id="${cursedId}" name="signRadio" value="${signKey}|cursed">
+            <input class="signSelect" type="radio" id="${normalId}" name="signRadio" value="${escapedSignKey}">
+            <input class="signSelect signSelect--cursed" type="radio" id="${cursedId}" name="signRadio" value="${escapedSignKey}|cursed">
             <span class="menu-card__selected" aria-hidden="true"></span>
-            <img class="card-portrait" src="${s.img}" alt="${s.name}" height="85" width="65">
+            <img class="card-portrait" src="${foundry.utils.escapeHTML(s.img)}" alt="${escapedName}" height="85" width="65">
             <div class="card-body">
-                <p class="card-description">${s.description}</p>
+                <p class="card-description">${foundry.utils.escapeHTML(s.description)}</p>
                 <ul class="card-traits">${traitItems}</ul>
                 <div class="card-actions">
-                    <label for="${normalId}" class="card-btn">${s.name}</label>
-                    <label for="${cursedId}" class="card-btn card-btn-cursed">${s.name} - Star-Cursed</label>
+                    <label for="${normalId}" class="card-btn">${escapedName}</label>
+                    <label for="${cursedId}" class="card-btn card-btn-cursed">${escapedName} - ${t("UESRPG.Dialogs.CharGen.StarCursed")}</label>
                 </div>
             </div>
         </div>`);
@@ -436,7 +440,7 @@ export class BirthSignMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     try {
       const root = this.element;
       const signSelection = [...root.querySelectorAll(".signSelect")].filter((i) => i.checked);
-      const customSignLabel = root.querySelector("#customSign")?.value?.trim() ?? "";
+      const customSignLabel = root.querySelector('[data-role="custom-sign"]')?.value?.trim() ?? "";
 
       if (signSelection.length < 1 && customSignLabel === "") {
         ui.notifications.error(t("UESRPG.Notifications.CharGen.SelectBirthsignOrCustom"));

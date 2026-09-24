@@ -57,7 +57,7 @@ export function extractCoreSkillSourceDocumentId(itemLike) {
 
   const candidates = [
     itemLike?.flags?.core?.sourceId,
-    itemLike?._stats?.compendiumSource,
+    itemLike?.sourceId,
     itemLike?.uuid,
   ];
   for (const candidate of candidates) {

@@ -55,16 +55,6 @@ function _normalizeUnit(unit) {
   return UNIT_ALIASES[key] ?? "seconds";
 }
 
-function _durationFromLegacyShape(source = {}) {
-  const seconds = _num(source.seconds, 0);
-  const rounds = _num(source.rounds, 0);
-  const turns = _num(source.turns, 0);
-  if (rounds > 0) return { value: rounds, units: "rounds", expiry: ROUND_EXPIRY };
-  if (turns > 0) return { value: turns, units: "turns", expiry: ROUND_EXPIRY };
-  if (seconds > 0) return { value: seconds, units: "seconds", expiry: null };
-  return null;
-}
-
 function _indefiniteDuration() {
   return { value: null, units: "seconds", expiry: null };
 }
@@ -83,10 +73,7 @@ export function isFiniteDuration(duration) {
 }
 
 export function normalizeActiveEffectDurationV14(input = {}, { defaultExpiry = null } = {}) {
-  const legacy = _durationFromLegacyShape(input);
-  if (legacy) return legacy;
-
-  const unit = _normalizeUnit(input.units ?? input.unit);
+  const unit = _normalizeUnit(input.units);
   const value = _num(input.value, 0);
   if (unit === "instant" || value <= 0) return _indefiniteDuration();
   if (unit === "permanent") return _indefiniteDuration();

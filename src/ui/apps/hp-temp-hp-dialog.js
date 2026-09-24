@@ -20,6 +20,7 @@ async function _buildDialogContent(actor) {
   const isWounded = woundState !== "none";
 
   return renderDialogContent(templatePath("v2/dialogs/hp-temp-hp-dialog.hbs"), {
+    controlIdPrefix: `uesrpg-hp-${foundry.utils.randomID()}`,
     currentHP,
     maxHP,
     currentTempHP,

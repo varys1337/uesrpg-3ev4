@@ -6,14 +6,13 @@
  * Spell-specific utility functions for magic opposed workflow.
  */
 
-import { isMultiDefender } from "./schema.js";
+import { isMultiDefender, resolveToken } from "./schema.js";
 import { computeSpellMagickaCost, getSpellDamageFormula, getSpellDamageType, getSpellStrengthDamageComponents } from "../magicka-utils.js";
 import { confirmDialog } from "../../../utils/dialog-v2-helper.js";
 import { computeElementalDamageBonus } from "../magic-modifiers.js";
 import { canTokenEscapeArea } from "../../../utils/aoe-utils.js";
 import { getCoreRollMode, isPublicChatMessageMode } from "../../../utils/chat-roll-mode.js";
 import { canUserRollActor } from "../../../utils/permissions.js";
-import { resolveToken } from "./schema.js";
 import { getNpcThreatDamageModifier } from "../../rules/npc-threat-templates.js";
 
 export function emitSuppressedOpposedSubRollDice(roll, { rollMode = null } = {}) {
@@ -166,25 +165,6 @@ export function isTemporaryHealingType(damageType) {
   return dt === "temporaryhealing" || dt === "temporary healing";
 }
 
-function _getMaxRollFormulaTotal(formula) {
-  const cleaned = String(formula ?? "").replace(/\s+/g, "");
-  if (!cleaned) return 0;
-
-  let total = 0;
-  const diceRe = /(\d+)d(\d+)/g;
-  for (const m of cleaned.matchAll(diceRe)) {
-    total += (Number(m[1]) || 0) * (Number(m[2]) || 0);
-  }
-
-  const withoutDice = cleaned.replace(diceRe, "");
-  const leading = withoutDice.match(/^\d+/);
-  if (leading) total += Number(leading[0]) || 0;
-  for (const m of withoutDice.matchAll(/([+-])(\d+)/g)) {
-    total += (m[1] === "-" ? -1 : 1) * (Number(m[2]) || 0);
-  }
-  return Math.max(0, total);
-}
-
 async function _rollSpellDamageComponentSet(spell, commonRollOptions, { attacker = null, damageType = "magic", targetActor = null } = {}) {
   const components = getSpellStrengthDamageComponents(spell, {
     ...commonRollOptions,
@@ -200,12 +180,9 @@ async function _rollSpellDamageComponentSet(spell, commonRollOptions, { attacker
   const resolvedComponents = [];
   let total = 0;
   for (const component of components) {
-    const roll = await new Roll(component.formula).evaluate();
-    if (commonRollOptions?.isCritical) {
-      roll._total = _getMaxRollFormulaTotal(component.formula);
-    }
+    const roll = await new Roll(component.formula).evaluate({ maximize: commonRollOptions?.isCritical === true });
     rolls.push(roll);
-    const baseDamage = Math.max(0, Number(roll.total ?? roll._total ?? 0) || 0);
+    const baseDamage = Math.max(0, Number(roll.total ?? 0) || 0);
     const elemBonusInfo = computeElementalDamageBonus(attacker, component.damageType, { opposingActor: targetActor, targetActor });
     const elementalBonus = Math.max(0, Number(elemBonusInfo?.bonus ?? 0) || 0);
     const amount = baseDamage + elementalBonus;

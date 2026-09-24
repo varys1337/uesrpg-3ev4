@@ -24,6 +24,7 @@ import {
 import { validateScalingLevels, formatValidationMessage } from "../../../core/magic/spell-config.js";
 import { alertDialog, confirmDialog } from "../../../utils/dialog-v2-helper.js";
 import { createDebugLogger } from "../../../utils/debug.js";
+import { SOUL_GEM_TIERS } from "../../../core/enchanting/soul-gems.js";
 
 const _shieldDebug = createDebugLogger("shieldDebug", "[UESRPG][ShieldDebug][NormalizeItemForm]");
 
@@ -45,6 +46,7 @@ const _shieldDebug = createDebugLogger("shieldDebug", "[UESRPG][ShieldDebug][Nor
  */
 export function normalizeItemFormData(item, formData) {
   const itemType = item?.type;
+  let soulEnergyIssue = null;
   if (Object.prototype.hasOwnProperty.call(formData, "system.enc")) {
     const enc = Number(formData["system.enc"]);
     formData["system.enc"] = Number.isFinite(enc) ? Math.max(0, enc) : 0;
@@ -589,7 +591,65 @@ export function normalizeItemFormData(item, formData) {
     });
   }
 
-  return { scalingLevels };
+  if (["item", "equipment"].includes(String(itemType ?? "").toLowerCase())
+      && [true, "true", 1, "1"].includes(formData["flags.uesrpg-3ev4.isSoulGem"])) {
+    formData["flags.uesrpg-3ev4.isSoulGem"] = true;
+    const tierKey = String(formData["flags.uesrpg-3ev4.soulTier"] ?? "custom").trim().toLowerCase();
+    const knownTier = SOUL_GEM_TIERS[tierKey] ?? null;
+    const maximum = knownTier
+      ? knownTier.maxEnergy
+      : Math.max(0, Math.trunc(Number(formData["flags.uesrpg-3ev4.maxSoulEnergy"]) || 0));
+    const requestedCurrent = Math.max(0, Math.trunc(Number(formData["flags.uesrpg-3ev4.soulEnergy"]) || 0));
+    // A tier change can lower capacity while the old current value is still in
+    // the form. Normalize that dependent value instead of trapping the sheet in
+    // an unsaveable submit-on-close loop.
+    const current = Math.min(maximum, requestedCurrent);
+    const consumptionMode = String(formData["flags.uesrpg-3ev4.soulGemConsumptionMode"] ?? "disposable").toLowerCase() === "reusable"
+      ? "reusable"
+      : "disposable";
+
+    formData["flags.uesrpg-3ev4.soulTier"] = knownTier ? tierKey : "custom";
+    formData["flags.uesrpg-3ev4.soulSize"] = knownTier
+      ? knownTier.label
+      : String(formData["flags.uesrpg-3ev4.soulSize"] ?? "Custom").trim() || "Custom";
+    formData["flags.uesrpg-3ev4.soulType"] = knownTier
+      ? knownTier.soulType
+      : (String(formData["flags.uesrpg-3ev4.soulType"] ?? "white").toLowerCase() === "black" ? "black" : "white");
+    formData["flags.uesrpg-3ev4.soulEnergy"] = current;
+    formData["flags.uesrpg-3ev4.maxSoulEnergy"] = maximum;
+    formData["flags.uesrpg-3ev4.soulGemConsumptionMode"] = consumptionMode;
+
+  }
+
+  // Version-2 enchanting flags are authoritative. Any editable pool submitted
+  // by the consolidated panel is mirrored into system.charge for older macros
+  // and runtime consumers without allowing the two values to drift.
+  const poolPrefixes = [
+    "flags.uesrpg-3ev4.enchanting.cast.pool",
+    "flags.uesrpg-3ev4.itemSpellcasting.pool",
+  ];
+  for (const prefix of poolPrefixes) {
+    const valueKey = `${prefix}.value`;
+    const maxKey = `${prefix}.max`;
+    if (!(valueKey in formData) && !(maxKey in formData)) continue;
+    const fallbackValue = Number(item?.system?.charge?.value ?? 0) || 0;
+    const fallbackMax = Number(item?.system?.charge?.max ?? fallbackValue) || fallbackValue;
+    const maximum = Math.max(0, Math.trunc(Number(formData[maxKey] ?? fallbackMax) || 0));
+    const current = Math.min(maximum, Math.max(0, Math.trunc(Number(formData[valueKey] ?? fallbackValue) || 0)));
+    formData[valueKey] = current;
+    formData[maxKey] = maximum;
+    formData["system.charge.value"] = current;
+    formData["system.charge.max"] = maximum;
+    break;
+  }
+  if ("system.charge.value" in formData || "system.charge.max" in formData) {
+    const maximum = Math.max(0, Math.trunc(Number(formData["system.charge.max"] ?? item?.system?.charge?.max ?? 0) || 0));
+    const current = Math.min(maximum, Math.max(0, Math.trunc(Number(formData["system.charge.value"] ?? item?.system?.charge?.value ?? 0) || 0)));
+    formData["system.charge.value"] = current;
+    formData["system.charge.max"] = maximum;
+  }
+
+  return { scalingLevels, soulEnergyIssue };
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

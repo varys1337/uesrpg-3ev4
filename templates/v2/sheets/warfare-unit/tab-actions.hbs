@@ -11,16 +11,16 @@
       {{else}}
 
       <div class="warfare-clash-section">
-        <button type="button" class="warfare-clash-btn" data-action="initiateClash"
-          data-tooltip-text="Target one enemy Warfare Unit token, then choose Melee or Ranged and resolve a Clash with stance, charge, and facing inputs." aria-label="Target one enemy Warfare Unit token, then choose Melee or Ranged and resolve a Clash with stance, charge, and facing inputs.">
+        <button type="button" class="warfare-clash-btn uesrpg-styled-action" data-action="initiateClash"
+          data-tooltip-text="{{localize "UESRPG.ModernUI.TargetOneEnemyWarfareUnitTokenThenChooseMeleeOrRangedAndResolveAClashWit"}}" aria-label="{{localize "UESRPG.ModernUI.TargetOneEnemyWarfareUnitTokenThenChooseMeleeOrRangedAndResolveAClashWit"}}">
           &#9876; {{localize "UESRPG.Sheets.WarfareUnit.InitiateClash"}}
         </button>
-        <button type="button" class="warfare-clash-btn" data-action="startMixedOpposed"
-          data-tooltip-text="Target one PC or NPC token to start an explicit mixed warfare opposed card." aria-label="Target one PC or NPC token to start an explicit mixed warfare opposed card.">
+        <button type="button" class="warfare-clash-btn uesrpg-styled-action" data-action="startMixedOpposed"
+          data-tooltip-text="{{localize "UESRPG.ModernUI.TargetOnePCOrNPCTokenToStartAnExplicitMixedWarfareOpposedCard"}}" aria-label="{{localize "UESRPG.ModernUI.TargetOnePCOrNPCTokenToStartAnExplicitMixedWarfareOpposedCard"}}">
           {{localize "UESRPG.Sheets.WarfareUnit.StrikeCharacter"}}
         </button>
-        <button type="button" class="warfare-clash-btn warfare-clash-btn--discipline" data-action="rollDiscipline"
-          data-tooltip-text="Roll a general Discipline test for this unit." aria-label="Roll a general Discipline test for this unit.">
+        <button type="button" class="warfare-clash-btn warfare-clash-btn--discipline uesrpg-styled-action" data-action="rollDiscipline"
+          data-tooltip-text="{{localize "UESRPG.ModernUI.RollAGeneralDisciplineTestForThisUnit"}}" aria-label="{{localize "UESRPG.ModernUI.RollAGeneralDisciplineTestForThisUnit"}}">
           {{localize "UESRPG.Sheets.WarfareUnit.RollDiscipline"}}
         </button>
       </div>
@@ -31,7 +31,7 @@
           <div class="warfare-action-column__list">
             {{#each leaderActions}}
             <button type="button"
-              class="warfare-action-btn"
+              class="warfare-action-btn uesrpg-styled-action"
               data-action="rollWarfareAction"
               data-action-id="{{this.id}}"
               data-action-type="leader"
@@ -47,7 +47,7 @@
           <div class="warfare-action-column__list">
             {{#each unitActions}}
             <button type="button"
-              class="warfare-action-btn"
+              class="warfare-action-btn uesrpg-styled-action"
               data-action="rollWarfareAction"
               data-action-id="{{this.id}}"
               data-action-type="unit"

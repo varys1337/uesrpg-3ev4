@@ -13,8 +13,7 @@ import { renderMultiDefenderCard, renderSingleDefenderCard } from "../cards/rend
 
 // Import action handlers
 import { handleAttackerAction } from "./attacker.js";
-import { handleDefenderCommitNoDefense } from "./defender-commit.js";
-import { handleDefenderCommit, handleDefenderRollCommitted } from "./defender-commit.js";
+import { handleDefenderCommitNoDefense, handleDefenderCommit, handleDefenderRollCommitted } from "./defender-commit.js";
 import { handleDefenderNoDefense, handleDefenderRoll } from "./defender-roll.js";
 import { handleDamageRoll, handleCounterDamageRoll } from "./damage.js";
 import { handleDefenderAdvantage, handleBlockResolve, handleWardResolve } from "./resolve.js";

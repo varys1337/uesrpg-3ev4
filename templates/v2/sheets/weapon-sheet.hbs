@@ -137,61 +137,8 @@
                             </div>
                             {{/if}}
 
-                            <div class="weapon-attributes-section enchanting-compact-grid">
-                                <h3>{{localize "UESRPG.Sheets.Item.Enchanting"}}</h3>
-                                
-                                <div class="weapon-field-row">
-                                    <label>{{localize "UESRPG.Sheets.Item.EnchantLevel"}}</label>
-                                    <div class="weapon-enchant-wrap enchant-inline">
-                                        <input type="number" name="system.enchant_level" value="{{item.system.enchant_level}}" class="u-w-full"/>
-                                        {{#if item.system.enchant_levelEffective}}
-                                            <div class="effective-hint"><span class="label">{{localize "UESRPG.UI.EffectiveAbbrev"}}</span>{{item.system.enchant_levelEffective}}</div>
-                                        {{/if}}
-                                    </div>
-                                </div>
-
-                                <div class="weapon-field-row">
-                                    <label>{{localize "UESRPG.Sheets.Item.Charge"}}</label>
-                                    <div class="flex-container weapon-charge-row enchant-inline enchant-charge-inline">
-                                        <button type="button" class="uesrpg-charge-btn" data-action="chargeMinus" data-tooltip="UESRPG.Sheets.Item.DecreaseCurrentCharge" aria-label="{{localize "UESRPG.Sheets.Item.DecreaseCurrentCharge"}}">
-                                            <i class="fas fa-minus"></i>
-                                        </button>
-                                        <input type="number" name="system.charge.value" value="{{item.system.charge.value}}" class="enchant-charge-input"/>
-                                        <span class="enchant-charge-sep">/</span>
-                                        <input type="number" name="system.charge.max" value="{{item.system.charge.max}}" class="enchant-charge-input"/>
-                                        <button type="button" class="uesrpg-charge-btn" data-action="chargePlus" data-tooltip="UESRPG.Sheets.Item.IncreaseCurrentCharge" aria-label="{{localize "UESRPG.Sheets.Item.IncreaseCurrentCharge"}}">
-                                            <i class="fas fa-plus"></i>
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {{!-- Active Enchantment display (read-only; written by Enchanting Workshop) --}}
-                            {{#if enchantmentDisplay}}
-                            <div class="weapon-attributes-section weapon-enchantment-display">
-                                <h3>{{localize "UESRPG.Sheets.Item.ActiveEnchantment"}}</h3>
-                                <div class="weapon-field-row">
-                                    <label>{{localize "UESRPG.Sheets.Equipment.Type"}}</label>
-                                    <span class="styled-font-gold">{{enchantmentDisplay.typeLabel}}</span>
-                                </div>
-                                {{#if enchantmentDisplay.useCharges}}
-                                <div class="weapon-field-row">
-                                    <label>{{localize "UESRPG.Sheets.Item.ChargePool"}}</label>
-                                    <span>{{enchantmentDisplay.chargeValue}} / {{enchantmentDisplay.chargeMax}}</span>
-                                </div>
-                                {{/if}}
-                                {{#each enchantmentDisplay.effects as |fx|}}
-                                <div class="weapon-enchant-effect-row">
-                                    <span class="enchant-effect-label">{{fx.label}}</span>
-                                    <span class="enchant-effect-params u-text-muted">{{fx.paramSummary}}</span>
-                                </div>
-                                {{/each}}
-                                {{#if (eq enchantmentDisplay.typeLabel "Cast")}}
-                                <div class="weapon-field-row">
-                                    <button type="button" data-action="castEnchantment">{{localize "UESRPG.Sheets.Equipment.CastEnchantment"}}</button>
-                                </div>
-                                {{/if}}
-                            </div>
+                            {{#if showEnchantingInterface}}
+                            {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-enchanting-interface.hbs"}}
                             {{/if}}
 
                         </div>

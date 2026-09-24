@@ -51,7 +51,6 @@ export function normalizeDiceExpression(expr) {
 export async function safeEvaluateRoll(formula, { allowUnvalidated = false } = {}) {
   const f = normalizeDiceExpression(formula);
   if (isDebugEnabled("opposedDebugFormula") && String(formula ?? "").trim() !== f) {
-    // eslint-disable-next-line no-console
     console.log("UESRPG Opposed | Formula normalized", { original: String(formula ?? ""), normalized: f });
   }
   const ok = (typeof Roll?.validate === "function") ? Roll.validate(f) : true;

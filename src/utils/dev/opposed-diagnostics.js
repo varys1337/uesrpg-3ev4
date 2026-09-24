@@ -123,10 +123,8 @@ function _getAuthorSummary(msg) {
     const author = msg?.author ?? null;
     const authorId =
       author?.id ??
-      msg?._source?.author ??
-      msg?._source?.user ??
-      msg?.data?.author ??
-      msg?.data?.user ??
+      msg?.user?.id ??
+      (typeof msg?.user === "string" ? msg.user : null) ??
       null;
 
     const summary = author
@@ -210,7 +208,6 @@ export function registerOpposedDiagnostics() {
       return null;
     }
     const snap = await game.uesrpg.debug.dumpOpposed(messageId);
-    // eslint-disable-next-line no-console
     console.log("UESRPG Opposed | snapshot", snap);
     return snap;
   };
@@ -221,7 +218,6 @@ export function registerOpposedDiagnostics() {
       return null;
     }
     const snap = await game.uesrpg.debug.dumpLatestOpposed();
-    // eslint-disable-next-line no-console
     console.log("UESRPG Opposed | latest snapshot", snap);
     return snap;
   };

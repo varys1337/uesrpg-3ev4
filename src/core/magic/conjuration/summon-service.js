@@ -54,8 +54,7 @@ async function _ensureWorldActor(compendiumActor) {
   const existing = (game.actors?.contents ?? []).find(a => {
     // Check our custom flag first (most reliable)
     if (a.flags?.[_FLAG_NS]?.sourceCompendiumUuid === compendiumUuid) return true;
-    // Check Foundry's built-in compendium source tracking
-    if (_str(a._stats?.compendiumSource) === compendiumUuid) return true;
+    if (_str(a.sourceId ?? a.flags?.core?.sourceId) === compendiumUuid) return true;
     return false;
   });
 

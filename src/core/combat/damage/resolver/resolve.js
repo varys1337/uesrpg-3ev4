@@ -310,7 +310,7 @@ function _buildGmDamageReportPayload({
       sourceNotes.push("Talent: Sneak Attack");
       for (const note of (Array.isArray(r.breakdown?.talentNotes) ? r.breakdown.talentNotes : [])) sourceNotes.push(String(note));
       if (r.ignoreArmorOnly) sourceNotes.push("Assassinate: AR ignored for bonus");
-    } else if (r.kind === "external") {
+    } else if (r.kind === "external" || r.kind === "enchant") {
       sourceNotes.push(`Source: ${String(r.sourceLabel ?? "Attack")}`);
     } else {
       const typedEntries = Array.isArray(r.breakdown?.entries)
@@ -516,6 +516,7 @@ export async function applyDamageResolved(targetActor, payload = {}) {
         damageType: String(c.damageType ?? ctx.damageType ?? DAMAGE_TYPES.PHYSICAL).toLowerCase(),
         applyDefenderAdjust: i === 0,
         sourceLabel: c.sourceLabel ?? c.source ?? ctx.options.source ?? "Attack",
+        displayLabel: c.displayLabel ?? null,
         breakdown: (i === 0)
           ? {
               attacker: ctx.options?.aeBreakdown?.attacker ?? [],
@@ -741,6 +742,7 @@ export async function applyDamageResolved(targetActor, payload = {}) {
     results.push({
       kind: c.kind,
       sourceLabel: c.sourceLabel,
+      displayLabel: c.displayLabel ?? null,
       damageType: c.damageType,
       hitLocation,
       rawDamage: Number(calc.rawDamage ?? c.amount ?? 0),
@@ -1296,7 +1298,7 @@ export async function applyDamageResolved(targetActor, payload = {}) {
           rawLines.push(`<div class="uesrpg-da-row"><span class="k"></span><span class="v muted">Assassinate: AR ignored for bonus</span></div>`);
         }
       } else {
-        if (r.kind === "external") {
+        if (r.kind === "external" || r.kind === "enchant") {
           rawLines.push(`<div class="uesrpg-da-row"><span class="k"></span><span class="v muted">Source: ${String(r.sourceLabel ?? "Attack")}</span></div>`);
         } else {
           // Typed bonus

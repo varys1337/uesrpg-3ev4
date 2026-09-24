@@ -30,6 +30,7 @@ import {
   isHybridOpposed
 } from "../hybrid.js";
 import { requireMassCombatEnabled } from "../../../homebrew/settings.js";
+import { collectStrikeEnchantmentEffects } from "../../../enchanting/runtime/strike-runtime.js";
 
 const DAMAGE_TYPES = {
   PHYSICAL: "physical",
@@ -75,7 +76,7 @@ async function _resolveInlineRollHtml(dmg, sharedDamage) {
   return { rollHtml, rollBHtml };
 }
 
-function _buildDamageComponentsFromRoll(dmg, { fallbackType = DAMAGE_TYPES.PHYSICAL, hitLocation = "Body" } = {}) {
+export function _buildDamageComponentsFromRoll(dmg, { fallbackType = DAMAGE_TYPES.PHYSICAL, hitLocation = "Body" } = {}) {
   const list = [dmg?.weaponComponent, dmg?.ammoComponent]
     .filter((c) => c && Number(c.amount ?? 0) > 0)
     .map((c) => ({
@@ -87,6 +88,30 @@ function _buildDamageComponentsFromRoll(dmg, { fallbackType = DAMAGE_TYPES.PHYSI
       hitLocation,
     }));
   return list;
+}
+
+/**
+ * Build the damage rows shown before Apply Damage is pressed.
+ *
+ * Strike damage is intentionally display-only here. The apply payload retains
+ * the rolled weapon/ammunition components and the authoritative resolver adds
+ * strike enchantments once, after revalidating the live weapon and its charge.
+ */
+export function _buildDisplayDamageComponents(baseComponents, { weapon = null, attackerActor = null, hitLocation = "Body" } = {}) {
+  const strike = weapon
+    ? collectStrikeEnchantmentEffects(weapon, attackerActor)
+    : { damageComponents: [] };
+  const strikeComponents = (strike.damageComponents ?? [])
+    .filter((component) => Number(component?.amount ?? 0) > 0)
+    .map((component) => ({
+      kind: component.kind ?? "enchant",
+      sourceLabel: component.sourceLabel ?? null,
+      displayLabel: component.displayLabel ?? null,
+      damageType: String(component.damageType ?? DAMAGE_TYPES.MAGIC).toLowerCase(),
+      amount: Number(component.amount ?? 0) || 0,
+      hitLocation,
+    }));
+  return [...baseComponents, ...strikeComponents];
 }
 
 /**
@@ -785,7 +810,12 @@ export async function handleDamageRoll(ctx) {
     else if (dmg?.rerollMode === "proven") n.push("Proven: take higher");
     return n.join(", ");
   })();
-  const damageComponents = _buildDamageComponentsFromRoll(dmg, { fallbackType: damageType, hitLocation });
+  const applyDamageComponents = _buildDamageComponentsFromRoll(dmg, { fallbackType: damageType, hitLocation });
+  const damageComponents = _buildDisplayDamageComponents(applyDamageComponents, {
+    weapon,
+    attackerActor: attacker,
+    hitLocation,
+  });
 
   const damageObj = {
     rolled: true,
@@ -823,7 +853,7 @@ export async function handleDamageRoll(ctx) {
       attackMode,
       attackHidden,
       source: weapon.name,
-      damageComponents,
+      damageComponents: applyDamageComponents,
       buttonLabel: `Apply Damage → ${dToken?.name ?? defender.name}`,
     }),
     applied: false,
@@ -967,7 +997,12 @@ export async function handleCounterDamageRoll(ctx) {
   });
 
   const { rollHtml, rollBHtml } = await _resolveInlineRollHtml(dmg, null);
-  const damageComponents = _buildDamageComponentsFromRoll(dmg, { fallbackType: damageType, hitLocation });
+  const applyDamageComponents = _buildDamageComponentsFromRoll(dmg, { fallbackType: damageType, hitLocation });
+  const damageComponents = _buildDisplayDamageComponents(applyDamageComponents, {
+    weapon,
+    attackerActor: defender,
+    hitLocation,
+  });
 
   const damageObj = {
     rolled: true,
@@ -1005,7 +1040,7 @@ export async function handleCounterDamageRoll(ctx) {
       attackMode: counterAttackMode,
       attackHidden: counterHidden,
       source: weapon.name,
-      damageComponents,
+      damageComponents: applyDamageComponents,
       buttonLabel: `Apply Damage → ${aToken?.name ?? attacker.name}`,
     }),
     applied: false,

@@ -11,18 +11,23 @@ import { promptDefenderAdvantage as _promptDefenderAdvantage } from "../dialogs/
 import { getSpecialActionById } from "../../combat-style-utils.js";
 import { listEquippedShields as _listEquippedShields } from "../helpers/utility.js";
 import { weaponHasQuality as _weaponHasQuality, asNumber as _asNumber, getPreferredWeaponUuid as _getPreferredWeaponUuid } from "../helpers/workflow.js";
-import { getAttackModeFromWeapon, getDamageTypeFromWeapon } from "../../combat-utils.js";
+import { getAttackModeFromWeapon, getDamageTypeFromWeapon, getHitLocationFromRoll, resolveHitLocationForTarget } from "../../combat-utils.js";
 import { getBlockValue } from "../../mitigation.js";
 import { DAMAGE_TYPES } from "../../damage-automation.js";
 import { rollWeaponDamage as _rollWeaponDamage } from "../damage/roller.js";
 import { _ensureResolvedForPostActions } from "../../opposed-workflow.js";
 import { promptWeaponAndAdvantages as _promptWeaponAndAdvantages } from "../dialogs/attacker.js";
-import { getHitLocationFromRoll, resolveHitLocationForTarget } from "../../combat-utils.js";
 import { getActiveStaminaEffect, consumeStaminaEffect, STAMINA_EFFECT_KEYS } from "../../../stamina/stamina-effects.js";
 import { UESRPG } from "../../../constants.js";
 import { selectEquippedRangedWeapon } from "../helpers/select-equipped-ranged-weapon.js";
-import { inflateSharedDamage as _inflateSharedDamage, buildSharedDamagePayload as _buildSharedDamagePayload } from "./damage.js";
-import { _buildApplyPayload, _emitInlineDamageRollMessage } from "./damage.js";
+import {
+  inflateSharedDamage as _inflateSharedDamage,
+  buildSharedDamagePayload as _buildSharedDamagePayload,
+  _buildApplyPayload,
+  _buildDamageComponentsFromRoll,
+  _buildDisplayDamageComponents,
+  _emitInlineDamageRollMessage,
+} from "./damage.js";
 import { getWardBlockRating, getActiveWardSpell } from "../../ward-defense.js";
 import { safeUpdateChatMessage } from "../../../../utils/chat-message-socket.js";
 import { ActionEconomy } from "../../action-economy.js";
@@ -461,16 +466,10 @@ export async function handleBlockResolve(ctx) {
         reducedDamage,
         shieldName: shield?.name ?? "Shield",
       },
-      damageComponents: [dmg.weaponComponent, dmg.ammoComponent]
-        .filter((c) => c && Number(c.amount ?? 0) > 0)
-        .map((c) => ({
-          source: c.source ?? null,
-          sourceLabel: c.sourceLabel ?? null,
-          sourceItemUuid: c.sourceItemUuid ?? null,
-          damageType: c.damageType ?? damageType,
-          amount: Number(c.amount ?? 0) || 0,
-          hitLocation: hitLocationAoE,
-        })),
+      damageComponents: _buildDisplayDamageComponents(
+        _buildDamageComponentsFromRoll(dmg, { fallbackType: damageType, hitLocation: hitLocationAoE }),
+        { weapon, attackerActor: attacker, hitLocation: hitLocationAoE },
+      ),
       applyPayload: _buildApplyPayload({
         targetUuid: defender.uuid,
         targetName: dToken?.name ?? defender.name,
@@ -484,16 +483,10 @@ export async function handleBlockResolve(ctx) {
         attackMode,
         attackHidden,
         source: weapon.name,
-        damageComponents: [dmg.weaponComponent, dmg.ammoComponent]
-          .filter((c) => c && Number(c.amount ?? 0) > 0)
-          .map((c) => ({
-            source: c.source ?? null,
-            sourceLabel: c.sourceLabel ?? null,
-            sourceItemUuid: c.sourceItemUuid ?? null,
-            damageType: c.damageType ?? damageType,
-            amount: Number(c.amount ?? 0) || 0,
-            hitLocation: hitLocationAoE,
-          })),
+        damageComponents: _buildDamageComponentsFromRoll(dmg, {
+          fallbackType: damageType,
+          hitLocation: hitLocationAoE,
+        }),
         buttonLabel: `Apply Block Damage → ${dToken?.name ?? defender.name}`,
       }),
       applied: false,
@@ -574,16 +567,10 @@ export async function handleBlockResolve(ctx) {
       shieldSplitter: Boolean(shieldSplitter),
       shieldName: shield?.name ?? "No Shield",
     },
-    damageComponents: [dmg.weaponComponent, dmg.ammoComponent]
-      .filter((c) => c && Number(c.amount ?? 0) > 0)
-      .map((c) => ({
-        source: c.source ?? null,
-        sourceLabel: c.sourceLabel ?? null,
-        sourceItemUuid: c.sourceItemUuid ?? null,
-        damageType: c.damageType ?? damageType,
-        amount: Number(c.amount ?? 0) || 0,
-        hitLocation: resolvedShieldArm,
-      })),
+    damageComponents: _buildDisplayDamageComponents(
+      _buildDamageComponentsFromRoll(dmg, { fallbackType: damageType, hitLocation: resolvedShieldArm }),
+      { weapon, attackerActor: attacker, hitLocation: resolvedShieldArm },
+    ),
     applyPayload: _buildApplyPayload({
       targetUuid: defender.uuid,
       targetName: dToken?.name ?? defender.name,
@@ -597,16 +584,10 @@ export async function handleBlockResolve(ctx) {
       attackMode,
       attackHidden: data.context?.attackFromHidden === true,
       source: weapon.name,
-      damageComponents: [dmg.weaponComponent, dmg.ammoComponent]
-        .filter((c) => c && Number(c.amount ?? 0) > 0)
-        .map((c) => ({
-          source: c.source ?? null,
-          sourceLabel: c.sourceLabel ?? null,
-          sourceItemUuid: c.sourceItemUuid ?? null,
-          damageType: c.damageType ?? damageType,
-          amount: Number(c.amount ?? 0) || 0,
-          hitLocation: resolvedShieldArm,
-        })),
+      damageComponents: _buildDamageComponentsFromRoll(dmg, {
+        fallbackType: damageType,
+        hitLocation: resolvedShieldArm,
+      }),
       buttonLabel: `Apply Block Damage → ${dToken?.name ?? defender.name}`,
     }),
     applied: false,
@@ -792,16 +773,10 @@ export async function handleWardResolve(ctx) {
         wardBR,
         wardName,
       },
-      damageComponents: [dmg.weaponComponent, dmg.ammoComponent]
-        .filter((c) => c && Number(c.amount ?? 0) > 0)
-        .map((c) => ({
-          source: c.source ?? null,
-          sourceLabel: c.sourceLabel ?? null,
-          sourceItemUuid: c.sourceItemUuid ?? null,
-          damageType: c.damageType ?? damageType,
-          amount: Number(c.amount ?? 0) || 0,
-          hitLocation: hitLocationAoE,
-        })),
+      damageComponents: _buildDisplayDamageComponents(
+        _buildDamageComponentsFromRoll(dmg, { fallbackType: damageType, hitLocation: hitLocationAoE }),
+        { weapon, attackerActor: attacker, hitLocation: hitLocationAoE },
+      ),
       applyPayload: _buildApplyPayload({
         targetUuid: defender.uuid,
         targetName: dToken?.name ?? defender.name,
@@ -815,16 +790,10 @@ export async function handleWardResolve(ctx) {
         attackMode,
         attackHidden,
         source: weapon.name,
-        damageComponents: [dmg.weaponComponent, dmg.ammoComponent]
-          .filter((c) => c && Number(c.amount ?? 0) > 0)
-          .map((c) => ({
-            source: c.source ?? null,
-            sourceLabel: c.sourceLabel ?? null,
-            sourceItemUuid: c.sourceItemUuid ?? null,
-            damageType: c.damageType ?? damageType,
-            amount: Number(c.amount ?? 0) || 0,
-            hitLocation: hitLocationAoE,
-          })),
+        damageComponents: _buildDamageComponentsFromRoll(dmg, {
+          fallbackType: damageType,
+          hitLocation: hitLocationAoE,
+        }),
         buttonLabel: `Apply Ward Damage → ${dToken?.name ?? defender.name}`,
       }),
       applied: false,
@@ -887,16 +856,10 @@ export async function handleWardResolve(ctx) {
       wardBR,
       wardName,
     },
-    damageComponents: [dmg.weaponComponent, dmg.ammoComponent]
-      .filter((c) => c && Number(c.amount ?? 0) > 0)
-      .map((c) => ({
-        source: c.source ?? null,
-        sourceLabel: c.sourceLabel ?? null,
-        sourceItemUuid: c.sourceItemUuid ?? null,
-        damageType: c.damageType ?? damageType,
-        amount: Number(c.amount ?? 0) || 0,
-        hitLocation: resolvedWardArm,
-      })),
+    damageComponents: _buildDisplayDamageComponents(
+      _buildDamageComponentsFromRoll(dmg, { fallbackType: damageType, hitLocation: resolvedWardArm }),
+      { weapon, attackerActor: attacker, hitLocation: resolvedWardArm },
+    ),
     applyPayload: _buildApplyPayload({
       targetUuid: defender.uuid,
       targetName: dToken?.name ?? defender.name,
@@ -910,16 +873,10 @@ export async function handleWardResolve(ctx) {
       attackMode,
       attackHidden: data.context?.attackFromHidden === true,
       source: weapon.name,
-      damageComponents: [dmg.weaponComponent, dmg.ammoComponent]
-        .filter((c) => c && Number(c.amount ?? 0) > 0)
-        .map((c) => ({
-          source: c.source ?? null,
-          sourceLabel: c.sourceLabel ?? null,
-          sourceItemUuid: c.sourceItemUuid ?? null,
-          damageType: c.damageType ?? damageType,
-          amount: Number(c.amount ?? 0) || 0,
-          hitLocation: resolvedWardArm,
-        })),
+      damageComponents: _buildDamageComponentsFromRoll(dmg, {
+        fallbackType: damageType,
+        hitLocation: resolvedWardArm,
+      }),
       buttonLabel: `Apply Ward Damage → ${dToken?.name ?? defender.name}`,
     }),
     applied: false,

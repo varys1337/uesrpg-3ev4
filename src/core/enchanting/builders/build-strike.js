@@ -9,7 +9,7 @@ const MAX_EFFECTS_NO_MANIFOLD = 1;
 const MAX_EFFECTS_MANIFOLD = 3;
 
 export async function buildStrike(cfg) {
-  const { actor, targetItem, soulGemItem, effects = [], skipRolls = false } = cfg;
+  const { actor, targetItem, soulGemItem, effects = [], skipRolls = false, testBaseTN = null } = cfg;
   const hasManifold = hasTalent(actor, "manifoldenchanter");
   const maxEffects = hasManifold ? MAX_EFFECTS_MANIFOLD : MAX_EFFECTS_NO_MANIFOLD;
   const session = prepareEnchantBuilderSession({
@@ -59,7 +59,7 @@ export async function buildStrike(cfg) {
   const hasSalvage = hasTalent(actor, "salvageenergy");
 
   if (!skipRolls) {
-    testResult = await executeEnchantTest(actor, penalty, { effectiveEnchantRank: session.effectiveEnchantRank });
+    testResult = await executeEnchantTest(actor, penalty, { effectiveEnchantRank: session.effectiveEnchantRank, baseTarget: testBaseTN });
     anySuccess = testResult.success;
     if (!anySuccess && hasSalvage) {
       salvageResult = await executeSalvageEnergyRoll(actor, testResult.tn);

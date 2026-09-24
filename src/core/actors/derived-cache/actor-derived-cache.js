@@ -8,9 +8,23 @@ function _ensureState(actor) {
       aeApplicable: null,
       aeTotals: null,
       prepareContext: null,
+      sheetRevision: 0,
     };
   }
   return actor._uesrpgDerivedCache;
+}
+
+export function getActorSheetRevision(actor) {
+  const revision = Number(_ensureState(actor)?.sheetRevision ?? 0);
+  return Number.isSafeInteger(revision) && revision >= 0 ? revision : 0;
+}
+
+export function bumpActorSheetRevision(actor) {
+  const state = _ensureState(actor);
+  if (!state) return 0;
+  const current = getActorSheetRevision(actor);
+  state.sheetRevision = current < Number.MAX_SAFE_INTEGER ? current + 1 : 1;
+  return state.sheetRevision;
 }
 
 export function getCachedItemAggregation(actor, combatState) {

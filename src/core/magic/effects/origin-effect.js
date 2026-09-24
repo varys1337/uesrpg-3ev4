@@ -666,6 +666,8 @@ function _buildCasterBuffData(targetEffect, spell, casterActor) {
   const duration = targetEffect.duration
     ? foundry.utils.deepClone(targetEffect.duration)
     : {};
+  const durationValue = Number(duration?.value);
+  const durationUnits = String(duration?.units ?? "");
 
   const spellName = String(spell.name ?? "");
   const buffName = spellName.replace("(Drain)", "(Buff)").replace(/\s*$/, " (Buff)");
@@ -708,8 +710,10 @@ function _buildCasterBuffData(targetEffect, spell, casterActor) {
         actualCost: targetFlags.actualCost ?? null,
         costPaid: targetFlags.costPaid ?? targetFlags.actualCost ?? null,
         originalCastWorldTime: targetFlags.originalCastWorldTime ?? null,
-        durationSeconds: targetFlags.durationSeconds ?? (duration?.seconds ?? null),
-        durationRounds: targetFlags.durationRounds ?? (duration?.rounds ?? null),
+        durationSeconds: targetFlags.durationSeconds
+          ?? (durationUnits === "seconds" && Number.isFinite(durationValue) ? durationValue : null),
+        durationRounds: targetFlags.durationRounds
+          ?? (durationUnits === "rounds" && Number.isFinite(durationValue) ? durationValue : null),
         targetUuids: [casterActor.uuid],
         pairedSourceTargetUuids,
         upkeepGroupKey: targetFlags.upkeepGroupKey ?? null,

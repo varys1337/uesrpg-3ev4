@@ -50,7 +50,7 @@ function _actionButtonLabel(label, meta = "") {
  * @returns {number|null} - Roll total or null if not found.
  */
 export function _extractRollTotal(res) {
-  const n = Number(res?.rollTotal ?? res?.total ?? res?.roll?.total ?? res?.roll?._total ?? res?.roll?.result ?? NaN);
+  const n = Number(res?.rollTotal ?? res?.total ?? res?.roll?.total ?? res?.roll?.result ?? NaN);
   return Number.isFinite(n) ? n : null;
 }
 
@@ -535,7 +535,8 @@ export function _buildDamagePanel(damageData) {
   const damageComponents = Array.isArray(damageData.damageComponents) ? damageData.damageComponents : [];
   const componentsHtml = damageComponents.length
     ? `<div class="dmg-components">${damageComponents.map((c) => {
-      const label = maybeT(c?.sourceLabel ?? c?.source, t("UESRPG.Chat.DamagePanel.Source", "Source"));
+      const rawLabel = c?.displayLabel ?? c?.sourceLabel ?? c?.source;
+      const label = maybeT(rawLabel, rawLabel) || t("UESRPG.Chat.DamagePanel.Source", "Source");
       const amount = Number(c?.amount ?? 0) || 0;
       const dtype = String(c?.damageType ?? "").trim();
       const dtypeLabel = dtype ? _localizeDamageType(dtype) : "";

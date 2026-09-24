@@ -139,7 +139,7 @@ function valuesEqual(current, expected) {
 
 async function selectCombatStyleTarget(actor, operation) {
   const styles = itemCollection(actor).filter((item) => item.type === "combatStyle");
-  const options = styles.map((item) => `<option value="${item.uuid}">${foundry.utils.escapeHTML(item.name)}</option>`).join("");
+  const options = styles.map((item) => `<option value="${foundry.utils.escapeHTML(item.uuid)}">${foundry.utils.escapeHTML(item.name)}</option>`).join("");
   const allowsCreation = operation.kind === "setRank";
   const equipmentOptions = (operation.allowedEquipment ?? []).map((name) => `<option value="${foundry.utils.escapeHTML(name)}">${foundry.utils.escapeHTML(name)}</option>`).join("");
   const answer = await customDialog({
@@ -147,9 +147,9 @@ async function selectCombatStyleTarget(actor, operation) {
     title: t("UESRPG.DefectUpdate.SelectGrantTarget", "Select Grant Target"),
     classes: ["uesrpg-chargen-dialog"],
     content: `<div class="uesrpg-cg-dialog uesrpg-cg-stack">
-      ${options ? `<label class="uesrpg-cg-field uesrpg-cg-field--stacked"><span>Combat Style</span><select id="grantStyleUuid">${options}</select></label>` : ""}
-      ${allowsCreation ? `<label class="uesrpg-cg-field uesrpg-cg-field--stacked"><span>Or create a Combat Style</span><input id="grantStyleName" type="text"></label>` : ""}
-      ${equipmentOptions ? `<label class="uesrpg-cg-field uesrpg-cg-field--stacked"><span>Weapon family</span><select id="grantEquipment">${equipmentOptions}</select></label>` : ""}
+      ${options ? `<label class="uesrpg-cg-field uesrpg-cg-field--stacked"><span>${t("UESRPG.DefectUpdate.CombatStyle")}</span><select data-role="grant-style-uuid">${options}</select></label>` : ""}
+      ${allowsCreation ? `<label class="uesrpg-cg-field uesrpg-cg-field--stacked"><span>${t("UESRPG.DefectUpdate.CreateCombatStyle")}</span><input data-role="grant-style-name" type="text"></label>` : ""}
+      ${equipmentOptions ? `<label class="uesrpg-cg-field uesrpg-cg-field--stacked"><span>${t("UESRPG.DefectUpdate.WeaponFamily")}</span><select data-role="grant-equipment">${equipmentOptions}</select></label>` : ""}
     </div>`,
     buttons: {
       apply: {
@@ -157,9 +157,9 @@ async function selectCombatStyleTarget(actor, operation) {
         callback: (html) => {
           const root = html instanceof HTMLElement ? html : html?.[0];
           return {
-            itemUuid: String(root?.querySelector("#grantStyleUuid")?.value ?? ""),
-            itemName: String(root?.querySelector("#grantStyleName")?.value ?? "").trim(),
-            equipment: String(root?.querySelector("#grantEquipment")?.value ?? "").trim(),
+            itemUuid: String(root?.querySelector('[data-role="grant-style-uuid"]')?.value ?? ""),
+            itemName: String(root?.querySelector('[data-role="grant-style-name"]')?.value ?? "").trim(),
+            equipment: String(root?.querySelector('[data-role="grant-equipment"]')?.value ?? "").trim(),
           };
         },
       },
@@ -352,13 +352,13 @@ export async function promptAdministrativeCorrectionReason() {
     layout: "workflow",
     title: t("UESRPG.DefectUpdate.AdministrativeCorrection", "Administrative Correction"),
     classes: ["uesrpg-chargen-dialog"],
-    content: `<div class="uesrpg-cg-dialog"><label class="uesrpg-cg-field uesrpg-cg-field--stacked"><span>${t("UESRPG.DefectUpdate.CorrectionReason", "Reason")}</span><input id="chargenCorrectionReason" type="text" required minlength="3"></label></div>`,
+    content: `<div class="uesrpg-cg-dialog"><label class="uesrpg-cg-field uesrpg-cg-field--stacked"><span>${t("UESRPG.DefectUpdate.CorrectionReason", "Reason")}</span><input data-role="chargen-correction-reason" type="text" required minlength="3"></label></div>`,
     buttons: {
       apply: {
         label: t("UESRPG.UI.Apply", "Apply"),
         callback: (html) => {
           const root = html instanceof HTMLElement ? html : html?.[0];
-          return String(root?.querySelector("#chargenCorrectionReason")?.value ?? "").trim();
+          return String(root?.querySelector('[data-role="chargen-correction-reason"]')?.value ?? "").trim();
         },
       },
       cancel: { label: t("UESRPG.UI.Cancel", "Cancel"), callback: () => null },
@@ -376,20 +376,20 @@ export async function promptAndApplyRacialGrant(actor, grantId, { administrative
   const raceMatch = findRaceDefinition(actor?.system?.race);
   const grant = getRaceGrantDefinitions(raceMatch?.raceKey).find((entry) => entry.id === grantId);
   if (!grant) return { ok: false, error: "Grant definition not found" };
-  const optionsHtml = grant.options.map((option) => `<option value="${option.id}">${foundry.utils.escapeHTML(option.label)}</option>`).join("");
+  const optionsHtml = grant.options.map((option) => `<option value="${foundry.utils.escapeHTML(option.id)}">${foundry.utils.escapeHTML(option.label)}</option>`).join("");
   const optionId = grant.options.length === 1
     ? grant.options[0].id
     : await customDialog({
       layout: "workflow",
         title: grant.label,
         classes: ["uesrpg-chargen-dialog"],
-        content: `<div class="uesrpg-cg-dialog"><label class="uesrpg-cg-field uesrpg-cg-field--stacked"><span>${t("UESRPG.DefectUpdate.GrantChoice", "Choose benefit")}</span><select id="racialGrantOption">${optionsHtml}</select></label></div>`,
+        content: `<div class="uesrpg-cg-dialog"><label class="uesrpg-cg-field uesrpg-cg-field--stacked"><span>${t("UESRPG.DefectUpdate.GrantChoice", "Choose benefit")}</span><select data-role="racial-grant-option">${optionsHtml}</select></label></div>`,
         buttons: {
           apply: {
             label: t("UESRPG.UI.Apply", "Apply"),
             callback: (html) => {
               const root = html instanceof HTMLElement ? html : html?.[0];
-              return String(root?.querySelector("#racialGrantOption")?.value ?? "");
+              return String(root?.querySelector('[data-role="racial-grant-option"]')?.value ?? "");
             },
           },
           cancel: { label: t("UESRPG.UI.Cancel", "Cancel"), callback: () => null },

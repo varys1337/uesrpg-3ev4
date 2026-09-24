@@ -22,6 +22,7 @@ import {
 } from "../../../../core/luck/lucky-numbers.js";
 import { t, tf } from "../../../../utils/i18n.js";
 import { activateOpenApplication } from "../application-focus.js";
+import { withApplicationUniqueId } from "../application-identity.js";
 import {
   buildAdministrativeCorrectionAudit,
   getRacialGrantReview,
@@ -91,7 +92,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
   static #openByKey = new Map();
 
   constructor(options = {}) {
-    super(options);
+    super(withApplicationUniqueId(options, options.actorUuid ?? `global-${game.user?.id ?? "unknown"}`));
     this._openKey = String(options.actorUuid ?? "global");
     this._resumeKey = `uesrpg.charGen.v1.${game.user?.id ?? "unknown"}`;
     this._ws = _defaultWizardState(options.name ?? "");
@@ -108,7 +109,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
   }
 
   static DEFAULT_OPTIONS = {
-    id: "uesrpg-char-gen-wizard",
+    id: "uesrpg-char-gen-wizard-{id}",
     classes: ["uesrpg", "uesrpg-char-gen", "uesrpg-creation-app"],
     tag: "form",
     position: { width: 720, height: 520 },
@@ -683,14 +684,14 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
         <p class="uesrpg-cg-intro">${t("UESRPG.Dialogs.CharGen.BirthsignRawContent")}</p>
         <label class="uesrpg-cg-field uesrpg-cg-field--stacked">
           <span>${t("UESRPG.Dialogs.CharGen.Charge")}</span>
-          <select id="uesrpgBirthsignCharge">
+          <select data-role="birthsign-charge">
             <option value="warrior">${t("UESRPG.Dialogs.CharGen.ChargeWarrior")}</option>
             <option value="mage">${t("UESRPG.Dialogs.CharGen.ChargeMage")}</option>
             <option value="thief">${t("UESRPG.Dialogs.CharGen.ChargeThief")}</option>
           </select>
         </label>
         <label class="uesrpg-cg-check">
-          <input type="checkbox" id="uesrpgLuckCostToggle">
+          <input type="checkbox" data-role="luck-cost-toggle">
           <span>${t("UESRPG.Dialogs.CharGen.OptionalLuckRule")}</span>
         </label>
       </div>`,
@@ -701,8 +702,8 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
             const root = html instanceof HTMLElement ? html : html?.[0];
             return {
               mode: "roll",
-              charge: String(root?.querySelector("#uesrpgBirthsignCharge")?.value ?? "warrior"),
-              luckCostToggle: Boolean(root?.querySelector("#uesrpgLuckCostToggle")?.checked),
+              charge: String(root?.querySelector('[data-role="birthsign-charge"]')?.value ?? "warrior"),
+              luckCostToggle: Boolean(root?.querySelector('[data-role="luck-cost-toggle"]')?.checked),
             };
           },
         },
@@ -712,7 +713,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
             const root = html instanceof HTMLElement ? html : html?.[0];
             return {
               mode: "manual",
-              luckCostToggle: Boolean(root?.querySelector("#uesrpgLuckCostToggle")?.checked),
+              luckCostToggle: Boolean(root?.querySelector('[data-role="luck-cost-toggle"]')?.checked),
             };
           },
         },
@@ -847,7 +848,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     event?.preventDefault?.();
     const actor = await this.#resolveActor();
     if (!actor) {
-      ui.notifications?.warn?.("Select or create an actor first.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.SelectOrCreateActorFirst"));
       return;
     }
 
@@ -864,15 +865,15 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     const styles = actor.items.filter((it) => it.type === "combatStyle");
     const styleOptions = [
       `<option value="__new__">${t("UESRPG.Dialogs.CharGen.CreateNewCombatStyle")}</option>`,
-      ...styles.map((it) => `<option value="${it.id}">${it.name}</option>`),
+      ...styles.map((it) => `<option value="${foundry.utils.escapeHTML(it.id)}">${foundry.utils.escapeHTML(it.name)}</option>`),
     ].join("");
     const rankOptions = RANK_OPTIONS.map((rank) => {
       const label = foundry.utils.escapeHTML(t(TRAINING_RANK_LABELS[rank] ?? rank));
       return `<option value="${rank}" ${rank === "novice" ? "selected" : ""}>${label}</option>`;
     }).join("");
     const saChecks = SPECIAL_ACTIONS.map((sa) => `<label class="uesrpg-cg-check">
-      <input type="checkbox" class="cg-sa" value="${sa.id}">
-      <span>${sa.name}</span>
+      <input type="checkbox" class="cg-sa" value="${foundry.utils.escapeHTML(sa.id)}">
+      <span>${foundry.utils.escapeHTML(sa.name)}</span>
     </label>`).join("");
 
     const computeCombatSetupCost = (input) => {
@@ -944,24 +945,14 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     };
 
     const readCombatFormState = (root) => ({
-      styleId: String(root?.querySelector("#cgCombatStyleSelect")?.value ?? "__new__"),
-      styleName: String(root?.querySelector("#cgCombatStyleName")?.value ?? "").trim(),
-      rank: String(root?.querySelector("#cgCombatStyleRank")?.value ?? "novice"),
-      trainedEquipment: [
-        root?.querySelector("#cgTe1")?.value,
-        root?.querySelector("#cgTe2")?.value,
-        root?.querySelector("#cgTe3")?.value,
-        root?.querySelector("#cgTe4")?.value,
-        root?.querySelector("#cgTe5")?.value,
-        root?.querySelector("#cgTe6")?.value,
-        root?.querySelector("#cgTe7")?.value,
-        root?.querySelector("#cgTe8")?.value,
-        root?.querySelector("#cgTe9")?.value,
-        root?.querySelector("#cgTe10")?.value,
-      ],
+      styleId: String(root?.querySelector('[data-role="combat-style-select"]')?.value ?? "__new__"),
+      styleName: String(root?.querySelector('[data-role="combat-style-name"]')?.value ?? "").trim(),
+      rank: String(root?.querySelector('[data-role="combat-style-rank"]')?.value ?? "novice"),
+      trainedEquipment: Array.from({ length: 10 }, (_, index) =>
+        root?.querySelector(`[data-role="trained-equipment-${index + 1}"]`)?.value),
       specialAdvantages: [...(root?.querySelectorAll(".cg-sa:checked") ?? [])].map((el) => String(el.value)),
-      setActive: Boolean(root?.querySelector("#cgSetActiveStyle")?.checked),
-      freeCombatStyle: Boolean(root?.querySelector("#cgFreeCombatStyle")?.checked),
+      setActive: Boolean(root?.querySelector('[data-role="set-active-style"]')?.checked),
+      freeCombatStyle: Boolean(root?.querySelector('[data-role="free-combat-style"]')?.checked),
     });
 
     const result = await customDialog({
@@ -975,43 +966,39 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
         <div class="uesrpg-cg-dialog__note uesrpg-cg-intro">${t("UESRPG.Dialogs.CharGen.CombatStyleSetupNote")}</div>
         <label class="uesrpg-cg-field uesrpg-cg-field--stacked">
           <span>${t("UESRPG.Dialogs.CharGen.CombatStyle")}</span>
-          <select id="cgCombatStyleSelect">${styleOptions}</select>
+          <select data-role="combat-style-select">${styleOptions}</select>
         </label>
         <label class="uesrpg-cg-field uesrpg-cg-field--stacked">
           <span>${t("UESRPG.Dialogs.CharGen.NewStyleName")}</span>
-          <input type="text" id="cgCombatStyleName" value="${t("UESRPG.Dialogs.CharGen.CombatStyleName")}">
+          <input type="text" data-role="combat-style-name" value="${t("UESRPG.Dialogs.CharGen.CombatStyleName")}">
         </label>
         <label class="uesrpg-cg-field uesrpg-cg-field--stacked">
           <span>${t("UESRPG.Dialogs.CharGen.Rank")}</span>
-          <select id="cgCombatStyleRank">${rankOptions}</select>
+          <select data-role="combat-style-rank">${rankOptions}</select>
         </label>
         <div class="uesrpg-cg-dialog__note">${t("UESRPG.Dialogs.CharGen.TrainedEquipmentSetup")}</div>
         <div class="uesrpg-cg-option-grid">
-          <input type="text" id="cgTe1" placeholder="e.g., Long Blade">
-          <input type="text" id="cgTe2" placeholder="e.g., Shield">
-          <input type="text" id="cgTe3" placeholder="e.g., Bow">
-          <input type="text" id="cgTe4" placeholder="e.g., Dagger">
-          <input type="text" id="cgTe5" placeholder="e.g., Unarmed">
+          <input type="text" data-role="trained-equipment-1" placeholder="${t("UESRPG.Placeholders.TrainedEquipmentExample")}">
+          <input type="text" data-role="trained-equipment-2" placeholder="${t("UESRPG.Placeholders.TrainedEquipmentExample")}">
+          <input type="text" data-role="trained-equipment-3" placeholder="${t("UESRPG.Placeholders.TrainedEquipmentExample")}">
+          <input type="text" data-role="trained-equipment-4" placeholder="${t("UESRPG.Placeholders.TrainedEquipmentExample")}">
+          <input type="text" data-role="trained-equipment-5" placeholder="${t("UESRPG.Placeholders.TrainedEquipmentExample")}">
         </div>
         <div class="uesrpg-cg-dialog__note">${t("UESRPG.Dialogs.CharGen.CombatStyleExpansions")}</div>
         <div class="uesrpg-cg-option-grid">
-          <input type="text" id="cgTe6" placeholder="Expansion slot 6">
-          <input type="text" id="cgTe7" placeholder="Expansion slot 7">
-          <input type="text" id="cgTe8" placeholder="Expansion slot 8">
-          <input type="text" id="cgTe9" placeholder="Expansion slot 9">
-          <input type="text" id="cgTe10" placeholder="Expansion slot 10">
+          ${Array.from({ length: 5 }, (_, index) => `<input type="text" data-role="trained-equipment-${index + 6}" placeholder="${tf("UESRPG.Dialogs.CharGen.ExpansionSlot", { slot: index + 6 })}">`).join("")}
         </div>
         <div class="uesrpg-cg-dialog__note">${t("UESRPG.Dialogs.CharGen.SpecialAdvantagesNote")}</div>
         <div class="uesrpg-cg-option-grid">
           ${saChecks}
         </div>
-        <div class="uesrpg-cg-dialog__note"><b>${t("UESRPG.Dialogs.CharGen.EstimatedCost")}:</b> <span id="cgCombatStyleCost">0</span> XP <span id="cgCombatStyleCostBreakdown"></span></div>
+        <div class="uesrpg-cg-dialog__note"><b>${t("UESRPG.Dialogs.CharGen.EstimatedCost")}:</b> <span data-role="combat-style-cost">0</span> ${t("UESRPG.UI.XP")} <span data-role="combat-style-cost-breakdown"></span></div>
         <label class="uesrpg-cg-check">
-          <input type="checkbox" id="cgFreeCombatStyle" ${administrativeReason ? "checked disabled" : ""}>
+          <input type="checkbox" data-role="free-combat-style" ${administrativeReason ? "checked disabled" : ""}>
           <span>${t("UESRPG.Dialogs.CharGen.FreeCombatStyle")}</span>
         </label>
         <label class="uesrpg-cg-check">
-          <input type="checkbox" id="cgSetActiveStyle" checked>
+          <input type="checkbox" data-role="set-active-style" checked>
           <span>${t("UESRPG.Dialogs.CharGen.SetActiveCombatStyle")}</span>
         </label>
       </div>`,
@@ -1030,12 +1017,12 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
         const root = _dialogRoot(html);
         if (!root) return;
         const hydrateFromStyleSelection = () => {
-          const styleId = String(root.querySelector("#cgCombatStyleSelect")?.value ?? "__new__");
+          const styleId = String(root.querySelector('[data-role="combat-style-select"]')?.value ?? "__new__");
           if (styleId === "__new__") {
-            const rank = root.querySelector("#cgCombatStyleRank");
+            const rank = root.querySelector('[data-role="combat-style-rank"]');
             if (rank) rank.value = "novice";
             for (let i = 1; i <= 10; i += 1) {
-              const te = root.querySelector(`#cgTe${i}`);
+              const te = root.querySelector(`[data-role="trained-equipment-${i}"]`);
               if (te) te.value = "";
             }
             root.querySelectorAll(".cg-sa").forEach((el) => { el.checked = false; });
@@ -1043,13 +1030,13 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
           }
           const style = actor.items.get(styleId);
           if (!style) return;
-          const name = root.querySelector("#cgCombatStyleName");
+          const name = root.querySelector('[data-role="combat-style-name"]');
           if (name) name.value = style.name ?? "";
-          const rank = root.querySelector("#cgCombatStyleRank");
+          const rank = root.querySelector('[data-role="combat-style-rank"]');
           if (rank) rank.value = normalizeRank(style.system?.rank ?? "untrained");
           const te = Array.isArray(style.system?.trainedEquipment) ? style.system.trainedEquipment : [];
           for (let i = 1; i <= 10; i += 1) {
-            const field = root.querySelector(`#cgTe${i}`);
+            const field = root.querySelector(`[data-role="trained-equipment-${i}"]`);
             if (field) field.value = String(te[i - 1] ?? "");
           }
           const saSet = new Set(
@@ -1064,8 +1051,8 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
 
         const updateEstimate = () => {
           const out = computeCombatSetupCost(readCombatFormState(root));
-          const valueEl = root.querySelector("#cgCombatStyleCost");
-          const breakEl = root.querySelector("#cgCombatStyleCostBreakdown");
+          const valueEl = root.querySelector('[data-role="combat-style-cost"]');
+          const breakEl = root.querySelector('[data-role="combat-style-cost-breakdown"]');
           if (valueEl) valueEl.textContent = String(out.ok ? out.xpCost : 0);
           if (breakEl) {
             breakEl.textContent = out.ok
@@ -1077,21 +1064,12 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
         };
 
         const watched = [
-          "#cgCombatStyleSelect",
-          "#cgCombatStyleRank",
-          "#cgCombatStyleName",
-          "#cgTe1",
-          "#cgTe2",
-          "#cgTe3",
-          "#cgTe4",
-          "#cgTe5",
-          "#cgTe6",
-          "#cgTe7",
-          "#cgTe8",
-          "#cgTe9",
-          "#cgTe10",
-          "#cgFreeCombatStyle",
-          "#cgSetActiveStyle",
+          '[data-role="combat-style-select"]',
+          '[data-role="combat-style-rank"]',
+          '[data-role="combat-style-name"]',
+          ...Array.from({ length: 10 }, (_, index) => `[data-role="trained-equipment-${index + 1}"]`),
+          '[data-role="free-combat-style"]',
+          '[data-role="set-active-style"]',
         ];
         for (const sel of watched) {
           const el = root.querySelector(sel);
@@ -1099,7 +1077,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
           el.addEventListener("change", updateEstimate);
           el.addEventListener("input", updateEstimate);
         }
-        root.querySelector("#cgCombatStyleSelect")?.addEventListener("change", () => {
+        root.querySelector('[data-role="combat-style-select"]')?.addEventListener("change", () => {
           hydrateFromStyleSelection();
           updateEstimate();
         });

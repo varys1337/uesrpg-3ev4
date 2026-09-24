@@ -4,6 +4,9 @@ export function syncBookmarkTabsActiveClass(sheet, group = "primary") {
 
   const selector = `nav.uesrpg-bookmark-tabs [data-group="${group}"][data-tab]`;
   for (const tab of sheet.element?.querySelectorAll?.(selector) ?? []) {
-    tab.classList.toggle("active", tab.dataset.tab === activeTab);
+    const active = tab.dataset.tab === activeTab;
+    tab.classList.toggle("active", active);
+    tab.setAttribute("aria-selected", String(active));
+    tab.tabIndex = active ? 0 : -1;
   }
 }

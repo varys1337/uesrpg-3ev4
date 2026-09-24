@@ -59,6 +59,7 @@ import {
   ensureResolvedForPostActions as _ensureResolvedForPostActionsImpl
 } from "./opposed/cards/hydration.js";
 import { applyExternalRollMessage as _applyExternalRollMessageImpl } from "./opposed/banking/external-roll.js";
+import { _resolveActorViaToken, _resolveItemViaActor } from "./opposed/helpers/docs.js";
 import {
   listEquippedShields as _listEquippedShieldsImpl,
   hasEquippedShieldType as _hasEquippedShieldTypeImpl,
@@ -160,7 +161,6 @@ import {
   attackerDeclareDialog,
   promptWeaponAndAdvantages
 } from "./opposed/dialogs/attacker.js";
-import { _resolveItemViaActor } from "./opposed/helpers/docs.js";
 import { createPending as _createPendingImpl } from "./opposed/createPending.js";
 
 // Export internal wrapper function needed by action handlers

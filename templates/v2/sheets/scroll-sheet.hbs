@@ -43,7 +43,7 @@
                 <div class="form-group">
                     <h3>{{localize "UESRPG.Sheets.Item.LinkedSpell"}}</h3>
                     <p><strong>{{scrollLinkedSpell.name}}</strong> ({{scrollLinkedSpell.school}} L{{scrollLinkedSpell.level}})</p>
-                    <p>{{localize "UESRPG.Sheets.Item.Cost"}}: {{scrollLinkedSpell.cost}} MP | {{localize "UESRPG.Sheets.Item.Form"}}: {{scrollLinkedSpell.form}} | {{localize "UESRPG.Sheets.Equipment.Range"}}: {{scrollLinkedSpell.range}}</p>
+                    <p>{{localize "UESRPG.Sheets.Item.Cost"}}: {{scrollLinkedSpell.cost}} {{localize "UESRPG.ModernUI.MP"}} {{localize "UESRPG.Sheets.Item.Form"}}: {{scrollLinkedSpell.form}} | {{localize "UESRPG.Sheets.Equipment.Range"}}: {{scrollLinkedSpell.range}}</p>
                     <p>{{localize "UESRPG.UI.Duration"}}: {{scrollLinkedSpell.duration.value}} {{scrollLinkedSpell.duration.unit}}</p>
                     {{#if scrollLinkedSpell.damageInstances.length}}
                     <div>
@@ -57,14 +57,14 @@
                     {{/if}}
                     <p>
                         <strong>{{localize "UESRPG.Sheets.Item.Features"}}:</strong>
-                        {{#if scrollLinkedSpell.isInstant}} Instant {{/if}}
-                        {{#if scrollLinkedSpell.isDirect}} Direct {{/if}}
-                        {{#if scrollLinkedSpell.isZonePersistent}} Zone {{/if}}
-                        {{#if scrollLinkedSpell.isRuneSpell}} Rune {{/if}}
-                        {{#if scrollLinkedSpell.hasOverTime}} Over Time {{/if}}
-                        {{#if scrollLinkedSpell.hasOverload}} Overload {{/if}}
-                        {{#if scrollLinkedSpell.isSummonSpell}} Summon {{/if}}
-                        {{#if scrollLinkedSpell.hasBuffer}} Buffer {{/if}}
+                        {{#if scrollLinkedSpell.isInstant}} {{localize "UESRPG.Dialogs.AlchemyWorkshop.Instant"}} {{/if}}
+                        {{#if scrollLinkedSpell.isDirect}} {{localize "UESRPG.ModernUI.Direct"}} {{/if}}
+                        {{#if scrollLinkedSpell.isZonePersistent}} {{localize "UESRPG.ModernUI.Zone"}} {{/if}}
+                        {{#if scrollLinkedSpell.isRuneSpell}} {{localize "UESRPG.ModernUI.Rune"}} {{/if}}
+                        {{#if scrollLinkedSpell.hasOverTime}} {{localize "UESRPG.ModernUI.OverTime"}} {{/if}}
+                        {{#if scrollLinkedSpell.hasOverload}} {{localize "UESRPG.Dialogs.SpellOptions.Overload"}} {{/if}}
+                        {{#if scrollLinkedSpell.isSummonSpell}} {{localize "UESRPG.ModernUI.Summon"}} {{/if}}
+                        {{#if scrollLinkedSpell.hasBuffer}} {{localize "UESRPG.ModernUI.Buffer"}} {{/if}}
                     </p>
                 </div>
                 {{/if}}
@@ -79,7 +79,7 @@
             <div class="item-selection-container">
                 <h2>{{localize "UESRPG.Sheets.Item.Cast"}}</h2>
                 <div class="activation-use-btn-wrap">
-                    <button type="button" class="uesrpg-scroll-cast" data-action="castScroll"
+                    <button type="button" class="uesrpg-scroll-cast uesrpg-styled-action" data-action="castScroll"
                             {{#unless hasLinkedSpell}}disabled data-tooltip="UESRPG.Sheets.Item.NoValidSpellAssigned"{{/unless}} aria-label="{{localize "UESRPG.Sheets.Item.NoValidSpellAssigned"}}">
                         <i class="fas fa-scroll"></i> {{localize "UESRPG.Sheets.Item.CastScroll"}}
                     </button>
@@ -89,6 +89,9 @@
             {{/if}}
 
             {{#if uiSpellcastingConfig}}
+            {{#if showEnchantingInterface}}
+            {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-enchanting-interface.hbs"}}
+            {{/if}}
             {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-spellcasting-config.hbs" helpKey="UESRPG.Sheets.Item.SpellcastingConfigurationScrollHelp" uiSpellcastingConfig=uiSpellcastingConfig}}
             {{/if}}
         </div>

@@ -15,9 +15,10 @@ import {
 } from "./state.js";
 import { requestUpdateChatMessage } from "../../utils/authority-proxy.js";
 import { runCombatLegacyReadinessScan } from "../combat/legacy-readiness-scanner.js";
+import { MIGRATION_REVISIONS } from "./revisions.js";
 
 const MODULE_ID = SYSTEM_ID;
-const _COMBAT_LEGACY_MIGRATION_REVISION = 1;
+const _COMBAT_LEGACY_MIGRATION_REVISION = MIGRATION_REVISIONS.combatLegacy;
 
 const LEGACY_STAGE_MAP = Object.freeze({
   "attacker-roll": "attacker-commit",

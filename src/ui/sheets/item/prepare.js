@@ -56,6 +56,13 @@ import { getAllCharacteristicOptions } from "../../../utils/maps/characteristics
 import { STRIKE_ENCHANTMENTS_CATALOG } from "../../../data/strike-enchantments-catalog.js";
 import { localizeStrikeEnchantment } from "../../../data/spell-i18n.js";
 import { getEffectByKey } from "../../../core/alchemy/effects.js";
+import { resolveAlchemyIngredientData } from "../../../core/alchemy/ingredients.js";
+import {
+  SOUL_GEM_CONSUMPTION_MODES,
+  SOUL_GEM_TIERS,
+  resolveSoulGemData,
+} from "../../../core/enchanting/soul-gems.js";
+import { resolveEnchantmentChargeState } from "../../../core/enchanting/charge-pool.js";
 import { buildAlchemyProductEffectSlots } from "./item-sheet-alchemy-effects.js";
 import {
   getWeaponBaseReachState,
@@ -614,25 +621,53 @@ export async function prepareItemSheetData(sheet, data) {
     } else {
       data.enchantmentDisplay = null;
     }
+    const chargeState = resolveEnchantmentChargeState(itemDoc);
+    data.enchantingInterface = {
+      hasActiveEnchantment: Boolean(data.enchantmentDisplay),
+      charge: chargeState ? {
+        ...chargeState,
+        isExtension: chargeState.source === "extension",
+      } : null,
+    };
+    data.showEnchantingInterface = Boolean(
+      data.enchantmentDisplay
+      || (chargeState?.source === "extension" && data.uiSpellcastingConfig?.enabled === true)
+    );
   } else if (itemType === "scroll") {
     data.uiSpellcastingConfig = await _buildSpellcastingUiConfig(itemDoc);
+    const chargeState = resolveEnchantmentChargeState(itemDoc);
+    data.enchantingInterface = {
+      hasActiveEnchantment: false,
+      charge: chargeState ? {
+        ...chargeState,
+        isExtension: chargeState.source === "extension",
+      } : null,
+    };
+    data.showEnchantingInterface = chargeState?.source === "extension"
+      && data.uiSpellcastingConfig?.enabled === true;
   }
 
   // --------------------------------------------
-  // Generic Item: Alchemy ingredient data (flag-based)
-  // Identifies items that serve as alchemy ingredients via flags["uesrpg-3ev4"].alchemy.
+  // Generic Item/Equipment: normalized Alchemy ingredient data. Canonical
+  // compendium-name fallbacks remain configurable even before flags are saved.
   // --------------------------------------------
   if (itemType === "equipment" || itemType === "item") {
     const alchemyFlags = itemDoc?.flags?.["uesrpg-3ev4"]?.alchemy ?? null;
-    data.isAlchemyIngredient = alchemyFlags?.kind === "ingredient";
+    const ingredientData = resolveAlchemyIngredientData(itemDoc);
+    data.isAlchemyIngredient = Boolean(ingredientData);
+    data.canClearAlchemyIngredient = Boolean(ingredientData && !ingredientData.isCanonicalName);
     data.isAlchemyProduct = ["potion", "poison", "toxin"].includes(String(alchemyFlags?.kind ?? ""));
 
     data.alchemyData = data.isAlchemyIngredient
       ? {
-          kind: alchemyFlags.kind ?? "ingredient",
-          school: alchemyFlags.school ?? "",
-          strengthBase: Number(alchemyFlags.strengthBase ?? 0),
-          depthBase: Number(alchemyFlags.depthBase ?? 0),
+          kind: "ingredient",
+          quality: ingredientData.qualityKey ?? "",
+          qualityLabel: ingredientData.qualityLabel,
+          recognitionSource: ingredientData.recognitionSource,
+          isConfigured: ingredientData.isConfigured,
+          school: ingredientData.school,
+          strengthBase: ingredientData.strengthBase,
+          depthBase: ingredientData.depthBase,
         }
       : null;
 
@@ -671,6 +706,38 @@ export async function prepareItemSheetData(sheet, data) {
     } else {
       data.alchemyProduct = null;
     }
+
+    const soulData = resolveSoulGemData(itemDoc);
+    const explicitSoulFlags = soulData?.recognitionSource === "flags";
+    data.isSoulEnergyItem = Boolean(soulData);
+    data.hasExplicitSoulEnergyFlags = explicitSoulFlags;
+    data.soulEnergyData = soulData ? {
+      ...soulData,
+      tierKey: soulData.tierKey ?? "custom",
+      isCustomTier: !soulData.tierKey,
+      quantity: Math.max(0, Number(itemDoc?.system?.quantity ?? 1) || 0),
+      hasInvalidReusableStack: soulData.isReusable && Number(itemDoc?.system?.quantity ?? 1) !== 1,
+      tierOptions: [
+        ...Object.entries(SOUL_GEM_TIERS).map(([value, tier]) => ({
+          value,
+          label: tier.label,
+          selected: soulData.tierKey === value,
+        })),
+        { value: "custom", label: t("UESRPG.Sheets.Item.SoulEnergyCustom"), selected: !soulData.tierKey },
+      ],
+      consumptionOptions: [
+        {
+          value: SOUL_GEM_CONSUMPTION_MODES.DISPOSABLE,
+          label: t("UESRPG.Sheets.Item.SoulEnergyDisposable"),
+          selected: !soulData.isReusable,
+        },
+        {
+          value: SOUL_GEM_CONSUMPTION_MODES.REUSABLE,
+          label: t("UESRPG.Sheets.Item.SoulEnergyReusable"),
+          selected: soulData.isReusable,
+        },
+      ],
+    } : null;
   }
 
   return data;
@@ -699,8 +766,9 @@ function _buildEnchantmentDisplay(enc, item) {
   const useCharges = enc.strike?.useCharges === true
     || enc.cast?.useCharges === true
     || false;
-  const chargeValue = Number(item?.system?.charge?.value ?? 0);
-  const chargeMax = Number(item?.system?.charge?.max ?? 0);
+  const chargeState = resolveEnchantmentChargeState(item);
+  const chargeValue = Number(chargeState?.value ?? item?.system?.charge?.value ?? 0);
+  const chargeMax = Number(chargeState?.max ?? item?.system?.charge?.max ?? 0);
 
   let effects = [];
 
@@ -769,10 +837,10 @@ async function _buildSpellcastingUiConfig(item) {
   const enabled = source?.enabled === true;
   const usesChargePool = !usingLegacyExtensionData;
   const poolValue = usesChargePool
-    ? Number(item?.system?.charge?.value ?? source?.pool?.value ?? 0)
+    ? Number(source?.pool?.value ?? item?.system?.charge?.value ?? 0)
     : Number(source?.pool?.value ?? item?.system?.charge?.value ?? 0);
   const poolMax = usesChargePool
-    ? Number(item?.system?.charge?.max ?? source?.pool?.max ?? 0)
+    ? Number(source?.pool?.max ?? item?.system?.charge?.max ?? 0)
     : Number(source?.pool?.max ?? item?.system?.charge?.max ?? 0);
   const modeOptions = {
     soul: "Soul Energy",

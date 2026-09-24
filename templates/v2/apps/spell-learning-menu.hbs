@@ -5,8 +5,8 @@
       <div class="uesrpg-spelllearn__subtitle">{{actorName}}</div>
     </div>
     <div class="uesrpg-spelllearn__stats">
-      <span><b>XP:</b> {{xp}} → {{xpProjected}}</span>
-      <span><b>Drakes:</b> {{wealth}} → {{wealthProjected}}</span>
+      <span><b>{{localize "UESRPG.ModernUI.XP"}}</b> {{xp}} → {{xpProjected}}</span>
+      <span><b>{{localize "UESRPG.ModernUI.Drakes"}}</b> {{wealth}} → {{wealthProjected}}</span>
     </div>
     <button type="button" data-action="close"><i class="fas fa-times"></i> {{localize "UESRPG.UI.Close"}}</button>
   </header>
@@ -24,10 +24,10 @@
             <div class="uesrpg-spelllearn__draft-row">
               <div class="uesrpg-spelllearn__draft-text">
                 <div class="uesrpg-spelllearn__draft-label">{{row.label}}</div>
-                <div class="uesrpg-spelllearn__draft-meta">XP {{row.costXp}} | Drakes {{row.costWealth}}</div>
+                <div class="uesrpg-spelllearn__draft-meta">{{localize "UESRPG.ModernUI.XPDrakes" value1=row.costXp value2=row.costWealth}}</div>
               </div>
               <button type="button" data-action="removeDraftEntry" data-entry-id="{{row.id}}" class="uesrpg-spelllearn__rollback-btn">
-                <i class="fas fa-rotate-left"></i> Remove
+                <i class="fas fa-rotate-left"></i> {{localize "UESRPG.UI.Remove"}}
               </button>
             </div>
           {{/each}}
@@ -67,7 +67,7 @@
         {{#each recentLog as |row|}}
           <li>
             <b>{{row.outcome}}</b> - {{row.spellName}} ({{row.spellType}}, L{{row.level}}, {{row.school}})
-            | {{row.paymentMode}} | XP {{row.costXp}} | Drakes {{row.costDrakes}}
+            {{localize "UESRPG.ModernUI.XPDrakesc3717a31" value1=row.paymentMode value2=row.costXp value3=row.costDrakes}}
             {{#if row.reason}} | {{row.reason}}{{/if}}
           </li>
         {{/each}}

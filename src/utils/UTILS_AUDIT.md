@@ -1,53 +1,26 @@
-# src/utils Audit (2026-03-03)
+# `src/utils` audit (2026-09-18)
 
-## Top-level `src/utils/*.js`
+## Result
 
-| File | Category | Import Count | Action |
-|---|---|---:|---|
-| `ae-helpers.js` | runtime-foundry | 6 | keep (single source of truth for AE grouping) |
-| `aoe-utils.js` | runtime-foundry | 5 | keep |
-| `async-guard.js` | runtime-pure | 10 | keep |
-| `authority-proxy.js` | runtime-foundry | 124 | keep (sanitize parity fixed) |
-| `chat-message-socket.js` | runtime-foundry | 19 | keep |
-| `clone.js` | runtime-pure | 11 | keep |
-| `coerce.js` | runtime-pure | 21 | keep |
-| `debug.js` | runtime-foundry | 43 | keep (SYSTEM_ID constant refactor) |
-| `degree-roll-helper.js` | workflow | 38 | keep as compatibility wrapper |
-| `dialog-v2-helper.js` | ui | 72 | keep |
-| `dnd-debugger.js` | runtime-foundry | 5 | keep (SYSTEM_ID constant refactor) |
-| `dnd-external-create.js` | runtime-foundry | 0 | keep (used through wrapper module) |
-| `dnd-parse.js` | runtime-foundry | 0 | keep (used through wrapper module) |
-| `drag-payload.js` | runtime-foundry | 4 | keep |
-| `drop-data.js` | runtime-foundry | 7 | keep |
-| `drop-item-create-data.js` | runtime-foundry | 3 | keep |
-| `enrich-cache.js` | ui | 7 | keep |
-| `permissions.js` | runtime-foundry | 13 | keep |
-| `skillCalcHelper.js` | runtime-pure | 4 | keep |
-| `stringHelpers.js` | runtime-pure | 1 | keep (now reused by birthsign dialog) |
-| `uuid-cache.js` | runtime-pure | 2 | keep |
+All runtime utility modules are either reachable from `src/system.js` through a static or literal dynamic import, or intentionally exposed through one of the five documented public barrel entry points. Release validation now fails when a new unreachable runtime module is introduced.
 
-## `src/utils/dev/*.js`
+The previous generic cross-client mutation transport has been removed. The current authority boundary is split between:
 
-Category for all files below: `dev/node-only`.
+- `authority-intents.js`: requester-backed, active-GM, versioned command intents with expiring receipts and per-request locking.
+- `authority-proxy.js`: native-permission direct writes plus the sealed chat-transition command. Arbitrary cross-owner document payloads are rejected.
+- `chat-message-socket.js`: compatibility facade retained for existing imports; it no longer registers a raw socket listener.
+- `authority-proxy/`: payload validation, embedded-document deletion, locking, and diagnostics shared by the direct and intent paths.
 
-| File | Import Count | Action |
-|---|---:|---|
-| `actor-select-debug.js` | 2 | keep |
-| `ae-keys-dump.js` | 1 | keep |
-| `chapter4-audit.js` | 1 | keep |
-| `chapter6-audit.js` | 1 | keep |
-| `chapter6-spell-catalog.js` | 0 | keep |
-| `chapter6-spell-remediation.js` | 1 | keep |
-| `debug-settings.js` | 2 | keep |
-| `enchanting-audit.js` | 0 | keep |
-| `opposed-diagnostics.js` | 2 | keep |
-| `skill-tn-debug.js` | 2 | keep |
-| `spell-audit.js` | 2 | keep |
-| `spell-profile-test.js` | 2 | keep |
+## Top-level organization
 
-## Structural notes
+- Foundry integration: authority, permissions, settings, document resolution, UUID cache, chat roll mode, and compatibility helpers.
+- UI support: DialogV2, tooltips/enrichment, canvas location selection, drag/drop, and delegated guards.
+- Pure/runtime helpers: cloning, coercion, numeric expressions, degree calculations, user selection, and deferred loading.
+- Diagnostics: debug, performance tracking, memory monitoring, and the `dev/` console-only tools.
+- Focused submodules: `authority-proxy/`, `canvas/`, `chat/`, `degree/`, `dialog-v2/`, and `maps/`.
 
-- `src/utils/degree/*` added for roll-core/workflow split.
-- Node-only generator moved out of runtime tree:
-  - from `src/utils/generate-item-defaults.js`
-  - to `tools/generate-item-defaults.js`
+## Enforcement
+
+`npm run validate` checks literal dynamic imports as well as static imports, permits only the explicit public-barrel allowlist, rejects raw system socket mutation listeners outside the sealed authority service, and rejects private Foundry document storage access. `npm run lint` provides the complementary JavaScript correctness pass.
+
+No utility file was deleted in this tranche because every non-barrel module is reachable and the compatibility facades still have live importers.

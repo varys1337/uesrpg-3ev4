@@ -1,493 +1,343 @@
-{{!-- templates/v2/apps/enchanting-workshop.hbs — AppV2 Enchanting Workshop --}}
-{{!-- Rendered inside a <form> wrapper (tag: form in DEFAULT_OPTIONS) --}}
-
+{{!-- AppV2 Enchanting Workshop. The ApplicationV2 root is the form element. --}}
 <section class="enchanting-workshop-body">
+  <input type="hidden" name="actorUuid" value="{{actorUuid}}">
+  <input type="hidden" name="mode" value="{{mode}}">
 
-<input type="hidden" name="actorUuid" value="{{actorUuid}}">
+  <header class="enchanting-workshop-header">
+    <div class="enchanting-workshop-identity">
+      <img class="enchanting-workshop-portrait" src="{{actorImg}}" alt="">
+      <div class="enchanting-workshop-identity__copy">
+        <span class="enchanting-workshop-kicker">{{localize "UESRPG.Apps.EnchantingWorkshop.IdentityKicker"}}</span>
+        <strong class="enchanting-workshop-actor-name">{{actorName}}</strong>
+        <span class="enchanting-workshop-skill">
+          {{localize "UESRPG.Apps.EnchantingWorkshop.EnchantSkillSummary" tn=enchantTN rank=enchantRank}}
+        </span>
+      </div>
+    </div>
 
-{{!-- ── Actor Info ──────────────────────────────────────────────────────────── --}}
-<section class="enchanting-actor-info">
-  <p class="enchanting-actor-name"><strong>Crafter:</strong> {{actorName}}</p>
-  <p class="enchanting-skill-info">
-    <strong>Enchant TN:</strong> {{enchantTN}}
-    | <strong>Rank:</strong> {{enchantRank}}
-    {{#if hasManifold}}<span class="talent-badge">Manifold Enchanter</span>{{/if}}
-    {{#if hasProcedural}}<span class="talent-badge">Procedural Enchanting</span>{{/if}}
-    {{#if hasSalvage}}<span class="talent-badge">Salvage Energy</span>{{/if}}
-  </p>
-</section>
+    <div class="enchanting-workshop-inventory" aria-label="{{localize "UESRPG.Apps.EnchantingWorkshop.SoulGemInventory"}}">
+      <div class="enchanting-workshop-stat">
+        <span>{{localize "UESRPG.Apps.EnchantingWorkshop.TotalGems"}}</span>
+        <strong>{{soulGemCount}}</strong>
+      </div>
+      <div class="enchanting-workshop-stat">
+        <span>{{localize "UESRPG.Apps.EnchantingWorkshop.UsableGems"}}</span>
+        <strong>{{filledGemCount}}</strong>
+      </div>
+      <div class="enchanting-workshop-stat">
+        <span>{{localize "UESRPG.Apps.EnchantingWorkshop.EmptyGems"}}</span>
+        <strong>{{emptyGemCount}}</strong>
+      </div>
+      <div class="enchanting-workshop-stat">
+        <span>{{localize "UESRPG.Apps.EnchantingWorkshop.EnchantableItems"}}</span>
+        <strong>{{workshopSummary.itemCount}}</strong>
+      </div>
+    </div>
+  </header>
 
-<hr>
+  {{#if (or hasManifold hasProcedural hasSalvage)}}
+  <div class="enchanting-workshop-talents" aria-label="{{localize "UESRPG.Apps.EnchantingWorkshop.ActiveTalents"}}">
+    {{#if hasManifold}}<span class="enchanting-workshop-chip">{{localize "UESRPG.ModernUI.ManifoldEnchanter"}}</span>{{/if}}
+    {{#if hasProcedural}}<span class="enchanting-workshop-chip">{{localize "UESRPG.ModernUI.ProceduralEnchanting"}}</span>{{/if}}
+    {{#if hasSalvage}}<span class="enchanting-workshop-chip">{{localize "UESRPG.ModernUI.SalvageEnergy"}}</span>{{/if}}
+  </div>
+  {{/if}}
 
-{{!-- ── Mode Selector ────────────────────────────────────────────────────────── --}}
-<div class="form-group">
-  <label>Workshop Mode</label>
-  <select name="mode">
-    {{#each modeOptions}}
-      <option value="{{key}}" {{#if (eq key ../mode)}}selected{{/if}} {{#unless available}}disabled{{/unless}}>
-        {{label}}{{#unless available}} (no eligible items){{/unless}}
-      </option>
+  <nav class="enchanting-mode-tabs" aria-label="{{localize "UESRPG.Apps.EnchantingWorkshop.ModeNavigation"}}">
+    {{#each modeOptions as |option|}}
+    <button
+      type="button"
+      class="enchanting-mode-tab {{#if option.active}}is-active{{/if}}"
+      data-action="modeChange"
+      data-mode="{{option.key}}"
+      aria-pressed="{{#if option.active}}true{{else}}false{{/if}}"
+      aria-label="{{option.label}}"
+      data-tooltip-text="{{option.tooltip}}"
+      {{#unless option.available}}disabled{{/unless}}>
+      <i class="{{option.icon}}" aria-hidden="true"></i>
+      <span>{{option.label}}</span>
+      {{#unless option.available}}<small>{{option.unavailableReason}}</small>{{/unless}}
+    </button>
     {{/each}}
-  </select>
-</div>
+  </nav>
 
-<hr>
-
-{{!-- ══════════════════════════════════════════════════════════════════════════ --}}
-{{!-- MODE: CAST ENCHANTMENT                                                     --}}
-{{!-- ══════════════════════════════════════════════════════════════════════════ --}}
-{{#if (eq mode "cast")}}
-
-<fieldset class="enchanting-section">
-  <legend>Cast Enchantment — Stored Spell</legend>
-
-  <div class="enchanting-summary-strip">
-    <div class="enchanting-summary-strip__card">
-      <span class="enchanting-summary-strip__label">Crafter</span>
-      <strong>{{workshopSummary.actorName}}</strong>
-    </div>
-    <div class="enchanting-summary-strip__card">
-      <span class="enchanting-summary-strip__label">Enchant Skill</span>
-      <strong>TN {{workshopSummary.enchantTN}} / Rank {{workshopSummary.enchantRank}}</strong>
-    </div>
-    <div class="enchanting-summary-strip__card">
-      <span class="enchanting-summary-strip__label">Soul Gems</span>
-      <strong>{{workshopSummary.gemCount}} available</strong>
-    </div>
-    <div class="enchanting-summary-strip__card">
-      <span class="enchanting-summary-strip__label">Pool Preview</span>
-      <strong>{{workshopSummary.poolRule}}</strong>
-    </div>
-    <div class="enchanting-summary-strip__card">
-      <span class="enchanting-summary-strip__label">Stored Slots</span>
-      <strong>{{workshopSummary.slotCount}}</strong>
-    </div>
+  {{#unless actorFound}}
+  <div class="enchanting-workshop-banner is-danger">
+    {{localize "UESRPG.Apps.EnchantingWorkshop.ActorUnavailable"}}
   </div>
+  {{/unless}}
 
-  <div class="enchanting-cast-setup">
-    <label class="enchanting-cast-setup__field">
-      <span>Item to Enchant</span>
-      <select name="targetItemUuid">
-        <option value="">-- Select Item --</option>
-        {{#each enchantableItems}}
-          <option value="{{id}}">{{name}} ({{type}}, EL {{el}}){{#if enchanted}} [already enchanted]{{/if}}</option>
-        {{/each}}
-      </select>
-    </label>
+  {{#unless (eq mode "toggle")}}
+  <section class="enchanting-panel enchanting-resources-panel">
+    <header class="enchanting-panel__header">
+      <div>
+        <span class="enchanting-panel__eyebrow">{{localize "UESRPG.Apps.EnchantingWorkshop.StageResources"}}</span>
+        <h3>{{localize "UESRPG.Apps.EnchantingWorkshop.ResourceSelection"}}</h3>
+      </div>
+      <span class="enchanting-panel__summary">{{workshopSummary.poolRule}}</span>
+    </header>
 
-    <label class="enchanting-cast-setup__field">
-      <span>Soul Gem</span>
-      <select name="gemUuid">
-        <option value="">-- Select Soul Gem --</option>
-        {{#each gemOptions}}
-          <option value="{{id}}">{{label}}</option>
-        {{/each}}
-      </select>
-      {{#unless gemOptions.length}}<span class="u-text-muted u-text-xs">No filled soul gems in inventory.</span>{{/unless}}
-    </label>
-  </div>
-
-  <div class="enchanting-cast-slots">
-    {{#each castSpellSlots as |slot|}}
-    <section class="enchanting-cast-slot">
-      <div class="enchanting-cast-slot__head">
-        <div>
-          <strong>Spell Slot {{slot.number}}</strong>
-          {{#if slot.isManifold}}<span class="u-text-muted u-text-xs">Manifold Enchanter</span>{{/if}}
+    <div class="enchanting-resource-grid">
+      {{#if (eq mode "recharge")}}
+      <input type="hidden" name="enchantedItemUuid" value="{{selectedEnchanted.uuid}}" required>
+      <div class="enchanting-field">
+        <span>{{localize "UESRPG.ModernUI.EnchantedItemCastType"}}</span>
+        <div class="enchanting-resource-drop {{#if selectedEnchanted}}is-selected{{/if}}" data-enchant-resource-drop="target" tabindex="0">
+          {{#if selectedEnchanted}}
+          <img src="{{selectedEnchanted.img}}" alt=""><span><strong>{{selectedEnchanted.name}}</strong><small>{{selectedEnchanted.meta}} · ×{{selectedEnchanted.quantity}}</small></span>
+          <button type="button" data-action="clearResource" data-resource-kind="target" aria-label="{{localize 'UESRPG.Apps.EnchantingWorkshop.Dropzones.Clear'}}"><i class="fas fa-times" aria-hidden="true"></i></button>
+          {{else}}<i class="fas fa-box-open" aria-hidden="true"></i><span>{{localize "UESRPG.Apps.EnchantingWorkshop.Dropzones.DropCastItem"}}</span>{{/if}}
         </div>
-        <span class="uesrpg-tag uesrpg-tag--info">{{slot.availableSpellCount}} known spell{{#unless (eq slot.availableSpellCount 1)}}s{{/unless}}</span>
+        <button type="button" class="enchanting-resource-choose" data-action="chooseResource" data-resource-kind="target">{{localize "UESRPG.Apps.EnchantingWorkshop.Dropzones.ChooseInventory"}}</button>
       </div>
-
-      <div class="enchanting-cast-slot__grid">
-        <label class="enchanting-cast-slot__field">
-          <span>Source</span>
-          <select name="spell_source_{{slot.index}}">
-            <option value="conventional">Conventional</option>
-            <option value="unconventional">Unconventional</option>
-          </select>
-        </label>
-
-        <label class="enchanting-cast-slot__field enchanting-cast-slot__field--wide">
-          <span>Stored Spell</span>
-          <select name="spell_select_uuid_{{slot.index}}">
-            <option value="">-- Select spell --</option>
-            {{#each slot.spellOptions as |option|}}
-              <option value="{{option.value}}">{{option.label}}</option>
-            {{/each}}
-          </select>
-          {{#unless slot.availableSpellCount}}
-          <span class="u-text-muted u-text-xs">No actor-owned spells available. Use Advanced to preserve a legacy UUID.</span>
-          {{/unless}}
-        </label>
-
-        <label class="enchanting-cast-slot__field">
-          <span>Label</span>
-          <input type="text" name="spell_label_{{slot.index}}" placeholder="e.g. Fireball">
-        </label>
-
-        <label class="enchanting-cast-slot__field enchanting-cast-slot__field--number">
-          <span>Level</span>
-          <input type="number" name="spell_level_{{slot.index}}" min="0" max="7" value="{{slot.level}}">
-        </label>
-
-        <label class="enchanting-cast-slot__field enchanting-cast-slot__field--number">
-          <span>Soul Energy Cost</span>
-          <input type="number" name="spell_cost_{{slot.index}}" min="0" value="{{slot.cost}}" placeholder="0">
-        </label>
-
-        <label class="enchanting-cast-slot__field enchanting-cast-slot__field--wide">
-          <span>Attributes</span>
-          <input type="text" name="spell_attributes_{{slot.index}}" placeholder="e.g. upkeep, mindlock">
-        </label>
+      {{else}}
+      <input type="hidden" name="targetItemUuid" value="{{selectedTarget.uuid}}" required>
+      <div class="enchanting-field">
+        <span>{{#if (eq mode "strike")}}{{localize "UESRPG.ModernUI.WeaponAmmunitionToEnchant"}}{{else}}{{localize "UESRPG.ModernUI.ItemToEnchant"}}{{/if}}</span>
+        <div class="enchanting-resource-drop {{#if selectedTarget}}is-selected{{/if}}" data-enchant-resource-drop="target" tabindex="0">
+          {{#if selectedTarget}}
+          <img src="{{selectedTarget.img}}" alt=""><span><strong>{{selectedTarget.name}}</strong><small>{{selectedTarget.meta}} · ×{{selectedTarget.quantity}}</small></span>
+          <button type="button" data-action="clearResource" data-resource-kind="target" aria-label="{{localize 'UESRPG.Apps.EnchantingWorkshop.Dropzones.Clear'}}"><i class="fas fa-times" aria-hidden="true"></i></button>
+          {{else}}<i class="fas fa-box-open" aria-hidden="true"></i><span>{{localize "UESRPG.Apps.EnchantingWorkshop.Dropzones.DropTarget"}}</span>{{/if}}
+        </div>
+        <button type="button" class="enchanting-resource-choose" data-action="chooseResource" data-resource-kind="target">{{localize "UESRPG.Apps.EnchantingWorkshop.Dropzones.ChooseInventory"}}</button>
       </div>
+      {{/if}}
 
-      <details class="enchanting-cast-slot__advanced">
-        <summary>Advanced / Legacy UUID</summary>
-        <label class="enchanting-cast-slot__field enchanting-cast-slot__field--wide">
-          <span>Spell UUID</span>
-          <input type="text" name="spell_uuid_{{slot.index}}" placeholder="Actor.x.Item.y or Compendium.x.y">
-        </label>
-      </details>
-    </section>
-    {{/each}}
-  </div>
+      <input type="hidden" name="gemUuid" value="{{selectedGem.uuid}}" required>
+      <div class="enchanting-field">
+        <span>{{#if (eq mode "recharge")}}{{localize "UESRPG.ModernUI.SoulGemToUseForRecharge"}}{{else}}{{localize "UESRPG.Apps.EnchantingWorkshop.SoulGemSource"}}{{/if}}</span>
+        <div class="enchanting-resource-drop {{#if selectedGem}}is-selected{{/if}}" data-enchant-resource-drop="gem" tabindex="0">
+          {{#if selectedGem}}
+          <img src="{{selectedGem.img}}" alt=""><span><strong>{{selectedGem.name}}</strong><small>{{selectedGem.meta}} · ×{{selectedGem.quantity}}</small></span>
+          <button type="button" data-action="clearResource" data-resource-kind="gem" aria-label="{{localize 'UESRPG.Apps.EnchantingWorkshop.Dropzones.Clear'}}"><i class="fas fa-times" aria-hidden="true"></i></button>
+          {{else}}<i class="fas fa-gem" aria-hidden="true"></i><span>{{localize "UESRPG.Apps.EnchantingWorkshop.Dropzones.DropGem"}}</span>{{/if}}
+        </div>
+        <button type="button" class="enchanting-resource-choose" data-action="chooseResource" data-resource-kind="gem">{{localize "UESRPG.Apps.EnchantingWorkshop.Dropzones.ChooseInventory"}}</button>
+        {{#unless hasSoulGems}}
+        <small class="enchanting-field__hint is-danger">{{localize "UESRPG.Apps.EnchantingWorkshop.NoSoulGems"}}</small>
+        {{else unless hasFilledSoulGems}}
+        <small class="enchanting-field__hint is-warning">{{localize "UESRPG.Apps.EnchantingWorkshop.OnlyEmptySoulGems"}}</small>
+        {{else if emptyGemCount}}
+        <small class="enchanting-field__hint">{{localize "UESRPG.Apps.EnchantingWorkshop.EmptyGemHelp" count=emptyGemCount}}</small>
+        {{/unless}}
+      </div>
+    </div>
+  </section>
+  {{/unless}}
 
-  <p class="notes">
-    RAW: One Enchant test per spell slot. {{workshopSummary.poolRule}}
-    {{#if hasProcedural}}Procedural Enchanting: on success, choose DoS or Enchant rank as Binding Strength.{{/if}}
-    {{#if hasSalvage}}Salvage Energy: on failure, a follow-up test may preserve the soul gem.{{/if}}
-  </p>
-</fieldset>
+  {{#if (eq mode "cast")}}
+  <section class="enchanting-panel">
+    <header class="enchanting-panel__header">
+      <div>
+        <span class="enchanting-panel__eyebrow">{{localize "UESRPG.Apps.EnchantingWorkshop.StageEffects"}}</span>
+        <h3>{{localize "UESRPG.ModernUI.CastEnchantmentStoredSpell"}}</h3>
+      </div>
+      <span class="enchanting-panel__summary">{{localize "UESRPG.Apps.EnchantingWorkshop.StoredSlotSummary" slots=workshopSummary.slotCount spells=workshopSummary.spellOptionCount}}</span>
+    </header>
 
-{{/if}}
+    <div class="enchanting-slot-list">
+      {{#each castSpellSlots as |slot|}}
+      <article class="enchanting-slot-card">
+        <header class="enchanting-slot-card__header">
+          <div>
+            <strong>{{localize "UESRPG.ModernUI.SpellSlot" value1=slot.number}}</strong>
+            <small>{{#if slot.isPrimary}}{{localize "UESRPG.Apps.EnchantingWorkshop.PrimarySlot"}}{{else}}{{localize "UESRPG.Apps.EnchantingWorkshop.ManifoldSlot"}}{{/if}}</small>
+          </div>
+          <span class="enchanting-workshop-chip">{{slot.availableSpellCount}} {{localize "UESRPG.ModernUI.KnownSpell"}}</span>
+        </header>
 
-{{!-- ══════════════════════════════════════════════════════════════════════════ --}}
-{{!-- MODE: STRIKE ENCHANTMENT                                                   --}}
-{{!-- ══════════════════════════════════════════════════════════════════════════ --}}
-{{#if (eq mode "strike")}}
+        <div class="enchanting-form-grid">
+          <label class="enchanting-field">
+            <span>{{localize "UESRPG.Sheets.Item.Source"}}</span>
+            <select name="spell_source_{{slot.index}}">
+              <option value="conventional">{{localize "UESRPG.Sheets.Item.ConventionalStoredSpell"}}</option>
+              <option value="unconventional">{{localize "UESRPG.Sheets.Item.UnconventionalStoredSpell"}}</option>
+            </select>
+          </label>
+          <label class="enchanting-field is-wide">
+            <span>{{localize "UESRPG.Sheets.Item.StoredSpell"}}</span>
+            <select name="spell_select_uuid_{{slot.index}}">
+              <option value="">{{localize "UESRPG.ModernUI.SelectSpell"}}</option>
+              {{#each slot.spellOptions as |option|}}<option value="{{option.value}}">{{option.label}}</option>{{/each}}
+            </select>
+            {{#unless slot.availableSpellCount}}<small class="enchanting-field__hint is-warning">{{localize "UESRPG.ModernUI.NoActorOwnedSpellsAvailableUseAdvancedToPreserveALegacyUUID"}}</small>{{/unless}}
+          </label>
+          <label class="enchanting-field">
+            <span>{{localize "UESRPG.Sheets.Item.Label"}}</span>
+            <input type="text" name="spell_label_{{slot.index}}" placeholder="{{localize "UESRPG.ModernUI.EGFireball"}}">
+          </label>
+          <label class="enchanting-field is-number">
+            <span>{{localize "UESRPG.Chat.Magic.Level"}}</span>
+            <input type="number" name="spell_level_{{slot.index}}" min="0" max="7" value="{{slot.level}}">
+          </label>
+          <label class="enchanting-field is-number">
+            <span>{{localize "UESRPG.Chat.Magic.SoulEnergyCost"}}</span>
+            <input type="number" name="spell_cost_{{slot.index}}" min="0" value="{{slot.cost}}">
+          </label>
+          <label class="enchanting-field is-wide">
+            <span>{{localize "UESRPG.Sheets.Item.Attributes"}}</span>
+            <input type="text" name="spell_attributes_{{slot.index}}" placeholder="{{localize "UESRPG.Placeholders.AttributesCommaSeparated"}}">
+          </label>
+        </div>
 
-<fieldset class="enchanting-section">
-  <legend>Strike Enchantment — On-Hit Effect</legend>
-
-  <div class="form-group">
-    <label>Weapon / Ammunition to Enchant</label>
-    <select name="targetItemUuid">
-      <option value="">-- Select Item --</option>
-      {{#each enchantableItems}}
-        {{#if (eq type "weapon")}}
-          <option value="{{id}}">{{name}} (EL {{el}}){{#if enchanted}} [already enchanted]{{/if}}</option>
-        {{/if}}
+        <details class="enchanting-advanced">
+          <summary>{{localize "UESRPG.ModernUI.AdvancedLegacyUUID"}}</summary>
+          <label class="enchanting-field">
+            <span>{{localize "UESRPG.Sheets.Item.SpellUUID"}}</span>
+            <input type="text" name="spell_uuid_{{slot.index}}" placeholder="{{localize "UESRPG.ModernUI.ActorXItemYOrCompendiumXY"}}">
+          </label>
+        </details>
+      </article>
       {{/each}}
-    </select>
-  </div>
+    </div>
 
-  <div class="form-group">
-    <label>Soul Gem</label>
-    <select name="gemUuid">
-      <option value="">-- Select Soul Gem --</option>
-      {{#each gemOptions}}
-        <option value="{{id}}">{{label}}</option>
-      {{/each}}
-    </select>
-  </div>
-
-  <hr>
-
-  {{!-- Strike Effect Slot 0 --}}
-  <fieldset class="spell-slot">
-    <legend>Strike Effect 1</legend>
-    <div class="form-group">
-      <label>Effect</label>
-      <select name="strike_key_0">
-        <option value="">-- Select Effect --</option>
-        {{#each strikeOptions}}
-          <option value="{{key}}">{{label}} ({{costFormula}})</option>
-        {{/each}}
-      </select>
-    </div>
-    <div class="form-group">
-      <label>Spell Level (SL)</label>
-      <input type="number" name="strike_sl_0" min="1" max="7" value="1">
-    </div>
-    <div class="form-group">
-      <label>Y (drain/absorb amount, if applicable)</label>
-      <input type="number" name="strike_y_0" min="0" value="0">
-    </div>
-    <div class="form-group">
-      <label>Type (weapon/armor, for Disintegrate)</label>
-      <input type="text" name="strike_type_0" placeholder="weapon or armor">
-    </div>
-    <div class="form-group">
-      <label>Soul Energy Cost (computed from formula above)</label>
-      <input type="number" name="strike_cost_0" min="0" value="10">
-    </div>
-  </fieldset>
-
-  {{#if hasManifold}}
-  <fieldset class="spell-slot">
-    <legend>Strike Effect 2 <em>(Manifold Enchanter)</em></legend>
-    <div class="form-group">
-      <label>Effect</label>
-      <select name="strike_key_1">
-        <option value="">-- None --</option>
-        {{#each strikeOptions}}
-          <option value="{{key}}">{{label}}</option>
-        {{/each}}
-      </select>
-    </div>
-    <div class="form-group">
-      <label>SL</label>
-      <input type="number" name="strike_sl_1" min="0" max="7" value="0">
-    </div>
-    <div class="form-group">
-      <label>Y</label>
-      <input type="number" name="strike_y_1" min="0" value="0">
-    </div>
-    <div class="form-group">
-      <label>Type</label>
-      <input type="text" name="strike_type_1">
-    </div>
-    <div class="form-group">
-      <label>Cost</label>
-      <input type="number" name="strike_cost_1" min="0" value="0">
-    </div>
-  </fieldset>
-
-  <fieldset class="spell-slot">
-    <legend>Strike Effect 3 <em>(Manifold Enchanter)</em></legend>
-    <div class="form-group">
-      <label>Effect</label>
-      <select name="strike_key_2">
-        <option value="">-- None --</option>
-        {{#each strikeOptions}}
-          <option value="{{key}}">{{label}}</option>
-        {{/each}}
-      </select>
-    </div>
-    <div class="form-group">
-      <label>SL</label>
-      <input type="number" name="strike_sl_2" min="0" max="7" value="0">
-    </div>
-    <div class="form-group">
-      <label>Y</label>
-      <input type="number" name="strike_y_2" min="0" value="0">
-    </div>
-    <div class="form-group">
-      <label>Type</label>
-      <input type="text" name="strike_type_2">
-    </div>
-    <div class="form-group">
-      <label>Cost</label>
-      <input type="number" name="strike_cost_2" min="0" value="0">
-    </div>
-  </fieldset>
+    <p class="enchanting-note">
+      {{localize "UESRPG.ModernUI.RAWOneEnchantTestPerSpellSlot" value1=workshopSummary.poolRule}}
+      {{#if hasProcedural}}{{localize "UESRPG.ModernUI.ProceduralEnchantingOnSuccessChooseDoSOrEnchantRankAsBindingStrength"}}{{/if}}
+      {{#if hasSalvage}}{{localize "UESRPG.ModernUI.SalvageEnergyOnFailureAFollowUpTestMayPreserveTheSoulGem"}}{{/if}}
+    </p>
+  </section>
   {{/if}}
 
-  {{#if enableChargedStrike}}
-  <p class="notes"><strong>Charged Strike Variant active:</strong> Pool = floor(Total Cost / 10) charges.</p>
-  {{else}}
-  <p class="notes">Strike enchantments have no pool by default (no recharge). Enable the Charged Strike Variant setting for optional charge pool.</p>
-  {{/if}}
-</fieldset>
+  {{#if (eq mode "strike")}}
+  <section class="enchanting-panel">
+    <header class="enchanting-panel__header">
+      <div>
+        <span class="enchanting-panel__eyebrow">{{localize "UESRPG.Apps.EnchantingWorkshop.StageEffects"}}</span>
+        <h3>{{localize "UESRPG.ModernUI.StrikeEnchantmentOnHitEffect"}}</h3>
+      </div>
+      <span class="enchanting-panel__summary">{{#if hasManifold}}{{localize "UESRPG.Apps.EnchantingWorkshop.UpToThreeEffects"}}{{else}}{{localize "UESRPG.Apps.EnchantingWorkshop.OneEffect"}}{{/if}}</span>
+    </header>
 
-{{/if}}
+    <div class="enchanting-slot-list">
+      <article class="enchanting-slot-card">
+        <header class="enchanting-slot-card__header"><div><strong>{{localize "UESRPG.ModernUI.StrikeEffect1"}}</strong><small>{{localize "UESRPG.Apps.EnchantingWorkshop.PrimarySlot"}}</small></div></header>
+        <div class="enchanting-effect-grid">
+          <label class="enchanting-field is-effect"><span>{{localize "UESRPG.UI.Effect"}}</span><select name="strike_key_0" required><option value="">{{localize "UESRPG.ModernUI.SelectEffect"}}</option>{{#each strikeOptions}}<option value="{{key}}">{{label}} ({{costFormula}})</option>{{/each}}</select></label>
+          <label class="enchanting-field"><span>{{localize "UESRPG.ModernUI.SL"}}</span><input type="number" name="strike_sl_0" min="1" max="7" value="1"></label>
+          <label class="enchanting-field"><span>{{localize "UESRPG.ModernUI.YDrainAbsorbAmountIfApplicable"}}</span><input type="number" name="strike_y_0" min="0" value="0"></label>
+          <label class="enchanting-field"><span>{{localize "UESRPG.Sheets.Feature.Type"}}</span><input type="text" name="strike_type_0" placeholder="{{localize "UESRPG.Placeholders.WeaponOrArmor"}}"></label>
+          <label class="enchanting-field"><span>{{localize "UESRPG.Sheets.Item.Cost"}}</span><input type="number" name="strike_cost_0" min="0" value="10"></label>
+        </div>
+      </article>
 
-{{!-- ══════════════════════════════════════════════════════════════════════════ --}}
-{{!-- MODE: CONSTANT ENCHANTMENT                                                 --}}
-{{!-- ══════════════════════════════════════════════════════════════════════════ --}}
-{{#if (eq mode "constant")}}
-
-<fieldset class="enchanting-section">
-  <legend>Constant Enchantment — Passive Effect</legend>
-
-  <div class="form-group">
-    <label>Item to Enchant</label>
-    <select name="targetItemUuid">
-      <option value="">-- Select Item --</option>
-      {{#each enchantableItems}}
-        <option value="{{id}}">{{name}} ({{type}}, EL {{el}}){{#if enchanted}} [already enchanted]{{/if}}</option>
+      {{#if hasManifold}}
+      {{#each manifoldEffectSlots as |slot|}}
+      <article class="enchanting-slot-card">
+        <header class="enchanting-slot-card__header"><div><strong>{{localize "UESRPG.Apps.EnchantingWorkshop.StrikeEffectNumber" number=slot.number}}</strong><small>{{localize "UESRPG.Apps.EnchantingWorkshop.ManifoldSlot"}}</small></div></header>
+        <div class="enchanting-effect-grid">
+          <label class="enchanting-field is-effect"><span>{{localize "UESRPG.UI.Effect"}}</span><select name="strike_key_{{slot.index}}"><option value="">{{localize "UESRPG.ModernUI.None"}}</option>{{#each @root.strikeOptions}}<option value="{{key}}">{{label}} ({{costFormula}})</option>{{/each}}</select></label>
+          <label class="enchanting-field"><span>{{localize "UESRPG.ModernUI.SL"}}</span><input type="number" name="strike_sl_{{slot.index}}" min="0" max="7" value="0"></label>
+          <label class="enchanting-field"><span>{{localize "UESRPG.Apps.EnchantingWorkshop.ParameterY"}}</span><input type="number" name="strike_y_{{slot.index}}" min="0" value="0"></label>
+          <label class="enchanting-field"><span>{{localize "UESRPG.Sheets.Feature.Type"}}</span><input type="text" name="strike_type_{{slot.index}}"></label>
+          <label class="enchanting-field"><span>{{localize "UESRPG.Sheets.Item.Cost"}}</span><input type="number" name="strike_cost_{{slot.index}}" min="0" value="0"></label>
+        </div>
+      </article>
       {{/each}}
-    </select>
-  </div>
+      {{/if}}
+    </div>
 
-  <div class="form-group">
-    <label>Soul Gem</label>
-    <select name="gemUuid">
-      <option value="">-- Select Soul Gem --</option>
-      {{#each gemOptions}}
-        <option value="{{id}}">{{label}}</option>
-      {{/each}}
-    </select>
-  </div>
-
-  <hr>
-  <p class="notes warning">
-    <strong>Restrictions:</strong> Effects must have Upkeep and a listed duration.
-    Become Ethereal, Conjuration, and Necromancy effects are prohibited.
-  </p>
-
-  {{!-- Constant Effect Slot 0 --}}
-  <fieldset class="spell-slot">
-    <legend>Constant Effect 1</legend>
-    <div class="form-group">
-      <label>Effect (Upkeep-eligible only)</label>
-      <select name="const_key_0">
-        <option value="">-- Select Effect --</option>
-        {{#each spellfxConstantOptions}}
-          <option value="{{key}}">{{label}} ({{school}})</option>
-        {{/each}}
-      </select>
-    </div>
-    <div class="form-group">
-      <label>Spell Level (SL)</label>
-      <input type="number" name="const_sl_0" min="1" max="7" value="1">
-    </div>
-    <div class="form-group">
-      <label>Soul Energy Cost</label>
-      <input type="number" name="const_cost_0" min="0" value="10">
-    </div>
-    <div class="form-group">
-      <label>Additional Params (JSON, e.g. {"fortifyAttr":"strength"})</label>
-      <input type="text" name="const_params_0" placeholder="{}">
-    </div>
-  </fieldset>
-
-  {{#if hasManifold}}
-  <fieldset class="spell-slot">
-    <legend>Constant Effect 2 <em>(Manifold Enchanter)</em></legend>
-    <div class="form-group">
-      <label>Effect</label>
-      <select name="const_key_1">
-        <option value="">-- None --</option>
-        {{#each spellfxConstantOptions}}
-          <option value="{{key}}">{{label}}</option>
-        {{/each}}
-      </select>
-    </div>
-    <div class="form-group">
-      <label>SL</label>
-      <input type="number" name="const_sl_1" min="0" max="7" value="0">
-    </div>
-    <div class="form-group">
-      <label>Cost</label>
-      <input type="number" name="const_cost_1" min="0" value="0">
-    </div>
-    <div class="form-group">
-      <label>Params</label>
-      <input type="text" name="const_params_1" placeholder="{}">
-    </div>
-  </fieldset>
-
-  <fieldset class="spell-slot">
-    <legend>Constant Effect 3 <em>(Manifold Enchanter)</em></legend>
-    <div class="form-group">
-      <label>Effect</label>
-      <select name="const_key_2">
-        <option value="">-- None --</option>
-        {{#each spellfxConstantOptions}}
-          <option value="{{key}}">{{label}}</option>
-        {{/each}}
-      </select>
-    </div>
-    <div class="form-group">
-      <label>SL</label>
-      <input type="number" name="const_sl_2" min="0" max="7" value="0">
-    </div>
-    <div class="form-group">
-      <label>Cost</label>
-      <input type="number" name="const_cost_2" min="0" value="0">
-    </div>
-    <div class="form-group">
-      <label>Params</label>
-      <input type="text" name="const_params_2" placeholder="{}">
-    </div>
-  </fieldset>
+    <p class="enchanting-note {{#if enableChargedStrike}}is-warning{{/if}}">
+      {{#if enableChargedStrike}}<strong>{{localize "UESRPG.ModernUI.ChargedStrikeVariantActive"}}</strong> {{localize "UESRPG.ModernUI.PoolFloorTotalCost10Charges"}}{{else}}{{localize "UESRPG.ModernUI.StrikeEnchantmentsHaveNoPoolByDefaultNoRechargeEnableTheChargedStrikeVar"}}{{/if}}
+    </p>
+  </section>
   {{/if}}
 
-  {{#if enableCursed}}
-  <div class="form-group">
-    <label>Cursed Constant (optional rule)</label>
-    <input type="checkbox" name="cursed" value="1">
-    <p class="notes">Cursed constant enchantments cannot be disabled by the wearer. Special failure cadence per RAW.</p>
-  </div>
+  {{#if (eq mode "constant")}}
+  <section class="enchanting-panel">
+    <header class="enchanting-panel__header">
+      <div>
+        <span class="enchanting-panel__eyebrow">{{localize "UESRPG.Apps.EnchantingWorkshop.StageEffects"}}</span>
+        <h3>{{localize "UESRPG.ModernUI.ConstantEnchantmentPassiveEffect"}}</h3>
+      </div>
+      <span class="enchanting-panel__summary">{{#if hasManifold}}{{localize "UESRPG.Apps.EnchantingWorkshop.UpToThreeEffects"}}{{else}}{{localize "UESRPG.Apps.EnchantingWorkshop.OneEffect"}}{{/if}}</span>
+    </header>
+
+    <p class="enchanting-note is-warning"><strong>{{localize "UESRPG.ModernUI.Restrictions"}}</strong> {{localize "UESRPG.ModernUI.EffectsMustHaveUpkeepAndAListedDuration"}} {{localize "UESRPG.ModernUI.BecomeEtherealConjurationAndNecromancyEffectsAreProhibited"}}</p>
+
+    <div class="enchanting-slot-list">
+      <article class="enchanting-slot-card">
+        <header class="enchanting-slot-card__header"><div><strong>{{localize "UESRPG.ModernUI.ConstantEffect1"}}</strong><small>{{localize "UESRPG.Apps.EnchantingWorkshop.PrimarySlot"}}</small></div></header>
+        <div class="enchanting-effect-grid is-constant">
+          <label class="enchanting-field is-effect"><span>{{localize "UESRPG.ModernUI.EffectUpkeepEligibleOnly"}}</span><select name="const_key_0" required><option value="">{{localize "UESRPG.ModernUI.SelectEffect"}}</option>{{#each spellfxConstantOptions}}<option value="{{key}}">{{label}} ({{school}})</option>{{/each}}</select></label>
+          <label class="enchanting-field"><span>{{localize "UESRPG.ModernUI.SL"}}</span><input type="number" name="const_sl_0" min="1" max="7" value="1"></label>
+          <label class="enchanting-field"><span>{{localize "UESRPG.Sheets.Item.Cost"}}</span><input type="number" name="const_cost_0" min="0" value="10"></label>
+          <label class="enchanting-field is-params"><span>{{localize "UESRPG.ModernUI.Params"}}</span><input type="text" name="const_params_0" placeholder="{}"></label>
+        </div>
+      </article>
+
+      {{#if hasManifold}}
+      {{#each manifoldEffectSlots as |slot|}}
+      <article class="enchanting-slot-card">
+        <header class="enchanting-slot-card__header"><div><strong>{{localize "UESRPG.Apps.EnchantingWorkshop.ConstantEffectNumber" number=slot.number}}</strong><small>{{localize "UESRPG.Apps.EnchantingWorkshop.ManifoldSlot"}}</small></div></header>
+        <div class="enchanting-effect-grid is-constant">
+          <label class="enchanting-field is-effect"><span>{{localize "UESRPG.UI.Effect"}}</span><select name="const_key_{{slot.index}}"><option value="">{{localize "UESRPG.ModernUI.None"}}</option>{{#each @root.spellfxConstantOptions}}<option value="{{key}}">{{label}}</option>{{/each}}</select></label>
+          <label class="enchanting-field"><span>{{localize "UESRPG.ModernUI.SL"}}</span><input type="number" name="const_sl_{{slot.index}}" min="0" max="7" value="0"></label>
+          <label class="enchanting-field"><span>{{localize "UESRPG.Sheets.Item.Cost"}}</span><input type="number" name="const_cost_{{slot.index}}" min="0" value="0"></label>
+          <label class="enchanting-field is-params"><span>{{localize "UESRPG.ModernUI.Params"}}</span><input type="text" name="const_params_{{slot.index}}" placeholder="{}"></label>
+        </div>
+      </article>
+      {{/each}}
+      {{/if}}
+    </div>
+
+    {{#if enableCursed}}
+    <label class="enchanting-toggle-field">
+      <input type="checkbox" name="cursed" value="1">
+      <span><strong>{{localize "UESRPG.ModernUI.CursedConstantOptionalRule"}}</strong> {{localize "UESRPG.ModernUI.CursedConstantEnchantmentsCannotBeDisabledByTheWearerSpecialFailureCaden"}}</span>
+    </label>
+    {{/if}}
+  </section>
   {{/if}}
-</fieldset>
 
-{{/if}}
+  {{#if (eq mode "recharge")}}
+  <section class="enchanting-panel">
+    <header class="enchanting-panel__header">
+      <div>
+        <span class="enchanting-panel__eyebrow">{{localize "UESRPG.Apps.EnchantingWorkshop.StageRitual"}}</span>
+        <h3>{{localize "UESRPG.ModernUI.RechargeCastEnchantment"}}</h3>
+      </div>
+    </header>
+    <p class="enchanting-note"><strong>{{localize "UESRPG.ModernUI.RAW"}}</strong> {{localize "UESRPG.ModernUI.RequiresTrainedEnchantRankNoTestRequired"}} {{localize "UESRPG.ModernUI.Text1MinuteRitualTransfersGemSoulEnergyIntoPoolUpToMaxExcessLost"}}</p>
+  </section>
+  {{/if}}
 
-{{!-- ══════════════════════════════════════════════════════════════════════════ --}}
-{{!-- MODE: RECHARGE                                                              --}}
-{{!-- ══════════════════════════════════════════════════════════════════════════ --}}
-{{#if (eq mode "recharge")}}
+  {{#if (eq mode "toggle")}}
+  <section class="enchanting-panel">
+    <header class="enchanting-panel__header">
+      <div>
+        <span class="enchanting-panel__eyebrow">{{localize "UESRPG.Apps.EnchantingWorkshop.StageMaintenance"}}</span>
+        <h3>{{localize "UESRPG.ModernUI.ToggleConstantEnchantment"}}</h3>
+      </div>
+    </header>
+    <p class="enchanting-note">{{localize "UESRPG.ModernUI.EnableOrDisableAConstantEnchantmentOnAnItemCursedEnchantmentsCannotBeDis"}}</p>
+    <input type="hidden" name="enchantedItemUuid" value="{{selectedEnchanted.uuid}}" required>
+    <div class="enchanting-field">
+      <span>{{localize "UESRPG.ModernUI.EnchantedItemConstantType"}}</span>
+      <div class="enchanting-resource-drop {{#if selectedEnchanted}}is-selected{{/if}}" data-enchant-resource-drop="target" tabindex="0">
+        {{#if selectedEnchanted}}
+        <img src="{{selectedEnchanted.img}}" alt=""><span><strong>{{selectedEnchanted.name}}</strong><small>{{selectedEnchanted.meta}}</small></span>
+        <button type="button" data-action="clearResource" data-resource-kind="target" aria-label="{{localize 'UESRPG.Apps.EnchantingWorkshop.Dropzones.Clear'}}"><i class="fas fa-times" aria-hidden="true"></i></button>
+        {{else}}<i class="fas fa-toggle-on" aria-hidden="true"></i><span>{{localize "UESRPG.Apps.EnchantingWorkshop.Dropzones.DropConstantItem"}}</span>{{/if}}
+      </div>
+      <button type="button" class="enchanting-resource-choose" data-action="chooseResource" data-resource-kind="target">{{localize "UESRPG.Apps.EnchantingWorkshop.Dropzones.ChooseInventory"}}</button>
+    </div>
+  </section>
+  {{/if}}
 
-<fieldset class="enchanting-section">
-  <legend>Recharge Cast Enchantment</legend>
-
-  <p class="notes">
-    <strong>RAW:</strong> Requires trained Enchant rank. No test required.
-    1-minute ritual. Transfers gem soul energy into pool up to max; excess lost.
-  </p>
-
-  <div class="form-group">
-    <label>Enchanted Item (Cast type)</label>
-    <select name="enchantedItemUuid">
-      <option value="">-- Select Item --</option>
-      {{#each enchantedItems}}
-        {{#if (eq enchantType "cast")}}
-          <option value="{{id}}">{{name}} (Pool: {{pool.value}}/{{pool.max}})</option>
-        {{/if}}
-      {{/each}}
-    </select>
-  </div>
-
-  <div class="form-group">
-    <label>Soul Gem to use for recharge</label>
-    <select name="gemUuid">
-      <option value="">-- Select Soul Gem --</option>
-      {{#each gemOptions}}
-        <option value="{{id}}">{{label}}</option>
-      {{/each}}
-    </select>
-  </div>
-</fieldset>
-
-{{/if}}
-
-{{!-- ══════════════════════════════════════════════════════════════════════════ --}}
-{{!-- MODE: TOGGLE CONSTANT                                                       --}}
-{{!-- ══════════════════════════════════════════════════════════════════════════ --}}
-{{#if (eq mode "toggle")}}
-
-<fieldset class="enchanting-section">
-  <legend>Toggle Constant Enchantment</legend>
-
-  <p class="notes">Enable or disable a constant enchantment on an item. Cursed enchantments cannot be disabled.</p>
-
-  <div class="form-group">
-    <label>Enchanted Item (Constant type)</label>
-    <select name="enchantedItemUuid">
-      <option value="">-- Select Item --</option>
-      {{#each enchantedItems}}
-        {{#if (eq enchantType "constant")}}
-          <option value="{{id}}">{{name}}</option>
-        {{/if}}
-      {{/each}}
-    </select>
-  </div>
-</fieldset>
-
-{{/if}}
-
-{{!-- ── Submit ───────────────────────────────────────────────────────────────── --}}
-<footer class="sheet-footer flexrow">
-  <button type="submit" class="enchanting-submit">
-    <i class="fas fa-magic" aria-hidden="true"></i>
-    {{#if (eq mode "cast")}}{{localize "UESRPG.Apps.EnchantingWorkshop.CreateCast"}}{{/if}}
-    {{#if (eq mode "strike")}}{{localize "UESRPG.Apps.EnchantingWorkshop.CreateStrike"}}{{/if}}
-    {{#if (eq mode "constant")}}{{localize "UESRPG.Apps.EnchantingWorkshop.CreateConstant"}}{{/if}}
-    {{#if (eq mode "recharge")}}{{localize "UESRPG.Apps.EnchantingWorkshop.Recharge"}}{{/if}}
-    {{#if (eq mode "toggle")}}{{localize "UESRPG.Apps.EnchantingWorkshop.Toggle"}}{{/if}}
-  </button>
-</footer>
-
+  <footer class="enchanting-workshop-footer">
+    <div class="enchanting-workshop-footer__summary">
+      <strong>{{activeMode.label}}</strong>
+      <span>{{activeMode.description}}</span>
+    </div>
+    <button type="submit" class="enchanting-submit" {{#unless canSubmit}}disabled{{/unless}}>
+      <i class="{{activeMode.icon}}" aria-hidden="true"></i>
+      {{#if (eq mode "cast")}}{{localize "UESRPG.Apps.EnchantingWorkshop.CreateCast"}}{{/if}}
+      {{#if (eq mode "strike")}}{{localize "UESRPG.Apps.EnchantingWorkshop.CreateStrike"}}{{/if}}
+      {{#if (eq mode "constant")}}{{localize "UESRPG.Apps.EnchantingWorkshop.CreateConstant"}}{{/if}}
+      {{#if (eq mode "recharge")}}{{localize "UESRPG.Apps.EnchantingWorkshop.Recharge"}}{{/if}}
+      {{#if (eq mode "toggle")}}{{localize "UESRPG.Apps.EnchantingWorkshop.Toggle"}}{{/if}}
+    </button>
+  </footer>
 </section>

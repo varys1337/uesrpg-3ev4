@@ -8,7 +8,7 @@ const MAX_SPELLS_NO_MANIFOLD = 1;
 const MAX_SPELLS_MANIFOLD = 3;
 
 export async function buildCast(cfg) {
-  const { actor, targetItem, soulGemItem, spells = [], skipRolls = false } = cfg;
+  const { actor, targetItem, soulGemItem, spells = [], skipRolls = false, testBaseTN = null } = cfg;
   const hasManifold = hasTalent(actor, "manifoldenchanter");
   const maxSpells = hasManifold ? MAX_SPELLS_MANIFOLD : MAX_SPELLS_NO_MANIFOLD;
   const session = prepareEnchantBuilderSession({
@@ -54,7 +54,7 @@ export async function buildCast(cfg) {
     let proceduralChoice = null;
 
     if (!skipRolls) {
-      testResult = await executeEnchantTest(actor, penalty, { effectiveEnchantRank: session.effectiveEnchantRank });
+      testResult = await executeEnchantTest(actor, penalty, { effectiveEnchantRank: session.effectiveEnchantRank, baseTarget: testBaseTN });
       anySuccess ||= testResult.success;
       if (testResult.success) {
         bindingStrength = testResult.bindingStrength;

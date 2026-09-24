@@ -1,15 +1,57 @@
 /**
- * Generated from template.json on 2026-04-10 for TypeDataModel registration.
- * Do not hand-edit unless the generator input changes.
+ * AUTO-GENERATED FILE - DO NOT EDIT BY HAND.
+ * Source: template.json
+ * Generator: scripts/generate-schema-defaults.js
  */
 
 export const ACTOR_TYPE_MODEL_SEEDS = {
   "Player Character": {
-    "templates": [
-      "equippedWeapons",
-      "favorites",
-      "combatTracking"
-    ],
+    "1": {
+      "name": "Hotkey 1",
+      "img": "icons/svg/combat.svg",
+      "id": "",
+      "value": 0
+    },
+    "2": {
+      "name": "Hotkey 2",
+      "img": "icons/svg/combat.svg",
+      "id": "",
+      "value": 0
+    },
+    "3": {
+      "name": "Hotkey 3",
+      "img": "icons/svg/combat.svg",
+      "id": "",
+      "value": 0
+    },
+    "4": {
+      "name": "Hotkey 4",
+      "img": "icons/svg/combat.svg",
+      "id": "",
+      "value": 0
+    },
+    "5": {
+      "name": "Hotkey 5",
+      "img": "icons/svg/combat.svg",
+      "id": "",
+      "value": 0
+    },
+    "primaryWeapon": {
+      "name": "None: Right click to bind weapon",
+      "img": "icons/skills/melee/unarmed-punch-fist.webp",
+      "id": ""
+    },
+    "secondaryWeapon": {
+      "name": "None: Right click to bind weapon",
+      "img": "icons/skills/melee/unarmed-punch-fist.webp",
+      "id": ""
+    },
+    "combat_tracking": {
+      "attacks_this_round": 0,
+      "attacks_this_turn": 0,
+      "last_reset_round": 0,
+      "last_reset_turn": 0
+    },
     "race": "",
     "birthsign": "",
     "age": "",
@@ -391,11 +433,52 @@ export const ACTOR_TYPE_MODEL_SEEDS = {
     }
   },
   "NPC": {
-    "templates": [
-      "equippedWeapons",
-      "favorites",
-      "combatTracking"
-    ],
+    "1": {
+      "name": "Hotkey 1",
+      "img": "icons/svg/combat.svg",
+      "id": "",
+      "value": 0
+    },
+    "2": {
+      "name": "Hotkey 2",
+      "img": "icons/svg/combat.svg",
+      "id": "",
+      "value": 0
+    },
+    "3": {
+      "name": "Hotkey 3",
+      "img": "icons/svg/combat.svg",
+      "id": "",
+      "value": 0
+    },
+    "4": {
+      "name": "Hotkey 4",
+      "img": "icons/svg/combat.svg",
+      "id": "",
+      "value": 0
+    },
+    "5": {
+      "name": "Hotkey 5",
+      "img": "icons/svg/combat.svg",
+      "id": "",
+      "value": 0
+    },
+    "primaryWeapon": {
+      "name": "None: Right click to bind weapon",
+      "img": "icons/skills/melee/unarmed-punch-fist.webp",
+      "id": ""
+    },
+    "secondaryWeapon": {
+      "name": "None: Right click to bind weapon",
+      "img": "icons/skills/melee/unarmed-punch-fist.webp",
+      "id": ""
+    },
+    "combat_tracking": {
+      "attacks_this_round": 0,
+      "attacks_this_turn": 0,
+      "last_reset_round": 0,
+      "last_reset_turn": 0
+    },
     "race": "",
     "birthsign": "",
     "age": "",
@@ -807,11 +890,52 @@ export const ACTOR_TYPE_MODEL_SEEDS = {
     }
   },
   "Group": {
-    "templates": [
-      "equippedWeapons",
-      "favorites",
-      "combatTracking"
-    ],
+    "1": {
+      "name": "Hotkey 1",
+      "img": "icons/svg/combat.svg",
+      "id": "",
+      "value": 0
+    },
+    "2": {
+      "name": "Hotkey 2",
+      "img": "icons/svg/combat.svg",
+      "id": "",
+      "value": 0
+    },
+    "3": {
+      "name": "Hotkey 3",
+      "img": "icons/svg/combat.svg",
+      "id": "",
+      "value": 0
+    },
+    "4": {
+      "name": "Hotkey 4",
+      "img": "icons/svg/combat.svg",
+      "id": "",
+      "value": 0
+    },
+    "5": {
+      "name": "Hotkey 5",
+      "img": "icons/svg/combat.svg",
+      "id": "",
+      "value": 0
+    },
+    "primaryWeapon": {
+      "name": "None: Right click to bind weapon",
+      "img": "icons/skills/melee/unarmed-punch-fist.webp",
+      "id": ""
+    },
+    "secondaryWeapon": {
+      "name": "None: Right click to bind weapon",
+      "img": "icons/skills/melee/unarmed-punch-fist.webp",
+      "id": ""
+    },
+    "combat_tracking": {
+      "attacks_this_round": 0,
+      "attacks_this_turn": 0,
+      "last_reset_round": 0,
+      "last_reset_turn": 0
+    },
     "name": "",
     "description": "",
     "notes": "",
@@ -998,13 +1122,58 @@ export const ACTOR_TYPE_MODEL_SEEDS = {
 
 export const ITEM_TYPE_MODEL_SEEDS = {
   "equipment": {
-    "templates": [
-      "characteristicArray",
-      "replaceAttributesArray",
-      "resistanceArray",
-      "objectArrays",
-      "physicalObject"
-    ],
+    "characteristics": {
+      "none": "None",
+      "str": "STR",
+      "end": "END",
+      "agi": "AGI",
+      "int": "INT",
+      "wp": "WP",
+      "prc": "PRC",
+      "prs": "PRS",
+      "lck": "LCK"
+    },
+    "characteristicBonus": {
+      "strChaBonus": 0,
+      "endChaBonus": 0,
+      "agiChaBonus": 0,
+      "intChaBonus": 0,
+      "wpChaBonus": 0,
+      "prcChaBonus": 0,
+      "prsChaBonus": 0,
+      "lckChaBonus": 0
+    },
+    "replace": {
+      "ini": {
+        "iniToggle": false,
+        "value": 0,
+        "characteristic": ""
+      },
+      "wt": {
+        "wtToggle": false,
+        "value": 0,
+        "characteristic": ""
+      }
+    },
+    "mpBonus": 0,
+    "hpBonus": 0,
+    "spBonus": 0,
+    "lpBonus": 0,
+    "wtBonus": 0,
+    "iniBonus": 0,
+    "speedBonus": 0,
+    "flyBonus": 0,
+    "swimBonus": 0,
+    "diseaseR": 0,
+    "fireR": 0,
+    "frostR": 0,
+    "shockR": 0,
+    "poisonR": 0,
+    "magicR": 0,
+    "natToughnessR": 0,
+    "silverR": 0,
+    "sunlightR": 0,
+    "skillArray": [],
     "isPhysicalObject": true,
     "containerStats": {
       "contained": false,
@@ -1037,13 +1206,58 @@ export const ITEM_TYPE_MODEL_SEEDS = {
     }
   },
   "item": {
-    "templates": [
-      "characteristicArray",
-      "replaceAttributesArray",
-      "resistanceArray",
-      "objectArrays",
-      "physicalObject"
-    ],
+    "characteristics": {
+      "none": "None",
+      "str": "STR",
+      "end": "END",
+      "agi": "AGI",
+      "int": "INT",
+      "wp": "WP",
+      "prc": "PRC",
+      "prs": "PRS",
+      "lck": "LCK"
+    },
+    "characteristicBonus": {
+      "strChaBonus": 0,
+      "endChaBonus": 0,
+      "agiChaBonus": 0,
+      "intChaBonus": 0,
+      "wpChaBonus": 0,
+      "prcChaBonus": 0,
+      "prsChaBonus": 0,
+      "lckChaBonus": 0
+    },
+    "replace": {
+      "ini": {
+        "iniToggle": false,
+        "value": 0,
+        "characteristic": ""
+      },
+      "wt": {
+        "wtToggle": false,
+        "value": 0,
+        "characteristic": ""
+      }
+    },
+    "mpBonus": 0,
+    "hpBonus": 0,
+    "spBonus": 0,
+    "lpBonus": 0,
+    "wtBonus": 0,
+    "iniBonus": 0,
+    "speedBonus": 0,
+    "flyBonus": 0,
+    "swimBonus": 0,
+    "diseaseR": 0,
+    "fireR": 0,
+    "frostR": 0,
+    "shockR": 0,
+    "poisonR": 0,
+    "magicR": 0,
+    "natToughnessR": 0,
+    "silverR": 0,
+    "sunlightR": 0,
+    "skillArray": [],
     "isPhysicalObject": true,
     "containerStats": {
       "contained": false,
@@ -1076,13 +1290,58 @@ export const ITEM_TYPE_MODEL_SEEDS = {
     }
   },
   "container": {
-    "templates": [
-      "characteristicArray",
-      "replaceAttributesArray",
-      "resistanceArray",
-      "objectArrays",
-      "physicalObject"
-    ],
+    "characteristics": {
+      "none": "None",
+      "str": "STR",
+      "end": "END",
+      "agi": "AGI",
+      "int": "INT",
+      "wp": "WP",
+      "prc": "PRC",
+      "prs": "PRS",
+      "lck": "LCK"
+    },
+    "characteristicBonus": {
+      "strChaBonus": 0,
+      "endChaBonus": 0,
+      "agiChaBonus": 0,
+      "intChaBonus": 0,
+      "wpChaBonus": 0,
+      "prcChaBonus": 0,
+      "prsChaBonus": 0,
+      "lckChaBonus": 0
+    },
+    "replace": {
+      "ini": {
+        "iniToggle": false,
+        "value": 0,
+        "characteristic": ""
+      },
+      "wt": {
+        "wtToggle": false,
+        "value": 0,
+        "characteristic": ""
+      }
+    },
+    "mpBonus": 0,
+    "hpBonus": 0,
+    "spBonus": 0,
+    "lpBonus": 0,
+    "wtBonus": 0,
+    "iniBonus": 0,
+    "speedBonus": 0,
+    "flyBonus": 0,
+    "swimBonus": 0,
+    "diseaseR": 0,
+    "fireR": 0,
+    "frostR": 0,
+    "shockR": 0,
+    "poisonR": 0,
+    "magicR": 0,
+    "natToughnessR": 0,
+    "silverR": 0,
+    "sunlightR": 0,
+    "skillArray": [],
     "isPhysicalObject": true,
     "containerStats": {
       "contained": false,
@@ -1111,13 +1370,58 @@ export const ITEM_TYPE_MODEL_SEEDS = {
     "contained_items": []
   },
   "armor": {
-    "templates": [
-      "resistanceArray",
-      "characteristicArray",
-      "replaceAttributesArray",
-      "objectArrays",
-      "physicalObject"
-    ],
+    "mpBonus": 0,
+    "hpBonus": 0,
+    "spBonus": 0,
+    "lpBonus": 0,
+    "wtBonus": 0,
+    "iniBonus": 0,
+    "speedBonus": 0,
+    "flyBonus": 0,
+    "swimBonus": 0,
+    "diseaseR": 0,
+    "fireR": 0,
+    "frostR": 0,
+    "shockR": 0,
+    "poisonR": 0,
+    "magicR": 0,
+    "natToughnessR": 0,
+    "silverR": 0,
+    "sunlightR": 0,
+    "characteristics": {
+      "none": "None",
+      "str": "STR",
+      "end": "END",
+      "agi": "AGI",
+      "int": "INT",
+      "wp": "WP",
+      "prc": "PRC",
+      "prs": "PRS",
+      "lck": "LCK"
+    },
+    "characteristicBonus": {
+      "strChaBonus": 0,
+      "endChaBonus": 0,
+      "agiChaBonus": 0,
+      "intChaBonus": 0,
+      "wpChaBonus": 0,
+      "prcChaBonus": 0,
+      "prsChaBonus": 0,
+      "lckChaBonus": 0
+    },
+    "replace": {
+      "ini": {
+        "iniToggle": false,
+        "value": 0,
+        "characteristic": ""
+      },
+      "wt": {
+        "wtToggle": false,
+        "value": 0,
+        "characteristic": ""
+      }
+    },
+    "skillArray": [],
     "isPhysicalObject": true,
     "containerStats": {
       "contained": false,
@@ -1196,13 +1500,58 @@ export const ITEM_TYPE_MODEL_SEEDS = {
     }
   },
   "shield": {
-    "templates": [
-      "resistanceArray",
-      "characteristicArray",
-      "replaceAttributesArray",
-      "objectArrays",
-      "physicalObject"
-    ],
+    "mpBonus": 0,
+    "hpBonus": 0,
+    "spBonus": 0,
+    "lpBonus": 0,
+    "wtBonus": 0,
+    "iniBonus": 0,
+    "speedBonus": 0,
+    "flyBonus": 0,
+    "swimBonus": 0,
+    "diseaseR": 0,
+    "fireR": 0,
+    "frostR": 0,
+    "shockR": 0,
+    "poisonR": 0,
+    "magicR": 0,
+    "natToughnessR": 0,
+    "silverR": 0,
+    "sunlightR": 0,
+    "characteristics": {
+      "none": "None",
+      "str": "STR",
+      "end": "END",
+      "agi": "AGI",
+      "int": "INT",
+      "wp": "WP",
+      "prc": "PRC",
+      "prs": "PRS",
+      "lck": "LCK"
+    },
+    "characteristicBonus": {
+      "strChaBonus": 0,
+      "endChaBonus": 0,
+      "agiChaBonus": 0,
+      "intChaBonus": 0,
+      "wpChaBonus": 0,
+      "prcChaBonus": 0,
+      "prsChaBonus": 0,
+      "lckChaBonus": 0
+    },
+    "replace": {
+      "ini": {
+        "iniToggle": false,
+        "value": 0,
+        "characteristic": ""
+      },
+      "wt": {
+        "wtToggle": false,
+        "value": 0,
+        "characteristic": ""
+      }
+    },
+    "skillArray": [],
     "isPhysicalObject": true,
     "containerStats": {
       "contained": false,
@@ -1245,13 +1594,58 @@ export const ITEM_TYPE_MODEL_SEEDS = {
     "treatAsFreeHandForSmallOrGrapple": false
   },
   "weapon": {
-    "templates": [
-      "resistanceArray",
-      "characteristicArray",
-      "replaceAttributesArray",
-      "objectArrays",
-      "physicalObject"
-    ],
+    "mpBonus": 0,
+    "hpBonus": 0,
+    "spBonus": 0,
+    "lpBonus": 0,
+    "wtBonus": 0,
+    "iniBonus": 0,
+    "speedBonus": 0,
+    "flyBonus": 0,
+    "swimBonus": 0,
+    "diseaseR": 0,
+    "fireR": 0,
+    "frostR": 0,
+    "shockR": 0,
+    "poisonR": 0,
+    "magicR": 0,
+    "natToughnessR": 0,
+    "silverR": 0,
+    "sunlightR": 0,
+    "characteristics": {
+      "none": "None",
+      "str": "STR",
+      "end": "END",
+      "agi": "AGI",
+      "int": "INT",
+      "wp": "WP",
+      "prc": "PRC",
+      "prs": "PRS",
+      "lck": "LCK"
+    },
+    "characteristicBonus": {
+      "strChaBonus": 0,
+      "endChaBonus": 0,
+      "agiChaBonus": 0,
+      "intChaBonus": 0,
+      "wpChaBonus": 0,
+      "prcChaBonus": 0,
+      "prsChaBonus": 0,
+      "lckChaBonus": 0
+    },
+    "replace": {
+      "ini": {
+        "iniToggle": false,
+        "value": 0,
+        "characteristic": ""
+      },
+      "wt": {
+        "wtToggle": false,
+        "value": 0,
+        "characteristic": ""
+      }
+    },
+    "skillArray": [],
     "isPhysicalObject": true,
     "containerStats": {
       "contained": false,
@@ -1481,12 +1875,6 @@ export const ITEM_TYPE_MODEL_SEEDS = {
     }
   },
   "trait": {
-    "templates": [
-      "resistanceArray",
-      "replaceAttributesArray",
-      "characteristicArray",
-      "objectArrays"
-    ],
     "mpBonus": 0,
     "hpBonus": 0,
     "spBonus": 0,
@@ -1505,6 +1893,18 @@ export const ITEM_TYPE_MODEL_SEEDS = {
     "natToughnessR": 0,
     "silverR": 0,
     "sunlightR": 0,
+    "replace": {
+      "ini": {
+        "iniToggle": false,
+        "value": 0,
+        "characteristic": ""
+      },
+      "wt": {
+        "wtToggle": false,
+        "value": 0,
+        "characteristic": ""
+      }
+    },
     "characteristics": {
       "none": "None",
       "str": "STR",
@@ -1526,18 +1926,7 @@ export const ITEM_TYPE_MODEL_SEEDS = {
       "prsChaBonus": 0,
       "lckChaBonus": 0
     },
-    "replace": {
-      "ini": {
-        "iniToggle": false,
-        "value": 0,
-        "characteristic": ""
-      },
-      "wt": {
-        "wtToggle": false,
-        "value": 0,
-        "characteristic": ""
-      }
-    },
+    "skillArray": [],
     "description": "",
     "halfSpeed": false,
     "addHalfSpeed": false,
@@ -1604,11 +1993,6 @@ export const ITEM_TYPE_MODEL_SEEDS = {
     }
   },
   "power": {
-    "templates": [
-      "resistanceArray",
-      "characteristicArray",
-      "objectArrays"
-    ],
     "mpBonus": 0,
     "hpBonus": 0,
     "spBonus": 0,
@@ -1648,6 +2032,7 @@ export const ITEM_TYPE_MODEL_SEEDS = {
       "prsChaBonus": 0,
       "lckChaBonus": 0
     },
+    "skillArray": [],
     "description": "",
     "dailyUse": false,
     "source": "",
@@ -1725,12 +2110,6 @@ export const ITEM_TYPE_MODEL_SEEDS = {
     }
   },
   "talent": {
-    "templates": [
-      "resistanceArray",
-      "replaceAttributesArray",
-      "characteristicArray",
-      "objectArrays"
-    ],
     "mpBonus": 0,
     "hpBonus": 0,
     "spBonus": 0,
@@ -1749,6 +2128,18 @@ export const ITEM_TYPE_MODEL_SEEDS = {
     "natToughnessR": 0,
     "silverR": 0,
     "sunlightR": 0,
+    "replace": {
+      "ini": {
+        "iniToggle": false,
+        "value": 0,
+        "characteristic": ""
+      },
+      "wt": {
+        "wtToggle": false,
+        "value": 0,
+        "characteristic": ""
+      }
+    },
     "characteristics": {
       "none": "None",
       "str": "STR",
@@ -1770,18 +2161,7 @@ export const ITEM_TYPE_MODEL_SEEDS = {
       "prsChaBonus": 0,
       "lckChaBonus": 0
     },
-    "replace": {
-      "ini": {
-        "iniToggle": false,
-        "value": 0,
-        "characteristic": ""
-      },
-      "wt": {
-        "wtToggle": false,
-        "value": 0,
-        "characteristic": ""
-      }
-    },
+    "skillArray": [],
     "description": "",
     "governingCharacteristics": "",
     "xpCost": 0,
@@ -1845,9 +2225,27 @@ export const ITEM_TYPE_MODEL_SEEDS = {
     }
   },
   "combatStyle": {
-    "templates": [
-      "characteristicArray"
-    ],
+    "characteristics": {
+      "none": "None",
+      "str": "STR",
+      "end": "END",
+      "agi": "AGI",
+      "int": "INT",
+      "wp": "WP",
+      "prc": "PRC",
+      "prs": "PRS",
+      "lck": "LCK"
+    },
+    "characteristicBonus": {
+      "strChaBonus": 0,
+      "endChaBonus": 0,
+      "agiChaBonus": 0,
+      "intChaBonus": 0,
+      "wpChaBonus": 0,
+      "prcChaBonus": 0,
+      "prsChaBonus": 0,
+      "lckChaBonus": 0
+    },
     "value": 0,
     "rank": "",
     "bonus": 0,
@@ -1872,9 +2270,27 @@ export const ITEM_TYPE_MODEL_SEEDS = {
     "specialAdvantages": {}
   },
   "skill": {
-    "templates": [
-      "characteristicArray"
-    ],
+    "characteristics": {
+      "none": "None",
+      "str": "STR",
+      "end": "END",
+      "agi": "AGI",
+      "int": "INT",
+      "wp": "WP",
+      "prc": "PRC",
+      "prs": "PRS",
+      "lck": "LCK"
+    },
+    "characteristicBonus": {
+      "strChaBonus": 0,
+      "endChaBonus": 0,
+      "agiChaBonus": 0,
+      "intChaBonus": 0,
+      "wpChaBonus": 0,
+      "prcChaBonus": 0,
+      "prsChaBonus": 0,
+      "lckChaBonus": 0
+    },
     "value": 0,
     "rank": "",
     "bonus": 0,
@@ -1886,9 +2302,27 @@ export const ITEM_TYPE_MODEL_SEEDS = {
     "trainedItems": ""
   },
   "magicSkill": {
-    "templates": [
-      "characteristicArray"
-    ],
+    "characteristics": {
+      "none": "None",
+      "str": "STR",
+      "end": "END",
+      "agi": "AGI",
+      "int": "INT",
+      "wp": "WP",
+      "prc": "PRC",
+      "prs": "PRS",
+      "lck": "LCK"
+    },
+    "characteristicBonus": {
+      "strChaBonus": 0,
+      "endChaBonus": 0,
+      "agiChaBonus": 0,
+      "intChaBonus": 0,
+      "wpChaBonus": 0,
+      "prcChaBonus": 0,
+      "prsChaBonus": 0,
+      "lckChaBonus": 0
+    },
     "value": 0,
     "rank": "",
     "bonus": 0,
@@ -1900,12 +2334,57 @@ export const ITEM_TYPE_MODEL_SEEDS = {
     "trainedItems": ""
   },
   "ammunition": {
-    "templates": [
-      "resistanceArray",
-      "characteristicArray",
-      "replaceAttributesArray",
-      "physicalObject"
-    ],
+    "mpBonus": 0,
+    "hpBonus": 0,
+    "spBonus": 0,
+    "lpBonus": 0,
+    "wtBonus": 0,
+    "iniBonus": 0,
+    "speedBonus": 0,
+    "flyBonus": 0,
+    "swimBonus": 0,
+    "diseaseR": 0,
+    "fireR": 0,
+    "frostR": 0,
+    "shockR": 0,
+    "poisonR": 0,
+    "magicR": 0,
+    "natToughnessR": 0,
+    "silverR": 0,
+    "sunlightR": 0,
+    "characteristics": {
+      "none": "None",
+      "str": "STR",
+      "end": "END",
+      "agi": "AGI",
+      "int": "INT",
+      "wp": "WP",
+      "prc": "PRC",
+      "prs": "PRS",
+      "lck": "LCK"
+    },
+    "characteristicBonus": {
+      "strChaBonus": 0,
+      "endChaBonus": 0,
+      "agiChaBonus": 0,
+      "intChaBonus": 0,
+      "wpChaBonus": 0,
+      "prcChaBonus": 0,
+      "prsChaBonus": 0,
+      "lckChaBonus": 0
+    },
+    "replace": {
+      "ini": {
+        "iniToggle": false,
+        "value": 0,
+        "characteristic": ""
+      },
+      "wt": {
+        "wtToggle": false,
+        "value": 0,
+        "characteristic": ""
+      }
+    },
     "isPhysicalObject": true,
     "containerStats": {
       "contained": false,
@@ -1964,17 +2443,6 @@ export const ITEM_TYPE_MODEL_SEEDS = {
     }
   },
   "scroll": {
-    "templates": [
-      "physicalObject"
-    ],
-    "description": "",
-    "quantity": 1,
-    "enc": 0,
-    "spellUuid": "",
-    "requireSchoolTraining": false,
-    "consumeMagicka": false,
-    "consumeOnCast": true,
-    "spellData": {},
     "isPhysicalObject": true,
     "containerStats": {
       "contained": false,
@@ -1983,6 +2451,14 @@ export const ITEM_TYPE_MODEL_SEEDS = {
     },
     "gmOverride": {
       "enabled": false
-    }
+    },
+    "description": "",
+    "quantity": 1,
+    "enc": 0,
+    "spellUuid": "",
+    "requireSchoolTraining": false,
+    "consumeMagicka": false,
+    "consumeOnCast": true,
+    "spellData": {}
   }
 };

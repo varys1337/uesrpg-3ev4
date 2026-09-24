@@ -3,7 +3,7 @@
  * Foundry VTT v13 compatible.
  *
  * This tool enumerates system data paths on an Actor and classifies them as:
- * - source: present on actor._source.system (persisted)
+ * - source: present in actor.toObject().system (persisted)
  * - derived: present only on actor.system (prepared/derived)
  *
  * Use this to identify reliable Active Effect targets.
@@ -69,7 +69,7 @@ export async function dumpAEKeys(actor, opts = {}) {
   // Ensure data is prepared
   actor.prepareData();
 
-  const sourceSystem = actor._source?.system ?? {};
+  const sourceSystem = actor.toObject?.(false)?.system ?? {};
   const preparedSystem = actor.system ?? {};
 
   const sourceKeys = Array.from(_flatten(sourceSystem, "system", new Set()));

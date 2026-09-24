@@ -18,6 +18,7 @@ import {
   getEffectByKey,
   computeEffectCost,
   getEffectToxinOverrides,
+  computeAlchemyEffectDuration,
   computeUpkeepDuration,
   effectHasUpkeep,
   isToxinUpkeep,
@@ -57,13 +58,20 @@ import {
   pickAlchemyCoatingTarget,
 } from "./runtime.js";
 
+import {
+  resolveAlchemyIngredientData,
+  getAlchemyIngredients,
+} from "./ingredients.js";
+
 // ── Re-exports (public API surface) ──────────────────────────────────────────
 
 export {
   listPotionEffects, listToxinEffects, getEffectByKey, computeEffectCost,
-  getEffectToxinOverrides, computeUpkeepDuration, effectHasUpkeep, isToxinUpkeep,
+  getEffectToxinOverrides, computeAlchemyEffectDuration, computeUpkeepDuration, effectHasUpkeep, isToxinUpkeep,
   QUALITY_TIERS, ALCHEMY_SCHOOLS, POISON_DICE,
 };
+
+export { resolveAlchemyIngredientData, getAlchemyIngredients };
 
 export {
   getAlchemySkill, getAlchemyTalents, computeEffectiveStrength,
@@ -104,6 +112,9 @@ export function buildAlchemyApi() {
     applyToTarget: applyAlchemyToTarget,
     pickCoatingTarget: pickAlchemyCoatingTarget,
     effects: { listPotionEffects, listToxinEffects, getEffectByKey, computeEffectCost },
+    resolveAlchemyIngredientData,
+    getAlchemyIngredients,
+    ingredients: { resolve: resolveAlchemyIngredientData, list: getAlchemyIngredients },
   };
 }
 

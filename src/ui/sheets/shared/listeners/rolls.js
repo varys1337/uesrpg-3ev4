@@ -7,7 +7,7 @@
  * Shared across actor sheet modules.
  */
 
-import { SYSTEM_ROLL_FORMULA } from "../../../../core/constants.js";
+import { SYSTEM_ROLL_FORMULA, UESRPG } from "../../../../core/constants.js";
 import { getCachedSetting } from "../../../../core/config/settings-cache.js";
 import { isLucky, isUnlucky } from "../../../../utils/skillCalcHelper.js";
 import { SkillOpposedWorkflow } from "../../../../core/skills/opposed-workflow/index.js";
@@ -17,7 +17,6 @@ import { requireUserCanRollActor } from "../../../../utils/permissions.js";
 import { getPhysicalExertionSkillBonus, consumePhysicalExertionForSkill } from "../../../../core/stamina/stamina-integration-hooks.js";
 import { isItemEffectActive } from "../../../../core/active-effects/transfer.js";
 import { getUserSpellTargets, shouldUseTargetedSpellWorkflow, shouldUseModernSpellWorkflow, debugMagicRoutingLog } from "../../../../core/magic/spell-runtime.js";
-import { UESRPG } from "../../../../core/constants.js";
 import { buildResistanceBonusSection, readResistanceBonusSelections, buildResistanceBonusMods } from "../../../../core/traits/trait-resistance-ui.js";
 import { buildSkillRollRequest, normalizeSkillRollOptions, skillRollDebug } from "../../../../core/skills/roll-request.js";
 import { applyKeenIntuitionToResult, applyHyperAwarenessToResult } from "../../../../core/traits/awareness-talents.js";
@@ -161,7 +160,7 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
     const difficultyOptions = SKILL_DIFFICULTIES.map(d => {
       const sign = d.mod >= 0 ? "+" : "";
       const sel = d.key === defaults.difficultyKey ? "selected" : "";
-      return `<option value="${d.key}" ${sel}>${d.label} (${sign}${d.mod})</option>`;
+      return `<option value="${foundry.utils.escapeHTML(d.key)}" ${sel}>${foundry.utils.escapeHTML(d.label)} (${sign}${d.mod})</option>`;
     }).join("\n");
 
     const isPersuade = String(skillItem?.name ?? "").trim().toLowerCase() === "persuade";
@@ -202,7 +201,7 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
         <div class="form-group" style="margin-top:8px;">
           <label><b>Characteristic</b></label>
           <select name="selectedCharacteristicKey" style="width:100%;">
-            ${characteristicOptions.map(o => `<option value="${o.key}" ${(o.key === (defaults.selectedCharacteristicKey ?? defaultCharacteristic)) ? "selected" : ""}>${o.label}</option>`).join("")}
+            ${characteristicOptions.map((option) => `<option value="${foundry.utils.escapeHTML(option.key)}" ${(option.key === (defaults.selectedCharacteristicKey ?? defaultCharacteristic)) ? "selected" : ""}>${foundry.utils.escapeHTML(option.label)}</option>`).join("")}
           </select>
         </div>
         <div class="form-group" style="margin-top:8px;">
@@ -583,7 +582,7 @@ export const onCombatRoll = asyncGuardSheet(async function onCombatRoll(event, t
                     ${SKILL_DIFFICULTIES.map(df => {
                       const sign = df.mod >= 0 ? "+" : "";
                       const sel = df.key === "average" ? "selected" : "";
-                      return `<option value="${df.key}" ${sel}>${df.label} (${sign}${df.mod})</option>`;
+                      return `<option value="${foundry.utils.escapeHTML(df.key)}" ${sel}>${foundry.utils.escapeHTML(df.label)} (${sign}${df.mod})</option>`;
                     }).join("\n")}
                   </select>
                 </div>

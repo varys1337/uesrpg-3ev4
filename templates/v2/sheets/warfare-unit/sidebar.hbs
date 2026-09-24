@@ -3,7 +3,7 @@
 
   {{!-- Portrait (fills full sidebar width; frame decoration overlays via ::before) --}}
   <div class="warfare-sidebar__portrait">
-    <img src="{{actor.img}}" alt="{{actor.name}}" data-action="editPortrait" data-tooltip="UESRPG.Sheets.WarfareUnit.ChangePortrait">
+    <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-image-action" data-action="editPortrait" data-tooltip="UESRPG.Sheets.WarfareUnit.ChangePortrait" aria-label="{{localize "UESRPG.Sheets.WarfareUnit.ChangePortrait"}}"><img src="{{actor.img}}" alt="" aria-hidden="true"></button>
   </div>
 
   <div class="fixed-data-container warfare-sidebar__content">
@@ -15,29 +15,29 @@
 
     {{!-- Primary tab navigation --}}
     <nav class="sheet-tabs tabs" data-group="primary">
-      <a class="item" data-action="tab" data-group="primary" data-tab="core">{{localize "UESRPG.Sheets.WarfareUnit.Tabs.Core"}}</a>
-      <a class="item" data-action="tab" data-group="primary" data-tab="actions">{{localize "UESRPG.Sheets.WarfareUnit.Tabs.Actions"}}</a>
-      <a class="item" data-action="tab" data-group="primary" data-tab="magic">{{localize "UESRPG.Sheets.WarfareUnit.Tabs.Implements"}}</a>
-      <a class="item" data-action="tab" data-group="primary" data-tab="items">{{localize "UESRPG.Sheets.WarfareUnit.Tabs.Loadout"}}</a>
+      <button type="button" class="item uesrpg-semantic-control uesrpg-plain-control" data-action="tab" data-group="primary" data-tab="core" role="tab">{{localize "UESRPG.Sheets.WarfareUnit.Tabs.Core"}}</button>
+      <button type="button" class="item uesrpg-semantic-control uesrpg-plain-control" data-action="tab" data-group="primary" data-tab="actions" role="tab">{{localize "UESRPG.Sheets.WarfareUnit.Tabs.Actions"}}</button>
+      <button type="button" class="item uesrpg-semantic-control uesrpg-plain-control" data-action="tab" data-group="primary" data-tab="magic" role="tab">{{localize "UESRPG.Sheets.WarfareUnit.Tabs.Implements"}}</button>
+      <button type="button" class="item uesrpg-semantic-control uesrpg-plain-control" data-action="tab" data-group="primary" data-tab="items" role="tab">{{localize "UESRPG.Sheets.WarfareUnit.Tabs.Loadout"}}</button>
     </nav>
 
     {{!-- Commander Card --}}
     <div class="warfare-sidebar__commander" data-drop-zone="commander">
       <h3>{{localize "UESRPG.Sheets.WarfareUnit.Commander"}}</h3>
       {{#if commanderResolved}}
-        <div class="commander-card" data-tooltip-text="Click to view commander sheet">
-          <img class="commander-card__img" src="{{commanderResolved.img}}" alt="{{commanderResolved.name}}" data-action="viewCommander">
-          <span class="commander-card__name" data-action="viewCommander">{{commanderResolved.name}}</span>
+        <div class="commander-card" data-tooltip-text="{{localize "UESRPG.ModernUI.ClickToViewCommanderSheet"}}">
+          <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-image-action" data-action="viewCommander" aria-label="{{commanderResolved.name}}"><img class="commander-card__img" src="{{commanderResolved.img}}" alt="" aria-hidden="true"></button>
+          <button type="button" class="commander-card__name uesrpg-semantic-control uesrpg-plain-control" data-action="viewCommander">{{commanderResolved.name}}</button>
           {{#if editable}}{{#if warfareEnabled}}
-          <button type="button" class="commander-card__clear" data-action="clearCommander" data-tooltip="UESRPG.Sheets.WarfareUnit.RemoveCommander" aria-label="{{localize "UESRPG.Sheets.WarfareUnit.RemoveCommander"}}"><i class="fas fa-times" aria-hidden="true"></i></button>
+          <button type="button" class="commander-card__clear uesrpg-styled-action" data-action="clearCommander" data-tooltip="UESRPG.Sheets.WarfareUnit.RemoveCommander" aria-label="{{localize "UESRPG.Sheets.WarfareUnit.RemoveCommander"}}"><i class="fas fa-times" aria-hidden="true"></i></button>
           {{/if}}{{/if}}
         </div>
       {{else if system.commander.name}}
-        <div class="commander-card commander-card--stale" data-tooltip-text="Linked actor not found">
+        <div class="commander-card commander-card--stale" data-tooltip-text="{{localize "UESRPG.ModernUI.LinkedActorNotFound"}}">
           <img class="commander-card__img" src="{{system.commander.img}}" alt="{{system.commander.name}}">
-          <span class="commander-card__name">{{system.commander.name}} (missing)</span>
+          <span class="commander-card__name">{{localize "UESRPG.ModernUI.Missing" value1=system.commander.name}}</span>
           {{#if editable}}{{#if warfareEnabled}}
-          <button type="button" class="commander-card__clear" data-action="clearCommander" data-tooltip="UESRPG.Sheets.WarfareUnit.RemoveCommander" aria-label="{{localize "UESRPG.Sheets.WarfareUnit.RemoveCommander"}}"><i class="fas fa-times" aria-hidden="true"></i></button>
+          <button type="button" class="commander-card__clear uesrpg-styled-action" data-action="clearCommander" data-tooltip="UESRPG.Sheets.WarfareUnit.RemoveCommander" aria-label="{{localize "UESRPG.Sheets.WarfareUnit.RemoveCommander"}}"><i class="fas fa-times" aria-hidden="true"></i></button>
           {{/if}}{{/if}}
         </div>
       {{else}}
@@ -54,67 +54,67 @@
 
       {{!-- Resolve --}}
       <div class="resource-row">
-        <span class="warfare-rname warfare-rname--condition" data-tooltip-text="Resolve (current / max)">RES</span>
+        <span class="warfare-rname warfare-rname--condition" data-tooltip-text="{{localize "UESRPG.ModernUI.ResolveCurrentMax"}}">{{localize "UESRPG.Sheets.WarfareUnit.Stats.RES"}}</span>
         <div class="warfare-stat-bar">
           <div class="warfare-bar-fill warfare-bar-fill--condition" style="width:{{resolvePct}}%"></div>
           <div class="bar-values">
             <input type="number" name="system.stats.resolve.value"
               value="{{system.stats.resolve.value}}"
               {{#unless editable}}disabled{{/unless}}
-              min="0" data-tooltip-text="Current Resolve" aria-label="Current Resolve">
+              min="0" data-tooltip-text="{{localize "UESRPG.ModernUI.CurrentResolve"}}" aria-label="{{localize "UESRPG.ModernUI.CurrentResolve"}}">
             /
-            <label data-tooltip-text="Resolve Max">{{system.stats.resolve.max}}</label>
+            <label data-tooltip-text="{{localize "UESRPG.ModernUI.ResolveMax"}}">{{system.stats.resolve.max}}</label>
           </div>
         </div>
       </div>
 
       {{!-- Bulk --}}
       <div class="resource-row">
-        <span class="warfare-rname warfare-rname--bulk" data-tooltip-text="Bulk (current / max)">BULK</span>
+        <span class="warfare-rname warfare-rname--bulk" data-tooltip-text="{{localize "UESRPG.ModernUI.BulkCurrentMax"}}">{{localize "UESRPG.Sheets.WarfareUnit.Stats.BULK"}}</span>
         <div class="warfare-stat-bar">
           <div class="warfare-bar-fill warfare-bar-fill--bulk" style="width:{{bulkPct}}%"></div>
           <div class="bar-values">
             <input type="number" name="system.stats.bulk.value"
               value="{{system.stats.bulk.value}}"
               {{#unless editable}}disabled{{/unless}}
-              min="0" data-tooltip-text="Current Bulk" aria-label="Current Bulk">
+              min="0" data-tooltip-text="{{localize "UESRPG.ModernUI.CurrentBulk"}}" aria-label="{{localize "UESRPG.ModernUI.CurrentBulk"}}">
             /
             <input type="number" name="system.stats.bulk.max"
               value="{{derived.bulkMax}}"
               {{#unless editable}}disabled{{/unless}}
-              min="0" class="warfare-bar-input--max" data-tooltip-text="Bulk Max (editable)" aria-label="Bulk Max (editable)">
+              min="0" class="warfare-bar-input--max" data-tooltip-text="{{localize "UESRPG.ModernUI.BulkMaxEditable"}}" aria-label="{{localize "UESRPG.ModernUI.BulkMaxEditable"}}">
           </div>
         </div>
       </div>
 
       {{!-- Discipline --}}
       <div class="resource-row">
-        <span class="warfare-rname warfare-rname--discipline" data-tooltip-text="Discipline (current / max)">DISC</span>
+        <span class="warfare-rname warfare-rname--discipline" data-tooltip-text="{{localize "UESRPG.ModernUI.DisciplineCurrentMax"}}">{{localize "UESRPG.Sheets.WarfareUnit.Stats.DISC"}}</span>
         <div class="warfare-stat-bar">
           <div class="warfare-bar-fill warfare-bar-fill--discipline" style="width:{{disciplinePct}}%"></div>
           <div class="bar-values bar-values--single">
             <input type="number" name="system.stats.discipline.value"
               value="{{system.stats.discipline.value}}"
               {{#unless editable}}disabled{{/unless}}
-              min="0" data-tooltip-text="Current Discipline" aria-label="Current Discipline">
+              min="0" data-tooltip-text="{{localize "UESRPG.ModernUI.CurrentDiscipline"}}" aria-label="{{localize "UESRPG.ModernUI.CurrentDiscipline"}}">
             /
-            <label data-tooltip-text="Discipline Max">{{derived.disciplineMax}}</label>
+            <label data-tooltip-text="{{localize "UESRPG.ModernUI.DisciplineMax"}}">{{derived.disciplineMax}}</label>
           </div>
         </div>
       </div>
 
       {{!-- Speed --}}
       <div class="resource-row">
-        <span class="warfare-rname warfare-rname--speed" data-tooltip-text="Speed (effective / displayed max)">SPD</span>
+        <span class="warfare-rname warfare-rname--speed" data-tooltip-text="{{localize "UESRPG.ModernUI.SpeedEffectiveDisplayedMax"}}">{{localize "UESRPG.Sheets.WarfareUnit.Stats.SPD"}}</span>
         <div class="warfare-stat-bar">
           <div class="warfare-bar-fill warfare-bar-fill--speed" style="width:{{speedPct}}%"></div>
           <div class="bar-values bar-values--single">
             <input type="number" name="system.stats.speed.value"
               value="{{system.stats.speed.value}}"
               {{#unless editable}}disabled{{/unless}}
-              min="0" data-tooltip-text="Effective Speed" aria-label="Effective Speed">
+              min="0" data-tooltip-text="{{localize "UESRPG.ModernUI.EffectiveSpeed"}}" aria-label="{{localize "UESRPG.ModernUI.EffectiveSpeed"}}">
             /
-            <label data-tooltip-text="Displayed Speed Max">{{speedDisplayMax}}</label>
+            <label data-tooltip-text="{{localize "UESRPG.ModernUI.DisplayedSpeedMax"}}">{{speedDisplayMax}}</label>
           </div>
         </div>
       </div>

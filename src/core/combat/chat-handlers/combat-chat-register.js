@@ -10,6 +10,7 @@ import { augmentChatMessageHTML } from "./combat-chat-render.js";
 import { onCreateChatMessageOpposed, onUpdateChatMessageOpposed } from "./combat-chat-opposed.js";
 import { registerCombatChatClickHandler } from "./combat-chat-actions.js";
 import { registerCombatChatContextHandlers } from "./combat-chat-context.js";
+import { registerCombatOutcomeAuthorityIntent } from "./combat-chat-apply.js";
 
 let _chatHooksRegistered = false;
 let _createHookRegistered = false;
@@ -26,6 +27,7 @@ export function initializeChatHandlers() {
   }
 
   registerCombatChatClickHandler();
+  registerCombatOutcomeAuthorityIntent();
 
   if (!_createHookRegistered) {
     Hooks.on("createChatMessage", (message) => {

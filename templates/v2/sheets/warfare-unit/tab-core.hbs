@@ -18,8 +18,8 @@
         <legend>{{localize "UESRPG.Sheets.WarfareUnit.Identity"}}</legend>
         <div class="warfare-form-grid">
           <div class="form-group">
-            <label for="wf-category">{{localize "UESRPG.Sheets.WarfareUnit.UnitType"}}</label>
-            <select id="wf-category" name="system.identity.category" {{#unless editable}}disabled{{/unless}}>
+            <label for="{{controlIdPrefix}}-wf-category">{{localize "UESRPG.Sheets.WarfareUnit.UnitType"}}</label>
+            <select id="{{controlIdPrefix}}-wf-category" name="system.identity.category" {{#unless editable}}disabled{{/unless}}>
               <option value="" {{#unless currentCategory}}selected{{/unless}}>{{localize "UESRPG.Sheets.WarfareUnit.SelectPlaceholder"}}</option>
               {{#each categoryOptions}}
               <option value="{{this.value}}" {{#if this.selected}}selected{{/if}}>{{this.label}}</option>
@@ -27,8 +27,8 @@
             </select>
           </div>
           <div class="form-group">
-            <label for="wf-rank">{{localize "UESRPG.UI.Rank"}}</label>
-            <select id="wf-rank" name="system.identity.rank" {{#unless editable}}disabled{{/unless}}>
+            <label for="{{controlIdPrefix}}-wf-rank">{{localize "UESRPG.UI.Rank"}}</label>
+            <select id="{{controlIdPrefix}}-wf-rank" name="system.identity.rank" {{#unless editable}}disabled{{/unless}}>
               <option value="" {{#unless currentRank}}selected{{/unless}}>{{localize "UESRPG.Sheets.WarfareUnit.SelectPlaceholder"}}</option>
               {{#each rankOptions}}
               <option value="{{this.value}}" {{#if this.selected}}selected{{/if}}>{{this.label}}</option>
@@ -36,8 +36,8 @@
             </select>
           </div>
           <div class="form-group">
-            <label for="wf-tradition">{{localize "UESRPG.Sheets.WarfareUnit.ProvincialTradition"}}</label>
-            <select id="wf-tradition" name="system.doctrine.tradition" {{#unless editable}}disabled{{/unless}}>
+            <label for="{{controlIdPrefix}}-wf-tradition">{{localize "UESRPG.Sheets.WarfareUnit.ProvincialTradition"}}</label>
+            <select id="{{controlIdPrefix}}-wf-tradition" name="system.doctrine.tradition" {{#unless editable}}disabled{{/unless}}>
               <option value="" {{#unless currentTradition}}selected{{/unless}}>{{localize "UESRPG.Sheets.WarfareUnit.SelectPlaceholder"}}</option>
               {{#each traditionOptions}}
               <option value="{{this.value}}" {{#if this.selected}}selected{{/if}}>{{this.label}}</option>
@@ -45,8 +45,8 @@
             </select>
           </div>
           <div class="form-group">
-            <label for="wf-commander-bonus">{{localize "UESRPG.Sheets.WarfareUnit.CommanderBonus"}}</label>
-            <input id="wf-commander-bonus" type="number" name="system.commander.bonusOverride" value="{{system.commander.bonusOverride}}" {{#unless editable}}disabled{{/unless}}>
+            <label for="{{controlIdPrefix}}-wf-commander-bonus">{{localize "UESRPG.Sheets.WarfareUnit.CommanderBonus"}}</label>
+            <input id="{{controlIdPrefix}}-wf-commander-bonus" type="number" name="system.commander.bonusOverride" value="{{system.commander.bonusOverride}}" {{#unless editable}}disabled{{/unless}}>
           </div>
         </div>
       </fieldset>
@@ -61,7 +61,7 @@
               <span class="warfare-derived-cell__sep">/</span>
               <span class="warfare-derived-cell__max">{{system.stats.resolve.max}}</span>
             </div>
-            <div class="warfare-derived-cell__sub">Loss Total: {{system.stats.resolve.lossTotal}}</div>
+            <div class="warfare-derived-cell__sub">{{localize "UESRPG.ModernUI.LossTotal" value1=system.stats.resolve.lossTotal}}</div>
           </div>
 
           <div class="warfare-derived-cell">
@@ -71,7 +71,7 @@
               <span class="warfare-derived-cell__sep">/</span>
               <span class="warfare-derived-cell__max">{{derived.bulkMax}}</span>
             </div>
-            <div class="warfare-derived-cell__sub">Threshold: {{derived.bulkLossThreshold}} Resolve per Bulk</div>
+            <div class="warfare-derived-cell__sub">{{localize "UESRPG.ModernUI.ThresholdResolvePerBulk" value1=derived.bulkLossThreshold}}</div>
           </div>
 
           <div class="warfare-derived-cell">
@@ -81,7 +81,7 @@
               <span class="warfare-derived-cell__sep">/</span>
               <span class="warfare-derived-cell__max">{{derived.baseDiscipline}}</span>
             </div>
-            <div class="warfare-derived-cell__sub">DB: {{derived.db}} - Commander: {{derived.commanderBonus}}</div>
+            <div class="warfare-derived-cell__sub">{{localize "UESRPG.ModernUI.DBCommander" value1=derived.db value2=derived.commanderBonus}}</div>
           </div>
 
           <div class="warfare-derived-cell">
@@ -89,7 +89,7 @@
             <div class="warfare-derived-cell__values">
               <span class="warfare-derived-cell__current">{{system.stats.speed.value}}</span>
             </div>
-            <div class="warfare-derived-cell__sub">Base: {{derived.speedBase}}{{#if system.status.battle.suppressed}} - Suppressed{{/if}}</div>
+            <div class="warfare-derived-cell__sub">{{localize "UESRPG.ModernUI.Base"}} {{derived.speedBase}}{{#if system.status.battle.suppressed}} {{localize "UESRPG.ModernUI.Suppressed"}}{{/if}}</div>
           </div>
         </div>
       </fieldset>

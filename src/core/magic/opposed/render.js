@@ -63,7 +63,7 @@ function summarizeOutcomeText(outcome) {
 }
 
 function extractRollTotal(result) {
-  const n = Number(result?.rollTotal ?? result?.total ?? result?.roll?.total ?? result?.roll?._total ?? result?.roll?.result ?? NaN);
+  const n = Number(result?.rollTotal ?? result?.total ?? result?.roll?.total ?? result?.roll?.result ?? NaN);
   return Number.isFinite(n) ? n : null;
 }
 
@@ -340,7 +340,7 @@ function getMagicAttackerCommitGate(data, ctx) {
       const needed = Number(castSource?.cost ?? 0) || 0;
       if (!item) return { allowed: false, reason: t("UESRPG.Chat.Common.ItemUnavailable", "Item unavailable") };
       const poolValue = sourceLane === "extension"
-        ? Number(item.system?.charge?.value ?? item.flags?.["uesrpg-3ev4"]?.itemSpellcasting?.pool?.value ?? 0) || 0
+        ? Number(item.flags?.["uesrpg-3ev4"]?.itemSpellcasting?.pool?.value ?? item.system?.charge?.value ?? 0) || 0
         : Number(item.flags?.["uesrpg-3ev4"]?.enchanting?.cast?.pool?.value ?? 0) || 0;
       if (poolValue < needed) return { allowed: false, reason: `${poolValue}/${needed} Soul` };
     } else if (isEnchantSource && castMode === "magicka") {

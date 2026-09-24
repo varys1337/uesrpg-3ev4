@@ -11,6 +11,7 @@ import { _num } from "../../utils/coerce.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
 import { getFlagValueWithFallback } from "../system/flags.js";
 import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../time/combat-boundary-orchestrator.js";
+import { isActiveGMUser } from "../../utils/users.js";
 
 const FLAG_FREE_DEFENSE = `flags.${FLAG_SCOPE}.combat.freeNextDefenseCommit`;
 const FLAG_THUNDER_CHARGE = `flags.${FLAG_SCOPE}.talents.thunderCharge`;
@@ -197,7 +198,7 @@ async function _cleanupActorActivationFlags(actor, { combat = null, worldTime = 
 }
 
 async function _handleCombatBoundaryActivationCleanup(payload) {
-  if (!game.user?.isGM) return;
+  if (!isActiveGMUser(game.user)) return;
   if (payload?.source !== "combat") return;
   if (payload?.combat?.phase && payload.combat.phase !== "post") return;
 
@@ -222,7 +223,7 @@ export function registerActivationStateHooks() {
   if (globalThis.__UESRPG_ACTIVATION_STATE_HOOKS__) return;
   globalThis.__UESRPG_ACTIVATION_STATE_HOOKS__ = true;
 
-  if (game.user?.isGM) {
+  if (isActiveGMUser(game.user)) {
     const actors = Array.from(game?.actors?.contents ?? []);
     for (const actor of actors) {
       const hasFree = Boolean(_readFlagByPath(actor, FLAG_FREE_DEFENSE));
@@ -243,7 +244,7 @@ export function registerActivationStateHooks() {
   });
 
   Hooks.on("deleteCombat", async (combat) => {
-    if (!game.user?.isGM) return;
+    if (!isActiveGMUser(game.user)) return;
     const wt = _worldTimeSeconds();
     for (const combatant of combat?.combatants ?? []) {
       await _cleanupActorActivationFlags(combatant?.actor ?? null, { combat: null, worldTime: wt });
@@ -252,7 +253,7 @@ export function registerActivationStateHooks() {
   });
 
   Hooks.on("uesrpg.timeChanged", async (payload) => {
-    if (!game.user?.isGM) return;
+    if (!isActiveGMUser(game.user)) return;
     const source = String(payload?.source ?? "");
     if (source !== "worldTime" && source !== "calendaria") return;
     const wt = _num(payload?.worldTime, _worldTimeSeconds());
@@ -267,4 +268,3 @@ export function registerActivationStateHooks() {
     }
   });
 }
-

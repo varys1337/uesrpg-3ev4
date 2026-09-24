@@ -30,6 +30,7 @@ import { AttackTracker } from "../../../core/combat/attack-tracker.js";
 import { buildSheetAttackTrackerContext } from "./shared/attack-tracker-sheet-context.js";
 import { buildCombatTabAttackTrackerView } from "./shared/attack-tracker-view.js";
 import { buildEncumbranceBreakdown } from "../../../core/actors/rules/item-aggregation.js";
+import { getActorSheetRevision } from "../../../core/actors/derived-cache/actor-derived-cache.js";
 import { NPC_THREAT_TEMPLATE_OPTIONS } from "../../../core/rules/npc-threat-templates.js";
 import {
   NPC_CREATURE_TYPE_OPTIONS,
@@ -39,6 +40,7 @@ import {
 // Shared roll handlers
 import { onSkillRoll, onCombatRoll } from "../shared/listeners/rolls.js";
 import { onCastMagicAction, castAttackSpell } from "../shared/listeners/magic-cast.js";
+import { onCastEnchantmentAction } from "../shared/listeners/enchanting-cast.js";
 import { showSpellOptionsDialog } from "../../../core/magic/dialogs/spell-options-dialog.js";
 import { onCombatQuickAction } from "../shared/listeners/combat-actions.js";
 
@@ -67,7 +69,7 @@ import {
 // Resource button dialog handlers (consolidated)
 import { registerResourceButtonHandlers } from "../shared/listeners/resource-button-handlers.js";
 import { MagicOpposedWorkflow } from "../../../core/magic/opposed-workflow.js";
-import { isEngagementFlankingHomebrewEnabled } from "../../../core/homebrew/settings.js";
+import { isEngagementFlankingHomebrewEnabled, isReligionWorshipEnabled } from "../../../core/homebrew/settings.js";
 import { buildSocialDisplay } from "../../../core/social/social-data.js";
 import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "./shared/sheet-tooltips.js";
 import { enableItemRowDragSources } from "./shared/drag-sources.js";
@@ -133,9 +135,12 @@ import { buildResistanceBonusSection, readResistanceBonusSelections, buildResist
 import { SYSTEM_ID, templatePath } from "../../constants.js";
 import {
   clearQueuedRenderPartsState,
+  clearSheetFormUpdateState,
+  flushCurrentSheetForm,
   isSheetPerfTraceEnabled,
   partRendered,
   queueRenderParts,
+  queueSheetFormUpdate,
   renderedPartsSet,
   localizeSheetChoiceLabels,
   resolveCarryRatingDisplayLabel,
@@ -227,45 +232,12 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
    * @returns {string}
    */
   _buildItemsSignature(actor) {
-    const npcSchoolRanks = (() => {
-      try {
-        return actor?.flags?.[SYSTEM_ID]?.npcMagicSchoolRanks ?? null;
-      } catch (_e) {
-        return null;
-      }
-    })();
-
-    const parts = [
+    return [
       actor?.id ?? "",
       actor?.type ?? "",
-      "A",
-      npcSchoolRanks ? JSON.stringify(npcSchoolRanks) : "",
-      actor?.system?.worship ? JSON.stringify(actor.system.worship) : "",
-      String(actor?.items?.size ?? 0),
-    ];
-
-    for (const i of actor?.items?.contents ?? []) {
-      const cs = i?.system?.containerStats;
-      const itemModifiedTime = i?._stats?.modifiedTime ?? i?.updatedTime ?? "";
-      parts.push([
-        i?.id ?? "",
-        i?.type ?? "",
-        i?.name ?? "",
-        String(itemModifiedTime),
-        i?.system?.equipped ? "1" : "0",
-        String(i?.system?.quantity ?? ""),
-        String(i?.system?.ammoId ?? ""),
-        String(i?.system?.attackMode ?? ""),
-        String(i?.system?.consumeAmmo ?? ""),
-        cs?.contained ? "1" : "0",
-        cs?.container_id ?? "",
-        i?.system?.school ?? "",
-        i?.system?.traitKey ?? "",
-        String(i?.system?.traitValue ?? ""),
-      ].join("~"));
-    }
-
-    return parts.join("|");
+      getActorSheetRevision(actor),
+      isReligionWorshipEnabled() ? "religion:on" : "religion:off",
+    ].join("|");
   }
 
   _renderedPartsSet(options) {
@@ -364,6 +336,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
       // Shared rolls & combat
       castMagic: NpcSheetV2.prototype._onCastMagicAction,
+      castEnchantment: NpcSheetV2.prototype._onCastEnchantmentAction,
       castInvocation: NpcSheetV2.prototype._onCastInvocationAction,
       skillRoll: NpcSheetV2.prototype._onSkillRoll,
       combatRoll: NpcSheetV2.prototype._onCombatRoll,
@@ -479,14 +452,6 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     return this.document;
   }
 
-  /**
-   * V1 compat: filter modules + `setResourceBars()` access `sheet.form`.
-   * In AppV2 `this.element` IS the <form>.
-   */
-  get form() {
-    return this.element;
-  }
-
   async _onChangeForm(formConfig, event) {
     if (typeof super._onChangeForm === "function") super._onChangeForm(formConfig, event);
     if (!this.isEditable || !this.document?.isOwner) return;
@@ -511,12 +476,19 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     const isMaxEngagementPatch = Object.keys(patch).length === 1
       && Object.prototype.hasOwnProperty.call(patch, MAX_ENGAGEMENT_SCORE_PATH);
     try {
-      await requestUpdateDocument(this.document, patch);
+      return await queueSheetFormUpdate(this, () => requestUpdateDocument(this.document, patch));
     } catch (err) {
       if (!isMaxEngagementPatch) throw err;
       console.error("UESRPG | Failed to update max engagement score", { actor: this.document?.uuid, err });
-      ui.notifications?.error?.("Failed to update max engagement score.");
+      // queueSheetFormUpdate already reported one localized persistence error.
     }
+  }
+
+  async _preClose(options) {
+    if (this.isEditable && !await flushCurrentSheetForm(this, this._onFormSubmit, null)) {
+      throw new Error(t("UESRPG.Notifications.Sheets.FormSaveFailed"));
+    }
+    return super._preClose(options);
   }
 
   async _onFormSubmit(_event, _form, formData) {
@@ -539,7 +511,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       normalizeValue: normalizeNpcFormValue,
     });
     if (!patch) return;
-    await requestUpdateDocument(this.document, patch);
+    return requestUpdateDocument(this.document, patch);
   }
 
 
@@ -1090,6 +1062,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
   // Magic
   async _onCastMagicAction(event, target, preselectedSpell = null) { return onCastMagicAction.call(this, event, target, preselectedSpell); }
+  async _onCastEnchantmentAction(event, target) { return onCastEnchantmentAction.call(this, event, target); }
   async _onCastInvocationAction(event, target) {
     event?.preventDefault?.();
     const li = target?.closest?.(".item") ?? event?.currentTarget?.closest?.(".item");
@@ -1117,7 +1090,6 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
   async _onWeaponAmmoSelect(event, target) {
     const result = await onWeaponAmmoSelect.call(this, event, target);
     if (result === false || result === null) return result;
-    this._uesrpgItemsCache = null;
     return result;
   }
   async _onItemCreate(event, target) {
@@ -1150,7 +1122,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     event.preventDefault();
     const json = target?.dataset?.json ?? "[]";
     navigator.clipboard.writeText(json).then(() => {
-      ui.notifications?.info?.("Feature Inspector data copied to clipboard.");
+      ui.notifications?.info?.(t("UESRPG.Notifications.Sheets.FeatureInspectorCopied"));
     }).catch((err) => {
       console.warn("uesrpg | Failed to copy feature inspector data", err);
     });
@@ -1211,7 +1183,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
   async _duplicateItem(item) {
     const confirmed = await confirmDialog({
       title: t("UESRPG.Dialogs.DuplicateItem.Title"),
-      content: `<p>${tf("UESRPG.Dialogs.DuplicateItem.Content", { item: item.name })}</p>`,
+      content: `<p>${tf("UESRPG.Dialogs.DuplicateItem.Content", { item: foundry.utils.escapeHTML(item.name) })}</p>`,
     });
     if (confirmed) {
       const created = await requestCreateEmbeddedDocuments(this.document, "Item", [item.toObject()]);
@@ -1224,11 +1196,12 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     if (!this.isEditable) return;
     const v = String(target?.value ?? event?.target?.closest?.(".uesrpg-active-combat-style")?.value ?? "").trim();
     try {
-      await requestUpdateDocument(this.document, { [`flags.${SYSTEM_ID}.activeCombatStyleId`]: v || "" });
+      const updated = await requestUpdateDocument(this.document, { [`flags.${SYSTEM_ID}.activeCombatStyleId`]: v || "" });
+      if (!updated) throw new Error(t("UESRPG.Notifications.Sheets.ActiveCombatStyleSaveFailed"));
       this.render(false);
     } catch (err) {
       console.error("UESRPG | Failed to update active combat style", { actor: this.document?.uuid, err });
-      ui.notifications?.error?.("Failed to update active combat style");
+      ui.notifications?.error?.(t("UESRPG.Notifications.Sheets.ActiveCombatStyleSaveFailed"));
     }
   }
   // Resources — routed through shared module (authority-proxy safe)
@@ -1271,9 +1244,9 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     const fatiguePenalty = Number(actor.system?.fatigue?.penalty ?? 0);
     const carryPenalty = Number(actor.system?.carry_rating?.penalty ?? 0);
 
-    const woundIcon = el.querySelector("#wound-icon");
-    const fatigueIcon = el.querySelector("#fatigue-icon");
-    const encIcon = el.querySelector("#enc-icon");
+    const woundIcon = el.querySelector('[data-role="wound-icon"]');
+    const fatigueIcon = el.querySelector('[data-role="fatigue-icon"]');
+    const encIcon = el.querySelector('[data-role="enc-icon"]');
 
     if (woundIcon) woundIcon.style.display = woundPenalty !== 0 ? "" : "none";
     if (fatigueIcon) fatigueIcon.style.display = fatiguePenalty !== 0 ? "" : "none";
@@ -1310,9 +1283,16 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       return;
     }
 
-    const contentString = `<h2>${spell.name}</h2><p>
-    <i><b>Spell (${spell.system.school} L${spell.system.level}, ${spell.system.cost} MP)</b></i><p>
-      <i>${spell.system.description || "No description available."}</i>`;
+    const spellName = foundry.utils.escapeHTML(spell.name);
+    const school = foundry.utils.escapeHTML(spell.system.school);
+    const description = foundry.utils.escapeHTML(spell.system.description || t("UESRPG.Chat.Magic.NoDescriptionAvailable"));
+    const contentString = `<h2>${spellName}</h2><p>
+    <i><b>${tf("UESRPG.Chat.Magic.SpellDescriptionMeta", {
+      school,
+      level: Number(spell.system.level) || 0,
+      cost: Number(spell.system.cost) || 0,
+    })}</b></i></p>
+      <p><i>${description}</i></p>`;
 
     await ChatMessage.create({
       user: game.user.id,
@@ -1534,17 +1514,17 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     const difficultyOptions = SKILL_DIFFICULTIES.map(d => {
       const selected = d.key === "average" ? "selected" : "";
       const sign = d.mod >= 0 ? "+" : "";
-      return `<option value="${d.key}" ${selected}>${d.label} (${sign}${d.mod})</option>`;
+      return `<option value="${foundry.utils.escapeHTML(d.key)}" ${selected}>${foundry.utils.escapeHTML(d.label)} (${sign}${d.mod})</option>`;
     }).join("\n");
 
     const dialogContent = `
       <div class="uesrpg-skill-roll">
         <div class="form-group">
-          <label><b>Difficulty</b></label>
+          <label><b>${t("UESRPG.UI.Difficulty")}</b></label>
           <select name="difficultyKey" style="width:100%;">${difficultyOptions}</select>
         </div>
         <div class="form-group" style="margin-top:8px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
-          <label style="margin:0;"><b>Manual Modifier</b></label>
+          <label style="margin:0;"><b>${t("UESRPG.UI.ManualModifier")}</b></label>
           <input name="manualMod" type="number" value="0" style="width:120px;" />
         </div>
         ${resistanceSection.html}
@@ -1554,11 +1534,11 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     try {
       decl = await customDialog({
         layout: "workflow",
-        title: `${profLabel} — Roll Options`,
+        title: tf("UESRPG.Dialogs.ProfessionRoll.Title", { profession: profLabel }),
         content: dialogContent,
         buttons: {
           ok: {
-            label: "Roll",
+            label: t("UESRPG.UI.Roll"),
             callback: (html) => {
               const root = html instanceof HTMLElement ? html : html?.[0];
               const difficultyKey = root?.querySelector('select[name="difficultyKey"]')?.value ?? "average";
@@ -1568,7 +1548,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
               return { difficultyKey, manualMod, resistanceSelected: selectedRes };
             },
           },
-          cancel: { label: "Cancel", callback: () => null },
+          cancel: { label: t("UESRPG.UI.Cancel"), callback: () => null },
         },
         default: "ok",
         width: 420
@@ -1612,14 +1592,14 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     const armorMods = (tn.breakdown ?? []).filter(b => String(b.label || "").startsWith("Armor:") && Number(b.value) !== 0);
     for (const m of armorMods) {
       const v = Number(m.value) || 0;
-      tags.push(`<span class="tag armor-tag">${m.label} ${v}</span>`);
+      tags.push(`<span class="tag armor-tag">${foundry.utils.escapeHTML(m.label)} ${v}</span>`);
     }
 
-    if (tn?.difficulty?.mod) tags.push(`<span class="tag modifier-tag">${tn.difficulty.label} ${tn.difficulty.mod >= 0 ? "+" : ""}${tn.difficulty.mod}</span>`);
-    if (decl.manualMod) tags.push(`<span class="tag modifier-tag">Mod ${decl.manualMod >= 0 ? "+" : ""}${decl.manualMod}</span>`);
+    if (tn?.difficulty?.mod) tags.push(`<span class="tag modifier-tag">${foundry.utils.escapeHTML(tn.difficulty.label)} ${tn.difficulty.mod >= 0 ? "+" : ""}${tn.difficulty.mod}</span>`);
+    if (decl.manualMod) tags.push(`<span class="tag modifier-tag">${t("UESRPG.Chat.Common.ManualModifier")} ${decl.manualMod >= 0 ? "+" : ""}${decl.manualMod}</span>`);
     if (resBonus) {
-      const labels = resMods.map(m => m.label).join(", ");
-      tags.push(`<span class="tag modifier-tag">Resistance Bonus ${resBonus >= 0 ? "+" : ""}${resBonus}${labels ? ` (${labels})` : ""}</span>`);
+      const labels = resMods.map(m => foundry.utils.escapeHTML(m.label)).join(", ");
+      tags.push(`<span class="tag modifier-tag">${t("UESRPG.Chat.Common.ResistanceBonus")} ${resBonus >= 0 ? "+" : ""}${resBonus}${labels ? ` (${labels})` : ""}</span>`);
     }
 
     const result = await doTestRoll(this.document, {
@@ -1632,26 +1612,26 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     await applyHyperAwarenessToResult(this.document, profLabel, result, { allowPrompt: true });
 
     const degreeLine = result.isSuccess
-      ? `<b style="color:green;">${formatResultSummary(result, { uppercase: true, includeDegree: true, degreeStyle: "dash" })}</b>`
-      : `<b style="color:rgb(168, 5, 5);">${formatResultSummary(result, { uppercase: true, includeDegree: true, degreeStyle: "dash" })}</b>`;
+      ? `<b style="color:green;">${foundry.utils.escapeHTML(formatResultSummary(result, { uppercase: true, includeDegree: true, degreeStyle: "dash" }))}</b>`
+      : `<b style="color:rgb(168, 5, 5);">${foundry.utils.escapeHTML(formatResultSummary(result, { uppercase: true, includeDegree: true, degreeStyle: "dash" }))}</b>`;
 
     const breakdownRows = (tn.breakdown ?? []).map(b => {
       const v = Number(b.value ?? 0);
       const sign = v >= 0 ? "+" : "";
-      return `<div style="display:flex; justify-content:space-between; gap:10px;"><span>${b.label}</span><span>${sign}${v}</span></div>`;
+      return `<div style="display:flex; justify-content:space-between; gap:10px;"><span>${foundry.utils.escapeHTML(b.label)}</span><span>${sign}${v}</span></div>`;
     }).join("");
 
     const declaredParts = [];
-    if (tn?.difficulty?.label) declaredParts.push(`${tn.difficulty.label} (${tn.difficulty.mod >= 0 ? "+" : ""}${tn.difficulty.mod})`);
-    if (decl.manualMod) declaredParts.push(`Mod ${decl.manualMod >= 0 ? "+" : ""}${decl.manualMod}`);
+    if (tn?.difficulty?.label) declaredParts.push(`${foundry.utils.escapeHTML(tn.difficulty.label)} (${tn.difficulty.mod >= 0 ? "+" : ""}${tn.difficulty.mod})`);
+    if (decl.manualMod) declaredParts.push(`${t("UESRPG.Chat.Common.ManualModifier")} ${decl.manualMod >= 0 ? "+" : ""}${decl.manualMod}`);
 
     const flavor = `
       <div>
-        <h2 style="margin:0 0 6px 0;">${profLabel}</h2>
-        <div><b>Target Number:</b> ${tn.finalTN}</div>
-        ${declaredParts.length ? `<div style="margin-top:2px; font-size:12px; opacity:0.85;"><b>Options:</b> ${declaredParts.join("; ")}</div>` : ""}
+        <h2 style="margin:0 0 6px 0;">${foundry.utils.escapeHTML(profLabel)}</h2>
+        <div><b>${t("UESRPG.Sheets.Item.TargetNumber")}:</b> ${tn.finalTN}</div>
+        ${declaredParts.length ? `<div style="margin-top:2px; font-size:12px; opacity:0.85;"><b>${t("UESRPG.Chat.Common.Options")}:</b> ${declaredParts.join("; ")}</div>` : ""}
         <div style="margin-top:4px;">${degreeLine}</div>
-        <details style="margin-top:6px;"><summary style="cursor:pointer; user-select:none;">TN breakdown</summary><div style="margin-top:4px; font-size:12px; opacity:0.9;">${breakdownRows}</div></details>
+        <details style="margin-top:6px;"><summary style="cursor:pointer; user-select:none;">${t("UESRPG.Chat.Common.TnBreakdown")}</summary><div style="margin-top:4px; font-size:12px; opacity:0.9;">${breakdownRows}</div></details>
         <div class="tag-container">${tags.join("")}</div>
       </div>`;
 
@@ -1866,7 +1846,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
         try {
           return await super._onDrop(event);
         } catch (fallbackErr) {
-          dndWarnFailure("Item drop failed. Check console diagnostics.", {
+          dndWarnFailure(t("UESRPG.Notifications.Sheets.ItemDropFailed"), {
             traceId,
             details: {
               sheet: "NpcSheetV2",
@@ -1902,6 +1882,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       disableResizeMotionGuard(this);
       clearItemDescriptionTooltip(this);
       clearListFilterState(this);
+      clearSheetFormUpdateState(this);
       return super._onClose(options);
     } finally {
       this._traceSheetPerf("_onClose", perfStart, {});

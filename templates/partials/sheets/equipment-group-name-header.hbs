@@ -1,7 +1,7 @@
-<th class="item-name-cell item-create {{nameCellClass}}" id="{{legacyId}}" {{#if altType}}data-alt-type="{{altType}}"{{/if}}>
+<th class="item-name-cell item-create {{nameCellClass}}" data-role="{{legacyId}}-group-header" {{#if altType}}data-alt-type="{{altType}}"{{/if}}>
   <div class="ues-th-content">
     <button type="button"
-            class="uesrpg-group-toggle uesrpg-group-toggle-button"
+            class="uesrpg-group-toggle uesrpg-group-toggle-button uesrpg-styled-action"
             data-action="groupToggle"
             data-group="{{group}}"
             data-tooltip="UESRPG.UI.CollapseExpand"
@@ -10,7 +10,7 @@
       <span class="item-group-label">{{label}}</span>
     </button>
     <button type="button"
-            class="item-group-add"
+            class="item-group-add uesrpg-styled-action"
             data-action="itemCreate"
             data-item-type="{{itemType}}"
             {{#if altType}}data-alt-type="{{altType}}"{{/if}}

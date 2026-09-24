@@ -11,6 +11,7 @@ import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { SYSTEM_ID, templatePath } from "../../constants.js";
 import { t } from "../../../utils/i18n.js";
 import { bindListFilters, clearListFilterState } from "../../sheets/v2/shared/list-filter.js";
+import { withApplicationUniqueId } from "./application-identity.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -22,13 +23,13 @@ export class LanguageSelectorAppV2 extends HandlebarsApplicationMixin(Applicatio
   #entries = [];
 
   constructor(actor, options = {}) {
-    super(options);
+    super(withApplicationUniqueId(options, `${actor?.uuid ?? "actor"}-${foundry.utils.randomID()}`));
     this.#actor = actor;
     this.#entries = getSocialStateFromSystem(actor.system).languages.entries;
   }
 
   static DEFAULT_OPTIONS = {
-    id: "uesrpg-language-selector",
+    id: "uesrpg-language-selector-{id}",
     classes: ["worldbuilding", "uesrpg", "uesrpg-social-selector"],
     position: { width: 760, height: 640 },
     window: { resizable: true },
@@ -117,7 +118,7 @@ export class LanguageSelectorAppV2 extends HandlebarsApplicationMixin(Applicatio
     event?.preventDefault?.();
     this._readEntriesFromDom();
 
-    const customInput = this.element?.querySelector("#social-language-custom");
+    const customInput = this.element?.querySelector('[data-role="custom-language"]');
     const name = String(customInput?.value ?? "").trim();
     if (!name) return;
     if (this.#entries.some((entry) => entry.name.toLowerCase() === name.toLowerCase())) return;
@@ -201,13 +202,13 @@ export class FactionSelectorAppV2 extends HandlebarsApplicationMixin(Application
   #entries = [];
 
   constructor(actor, options = {}) {
-    super(options);
+    super(withApplicationUniqueId(options, `${actor?.uuid ?? "actor"}-${foundry.utils.randomID()}`));
     this.#actor = actor;
     this.#entries = getSocialStateFromSystem(actor.system).factions;
   }
 
   static DEFAULT_OPTIONS = {
-    id: "uesrpg-faction-selector",
+    id: "uesrpg-faction-selector-{id}",
     classes: ["worldbuilding", "uesrpg", "uesrpg-social-selector"],
     position: { width: 860, height: 660 },
     window: { resizable: true },
@@ -297,7 +298,7 @@ export class FactionSelectorAppV2 extends HandlebarsApplicationMixin(Application
     event?.preventDefault?.();
     this._readEntriesFromDom();
 
-    const customInput = this.element?.querySelector("#social-faction-custom");
+    const customInput = this.element?.querySelector('[data-role="custom-faction"]');
     const name = String(customInput?.value ?? "").trim();
     if (!name) return;
     if (this.#entries.some((f) => f.name.toLowerCase() === name.toLowerCase())) return;

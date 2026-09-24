@@ -38,6 +38,7 @@ import { SYSTEM_ID, templatePath } from "../../constants.js";
 import { t, tf } from "../../../utils/i18n.js";
 import { asyncGuardSheet } from "../../../utils/async-guard.js";
 import { activateOpenApplication } from "./application-focus.js";
+import { withApplicationUniqueId } from "./application-identity.js";
 import {
   clearQueuedRenderPartsState,
   queueRenderParts,
@@ -216,7 +217,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
   };
 
   static DEFAULT_OPTIONS = {
-    id: "uesrpg-travel-planner",
+    id: "uesrpg-travel-planner-{id}",
     classes: ["uesrpg", "uesrpg-travel-planner", "uesrpg-travel-planner-root"],
     tag: "form",
     position: { width: 920, height: 740 },
@@ -306,24 +307,34 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
         return activateOpenApplication(existing);
       }
     }
-    const app = new TravelPlannerAppV2({ groupUuid, tab });
+    const app = new TravelPlannerAppV2({
+      groupUuid,
+      tab,
+      uniqueId: forceNew
+        ? `${String(groupUuid ?? "unbound")}-${foundry.utils.randomID()}`
+        : String(groupUuid ?? "unbound"),
+    });
     if (key) this.#openByGroup.set(key, app);
     await app.render(true);
     return app;
   }
 
   constructor(options = {}) {
-    super(options);
+    super(withApplicationUniqueId(options, options.groupUuid ?? "unbound"));
     this._groupUuid = options.groupUuid ?? null;
     this._initialTab = String(options.tab ?? "planning");
     this._memberCache = [];
     this._memberCacheSignature = "";
     this._ownedHooks = [];
     this._pendingGroupMutations = 0;
+  }
+
+  async _onFirstRender(context, options) {
+    await super._onFirstRender(context, options);
     this.#registerDocumentHooks();
   }
 
-  async close(options = {}) {
+  _onClose(options = {}) {
     const key = String(this._groupUuid ?? "").trim();
     if (key) TravelPlannerAppV2.#openByGroup.delete(key);
     for (const [event, hookId] of this._ownedHooks) Hooks.off(event, hookId);
@@ -331,7 +342,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     this._memberCache = [];
     this._memberCacheSignature = "";
     clearQueuedRenderPartsState(this);
-    return super.close(options);
+    return super._onClose(options);
   }
 
   async setActiveTab(tab) {

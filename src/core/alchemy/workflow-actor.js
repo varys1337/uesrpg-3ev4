@@ -1,4 +1,5 @@
-import { getMagicSkillLevel } from "../magic/magicka-utils.js";
+import { hasGrandmasterForSkill } from "../traits/general-talents.js";
+import { resolveAlchemyIngredientData } from "./ingredients.js";
 import { getAlchemyFlags } from "./shared.js";
 import { getActorItemsArray, normalizeAlchemyName } from "./utils.js";
 
@@ -28,25 +29,22 @@ function _resolveAlchemyTN(skill) {
 }
 
 function _resolveAlchemyRank(actor, skill) {
-  if (!skill) return 0;
-
-  if (skill.type === "magicSkill") {
-    const magicLevel = Math.max(0, Number(getMagicSkillLevel(actor, "alchemy") ?? 0) || 0);
-    if (magicLevel > 0) return magicLevel;
-  }
+  if (!skill) return -1;
 
   const rankKey = String(skill?.system?.rank ?? "").trim().toLowerCase();
   if (rankKey && Object.prototype.hasOwnProperty.call(RANK_TO_NUMERIC, rankKey)) {
-    return Math.max(0, Number(RANK_TO_NUMERIC[rankKey] ?? -1) + 1);
+    const rank = Number(RANK_TO_NUMERIC[rankKey] ?? -1);
+    if (rank < 0) return -1;
+    return rank + (hasGrandmasterForSkill(actor, skill?.name ?? "Alchemy") ? 1 : 0);
   }
 
-  const explicitRank = Number(skill?.system?.rankValue ?? skill?.system?.level ?? 0);
-  if (Number.isFinite(explicitRank) && explicitRank > 0) {
-    return explicitRank > 8 ? Math.max(1, Math.floor(explicitRank / 10)) : explicitRank;
+  const explicitRank = Number(skill?.system?.rankValue ?? skill?.system?.level);
+  if (Number.isFinite(explicitRank) && explicitRank >= 0) {
+    const rank = explicitRank > 8 ? Math.max(0, Math.floor(explicitRank / 10)) : explicitRank;
+    return rank + (hasGrandmasterForSkill(actor, skill?.name ?? "Alchemy") ? 1 : 0);
   }
 
-  const tn = _resolveAlchemyTN(skill);
-  return tn > 0 ? Math.max(1, Math.floor(tn / 10)) : 0;
+  return -1;
 }
 
 export function getAlchemySkill(actor, { items = null } = {}) {
@@ -73,7 +71,7 @@ export function getAlchemySkillSnapshot(actor, { skill = null, items = null } = 
   const item = skill ?? getAlchemySkill(actor, { items });
   const tn = _resolveAlchemyTN(item);
   const rank = _resolveAlchemyRank(actor, item);
-  return { item, tn, rank, found: Boolean(item && tn > 0 && rank > 0) };
+  return { item, tn, rank, found: Boolean(item && tn > 0 && rank >= 0) };
 }
 
 export function getAlchemyTalents(actor, { items = null } = {}) {
@@ -100,7 +98,7 @@ export function getAlchemyTalents(actor, { items = null } = {}) {
 }
 
 export function computeEffectiveStrength(ingredient, actor, opts = {}) {
-  const data = getAlchemyFlags(ingredient);
+  const data = resolveAlchemyIngredientData(ingredient) ?? getAlchemyFlags(ingredient);
   const base = Number(data.strengthBase ?? 0);
   const school = String(data.school ?? "").toLowerCase();
   const talents = opts.talents ?? getAlchemyTalents(actor);

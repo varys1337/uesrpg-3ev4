@@ -1,12 +1,8 @@
 import { MagicOpposedWorkflow } from "../../magic/opposed-workflow.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
-import { getEnchantingSettings } from "../settings.js";
+import { getCastEnchantmentPool, resolveStoredEnchantmentSpell } from "./cast-enchantment-sources.js";
 
 const _FLAG_NS = FLAG_SCOPE;
-
-function _settingEnabled() {
-  return getEnchantingSettings().enableCastEnchantmentRuntime === true;
-}
 
 function _asNum(v, fallback = 0) {
   const n = Number(v);
@@ -102,48 +98,6 @@ function _resolveSpellcastingConfig(item, spellSlotId = null) {
   return extension;
 }
 
-function _buildTemporarySpellFromSnapshot(snapshot, fallbackLabel = "Stored Spell", actor = null) {
-  if (!snapshot || typeof snapshot !== "object") return null;
-  try {
-    const data = foundry.utils.deepClone(snapshot);
-    data.type = "spell";
-    if (!String(data.name ?? "").trim()) data.name = fallbackLabel;
-    if (!data.system || typeof data.system !== "object") data.system = {};
-    const ItemCls = CONFIG?.Item?.documentClass ?? Item;
-    return new ItemCls(data, { temporary: true, parent: actor ?? undefined });
-  } catch (_err) {
-    return null;
-  }
-}
-
-async function _resolveSpellFromSlot(item, slot) {
-  const actor = item?.actor ?? null;
-  const actorSpellItemId = String(slot?.actorSpellItemId ?? "").trim();
-  if (actor && actorSpellItemId) {
-    const embedded = actor.items?.get?.(actorSpellItemId) ?? null;
-    if (embedded?.documentName === "Item" && embedded.type === "spell") {
-      return { spell: embedded, spellUuid: String(slot?.spellUuid ?? embedded.uuid ?? "") || null, fromSnapshot: false };
-    }
-  }
-
-  const uuid = String(slot?.spellUuid ?? "").trim();
-  if (uuid) {
-    try {
-      const spell = await fromUuid(uuid);
-      if (spell?.documentName === "Item" && spell.type === "spell") {
-        return { spell, spellUuid: spell.uuid || uuid, fromSnapshot: false };
-      }
-    } catch (_err) {
-      // Fallback to snapshot.
-    }
-  }
-  const snap = _buildTemporarySpellFromSnapshot(slot?.snapshot, String(slot?.label ?? "Stored Spell"), actor);
-  if (snap) {
-    return { spell: snap, spellUuid: String(snap?.uuid ?? "") || null, fromSnapshot: true };
-  }
-  return { spell: null, spellUuid: uuid || null, fromSnapshot: false };
-}
-
 function _resolveActiveToken(actor, token) {
   return token
     ?? canvas.tokens?.controlled?.find((t) => t.actor?.id === actor?.id)
@@ -152,18 +106,7 @@ function _resolveActiveToken(actor, token) {
 }
 
 function _getPoolSnapshot(item, spellcastingCfg) {
-  const cast = spellcastingCfg?.cast ?? {};
-  const pool = cast?.pool ?? {};
-  if (spellcastingCfg?.sourceLane === "extension") {
-    return {
-      value: _asNum(item?.system?.charge?.value, _asNum(pool?.value, 0)),
-      max: _asNum(item?.system?.charge?.max, _asNum(pool?.max, 0))
-    };
-  }
-  return {
-    value: _asNum(pool?.value, 0),
-    max: _asNum(pool?.max, 0)
-  };
+  return getCastEnchantmentPool(item, spellcastingCfg?.sourceLane);
 }
 
 function _buildCastSource({ item, slot, sourceLane, pool }) {
@@ -200,11 +143,6 @@ export async function castFromEnchantedItem({
   castActionType = "primary",
   options = { targetTokenUuids: [], aoe: null, spellOptions: null }
 } = {}) {
-  if (!_settingEnabled()) {
-    _warn("Cast Enchantment runtime is disabled in world settings.");
-    return null;
-  }
-
   const ownedItem = _resolveOwnedItem(actor, item);
   if (!actor || !ownedItem) {
     _warn("You can only cast enchantments from an item owned by the actor.");
@@ -222,7 +160,11 @@ export async function castFromEnchantedItem({
     return null;
   }
 
-  const { spell, spellUuid } = await _resolveSpellFromSlot(ownedItem, slot);
+  const spell = await resolveStoredEnchantmentSpell(ownedItem, {
+    ...slot,
+    sourceLane: spellcastingCfg.sourceLane,
+  }, { materialize: true });
+  const spellUuid = String(spell?.uuid ?? "").trim() || null;
   if (!spell || !spellUuid) {
     _warn("Stored spell reference could not be resolved to a castable spell UUID.");
     return null;

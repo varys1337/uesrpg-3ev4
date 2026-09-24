@@ -25,7 +25,7 @@ function _effectClassification(effect) {
   const systemOwnedSpell = spell && String(flags?.owner ?? "") === "system";
   const stale = expired && systemOwnedSpell && String(flags?.ae?.expiryAction ?? "delete").trim().toLowerCase() === "delete";
   const hasNativeDuration = effect?.duration?.value !== undefined && effect?.duration?.value !== null;
-  const temporary = Boolean(effect?.isTemporary || hasNativeDuration || effect?.duration?.rounds || effect?.duration?.seconds);
+  const temporary = Boolean(effect?.isTemporary || hasNativeDuration);
   return {
     meta,
     hasLegacy,

@@ -1,11 +1,12 @@
 import { alertDialog } from "../../../../utils/dialog-v2-helper.js";
 import { requestCreateEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
 import { postItemToChat } from "../../shared-handlers.js";
-import { t } from "../../../../utils/i18n.js";
+import { t, tf } from "../../../../utils/i18n.js";
 import { executeItemActivation } from "../../../../core/system/activation/index.js";
 import { castScrollFromItem } from "../../../../core/magic/scroll-casting.js";
 import { drinkPotion, applyAlchemyToTarget, pickAlchemyCoatingTarget } from "../../../../core/alchemy/runtime.js";
 import { onCastEnchantmentAction } from "../../shared/listeners/enchanting-cast.js";
+import { getCastEnchantmentSlots } from "../../../../core/enchanting/runtime/cast-enchantment-sources.js";
 
 const SYSTEM_ID = "uesrpg-3ev4";
 const SETTING_KEY = "enableItemRowQuickMenu";
@@ -15,7 +16,6 @@ const CONTEXT_IGNORE_SELECTOR = "input, select, textarea, [contenteditable='true
 const BOUND_ATTR = "uesrpgItemQuickMenuBound";
 const FEATURE_TYPES = new Set(["trait", "talent", "power"]);
 const ALCHEMY_PRODUCT_KINDS = new Set(["potion", "poison", "toxin"]);
-const SPELLCASTING_ITEM_TYPES = new Set(["weapon", "armor", "ammunition", "equipment", "container", "scroll"]);
 
 function _isQuickMenuEnabled() {
   try {
@@ -73,29 +73,8 @@ function _getAlchemyKind(item) {
   return ALCHEMY_PRODUCT_KINDS.has(kind) ? kind : "";
 }
 
-function _hasEnabledSpellSlot(slots) {
-  if (!Array.isArray(slots)) return false;
-  return slots.some((slot) =>
-    slot?.enabled !== false
-    && String(slot?.spellUuid ?? "").trim().length > 0
-  );
-}
-
 function _hasCastEnchantmentSource(item) {
-  if (!SPELLCASTING_ITEM_TYPES.has(String(item?.type ?? "").toLowerCase())) return false;
-  const flags = item?.flags?.[SYSTEM_ID] ?? {};
-
-  const ext = flags?.itemSpellcasting ?? {};
-  if (ext?.enabled === true && _hasEnabledSpellSlot(ext?.slots)) return true;
-
-  const enchanting = flags?.enchanting ?? {};
-  if (
-    enchanting?.version === 2
-    && String(enchanting?.enchantType ?? "").trim().toLowerCase() === "cast"
-    && _hasEnabledSpellSlot(enchanting?.cast?.spells)
-  ) return true;
-
-  return false;
+  return getCastEnchantmentSlots(item).length > 0;
 }
 
 function _isUsableItem(sheet, item) {
@@ -132,7 +111,7 @@ async function _useContextItem(sheet, target) {
       return;
     }
     if (result?.consumed === true && Number(result.newQty ?? 1) === 0) {
-      ui.notifications?.info?.(`${item.name} has been used up.`);
+      ui.notifications?.info?.(tf("UESRPG.Notifications.Magic.ScrollUsedUp", { item: item.name }));
     }
     return;
   }

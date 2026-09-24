@@ -10,15 +10,15 @@
                         <ol class="skillList">
                             {{#each actor.magicSkill as |item|}}
                                 <li class="item" data-item-id="{{item._id}}">
-                                    <div class="itemInfo skill-roll-target" data-action="skillRoll" role="button" tabindex="0">
+                                    <button type="button" class="itemInfo skill-roll-target uesrpg-semantic-control uesrpg-plain-control" data-action="skillRoll">
                                         <img class="item-img" src="{{item.img}}" data-tooltip="UESRPG.UI.PostToChat" alt="{{item.name}}" />
-                                        <div class="item-name skill-open-item">
+                                        <span class="item-name skill-open-item">
                                             {{item.name}}
-                                        </div>
-                                    </div>
+                                        </span>
+                                    </button>
                                     <div class="item-controls">
                                         <div class="item-value">{{item.system.value}}%</div>
-                                        <a data-action="itemDelete" class="item-control item-delete" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></a>
+                                        <button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></button>
                                     </div>
                                 </li>
                             {{/each}}
@@ -31,16 +31,16 @@
                     {{#if actor.ui.worship.enabled}}
                     <div class="spellListContainer">
                         <div class="section-header section-header--actions-end">
-                            <button type="button" data-action="itemCreate" class="section-header__action" id="invocation">+</button>
+                            <button type="button" data-action="itemCreate" data-item-type="invocation" class="section-header__action uesrpg-styled-action" data-tooltip="UESRPG.Sheets.Magic.AddInvocation" aria-label="{{localize "UESRPG.Sheets.Magic.AddInvocation"}}">+</button>
                         </div>
                         <div class="spellList">
                             {{#each actor.invocationGroups as |group|}}
                                 <div class="spell-school-section" data-school="{{group.key}}">
-                                    <h3 class="spell-school-header uesrpg-group-toggle" data-action="groupToggle" data-group="invocation-group-{{group.key}}">
+                                    <button type="button" class="spell-school-header uesrpg-group-toggle uesrpg-semantic-control uesrpg-plain-control" data-action="groupToggle" data-group="invocation-group-{{group.key}}" aria-expanded="true">
                                         <i class="fas fa-chevron-down collapse-arrow"></i>
                                         <span class="school-name">{{group.label}}</span>
                                         <span class="school-count">({{group.count}})</span>
-                                    </h3>
+                                    </button>
                                     <table class="spell-school-table">
                                         <thead>
                                             <tr>
@@ -54,14 +54,14 @@
                                             {{#each group.invocations as |invocation|}}
                                                 <tr class="spell-row item active" data-item-id="{{invocation._id}}">
                                                     <td class="spell-name-cell">
-                                                        <i class="fas fa-dice-d20 magic-roll" data-action="castInvocation" data-tooltip="UESRPG.Sheets.Magic.InvokeRite" aria-label="{{localize "UESRPG.Sheets.Magic.InvokeRite"}}"></i>
-                                                        <img class="item-img" src="{{invocation.img}}" data-action="itemOpen" alt="{{invocation.name}}" />
-                                                        <span class="item-name" data-action="itemOpen">{{invocation.name}}</span>
+                                                        <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="castInvocation" data-tooltip="UESRPG.Sheets.Magic.InvokeRite" aria-label="{{localize "UESRPG.Sheets.Magic.InvokeRite"}}"><i class="fas fa-dice-d20 magic-roll" aria-hidden="true"></i></button>
+                                                        <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-image-action" data-action="itemOpen" aria-label="{{invocation.name}}"><img class="item-img" src="{{invocation.img}}" alt="" aria-hidden="true"></button>
+                                                        <button type="button" class="item-name uesrpg-semantic-control uesrpg-plain-control" data-action="itemOpen">{{invocation.name}}</button>
                                                     </td>
                                                     <td class="spell-rank-cell">{{localize "UESRPG.Sheets.Magic.Circle"}} {{invocation.system.circle}}</td>
                                                     <td class="spell-mp-cell">{{invocation.system.pietyCost}}</td>
                                                     <td class="spell-actions-cell">
-                                                        <a class="item-delete" data-action="itemDelete" data-tooltip="UESRPG.UI.Delete" aria-label="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash"></i></a>
+                                                        <button type="button" class="item-delete uesrpg-semantic-control uesrpg-plain-control" data-action="itemDelete" data-tooltip="UESRPG.UI.Delete" aria-label="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash"></i></button>
                                                     </td>
                                                 </tr>
                                             {{/each}}
@@ -81,17 +81,19 @@
                             {{!-- Spell schools organized by category (matching PC sheet) --}}
                             {{#each actor.spellSchools as |schoolData|}}
                                 <div class="spell-school-section" data-school="{{schoolData.key}}">
-                                    <h3 class="spell-school-header uesrpg-group-toggle" data-action="groupToggle" data-group="spell-school-{{schoolData.key}}">
-                                        <i class="fas fa-chevron-down collapse-arrow"></i>
+                                    <div class="spell-school-header">
+                                      <button type="button" class="uesrpg-group-toggle uesrpg-semantic-control uesrpg-plain-control spell-school-header__toggle" data-action="groupToggle" data-group="spell-school-{{schoolData.key}}" aria-expanded="true">
+                                        <i class="fas fa-chevron-down collapse-arrow" aria-hidden="true"></i>
                                         <span class="school-name">{{schoolData.label}}</span>
                                         <span class="school-count">({{schoolData.count}})</span>
+                                      </button>
                                         <span class="npc-school-rank" onclick="event.stopPropagation();">
                                             <label class="npc-school-rank__label">{{localize "UESRPG.Sheets.Magic.EffectiveRank"}}</label>
                                             <select name="flags.uesrpg-3ev4.npcMagicSchoolRanks.{{schoolData.key}}" class="npc-school-rank-select">
                                                 {{selectOptions @root.actor.ui.npcMagicRankOptions selected=schoolData.effectiveRank localize=true}}
                                             </select>
                                         </span>
-                                    </h3>
+                                    </div>
                                     <table class="spell-school-table">
                                         <thead>
                                             <tr>
@@ -105,9 +107,9 @@
                                             {{#each schoolData.spells as |spell|}}
                                                 <tr class="spell-row item active" data-item-id="{{spell._id}}">
                                                     <td class="spell-name-cell">
-                                                        <i class="fas fa-dice-d20 magic-roll" data-action="magicRoll" data-tooltip="UESRPG.Sheets.Magic.CastSpellPostDescription" aria-label="{{localize "UESRPG.Sheets.Magic.CastSpellPostDescription"}}"></i>
-                                                        <img class="item-img" src="{{spell.img}}" data-action="itemOpen" alt="{{spell.name}}" />
-                                                        <span class="item-name" data-action="itemOpen">{{spell.name}}</span>
+                                                        <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="magicRoll" data-tooltip="UESRPG.Sheets.Magic.CastSpellPostDescription" aria-label="{{localize "UESRPG.Sheets.Magic.CastSpellPostDescription"}}"><i class="fas fa-dice-d20 magic-roll" aria-hidden="true"></i></button>
+                                                        <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-image-action" data-action="itemOpen" aria-label="{{spell.name}}"><img class="item-img" src="{{spell.img}}" alt="" aria-hidden="true"></button>
+                                                        <button type="button" class="item-name uesrpg-semantic-control uesrpg-plain-control" data-action="itemOpen">{{spell.name}}</button>
                                                     </td>
                                                     <td class="spell-rank-cell">
                                                         {{#if (eq spell.system.level 1)}}{{localize "UESRPG.Choices.Ranks.novice"}}{{/if}}
@@ -120,7 +122,7 @@
                                                     </td>
                                                     <td class="spell-mp-cell">{{spell.system.cost}}</td>
                                                     <td class="spell-actions-cell">
-                                                        <a class="item-delete" data-action="itemDelete" data-tooltip="UESRPG.UI.Delete" aria-label="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash"></i></a>
+                                                        <button type="button" class="item-delete uesrpg-semantic-control uesrpg-plain-control" data-action="itemDelete" data-tooltip="UESRPG.UI.Delete" aria-label="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash"></i></button>
                                                     </td>
                                                 </tr>
                                             {{/each}}

@@ -112,42 +112,10 @@
                                     </div>
                                 </div>
 
-                                {{!-- Enchanting --}}
-                                <div class="armor-attributes-section enchanting-compact-grid">
-                                    <h3>{{localize "UESRPG.Sheets.Item.Enchanting"}}</h3>
-                                    <div class="weapon-field-row">
-                                        <label>{{localize "UESRPG.Sheets.Item.EnchantLevel"}}</label>
-                                        <div class="enchant-inline">
-                                            <input type="number" name="system.enchant_level" value="{{item.system.enchant_level}}"/>
-                                        </div>
-                                    </div>
-                                    <div class="weapon-field-row">
-                                        <label>{{localize "UESRPG.Sheets.Item.Charge"}}</label>
-                                        <div class="enchant-inline enchant-charge-inline">
-                                            <button type="button" class="uesrpg-charge-btn" data-action="chargeMinus" data-tooltip="UESRPG.Sheets.Item.DecreaseCurrentCharge" aria-label="{{localize "UESRPG.Sheets.Item.DecreaseCurrentCharge"}}">
-                                                <i class="fas fa-minus"></i>
-                                            </button>
-                                            <input type="number" name="system.charge.value" value="{{item.system.charge.value}}" class="enchant-charge-input">
-                                            <span class="enchant-charge-sep">/</span>
-                                            <input type="number" name="system.charge.max" value="{{item.system.charge.max}}" class="enchant-charge-input">
-                                            <button type="button" class="uesrpg-charge-btn" data-action="chargePlus" data-tooltip="UESRPG.Sheets.Item.IncreaseCurrentCharge" aria-label="{{localize "UESRPG.Sheets.Item.IncreaseCurrentCharge"}}">
-                                                <i class="fas fa-plus"></i>
-                                            </button>
-                                        </div>
-                                    </div>
-                                    {{#if enchantmentDisplay}}
-                                    <div class="weapon-field-row">
-                                        <label>{{localize "UESRPG.Sheets.Item.ActiveEnchantment"}}</label>
-                                        <span class="styled-font-gold">{{enchantmentDisplay.typeLabel}}</span>
-                                    </div>
-                                    {{#if (eq enchantmentDisplay.typeLabel "Cast")}}
-                                    <div class="weapon-field-row">
-                                        <label>{{localize "UESRPG.Sheets.Item.Cast"}}</label>
-                                        <button type="button" data-action="castEnchantment">{{localize "UESRPG.Sheets.Equipment.CastEnchantment"}}</button>
-                                    </div>
-                                    {{/if}}
-                                    {{/if}}
-                                </div>
+                                {{!-- Unified enchanting configuration and active state --}}
+                                {{#if showEnchantingInterface}}
+                                {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-enchanting-interface.hbs"}}
+                                {{/if}}
 
                             </div>
                         </div>
@@ -156,7 +124,7 @@
                     {{!-- Hit Locations --}}
                     <div class="item-selection-container">
                         <h2>{{localize "UESRPG.Sheets.Item.HitLocationsCovered"}}</h2>
-                        <button type="button" data-action="applyCategoryCoverage">{{localize "UESRPG.DefectUpdate.ApplyCategoryCoverage"}}</button>
+                        <button class="uesrpg-styled-action" type="button" data-action="applyCategoryCoverage">{{localize "UESRPG.DefectUpdate.ApplyCategoryCoverage"}}</button>
                         <div class="selection-container armor-hitloc-table">
                             <div class="armor-hitloc-pair">
                                 <div class="armor-hitloc-row">

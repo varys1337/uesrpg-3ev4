@@ -41,6 +41,7 @@ import {
   isChargenCompleted,
   promptAdministrativeCorrectionReason,
 } from "./racial-grants.js";
+import { withApplicationUniqueId } from "../application-identity.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 const SPEND_XP_MANAGED_FLAG = "chargenSpendXpManaged";
@@ -201,7 +202,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
   #coreSkillMetadata = null;
 
   constructor(actor, options = {}) {
-    super(options);
+    super(withApplicationUniqueId(options, `${actor?.uuid ?? "actor"}-${foundry.utils.randomID()}`));
     this.#actor = actor;
     this.#onClose = typeof options.onClose === "function" ? options.onClose : null;
     const initial = Object.keys(actor?.system?.characteristics ?? {}).find((k) => k !== "lck");
@@ -211,7 +212,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
   }
 
   static DEFAULT_OPTIONS = {
-    id: "uesrpg-spend-xp-menu-v2",
+    id: "uesrpg-spend-xp-menu-v2-{id}",
     classes: ["worldbuilding", "uesrpg", "uesrpg-spendxp-app"],
     position: { width: 900, height: 680 },
     window: { resizable: true },
@@ -1043,7 +1044,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     const derived = this.#draftDerived;
     if (["skill", "magicSkill", "combatStyle"].includes(item.type)) {
       if (!this.#isSkillLikeAvailable(item)) {
-        ui.notifications?.warn?.("Only Core folder skills from the Core Skills compendium are available in Character Generation / Spend XP.");
+        ui.notifications?.warn?.(t("UESRPG.Notifications.SpendXp.CoreSkillsOnly"));
         return;
       }
       const tempId = `sk-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
@@ -1147,7 +1148,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     super._onRender(context, options);
     this.#dropZonesBound = false;
     this.#bindDropZones();
-    const select = this.element?.querySelector?.("#uesrpg-spendxp-characteristic");
+    const select = this.element?.querySelector?.('[data-role="characteristic-select"]');
     if (select) {
       if (this.#selectedCharacteristic) select.value = this.#selectedCharacteristic;
       select.addEventListener("change", (ev) => {
@@ -1188,7 +1189,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
 
   async _onAdvanceCharacteristic(event, _target) {
     event?.preventDefault?.();
-    const select = this.element?.querySelector?.("#uesrpg-spendxp-characteristic");
+    const select = this.element?.querySelector?.('[data-role="characteristic-select"]');
     const key = String(select?.value ?? "").trim().toLowerCase();
     if (key) this.#selectedCharacteristic = key;
     if (!key || key === "lck") {

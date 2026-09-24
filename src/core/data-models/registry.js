@@ -54,6 +54,8 @@ const ITEM_HTML_FIELDS = {
 
 const ACTOR_MODEL_SEEDS = Object.freeze({ ...ACTOR_TYPE_MODEL_SEEDS });
 const ITEM_MODEL_SEEDS = Object.freeze({ ...ITEM_TYPE_MODEL_SEEDS });
+const ACTOR_RESOURCE_KEYS = new Set(["hp", "magicka", "stamina", "action_points", "luck_points"]);
+const STRUCTURED_ENTRY_ARRAY_KEYS = new Set(["damageInstances", "overTimeEntries"]);
 
 function cloneValue(value) {
   try {
@@ -120,13 +122,37 @@ function createNestedNumberSchemaField(seed) {
   return new fields.SchemaField(schema);
 }
 
+function createSpellDurationSchemaField(seed) {
+  const fields = getFieldsApi();
+  return new fields.SchemaField({
+    value: new fields.NumberField({ initial: Number(seed?.value) || 0, min: 0 }),
+    unit: new fields.StringField({ initial: String(seed?.unit ?? "rounds") }),
+    units: new fields.ObjectField({ initial: () => cloneValue(seed?.units ?? {}) }),
+  });
+}
+
+function createStructuredEntryArrayField(seed) {
+  const fields = getFieldsApi();
+  return new fields.ArrayField(new fields.ObjectField(), {
+    initial: () => cloneValue(Array.isArray(seed) ? seed : []),
+  });
+}
+
 function createSchema(seed, htmlFields = [], options = {}) {
   const schema = {};
   const htmlFieldSet = new Set(htmlFields);
 
   for (const [key, value] of Object.entries(seed ?? {})) {
-    if (options.actorResources === true && (key === "hp" || key === "magicka") && isPlainObject(value)) {
+    if (options.actorResources === true && ACTOR_RESOURCE_KEYS.has(key) && isPlainObject(value)) {
       schema[key] = createNestedNumberSchemaField(value);
+      continue;
+    }
+    if (options.spellDuration === true && key === "duration" && isPlainObject(value)) {
+      schema[key] = createSpellDurationSchemaField(value);
+      continue;
+    }
+    if (options.structuredEntries === true && STRUCTURED_ENTRY_ARRAY_KEYS.has(key) && Array.isArray(value)) {
+      schema[key] = createStructuredEntryArrayField(value);
       continue;
     }
     if (options.decimalEnc === true && key === "enc") {
@@ -206,12 +232,13 @@ const ShieldItemSystemModel = createTypedSystemDataModel(
 const WeaponItemSystemModel = createTypedSystemDataModel(
   ITEM_MODEL_SEEDS.weapon,
   ITEM_HTML_FIELDS.weapon,
-  { decimalEnc: true }
+  { decimalEnc: true, structuredEntries: true }
 );
 
 const SpellItemSystemModel = createTypedSystemDataModel(
   ITEM_MODEL_SEEDS.spell,
-  ITEM_HTML_FIELDS.spell
+  ITEM_HTML_FIELDS.spell,
+  { spellDuration: true, structuredEntries: true }
 );
 
 const TraitItemSystemModel = createTypedSystemDataModel(

@@ -585,13 +585,6 @@ export function variantLabel(variant) {
  */
 export function circumstanceLabel(mod) {
   return sharedCircumstanceLabel(mod);
-  const v = Number(mod ?? 0) || 0;
-  switch (v) {
-    case -10: return "Minor Disadvantage (-10)";
-    case -20: return "Disadvantage (-20)";
-    case -30: return "Major Disadvantage (-30)";
-    default: return "—";
-  }
 }
 
 /**
@@ -747,7 +740,6 @@ export function debugEnabled() {
 export function logDebug(event, payload) {
   if (!debugEnabled()) return;
   try {
-    // eslint-disable-next-line no-console
     console.log(`UESRPG Opposed | ${event}`, payload);
     try {
       const id = payload?.messageId ?? payload?.parentMessageId ?? null;

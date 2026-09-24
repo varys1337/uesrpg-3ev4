@@ -40,6 +40,7 @@ export function registerInitRuntimeApi({
   automationPolicyApi = null,
   tokenActionHudApi,
   applicationApi = null,
+  authorityApi = null,
   alchemyApi = null,
   travelApi = null,
   fearApi = null,
@@ -108,6 +109,9 @@ export function registerInitRuntimeApi({
 
   if (applicationApi && typeof applicationApi === "object") {
     Object.assign(ensureChildNamespace(root, "application"), applicationApi);
+  }
+  if (authorityApi && typeof authorityApi === "object") {
+    Object.assign(ensureChildNamespace(root, "authority"), authorityApi);
   }
 
   if (alchemyApi && typeof alchemyApi === "object") root.alchemy = alchemyApi;

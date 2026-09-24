@@ -7,12 +7,13 @@
  *   - Minor Effects Table       (2d8 for "Could be Worse!" entry)
  *
  * Trigger conditions (RAW §1.6):
- *   - Critical failure                                       → always backfire
+ *   - Critical failure                                       → normal backfire trigger
  *   - Failure with more than one effect                      → backfire
  *   - Failure where any effect SL > alchemyRank              → backfire
  *   - Nothing Ventured…: rolled doubles while test failed    → backfire
  *   - Nothing Ventured…: test automatically fails            → backfire
- *   (Note: Master Alchemist prevents backfires unless Nothing Ventured is used.)
+ *   (Master Alchemist prevents normal backfires, including critical-failure
+ *   backfires. Nothing Ventured is the explicit exception.)
  */
 
 import { t, tf } from "../../utils/i18n.js";
@@ -41,18 +42,17 @@ export function shouldCreationBackfire({
   doubles = false,
   isMasterAlchemist = false,
 }) {
-  // Critical failure → always a backfire (even Master Alchemist cannot prevent this).
-  if (critical) return true;
-
   // Failure while using Nothing Ventured… → auto-backfire regardless of Master Alchemist.
   if (failed && nothingVentured) return true;
 
   // Doubles while Nothing Ventured… is active → backfire even on success.
   if (nothingVentured && doubles) return true;
 
-  // Master Alchemist prevents all other backfire triggers.
-  // (Cannot be used while Nothing Ventured… is active — RAW §1.5.)
+  // Master Alchemist prevents every normal alchemical backfire. Nothing
+  // Ventured is the explicit RAW exception and is handled above.
   if (isMasterAlchemist && !nothingVentured) return false;
+
+  if (critical) return true;
 
   // Standard failure triggers.
   if (failed && multiEffect) return true;

@@ -34,7 +34,7 @@ import {
 
 /* ── Private: spellcasting flag utilities ─────────────────────────────────── */
 
-const _EQUIPMENT_ITEM_TYPES = new Set(["weapon", "armor", "shield", "ammunition", "equipment", "scroll"]);
+const _EQUIPMENT_ITEM_TYPES = new Set(["weapon", "armor", "shield", "ammunition", "equipment", "item", "container", "scroll"]);
 
 function _normalizeSpellcastingCostMode(value) {
   const mode = String(value ?? "soul").trim().toLowerCase();
@@ -559,13 +559,17 @@ export async function onEditSpellcastingSlot(sheet, event, target) {
 
   const chargeValueInput = sheet.element?.querySelector?.("[data-spellcasting-charge='value']");
   const chargeMaxInput = sheet.element?.querySelector?.("[data-spellcasting-charge='max']");
-  const nextChargeValue = Math.max(0, Number(chargeValueInput?.value ?? sheet.document?.system?.charge?.value ?? 0) || 0);
-  const nextChargeMaxRaw = Math.max(0, Number(chargeMaxInput?.value ?? sheet.document?.system?.charge?.max ?? 0) || 0);
+  const nextChargeValue = Math.max(0, Number(chargeValueInput?.value ?? spellcasting.pool?.value ?? sheet.document?.system?.charge?.value ?? 0) || 0);
+  const nextChargeMaxRaw = Math.max(0, Number(chargeMaxInput?.value ?? spellcasting.pool?.max ?? sheet.document?.system?.charge?.max ?? 0) || 0);
   const nextChargeMax = Math.max(nextChargeValue, nextChargeMaxRaw);
+  spellcasting.pool = {
+    value: Math.min(nextChargeValue, nextChargeMax),
+    max: nextChargeMax,
+  };
 
   await requestUpdateDocument(sheet.document, {
     [`flags.${SYSTEM_ID}.itemSpellcasting`]: spellcasting,
-    "system.charge.value": nextChargeValue,
+    "system.charge.value": spellcasting.pool.value,
     "system.charge.max": nextChargeMax
   });
 }

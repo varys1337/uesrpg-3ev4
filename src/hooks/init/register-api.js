@@ -28,6 +28,7 @@ export function registerApi({
   automationPolicyApi,
   tokenActionHudApi,
   applicationApi,
+  authorityApi,
 } = {}) {
   registerInitRuntimeApi({
     isPredicate,
@@ -53,5 +54,6 @@ export function registerApi({
     automationPolicyApi,
     tokenActionHudApi,
     applicationApi,
+    authorityApi,
   });
 }

@@ -10,6 +10,7 @@ import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } 
 import { getActorCapabilityFlag } from "../active-effects/modifier-evaluator.js";
 import { doTestRoll } from "../../utils/degree-roll-helper.js";
 import { hasAkaviriDangerSense } from "../traits/starsigns/index.js";
+import { isActiveGMUser } from "../../utils/users.js";
 const SURPRISE_FLAG_PATH = "chapter5.surpriseState";
 
 let _hooksRegistered = false;
@@ -154,7 +155,7 @@ export async function markSurprisedFirstTurnPassed(actor, { combat = game.combat
 
 async function _handleCombatBoundarySurprise(payload) {
   try {
-    if (!game.user?.isGM) return;
+    if (!isActiveGMUser(game.user)) return;
     if (payload?.source !== "combat") return;
     if (payload?.combat?.phase && payload.combat.phase !== "post") return;
 
@@ -210,7 +211,7 @@ export function registerSurpriseHooks() {
 
   Hooks.on("deleteCombat", async (combat) => {
     try {
-      if (!game.user?.isGM) return;
+      if (!isActiveGMUser(game.user)) return;
       const c = combat ?? null;
       const combatants = Array.isArray(c?.combatants)
         ? c.combatants

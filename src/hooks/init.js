@@ -15,8 +15,7 @@ import { registerChatCommands } from "./init/register-chat-commands.js";
 import { registerMigrations } from "./init/register-migrations.js";
 import { registerKeybindings } from "./init/register-keybindings.js";
 import { registerFeatureHooks } from "./init/features/register-feature-hooks.js";
-import { registerAECacheInvalidation } from "./init/register-ae-cache-invalidation.js";
-import { registerItemPrepareCacheInvalidation } from "./init/register-item-prepare-cache-invalidation.js";
+import { registerActorDerivedCacheInvalidation } from "./init/register-actor-derived-cache-invalidation.js";
 import { registerInCloseAutoPrune } from "./init/register-in-close-auto-prune.js";
 import { registerCoreSubsystems } from "./init/register-core-subsystems.js";
 
@@ -36,6 +35,7 @@ import { applyDamage, applyHealing, DAMAGE_TYPES } from "../core/combat/damage-a
 import { applyDamageResolved } from "../core/combat/damage-resolver.js";
 import { registerChatMessageSocket } from "../utils/chat-message-socket.js";
 import { registerAuthorityProxy } from "../utils/authority-proxy.js";
+import { AUTHORITY_RESULT_CODES, requestAuthorityIntent } from "../utils/authority-intents.js";
 import { registerReachVisualizer } from "../ui/canvas/reach-visualizer.js";
 import { registerArmorCoverageOverlay } from "../ui/canvas/armor-coverage-controller.js";
 import { registerRacialTalentsAutomation } from "../core/traits/racial-talents.js";
@@ -114,6 +114,10 @@ export default function initHandler() {
         applySimple: ApplyDamageService.applySimple.bind(ApplyDamageService),
         applyHealing: ApplyDamageService.applyHealing.bind(ApplyDamageService),
       },
+    },
+    authorityApi: {
+      request: requestAuthorityIntent,
+      resultCodes: AUTHORITY_RESULT_CODES,
     },
   });
 
@@ -200,8 +204,7 @@ export default function initHandler() {
   registerWarfareAttachmentHooks();
 
   registerInCloseAutoPrune();
-  registerAECacheInvalidation();
-  registerItemPrepareCacheInvalidation();
+  registerActorDerivedCacheInvalidation();
   registerCoreSubsystems();
 
   // The memory monitor is a diagnostics-only subsystem. Keep it out of normal

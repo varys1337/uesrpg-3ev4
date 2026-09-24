@@ -5,12 +5,13 @@ import {
   markMigrationRevisionApplied,
   setMigrationState
 } from "./state.js";
+import { MIGRATION_REVISIONS } from "./revisions.js";
 import { migrateArmyCampaignState } from "../mass-warfare/campaign/state.js";
 import { migrateWarfareSiegeState, migrateWarfareFeatureState } from "../mass-warfare/siege/state.js";
 
 const MODULE_ID = SYSTEM_ID;
 const _WARFARE_FLAGS_MIGRATION_KEY = "warfareFlagsV1";
-const _WARFARE_FLAGS_MIGRATION_REVISION = 1;
+const _WARFARE_FLAGS_MIGRATION_REVISION = MIGRATION_REVISIONS.warfareFlagsV1;
 
 function _same(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);

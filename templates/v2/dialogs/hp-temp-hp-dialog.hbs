@@ -1,16 +1,16 @@
 <div class="uesrpg-resource-dialog__layout">
   <div class="uesrpg-resource-dialog__body uesrpg-resource-dialog__grid--two-column uesrpg-hp-dialog">
     <div class="uesrpg-resource-dialog__group uesrpg-resource-dialog__group--inline form-group">
-      <label class="uesrpg-resource-dialog__label" for="uesrpg-hp-current">{{localize "UESRPG.Dialogs.HpManagement.CurrentHp"}}</label>
+      <label class="uesrpg-resource-dialog__label" for="{{controlIdPrefix}}-current">{{localize "UESRPG.Dialogs.HpManagement.CurrentHp"}}</label>
       <div class="uesrpg-resource-dialog__value-control">
-        <input id="uesrpg-hp-current" type="number" name="hp" value="{{currentHP}}" min="0" max="{{maxHP}}" />
+        <input id="{{controlIdPrefix}}-current" type="number" name="hp" value="{{currentHP}}" min="0" max="{{maxHP}}" />
         <span class="uesrpg-resource-dialog__maximum">/ {{maxHP}}</span>
       </div>
     </div>
 
     <div class="uesrpg-resource-dialog__group uesrpg-resource-dialog__group--inline form-group">
-      <label class="uesrpg-resource-dialog__label" for="uesrpg-hp-temporary">{{localize "UESRPG.Dialogs.HpManagement.TempHp"}}</label>
-      <input id="uesrpg-hp-temporary" type="number" name="tempHP" value="{{currentTempHP}}" min="0" />
+      <label class="uesrpg-resource-dialog__label" for="{{controlIdPrefix}}-temporary">{{localize "UESRPG.Dialogs.HpManagement.TempHp"}}</label>
+      <input id="{{controlIdPrefix}}-temporary" type="number" name="tempHP" value="{{currentTempHP}}" min="0" />
     </div>
   </div>
 </div>

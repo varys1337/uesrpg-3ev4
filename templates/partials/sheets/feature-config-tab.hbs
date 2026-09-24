@@ -16,10 +16,10 @@
 
     {{!-- ── Core Controls ─────────────────────────────────────────── --}}
     <div class="item-selection-container">
-        <h2>Core Settings</h2>
+        <h2>{{localize "UESRPG.Sheets.Feature.CoreSettings"}}</h2>
         <div class="selection-container">
             <div class="grid-container">
-                <div data-tooltip-text="Master toggle — when disabled, this feature is completely inert">Enabled</div>
+                <div data-tooltip-text="{{localize "UESRPG.Sheets.Feature.EnabledHint"}}">{{localize "UESRPG.Sheets.Item.Enabled"}}</div>
                 <div class="right-align-content">
                     <input class="checkbox" type="checkbox"
                            name="flags.uesrpg-3ev4.featureConfig.enabled"
@@ -27,7 +27,7 @@
                 </div>
             </div>
             <div class="grid-container">
-                <div data-tooltip-text="How automation fires: Auto (immediately), Confirm (dialog first), Manual (explicit Use only)">Apply Mode</div>
+                <div data-tooltip-text="{{localize "UESRPG.Sheets.Feature.ApplyModeHint"}}">{{localize "UESRPG.Sheets.Feature.ApplyMode"}}</div>
                 <div class="right-align-content">
                     <select name="flags.uesrpg-3ev4.featureConfig.applyMode" data-type="String">
                         {{selectOptions featureOptions.applyModeOptions selected=featureConfig.applyMode localize=false}}
@@ -35,7 +35,7 @@
                 </div>
             </div>
             <div class="grid-container">
-                <div data-tooltip-text="Who receives confirmation/manual prompts">Prompt Routing</div>
+                <div data-tooltip-text="{{localize "UESRPG.Sheets.Feature.PromptRoutingHint"}}">{{localize "UESRPG.Sheets.Feature.PromptRouting"}}</div>
                 <div class="right-align-content">
                     <select name="flags.uesrpg-3ev4.featureConfig.promptMode" data-type="String">
                         {{selectOptions featureOptions.promptModeOptions selected=featureConfig.promptMode localize=false}}
@@ -48,10 +48,10 @@
     {{!-- ── Context Controls ──────────────────────────────────────── --}}
     {{#if featureCapabilities.showCombatContext}}
     <div class="item-selection-container">
-        <h2>Context</h2>
+        <h2>{{localize "UESRPG.Sheets.Feature.Context"}}</h2>
         <div class="selection-container">
             <div class="grid-container">
-                <div data-tooltip-text="Restrict activation to active combat encounters only">Combat Only</div>
+                <div data-tooltip-text="{{localize "UESRPG.Sheets.Feature.CombatOnlyHint"}}">{{localize "UESRPG.Sheets.Feature.CombatOnly"}}</div>
                 <div class="right-align-content">
                     <input class="checkbox" type="checkbox"
                            name="flags.uesrpg-3ev4.featureConfig.combatOnly"
@@ -59,7 +59,7 @@
                 </div>
             </div>
             <div class="grid-container">
-                <div data-tooltip-text="Allow use outside of combat encounters">Allow Out-of-Combat</div>
+                <div data-tooltip-text="{{localize "UESRPG.Sheets.Feature.OutOfCombatHint"}}">{{localize "UESRPG.Sheets.Feature.AllowOutOfCombat"}}</div>
                 <div class="right-align-content">
                     <input class="checkbox" type="checkbox"
                            name="flags.uesrpg-3ev4.featureConfig.outOfCombatAllowed"
@@ -73,10 +73,10 @@
     {{!-- ── Stacking Override (traits primarily) ──────────────────── --}}
     {{#if featureCapabilities.showStacking}}
     <div class="item-selection-container">
-        <h2>Stacking</h2>
+        <h2>{{localize "UESRPG.Sheets.Feature.Stacking"}}</h2>
         <div class="selection-container">
             <div class="grid-container">
-                <div data-tooltip-text="Override the canonical stacking rule for this item instance">Stacking Rule</div>
+                <div data-tooltip-text="{{localize "UESRPG.Sheets.Feature.StackingRuleHint"}}">{{localize "UESRPG.Sheets.Feature.StackingRule"}}</div>
                 <div class="right-align-content">
                     <select name="flags.uesrpg-3ev4.featureConfig.stackingOverride" data-type="String">
                         {{selectOptions featureOptions.stackingOverrideOptions selected=featureConfig.stackingOverride localize=false}}
@@ -84,17 +84,17 @@
                 </div>
             </div>
         </div>
-        <div class="uesrpg-field-hint">Override the default stacking rule for homebrew items without changing the canonical registry.</div>
+        <div class="uesrpg-field-hint">{{localize "UESRPG.Sheets.Feature.StackingOverrideHelp"}}</div>
     </div>
     {{/if}}
 
     {{!-- ── Target Policy ─────────────────────────────────────────── --}}
     {{#if featureCapabilities.showTargeting}}
     <div class="item-selection-container">
-        <h2>Targeting</h2>
+        <h2>{{localize "UESRPG.Sheets.Feature.Targeting"}}</h2>
         <div class="selection-container">
             <div class="grid-container">
-                <div data-tooltip-text="Constrain how this feature selects targets during activation">Target Policy</div>
+                <div data-tooltip-text="{{localize "UESRPG.Sheets.Feature.TargetPolicyHint"}}">{{localize "UESRPG.Sheets.Feature.TargetPolicy"}}</div>
                 <div class="right-align-content">
                     <select name="flags.uesrpg-3ev4.featureConfig.targetPolicy" data-type="String">
                         {{selectOptions featureOptions.targetPolicyOptions selected=featureConfig.targetPolicy localize=false}}
@@ -108,10 +108,10 @@
     {{!-- ── Effect Transfer ───────────────────────────────────────── --}}
     {{#if featureCapabilities.showEffectTransfer}}
     <div class="item-selection-container">
-        <h2>Effect Transfer</h2>
+        <h2>{{localize "UESRPG.Sheets.Feature.EffectTransfer"}}</h2>
         <div class="selection-container">
             <div class="grid-container">
-                <div data-tooltip-text="When enabled, this item's Active Effects are cloned onto targeted actors on activation">Transfer Effects to Target</div>
+                <div data-tooltip-text="{{localize "UESRPG.Sheets.Feature.TransferEffectsHint"}}">{{localize "UESRPG.Sheets.Feature.TransferEffects"}}</div>
                 <div class="right-align-content">
                     <input class="checkbox" type="checkbox"
                            name="flags.uesrpg-3ev4.featureConfig.transferEffects"
@@ -119,7 +119,7 @@
                 </div>
             </div>
             <div class="grid-container">
-                <div data-tooltip-text="When enabled, prevents this item's AEs from passively applying to the owning actor (self). Use when effects should only affect targets.">Suppress Self-Application</div>
+                <div data-tooltip-text="{{localize "UESRPG.Sheets.Feature.SuppressSelfHint"}}">{{localize "UESRPG.Sheets.Feature.SuppressSelf"}}</div>
                 <div class="right-align-content">
                     <input class="checkbox" type="checkbox"
                            name="flags.uesrpg-3ev4.featureConfig.suppressSelfTransfer"
@@ -127,7 +127,7 @@
                 </div>
             </div>
             <div class="grid-container">
-                <div data-tooltip-text="How long transferred effects last on the target: Permanent (until manually removed) or Timed (uses duration from Activation config)">Effect Duration</div>
+                <div data-tooltip-text="{{localize "UESRPG.Sheets.Feature.EffectDurationHint"}}">{{localize "UESRPG.Sheets.Feature.EffectDuration"}}</div>
                 <div class="right-align-content">
                     <select name="flags.uesrpg-3ev4.featureConfig.effectDuration" data-type="String">
                         {{selectOptions featureOptions.effectDurationOptions selected=featureConfig.effectDuration localize=false}}
@@ -135,17 +135,17 @@
                 </div>
             </div>
         </div>
-        <div class="uesrpg-field-hint">Clone this item's Active Effects onto targeted actors when activated. Requires a non-self Target Policy and at least one enabled AE on this item.</div>
+        <div class="uesrpg-field-hint">{{localize "UESRPG.Sheets.Feature.EffectTransferHelp"}}</div>
     </div>
     {{/if}}
 
     {{!-- ── Visibility ────────────────────────────────────────────── --}}
     {{#if featureCapabilities.showVisibility}}
     <div class="item-selection-container">
-        <h2>Visibility</h2>
+        <h2>{{localize "UESRPG.Sheets.Feature.Visibility"}}</h2>
         <div class="selection-container">
             <div class="grid-container">
-                <div data-tooltip-text="Control who can see this feature's effects in the inspector and chat">Scope</div>
+                <div data-tooltip-text="{{localize "UESRPG.Sheets.Feature.VisibilityHint"}}">{{localize "UESRPG.Sheets.Feature.Scope"}}</div>
                 <div class="right-align-content">
                     <select name="flags.uesrpg-3ev4.featureConfig.visibility" data-type="String">
                         {{selectOptions featureOptions.visibilityOptions selected=featureConfig.visibility localize=false}}
@@ -160,10 +160,10 @@
     {{#if isGM}}
     {{#if featureCapabilities.showDebug}}
     <div class="item-selection-container">
-        <h2>Debug</h2>
+        <h2>{{localize "UESRPG.Sheets.Feature.Debug"}}</h2>
         <div class="selection-container">
             <div class="grid-container">
-                <div data-tooltip-text="Show or hide this feature in the Feature Inspector panel">Show in Inspector</div>
+                <div data-tooltip-text="{{localize "UESRPG.Sheets.Feature.ShowInInspectorHint"}}">{{localize "UESRPG.Sheets.Feature.ShowInInspector"}}</div>
                 <div class="right-align-content">
                     <input class="checkbox" type="checkbox"
                            name="flags.uesrpg-3ev4.featureConfig.debug.showInInspector"

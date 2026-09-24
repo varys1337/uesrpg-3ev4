@@ -278,6 +278,14 @@ async function _onAlchemyAction(event, message) {
   }
 }
 
+async function _onEnchantingAction(event, message) {
+  event.preventDefault();
+  const button = event.currentTarget;
+  if (button instanceof HTMLButtonElement) button.disabled = true;
+  const { handleEnchantmentChatAction } = await import("../../enchanting/workflow.js");
+  await handleEnchantmentChatAction(message?.id ?? "");
+}
+
 async function _onAlchemyPoisonAction(event, message) {
   event.preventDefault();
   const el = event.currentTarget;
@@ -397,6 +405,7 @@ export function registerCombatChatClickHandler() {
       "[data-action='alchemyDrink']",
       "[data-action='alchemyApplyToWeapon']",
       "[data-action='alchemyApplyToTarget']",
+      "[data-action='enchantingRoll']",
     ].join(", ");
 
     registerDelegatedChatLogClickHandler({
@@ -432,6 +441,7 @@ export function registerCombatChatClickHandler() {
           if (btn.matches("[data-action='alchemyRoll'], [data-action='alchemyDrink'], [data-action='alchemyApplyToWeapon'], [data-action='alchemyApplyToTarget']")) {
             return _onAlchemyAction(delegatedEv, message);
           }
+          if (btn.matches("[data-action='enchantingRoll']")) return _onEnchantingAction(delegatedEv, message);
           if (btn.hasAttribute("data-ues-special-action")) {
             delegatedEv.preventDefault?.();
             const action = btn.dataset.uesSpecialAction;

@@ -194,7 +194,7 @@ export function getWarfareEncounterFlagPath() {
 }
 
 export function defaultEncounterSideFromDisposition(tokenDoc) {
-  const disposition = Number(tokenDoc?.disposition ?? tokenDoc?._source?.disposition ?? 0) || 0;
+  const disposition = Number(tokenDoc?.disposition ?? 0) || 0;
   if (disposition > 0) return WARFARE_ENCOUNTER_SIDES.ALLIES;
   if (disposition < 0) return WARFARE_ENCOUNTER_SIDES.ENEMIES;
   return WARFARE_ENCOUNTER_SIDES.NEUTRAL;

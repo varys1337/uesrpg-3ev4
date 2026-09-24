@@ -20,6 +20,7 @@ async function _buildDialogContent(actor) {
   const elemBuf = toFiniteNumber(actor?.system?.buffers?.elemental, 0);
 
   return renderDialogContent(templatePath("v2/dialogs/magicka-barrier-dialog.hbs"), {
+    controlIdPrefix: `uesrpg-barrier-${foundry.utils.randomID()}`,
     currentMP,
     maxMP,
     physBuf,

@@ -8,12 +8,14 @@
 
 import { isPerfEnabled, monoMs, perfRecord } from "../../utils/perf-tracker.js";
 import { isCombatBoundaryOrchestratorPolicyEnabled } from "../config/automation-policy.js";
+import { isActiveGMUser } from "../../utils/users.js";
 
-/** @type {Array<{id: string, order: number, handle: Function}>} */
+/** @type {Array<{id: string, order: number, handle: Function, retrySafe: boolean}>} */
 const _consumers = [];
 
-/** @type {Set<string>} */
-const _seenBoundaryKeys = new Set();
+/** @type {Map<string, string>} */
+const _lastCompletedBoundaryByCombat = new Map();
+const _inFlightBoundaryKeys = new Set();
 
 let _registered = false;
 
@@ -30,7 +32,8 @@ export function registerCombatBoundaryConsumer(consumer) {
   _consumers.push({
     id,
     order: Number(consumer?.order ?? 1000) || 1000,
-    handle
+    handle,
+    retrySafe: consumer?.retrySafe === true,
   });
 }
 
@@ -61,7 +64,7 @@ function _buildBoundaryKey(payload) {
 }
 
 function _isEligiblePayload(payload) {
-  if (!game.user?.isGM) return false;
+  if (!isActiveGMUser(game.user)) return false;
   if (payload?.source !== "combat") return false;
   if (payload?.combat?.phase && payload.combat.phase !== "post") return false;
   return true;
@@ -79,25 +82,51 @@ async function _dispatch(payload) {
   const _t0 = _perf ? monoMs() : 0;
 
   const boundaryKey = _buildBoundaryKey(payload);
-  let duplicateDetected = false;
-  if (boundaryKey && _seenBoundaryKeys.has(boundaryKey)) {
-    duplicateDetected = true;
-    console.warn(
-      `UESRPG | combat-boundary-orchestrator | GUARDRAIL: Duplicate boundary dispatch: "${boundaryKey}". Proceeding.`
-    );
+  const duplicateDetected = Boolean(boundaryKey) && (
+    _lastCompletedBoundaryByCombat.get(String(combat.id)) === boundaryKey
+    || _inFlightBoundaryKeys.has(boundaryKey)
+  );
+  if (duplicateDetected) {
+    if (_perf) {
+      perfRecord({
+        event: "combatBoundaryOrchestrator.duplicateSkipped",
+        combatId: combat.id,
+        boundaryKey,
+        durationMs: monoMs() - _t0,
+      });
+    }
+    return;
   }
-  if (boundaryKey) _seenBoundaryKeys.add(boundaryKey);
+  if (boundaryKey) _inFlightBoundaryKeys.add(boundaryKey);
 
   const ordered = [..._consumers].sort((a, b) => (a.order - b.order) || a.id.localeCompare(b.id));
   let invokedCount = 0;
+  let failedCount = 0;
 
-  for (const consumer of ordered) {
-    try {
-      await consumer.handle(payload);
-      invokedCount++;
-    } catch (err) {
-      console.warn(`UESRPG | combat-boundary-orchestrator | Consumer "${consumer.id}" failed`, err);
+  try {
+    for (const consumer of ordered) {
+      try {
+        await consumer.handle(payload);
+        invokedCount++;
+      } catch (firstError) {
+        if (!consumer.retrySafe) {
+          failedCount++;
+          console.warn(`UESRPG | combat-boundary-orchestrator | Consumer "${consumer.id}" failed`, firstError);
+          continue;
+        }
+        try {
+          await consumer.handle(payload);
+          invokedCount++;
+          console.warn(`UESRPG | combat-boundary-orchestrator | Consumer "${consumer.id}" succeeded on retry`, firstError);
+        } catch (retryError) {
+          failedCount++;
+          console.warn(`UESRPG | combat-boundary-orchestrator | Consumer "${consumer.id}" failed`, retryError);
+        }
+      }
     }
+    if (boundaryKey && failedCount === 0) _lastCompletedBoundaryByCombat.set(String(combat.id), boundaryKey);
+  } finally {
+    if (boundaryKey) _inFlightBoundaryKeys.delete(boundaryKey);
   }
 
   if (_perf) {
@@ -109,6 +138,7 @@ async function _dispatch(payload) {
       boundaryKey,
       consumerCount: ordered.length,
       invokedConsumerCount: invokedCount,
+      failedConsumerCount: failedCount,
       duplicateDetected,
       duplicateCount: duplicateDetected ? 1 : 0,
       durationMs: monoMs() - _t0,
@@ -121,7 +151,7 @@ export function initializeCombatBoundaryOrchestrator() {
   _registered = true;
 
   Hooks.on("uesrpg.combatTimeChanged", _dispatch);
-  Hooks.on("deleteCombat", () => {
-    _seenBoundaryKeys.clear();
+  Hooks.on("deleteCombat", (combat) => {
+    _lastCompletedBoundaryByCombat.delete(String(combat?.id ?? ""));
   });
 }

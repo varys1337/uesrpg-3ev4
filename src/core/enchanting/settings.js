@@ -25,10 +25,11 @@ export function getEnchantingSettings() {
     return {
       enableChargedStrikeVariant: Boolean(game.settings.get(SYSTEM_ID, "enchanting.enableChargedStrikeVariant")),
       enableCursedConstant: Boolean(game.settings.get(SYSTEM_ID, "enchanting.enableCursedConstant")),
-      enableCastEnchantmentRuntime: Boolean(game.settings.get(SYSTEM_ID, "enchanting.enableCastEnchantmentRuntime")),
+      // Compatibility field: cast enchantments are a core runtime feature now.
+      enableCastEnchantmentRuntime: true,
     };
   } catch (_err) {
     // Safe fallback if called before settings are registered (e.g., during import-time tests).
-    return { enableChargedStrikeVariant: false, enableCursedConstant: false, enableCastEnchantmentRuntime: false };
+    return { enableChargedStrikeVariant: false, enableCursedConstant: false, enableCastEnchantmentRuntime: true };
   }
 }

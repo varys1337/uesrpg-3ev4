@@ -45,10 +45,7 @@ function _normalizeUnit(unit) {
 
 function _sourceEffectHasPositiveDuration(sourceEffect) {
   const duration = sourceEffect?.duration ?? {};
-  return Number(duration.value) > 0
-    || Number(duration.seconds) > 0
-    || Number(duration.rounds) > 0
-    || Number(duration.turns) > 0;
+  return Number(duration.value) > 0;
 }
 
 export function resolveCastSpellDuration(spell, casterActor, { spellOptions = null, scalingChoices = null, castContext = null } = {}) {

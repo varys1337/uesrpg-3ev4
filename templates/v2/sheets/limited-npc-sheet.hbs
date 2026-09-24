@@ -4,17 +4,17 @@
   <div class="sheet-fixed-container">
     <div class="character-profile-container">
       <div class="profile-img-container">
-        <img class="profile-img" src="{{actor.img}}" data-edit="img" data-action="editPortrait" data-tooltip-text="{{actor.name}}" alt="{{actor.name}}">
+        <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-image-action" data-action="editPortrait" data-edit="img" data-tooltip-text="{{actor.name}}" aria-label="{{actor.name}}"><img class="profile-img" src="{{actor.img}}" alt="" aria-hidden="true"></button>
         <div class="status-column">
           <div class="vertical-flex-container">
-            <img id="wound-icon" src="icons/skills/wounds/blood-drip-droplet-red.webp" data-tooltip-text="{{localize "UESRPG.UI.WoundedPenalty" value=actor.system.woundPenalty}}" alt="">
-            <img id="fatigue-icon" src="icons/magic/control/debuff-energy-hold-green.webp" data-tooltip-text="{{localize "UESRPG.UI.FatiguedPenalty" value=actor.system.fatigue.penalty}}" alt="">
-            <img id="enc-icon" src="icons/containers/bags/pack-leather-brown.webp" data-tooltip-text="{{carryRatingLabel}} {{actor.system.carry_rating.penalty}}" alt="">
+            <img data-role="wound-icon" src="icons/skills/wounds/blood-drip-droplet-red.webp" data-tooltip-text="{{localize "UESRPG.UI.WoundedPenalty" value=actor.system.woundPenalty}}" alt="">
+            <img data-role="fatigue-icon" src="icons/magic/control/debuff-energy-hold-green.webp" data-tooltip-text="{{localize "UESRPG.UI.FatiguedPenalty" value=actor.system.fatigue.penalty}}" alt="">
+            <img data-role="enc-icon" src="icons/containers/bags/pack-leather-brown.webp" data-tooltip-text="{{carryRatingLabel}} {{actor.system.carry_rating.penalty}}" alt="">
           </div>
         </div>
       </div>
       <nav class="sheet-tabs tabs" data-group="primary">
-        <a class="item" data-action="tab" data-group="primary" data-tab="core">{{localize "UESRPG.UI.Core"}}</a>
+        <button type="button" class="item uesrpg-semantic-control uesrpg-plain-control" data-action="tab" data-group="primary" data-tab="core" role="tab">{{localize "UESRPG.UI.Core"}}</button>
       </nav>
       <div>
         <h1 class="charname"><input type="text" name="name" value="{{actor.name}}" placeholder="{{localize "UESRPG.UI.Name"}}"></h1>
@@ -22,58 +22,58 @@
     </div>
     <div class="fixed-data-container">
       <div class="resourceBars">
-        <div id="hpResource">
+        <div data-role="hp-resource">
           <div class="resourceLabel">
-            <button type="button" data-resource="hp">{{localize "UESRPG.UI.Health"}}</button>
+            <button type="button" data-resource="hp" disabled>{{localize "UESRPG.UI.Health"}}</button>
             <div class="resourceButton">
-              <i data-direction="increase" data-resource="hp" class="fas fa-angle-up incrementResource"></i>
-              <i data-direction="decrease" data-resource="hp" class="fas fa-angle-down incrementResource"></i>
+              <button type="button" class="uesrpg-icon-button uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" disabled aria-label="{{localize "UESRPG.UI.Increase"}}"><i class="fas fa-angle-up" aria-hidden="true"></i></button>
+              <button type="button" class="uesrpg-icon-button uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" disabled aria-label="{{localize "UESRPG.UI.Decrease"}}"><i class="fas fa-angle-down" aria-hidden="true"></i></button>
             </div>
           </div>
           <div class="maxBar" data-resource="hp">
-            <div id="hpBar" class="currentBar" data-resource="hp">
+            <div class="currentBar" data-resource="hp">
               <input type="number" name="system.hp.value" value="{{actor.system.hp.value}}"> / <label>{{actor.system.hp.max}}</label>
             </div>
           </div>
         </div>
-        <div id="staminaResource">
+        <div data-role="stamina-resource">
           <div class="resourceLabel">
-            <button type="button" data-resource="stamina">{{localize "UESRPG.UI.Stamina"}}</button>
+            <button type="button" data-resource="stamina" disabled>{{localize "UESRPG.UI.Stamina"}}</button>
             <div class="resourceButton">
-              <i data-direction="increase" data-resource="stamina" class="fas fa-angle-up incrementResource"></i>
-              <i data-direction="decrease" data-resource="stamina" class="fas fa-angle-down incrementResource"></i>
+              <button type="button" class="uesrpg-icon-button uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" disabled aria-label="{{localize "UESRPG.UI.Increase"}}"><i class="fas fa-angle-up" aria-hidden="true"></i></button>
+              <button type="button" class="uesrpg-icon-button uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" disabled aria-label="{{localize "UESRPG.UI.Decrease"}}"><i class="fas fa-angle-down" aria-hidden="true"></i></button>
             </div>
           </div>
           <div class="maxBar" data-resource="stamina">
-            <div id="staminaBar" class="currentBar" data-resource="stamina">
+            <div class="currentBar" data-resource="stamina">
               <input type="number" name="system.stamina.value" value="{{actor.system.stamina.value}}"> / <label>{{actor.system.stamina.max}}</label>
             </div>
           </div>
         </div>
-        <div id="magickaResource">
+        <div data-role="magicka-resource">
           <div class="resourceLabel">
-            <button type="button" data-resource="magicka">{{localize "UESRPG.UI.Magicka"}}</button>
+            <button type="button" data-resource="magicka" disabled>{{localize "UESRPG.UI.Magicka"}}</button>
             <div class="resourceButton">
-              <i data-direction="increase" data-resource="magicka" class="fas fa-angle-up incrementResource"></i>
-              <i data-direction="decrease" data-resource="magicka" class="fas fa-angle-down incrementResource"></i>
+              <button type="button" class="uesrpg-icon-button uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" disabled aria-label="{{localize "UESRPG.UI.Increase"}}"><i class="fas fa-angle-up" aria-hidden="true"></i></button>
+              <button type="button" class="uesrpg-icon-button uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" disabled aria-label="{{localize "UESRPG.UI.Decrease"}}"><i class="fas fa-angle-down" aria-hidden="true"></i></button>
             </div>
           </div>
           <div class="maxBar" data-resource="magicka">
-            <div id="magickaBar" class="currentBar" data-resource="magicka">
+            <div class="currentBar" data-resource="magicka">
               <input type="number" name="system.magicka.value" value="{{actor.system.magicka.value}}"> / <label>{{actor.system.magicka.max}}</label>
             </div>
           </div>
         </div>
-        <div id="luckResource">
+        <div data-role="luck-resource">
           <div class="resourceLabel">
-            <button type="button" data-resource="luck_points">{{localize "UESRPG.UI.Luck"}}</button>
+            <button type="button" data-resource="luck_points" disabled>{{localize "UESRPG.UI.Luck"}}</button>
             <div class="resourceButton">
-              <i data-direction="increase" data-resource="luck_points" class="fas fa-angle-up incrementResource"></i>
-              <i data-direction="decrease" data-resource="luck_points" class="fas fa-angle-down incrementResource"></i>
+              <button type="button" class="uesrpg-icon-button uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" disabled aria-label="{{localize "UESRPG.UI.Increase"}}"><i class="fas fa-angle-up" aria-hidden="true"></i></button>
+              <button type="button" class="uesrpg-icon-button uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" disabled aria-label="{{localize "UESRPG.UI.Decrease"}}"><i class="fas fa-angle-down" aria-hidden="true"></i></button>
             </div>
           </div>
           <div class="maxBar" data-resource="luck_points">
-            <div id="luck_pointsBar" class="currentBar" data-resource="luck_points">
+            <div class="currentBar" data-resource="luck_points">
               <input type="number" name="system.luck_points.value" value="{{actor.system.luck_points.value}}"> / <label>{{actor.system.luck_points.max}}</label>
             </div>
           </div>

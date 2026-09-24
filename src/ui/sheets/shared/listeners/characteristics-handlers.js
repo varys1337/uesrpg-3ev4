@@ -524,8 +524,8 @@ export const onClickCharacteristic = asyncGuardSheet(async function onClickChara
   if (!requireUserCanRollActor(game.user, this.actor)) return;
 
   const element = target ?? event.currentTarget;
-  const chaKey = String(element.id ?? "").trim().toLowerCase();
-  const chaLabel = element.getAttribute("name") || chaKey.toUpperCase();
+  const chaKey = String(element.dataset.characteristic ?? element.id ?? "").trim().toLowerCase();
+  const chaLabel = element.textContent?.trim() || element.getAttribute("name") || chaKey.toUpperCase();
 
   const chaUuid = `cha:${chaKey}`;
 
@@ -574,7 +574,7 @@ export const onClickCharacteristic = asyncGuardSheet(async function onClickChara
   const difficultyOptions = SKILL_DIFFICULTIES.map(d => {
     const selected = d.key === "average" ? "selected" : "";
     const sign = d.mod >= 0 ? "+" : "";
-    return `<option value="${d.key}" ${selected}>${d.label} (${sign}${d.mod})</option>`;
+    return `<option value="${foundry.utils.escapeHTML(d.key)}" ${selected}>${foundry.utils.escapeHTML(d.label)} (${sign}${d.mod})</option>`;
   }).join("\n");
 
   const showIronWill = chaKey === "wp" && hasTalent(this.actor, "ironwill");

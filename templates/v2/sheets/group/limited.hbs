@@ -24,8 +24,7 @@
           {{#each resolvedMembers as |member|}}
           {{#if member.canView}}
           <div class="member-portrait-limited">
-            <img src="{{member.img}}" data-tooltip-text="{{member.name}}" alt="{{member.name}}" data-uuid="{{member.uuid}}"
-                 data-action="viewMember" class="member-portrait-clickable">
+            <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-image-action" data-action="viewMember" data-tooltip-text="{{member.name}}" aria-label="{{member.name}}"><img src="{{member.img}}" alt="" data-uuid="{{member.uuid}}" class="member-portrait-clickable" aria-hidden="true"></button>
             <div>{{member.name}}</div>
           </div>
           {{/if}}

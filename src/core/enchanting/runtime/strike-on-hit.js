@@ -26,6 +26,7 @@ import { requestUpdateDocument, requestCreateEmbeddedDocuments } from "../../../
 import { isActorUndead } from "../../traits/trait-registry.js";
 import { SYSTEM_ID } from "../../constants.js";
 import { buildEffectChangesData } from "../../../utils/compat.js";
+import { buildEffectDuration } from "../../time/effect-duration.js";
 
 // ---------------------------------------------------------------------------
 // Synchronous accumulator helpers
@@ -144,10 +145,7 @@ function _computeCondition(targetActor, fx, effectsToCreate) {
   effectsToCreate.push({
     name: `${conditionLabel} (${fx.weaponName})`,
     img: _conditionIcon(conditionKey),
-    duration: {
-      rounds: durationRounds,
-      startRound: game.combat?.round ?? 0,
-    },
+    duration: buildEffectDuration({ actor: targetActor, rounds: durationRounds, preferCombat: true }),
     flags: {
       [SYSTEM_ID]: {
         source: "strikeEnchantment",

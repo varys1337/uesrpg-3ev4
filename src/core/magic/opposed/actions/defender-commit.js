@@ -7,8 +7,7 @@
 
 import { hasEquippedShield } from "../../../combat/tn.js";
 import { hasActiveWard } from "../../../combat/ward-defense.js";
-import { ensureBankedScaffold } from "../schema.js";
-import { resolveToken } from "../schema.js";
+import { ensureBankedScaffold, resolveToken } from "../schema.js";
 import { cloneFlagState } from "../../../../utils/clone.js";
 import { FLAG_SCOPE } from "../../../system/namespace.js";
 import { commitLaneToFreshCardState } from "../../../opposed/shared/fresh-commit.js";

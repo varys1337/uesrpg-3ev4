@@ -21,22 +21,6 @@
                                 <div class="right-align-content">
                                     <input type="text" name="system.damageType" value="{{item.system.damageType}}" placeholder="{{localize "UESRPG.Sheets.Item.DamageTypePlaceholder"}}"/>
                                 </div>
-                                <div>{{localize "UESRPG.Sheets.Item.EnchantLevel"}}</div>
-                                <div class="right-align-content">
-                                    <input type="number" name="system.enchant_level" value="{{item.system.enchant_level}}" data-dtype="Number"/>
-                                </div>
-                                <div>{{localize "UESRPG.Sheets.Item.Charge"}}</div>
-                                <div class="right-align-content enchant-inline enchant-charge-inline">
-                                    <button type="button" class="uesrpg-charge-btn" data-action="chargeMinus" data-tooltip="UESRPG.Sheets.Item.DecreaseCurrentCharge" aria-label="{{localize "UESRPG.Sheets.Item.DecreaseCurrentCharge"}}">
-                                        <i class="fas fa-minus"></i>
-                                    </button>
-                                    <input type="number" name="system.charge.value" value="{{item.system.charge.value}}" class="enchant-charge-input">
-                                    <span class="enchant-charge-sep">/</span>
-                                    <input type="number" name="system.charge.max" value="{{item.system.charge.max}}" class="enchant-charge-input">
-                                    <button type="button" class="uesrpg-charge-btn" data-action="chargePlus" data-tooltip="UESRPG.Sheets.Item.IncreaseCurrentCharge" aria-label="{{localize "UESRPG.Sheets.Item.IncreaseCurrentCharge"}}">
-                                        <i class="fas fa-plus"></i>
-                                    </button>
-                                </div>
                             </div>
                         </div>
                     </div>
@@ -73,40 +57,8 @@
                     <!-- Ammunition does not use an extended trait list; specializations are represented via core qualities. -->
                 </div>
 
-                {{#if enchantmentDisplay}}
-                <div class="quality-container">
-                    <div class="flex-container">
-                        <h2>{{localize "UESRPG.Sheets.Item.ActiveEnchantmentRaw"}}</h2>
-                    </div>
-                    <div class="selection-container">
-                        <div class="grid-container">
-                            <div>{{localize "UESRPG.Sheets.Equipment.Type"}}</div>
-                            <div class="right-align-content">
-                                <span class="styled-font-gold">{{enchantmentDisplay.typeLabel}}</span>
-                            </div>
-                        </div>
-                        {{#if enchantmentDisplay.useCharges}}
-                        <div class="grid-container">
-                            <div>{{localize "UESRPG.Sheets.Item.ChargePool"}}</div>
-                            <div class="right-align-content">{{enchantmentDisplay.chargeValue}} / {{enchantmentDisplay.chargeMax}}</div>
-                        </div>
-                        {{/if}}
-                        {{#each enchantmentDisplay.effects as |fx|}}
-                        <div class="grid-container">
-                            <div>{{fx.label}}</div>
-                            <div class="right-align-content u-text-muted">{{fx.paramSummary}}</div>
-                        </div>
-                        {{/each}}
-                        {{#if (eq enchantmentDisplay.typeLabel "Cast")}}
-                        <div class="grid-container">
-                            <div>{{localize "UESRPG.Sheets.Item.Cast"}}</div>
-                            <div class="right-align-content">
-                                <button type="button" data-action="castEnchantment">{{localize "UESRPG.Sheets.Equipment.CastEnchantment"}}</button>
-                            </div>
-                        </div>
-                        {{/if}}
-                    </div>
-                </div>
+                {{#if showEnchantingInterface}}
+                {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-enchanting-interface.hbs"}}
                 {{/if}}
 
                 {{#if uiSpellcastingConfig}}

@@ -7,19 +7,19 @@
 
     <div class="uesrpg-spendxp__stats">
       <div class="uesrpg-spendxp__stat">
-        <div class="uesrpg-spendxp__stat-label">Unspent XP</div>
+        <div class="uesrpg-spendxp__stat-label">{{localize "UESRPG.ModernUI.UnspentXP"}}</div>
         <div class="uesrpg-spendxp__stat-value">{{xp}} → {{xpProjected}}</div>
       </div>
       <div class="uesrpg-spendxp__stat">
-        <div class="uesrpg-spendxp__stat-label">Total XP</div>
+        <div class="uesrpg-spendxp__stat-label">{{localize "UESRPG.Dialogs.CharGen.TotalXp"}}</div>
         <div class="uesrpg-spendxp__stat-value">{{xpTotal}}</div>
       </div>
       <div class="uesrpg-spendxp__stat">
-        <div class="uesrpg-spendxp__stat-label">Drakes</div>
+        <div class="uesrpg-spendxp__stat-label">{{localize "UESRPG.ModernUI.Drakes"}}</div>
         <div class="uesrpg-spendxp__stat-value">{{wealth}} → {{wealthProjected}}</div>
       </div>
       <div class="uesrpg-spendxp__stat">
-        <div class="uesrpg-spendxp__stat-label">Campaign Rank</div>
+        <div class="uesrpg-spendxp__stat-label">{{localize "UESRPG.Dialogs.CharGen.CampaignRank"}}</div>
         <div class="uesrpg-spendxp__stat-value">{{campaignRank}}</div>
       </div>
     </div>
@@ -49,10 +49,10 @@
               <div class="uesrpg-spendxp__draft-row">
                 <div class="uesrpg-spendxp__draft-text">
                   <div class="uesrpg-spendxp__draft-label">{{row.label}}</div>
-                  <div class="uesrpg-spendxp__draft-meta">XP {{row.costXp}} | Drakes {{row.costWealth}}</div>
+                  <div class="uesrpg-spendxp__draft-meta">{{localize "UESRPG.ModernUI.XPDrakes" value1=row.costXp value2=row.costWealth}}</div>
                 </div>
                 <button type="button" data-action="removeDraftEntry" data-entry-id="{{row.id}}" class="uesrpg-spendxp__btn uesrpg-spendxp__rollback-btn">
-                  <i class="fas fa-rotate-left"></i> Remove
+                  <i class="fas fa-rotate-left"></i> {{localize "UESRPG.UI.Remove"}}
                 </button>
               </div>
             {{/each}}
@@ -76,7 +76,7 @@
         <p class="uesrpg-spendxp__hint">
           {{localize "UESRPG.Dialogs.SpendXp.AddItemsHint"}}
         </p>
-        <div class="uesrpg-spendxp__dropzone" role="region" aria-label="Dropzone">
+        <div class="uesrpg-spendxp__dropzone" role="region" aria-label="{{localize "UESRPG.ModernUI.Dropzone"}}">
           <div class="uesrpg-spendxp__dropzone-inner">
             <i class="fas fa-hand-pointer"></i>
             <div>{{localize "UESRPG.Dialogs.SpendXp.DropItemsHere"}}</div>
@@ -86,24 +86,24 @@
     </div>
 
     <section class="uesrpg-spendxp__section">
-      <h3>Advance a Characteristic</h3>
+      <h3>{{localize "UESRPG.ModernUI.AdvanceACharacteristic"}}</h3>
       <p class="uesrpg-spendxp__hint">
-        Cost: <b>30 x current bonus</b> (Favored: 75%, rounded down to nearest 5). Luck cannot be advanced.
+        {{localize "UESRPG.ModernUI.Cost"}} <b>{{localize "UESRPG.ModernUI.Text30XCurrentBonus"}}</b> {{localize "UESRPG.ModernUI.Favored75RoundedDownToNearest5LuckCannotBeAdvanced"}}
       </p>
       <div class="uesrpg-spendxp__row">
-        <select id="uesrpg-spendxp-characteristic" class="uesrpg-spendxp__select">
+        <select data-role="characteristic-select" class="uesrpg-spendxp__select" aria-label="{{localize "UESRPG.Dialogs.SpendXp.Characteristic"}}">
           {{#each chaOptions as |c|}}
-            <option value="{{c.key}}" {{#if (eq c.key ../selectedCharacteristic)}}selected{{/if}}>{{c.label}} (Base {{c.base}}, Bonus {{c.bonus}}{{#if c.favored}}, Favored{{/if}})</option>
+            <option value="{{c.key}}" {{#if (eq c.key ../selectedCharacteristic)}}selected{{/if}}>{{c.label}} {{localize "UESRPG.ModernUI.Base"}} {{c.base}}{{localize "UESRPG.ModernUI.Bonus"}} {{c.bonus}}{{#if c.favored}}{{localize "UESRPG.ModernUI.Favored"}}{{/if}})</option>
           {{/each}}
         </select>
         <button type="button" data-action="advanceCharacteristic" class="uesrpg-spendxp__btn">
-          <i class="fas fa-arrow-up"></i> Stage Advance (+1)
+          <i class="fas fa-arrow-up"></i> {{localize "UESRPG.ModernUI.StageAdvance1"}}
         </button>
       </div>
     </section>
 
     <section class="uesrpg-spendxp__section">
-      <h3>Skills / Magic Skills / Combat Styles</h3>
+      <h3>{{localize "UESRPG.ModernUI.SkillsMagicSkillsCombatStyles"}}</h3>
       <p class="uesrpg-spendxp__hint">
         {{localize "UESRPG.Dialogs.SpendXp.RankPurchaseHint"}}
       </p>
@@ -117,44 +117,44 @@
                 <div class="uesrpg-spendxp__skill-name">{{s.name}}{{#if s.isTemp}} <span class="uesrpg-spendxp__pill">{{localize "UESRPG.Dialogs.SpendXp.Pending"}}</span>{{/if}}</div>
                 <div class="uesrpg-spendxp__skill-meta">
                   <span class="uesrpg-spendxp__pill">{{s.type}}</span>
-                  <span class="uesrpg-spendxp__pill">Rank: {{s.rankLabel}}</span>
-                  {{#if s.favored}}<span class="uesrpg-spendxp__pill uesrpg-spendxp__pill--favored">Favored</span>{{/if}}
-                  {{#if s.specCount}}<span class="uesrpg-spendxp__pill">Specs: {{s.specCount}}</span>{{/if}}
-                  {{#if s.teCount}}<span class="uesrpg-spendxp__pill">Equipment: {{s.teCount}}</span>{{/if}}
+                  <span class="uesrpg-spendxp__pill">{{localize "UESRPG.ModernUI.Rank" value1=s.rankLabel}}</span>
+                  {{#if s.favored}}<span class="uesrpg-spendxp__pill uesrpg-spendxp__pill--favored">{{localize "UESRPG.ModernUI.Favoredc0866595"}}</span>{{/if}}
+                  {{#if s.specCount}}<span class="uesrpg-spendxp__pill">{{localize "UESRPG.ModernUI.Specs" value1=s.specCount}}</span>{{/if}}
+                  {{#if s.teCount}}<span class="uesrpg-spendxp__pill">{{localize "UESRPG.ModernUI.Equipment" value1=s.teCount}}</span>{{/if}}
                 </div>
               </div>
             </div>
 
             <div class="uesrpg-spendxp__skill-actions">
-              <button type="button" data-action="openItem" data-item-id="{{s.id}}" class="uesrpg-spendxp__btn uesrpg-spendxp__btn--ghost" data-tooltip-text="Open item sheet" aria-label="Open item sheet">
+              <button type="button" data-action="openItem" data-item-id="{{s.id}}" class="uesrpg-spendxp__btn uesrpg-spendxp__btn--ghost" data-tooltip-text="{{localize "UESRPG.ModernUI.OpenItemSheet"}}" aria-label="{{localize "UESRPG.ModernUI.OpenItemSheet"}}">
                 <i class="fas fa-up-right-from-square"></i>
               </button>
 
               {{#if s.canAdvance}}
-                <button type="button" data-action="advanceRank" data-item-id="{{s.id}}" class="uesrpg-spendxp__btn" data-tooltip-text="Stage rank advance" aria-label="Stage rank advance">
-                  <i class="fas fa-arrow-up"></i> Stage Rank ({{s.nextRankXpCost}} XP)
+                <button type="button" data-action="advanceRank" data-item-id="{{s.id}}" class="uesrpg-spendxp__btn" data-tooltip-text="{{localize "UESRPG.ModernUI.StageRankAdvance"}}" aria-label="{{localize "UESRPG.ModernUI.StageRankAdvance"}}">
+                  <i class="fas fa-arrow-up"></i> {{localize "UESRPG.ModernUI.StageRankXP" value1=s.nextRankXpCost}}
                 </button>
               {{else}}
-                <button type="button" class="uesrpg-spendxp__btn" disabled data-tooltip-text="Cannot advance (already at maximum rank)" aria-label="Cannot advance (already at maximum rank)">
-                  Rank (-)
+                <button type="button" class="uesrpg-spendxp__btn" disabled data-tooltip-text="{{localize "UESRPG.ModernUI.CannotAdvanceAlreadyAtMaximumRank"}}" aria-label="{{localize "UESRPG.ModernUI.CannotAdvanceAlreadyAtMaximumRank"}}">
+                  {{localize "UESRPG.ModernUI.Rank4767ac90"}}
                 </button>
               {{/if}}
             </div>
 
             {{#if (or (eq s.type "skill") (eq s.type "magicSkill"))}}
               <div class="uesrpg-spendxp__skill-subrow">
-                <input type="text" data-field="newSpec" placeholder="Stage specialization" />
+                <input type="text" data-field="newSpec" placeholder="{{localize "UESRPG.Placeholders.StageSpecialization"}}" />
                 <button type="button" data-action="addSpec" data-item-id="{{s.id}}" class="uesrpg-spendxp__btn uesrpg-spendxp__btn--small">
-                  <i class="fas fa-plus"></i> Stage Spec
+                  <i class="fas fa-plus"></i> {{localize "UESRPG.ModernUI.StageSpec"}}
                 </button>
               </div>
             {{/if}}
 
             {{#if (eq s.type "combatStyle")}}
               <div class="uesrpg-spendxp__skill-subrow">
-                <input type="text" data-field="newEquipment" placeholder="Stage trained equipment" />
+                <input type="text" data-field="newEquipment" placeholder="{{localize "UESRPG.Placeholders.StageTrainedEquipment"}}" />
                 <button type="button" data-action="addEquipment" data-item-id="{{s.id}}" class="uesrpg-spendxp__btn uesrpg-spendxp__btn--small">
-                  <i class="fas fa-plus"></i> Stage Equipment
+                  <i class="fas fa-plus"></i> {{localize "UESRPG.ModernUI.StageEquipment"}}
                 </button>
               </div>
             {{/if}}

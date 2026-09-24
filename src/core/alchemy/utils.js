@@ -1,4 +1,4 @@
-const _ALCHEMY_TOOL_RX = /(?:(?:alchem(?:y|ical)).*(?:tools?|equipment|kits?|field\s*kit)|(?:tools?|equipment|kits?|field\s*kit).*(?:alchem(?:y|ical)))/i;
+const _ALCHEMY_TOOL_RX = /(?:(?:alchem(?:y|ical)).*(?:lab|tools?|equipment|kits?|field\s*kit)|(?:lab|tools?|equipment|kits?|field\s*kit).*(?:alchem(?:y|ical)))/i;
 
 export const ALCHEMY_TOOL_RX = _ALCHEMY_TOOL_RX;
 

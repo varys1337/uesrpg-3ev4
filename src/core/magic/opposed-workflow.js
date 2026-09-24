@@ -33,8 +33,7 @@ import { classifySpellForRouting, getUserSpellTargets, emitCastResolved } from "
 import { getBlockingNoDurationUpkeep, spellNeedsDeferredDirectApplication, spellNeedsEffectApplication } from "./opposed/spell-helpers.js";
 import { isCharacteristicDefense } from "./characteristic-defense-service.js";
 import { normalizeSpellConfig } from "./spell-config.js";
-import { resolveActor, resolveToken, resolveDoc } from "./opposed/schema.js";
-import { getMessageState, selectDefenderEntry, getDefenderEntries, ensureBankedScaffold, allDefendersCommitted, getDefenderOutcome } from "./opposed/schema.js";
+import { resolveActor, resolveToken, resolveDoc, getMessageState, selectDefenderEntry, getDefenderEntries, ensureBankedScaffold, allDefendersCommitted, getDefenderOutcome } from "./opposed/schema.js";
 import { renderCard, renderUnopposedCard } from "./opposed/render.js";
 import { dispatchAction, autoRollBanked } from "./opposed/actions.js";
 import { resolveOutcome } from "./opposed/outcome-resolution.js";
@@ -785,11 +784,7 @@ export const MagicOpposedWorkflow = {
     const castSourceMode = normalizeCastSourceCostMode(castSource);
     const isEnchantmentSource = castSource?.type === "enchantment";
     const ignoreAP = _ignoreActionPoints(cfg);
-    const tn = computeMagicCastingTN(attacker, spell, {
-      ...spellOptions,
-      opposingActor: defender,
-      targetActor: defender,
-    });
+    const tn = computeMagicCastingTN(attacker, spell, spellOptions);
 
     const blocking = getBlockingNoDurationUpkeep(attacker, spell?.uuid ?? null);
     if (blocking) {

@@ -182,7 +182,6 @@ function _renderContainmentSheets(actor, containers = []) {
   const rendered = new Set();
   if (actor?.sheet) {
     try {
-      if ("_uesrpgItemsCache" in actor.sheet) actor.sheet._uesrpgItemsCache = null;
       if ("_uesrpgEncumbranceCache" in actor.sheet) actor.sheet._uesrpgEncumbranceCache = null;
     } catch (_e) {
       /* no-op */

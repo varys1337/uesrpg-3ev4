@@ -27,6 +27,9 @@
                             <div class="weapon-field-row"><label>{{localize "UESRPG.Sheets.Item.WeightClass"}}</label><select name="system.weightClass">{{selectOptions armorWeightClassOptions selected=item.system.weightClass localize=true}}</select></div>
                             <div class="weapon-field-row"><label>{{localize "UESRPG.Sheets.Item.EffectiveWeightClass"}}</label><input type="text" value="{{#if item.system.weightClassEffective}}{{item.system.weightClassEffective}}{{else}}{{item.system.effectiveWeightClass}}{{/if}}" disabled></div>
                         </div>
+                        {{#if showEnchantingInterface}}
+                        {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-enchanting-interface.hbs"}}
+                        {{/if}}
                     </div>
                 </div>
             </div>

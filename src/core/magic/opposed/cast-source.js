@@ -45,8 +45,8 @@ export function getItemSoulPoolSnapshot(itemCtx = null) {
   if (sourceLane === "extension") {
     const pool = item.flags?.[_FLAG_NS]?.itemSpellcasting?.pool ?? {};
     return {
-      value: Number(item.system?.charge?.value ?? pool?.value ?? 0) || 0,
-      max: Number(item.system?.charge?.max ?? pool?.max ?? 0) || 0,
+      value: Number(pool?.value ?? item.system?.charge?.value ?? 0) || 0,
+      max: Number(pool?.max ?? item.system?.charge?.max ?? 0) || 0,
       poolPath: `flags.${_FLAG_NS}.itemSpellcasting.pool.value`,
     };
   }

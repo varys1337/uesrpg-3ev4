@@ -71,8 +71,9 @@ function _matchesGroup(effect, group, policy, incomingOrigin) {
 function _effectOrder(effect) {
   const sort = Number(effect?.sort);
   if (Number.isFinite(sort)) return sort;
-  const time = Number(effect?._stats?.createdTime ?? effect?._stats?.modifiedTime);
-  if (Number.isFinite(time)) return time;
+  const contents = effect?.parent?.effects?.contents;
+  const index = Array.isArray(contents) ? contents.findIndex((candidate) => candidate?.id === effect?.id) : -1;
+  if (index >= 0) return index;
   return 0;
 }
 

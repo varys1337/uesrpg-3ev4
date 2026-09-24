@@ -15,6 +15,7 @@ import {
 import { getWorshipDomainState } from "../../../core/religion/worship-store.js";
 import { t, tf } from "../../../utils/i18n.js";
 import { activateOpenApplication } from "./application-focus.js";
+import { withApplicationUniqueId } from "./application-identity.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -54,8 +55,8 @@ async function promptPreparedInvocations(actor, domainEntry) {
       <p style="margin:0;">${tf("UESRPG.Dialogs.Worship.PreparationLimit", { limit: prepLimit })}</p>
       <div style="max-height:420px; overflow:auto;">${rows.map((row) => `
         <label style="display:flex; gap:8px; align-items:flex-start; padding:4px 0;">
-          <input type="checkbox" name="invocationId" value="${row.id}" ${row.prepared ? "checked" : ""} />
-          <span><b>${escapeHtml(row.label)}</b> (${escapeHtml(row.groupLabel)}, Circle ${row.circle}, ${row.pietyCost} PP)</span>
+          <input type="checkbox" name="invocationId" value="${foundry.utils.escapeHTML(row.id)}" ${row.prepared ? "checked" : ""} />
+          <span><b>${foundry.utils.escapeHTML(row.label)}</b> (${foundry.utils.escapeHTML(row.groupLabel)}, ${t("UESRPG.Sheets.Magic.Circle")} ${row.circle}, ${row.pietyCost} ${t("UESRPG.UI.PP")})</span>
         </label>
       `).join("")}</div>
     </div>`,
@@ -85,12 +86,12 @@ export class WorshipManagerAppV2 extends HandlebarsApplicationMixin(ApplicationV
   #actor;
 
   constructor(actor, options = {}) {
-    super(options);
+    super(withApplicationUniqueId(options, actor));
     this.#actor = actor;
   }
 
   static DEFAULT_OPTIONS = {
-    id: "uesrpg-worship-manager-v2",
+    id: "uesrpg-worship-manager-v2-{id}",
     classes: ["worldbuilding", "uesrpg", "uesrpg-worship-manager"],
     position: { width: 640, height: 460 },
     window: { resizable: true },
@@ -133,10 +134,10 @@ export class WorshipManagerAppV2 extends HandlebarsApplicationMixin(ApplicationV
     return t("UESRPG.Dialogs.Worship.ManagePietyTitle", "Manage Piety Points");
   }
 
-  async close(options = {}) {
+  _onClose(options = {}) {
     const key = String(this.actor?.uuid ?? this.actor?.id ?? "");
     WorshipManagerAppV2.#openByActor.delete(key);
-    return super.close(options);
+    return super._onClose(options);
   }
 
   async _prepareContext(options) {

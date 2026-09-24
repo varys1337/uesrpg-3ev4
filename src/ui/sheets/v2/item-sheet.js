@@ -22,7 +22,7 @@ import { onEffectControl } from "../item/listeners/effects.js";
 import { onChargePlus, onChargeMinus } from "../item/listeners/usage.js";
 import { activateTalentFromItemSheet, activatePowerFromItemSheet, activateTraitFromItemSheet } from "../shared-handlers.js";
 import { getScalingLevelsArray, normalizeScalingEntry, logSpellDebug } from "../item/spell-scaling-helpers.js";
-import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
+import { requestAtomicUpdateDocument, requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { activateProseMirrorEditors } from "../shared/editor-activation.js";
 import { ITEM_TYPE_MODEL_SEEDS } from "../../../core/data-models/defaults.generated.js";
 import { bindDelegated } from "./_delegated-bindings.js";
@@ -33,6 +33,11 @@ import {
   onEnableAlchemyProduct, onClearAlchemyProduct,
   onDrinkAlchemyProduct, onApplyAlchemyProductToWeapon,
 } from "../item/item-sheet-alchemy.js";
+import {
+  onClearSoulEnergyItem,
+  onEnableSoulEnergyItem,
+  registerSoulEnergyListeners,
+} from "../item/item-sheet-soul-energy.js";
 import {
   ALCHEMY_PRODUCT_DROP_SELECTOR,
   clearAlchemyProductEffectSlot,
@@ -59,7 +64,17 @@ import { SYSTEM_ID, templatePath } from "../../constants.js";
 import { createDebugLogger, traceSheetPerf } from "../../../utils/debug.js";
 import { resolveUuidSync } from "../../../utils/uuid-cache.js";
 import { getArmorCategoryCoverage } from "../../../core/items/armor-coverage.js";
-import { t } from "../../../utils/i18n.js";
+import { t, tf } from "../../../utils/i18n.js";
+import {
+  clearSheetFormUpdateState,
+  flushCurrentSheetForm,
+  flushSheetFormUpdates,
+  queueSheetFormUpdate,
+} from "./shared/sheet-runtime-helpers.js";
+import {
+  createFormPathMatcher,
+  filterAllowedFormPaths,
+} from "./shared/form-pipeline.js";
 
 const { HandlebarsApplicationMixin } = foundry.applications.api;
 const ItemSheetV2Base = foundry.applications.sheets.ItemSheetV2;
@@ -74,6 +89,18 @@ const ITEM_SHEET_PART_MAP = Object.freeze(Object.fromEntries(ITEM_SHEET_TYPES.ma
   body: `${ITEM_SHEET_TEMPLATE_BASE}/${type}-sheet.hbs`,
 })])));
 const DEFAULT_ITEM_SHEET_PARTS = ITEM_SHEET_PART_MAP.equipment;
+const ALLOW_ITEM_FORM_PATH = createFormPathMatcher({
+  exact: ["name"],
+  prefixes: [
+    "system.",
+    "flags.",
+    "qualitiesStructured.",
+    "qualitiesTraits.",
+    "activationDamageQualities.",
+    "activationDamageQualitiesStructured.",
+    "activationDamageQualitiesTraits.",
+  ],
+});
 const ITEM_SHEET_TABS = Object.freeze({
   ammunition: [["description", "UESRPG.UI.Description"], ["attributes", "UESRPG.Sheets.Item.Attributes"], ["effects", "UESRPG.Sheets.Equipment.Effects"]],
   armor: [["description", "UESRPG.UI.Description"], ["attributes", "UESRPG.Sheets.Item.Attributes"], ["effects", "UESRPG.Sheets.Equipment.Effects"]],
@@ -245,7 +272,6 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
 
   /** @type {object|null} Snapshot of DOM-only UI state saved before re-render */
   _savedState = null;
-  _scrollLinkedSpellCache = null;
 
   /**
    * Native AppV2 tab configuration.
@@ -324,6 +350,8 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       // Alchemy ingredient actions
       enableAlchemyIngredient: SimpleItemSheetV2.prototype._onEnableAlchemyIngredient,
       clearAlchemyIngredient: SimpleItemSheetV2.prototype._onClearAlchemyIngredient,
+      enableSoulEnergyItem: SimpleItemSheetV2.prototype._onEnableSoulEnergyItem,
+      clearSoulEnergyItem: SimpleItemSheetV2.prototype._onClearSoulEnergyItem,
       // Alchemy product actions
       enableAlchemyProduct: SimpleItemSheetV2.prototype._onEnableAlchemyProduct,
       clearAlchemyProduct: SimpleItemSheetV2.prototype._onClearAlchemyProduct,
@@ -357,11 +385,6 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   /** Keep item window title to the document name only (no localized type prefix). */
   get title() {
     return this.document?.name ?? "";
-  }
-
-  /** V1 compat: inherited editor submit/save paths access `sheet.form`. */
-  get form() {
-    return this.element;
   }
 
   /** V1 compat: several shared handlers still read `sheet.actor`. */
@@ -406,23 +429,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     // survive into templates - same pattern as actor sheets.
     context.item = this.document.toObject();
     context.item.uuid = this.document.uuid;
-    // Cache sanitized render system per (docId, modifiedTime) to avoid repeated
-    // deep-clone + coercion on every render when the document hasn't changed.
-    {
-      const docId = this.document.id;
-      const modifiedTime = this.document._stats?.modifiedTime ?? null;
-      const cache = this._renderSystemCache;
-      if (this.document.type === "container") {
-        this._renderSystemCache = null;
-        context.item.system = _buildSanitizedRenderSystem(this.document?.type, this.document?.system);
-      } else if (cache && cache.docId === docId && modifiedTime !== null && cache.modifiedTime === modifiedTime) {
-        context.item.system = cache.sanitizedSystem;
-      } else {
-        const sanitizedSystem = _buildSanitizedRenderSystem(this.document?.type, this.document?.system);
-        this._renderSystemCache = { docId, modifiedTime, sanitizedSystem };
-        context.item.system = sanitizedSystem;
-      }
-    }
+    context.item.system = _buildSanitizedRenderSystem(this.document?.type, context.item.system);
     context.data = context.item.system; // legacy alias
     context.editable = this.isEditable;
       context.isGM = game.user.isGM;
@@ -480,29 +487,11 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
         const spellUuid = String(this.document.system?.spellUuid ?? "").trim();
         if (spellUuid) {
           try {
-            const cachedSpell = this._scrollLinkedSpellCache;
             let linked = null;
             const liveSync = resolveUuidSync(spellUuid);
-            const linkedModifiedTime = liveSync?._stats?.modifiedTime ?? null;
-            if (
-              cachedSpell
-              && cachedSpell.spellUuid === spellUuid
-              && cachedSpell.modifiedTime === linkedModifiedTime
-            ) {
-              prepared.scrollLinkedSpell = cachedSpell.summary;
-              linked = liveSync;
-            } else {
-              linked = liveSync ?? await fromUuid(spellUuid);
-            }
+            linked = liveSync ?? await fromUuid(spellUuid);
             if (linked?.documentName === "Item" && String(linked?.type ?? "") === "spell") {
-              if (!prepared.scrollLinkedSpell) {
-                prepared.scrollLinkedSpell = _buildLinkedSpellSummary(linked);
-                this._scrollLinkedSpellCache = {
-                  spellUuid,
-                  modifiedTime: linked?._stats?.modifiedTime ?? null,
-                  summary: prepared.scrollLinkedSpell,
-                };
-              }
+              prepared.scrollLinkedSpell = _buildLinkedSpellSummary(linked);
               prepared.hasLinkedSpell = true;
             } else {
               prepared.linkedSpellUnresolved = true;
@@ -554,8 +543,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     if (path.startsWith("alchemy-effect-level-")) {
       const slotIdx = Number.parseInt(path.slice("alchemy-effect-level-".length), 10);
       if (!Number.isFinite(slotIdx) || slotIdx < 0) return;
-      await updateAlchemyProductEffectLevel(this, slotIdx, target?.value ?? 1);
-      return;
+      return queueSheetFormUpdate(this, () => updateAlchemyProductEffectLevel(this, slotIdx, target?.value ?? 1));
     }
     if (path !== "system.description" || !("value" in (target ?? {}))) return;
 
@@ -563,7 +551,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     const currentValue = String(this.document?.system?.description ?? "");
     if (Object.is(currentValue, nextValue)) return;
 
-    await requestUpdateDocument(this.document, { "system.description": nextValue });
+    return queueSheetFormUpdate(this, () => requestUpdateDocument(this.document, { "system.description": nextValue }));
   }
 
   /**
@@ -577,7 +565,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
    * Called by the framework with `this` bound to the app instance.
    */
   async _onFormSubmit(event, form, formData) {
-    let flatData = foundry.utils.flattenObject(formData.object);
+    let flatData = filterAllowedFormPaths(formData.object, ALLOW_ITEM_FORM_PATH);
     flatData = _mergeLiveItemProseValues(flatData, form);
     const docType = String(this.document?.type ?? "").toLowerCase();
     const isShieldLaneDoc = docType === "shield" || (docType === "armor" && (
@@ -601,7 +589,15 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
         },
       });
     }
-    const { scalingLevels } = normalizeItemFormData(this.document, flatData);
+    const { scalingLevels, soulEnergyIssue } = normalizeItemFormData(this.document, flatData);
+
+    if (soulEnergyIssue) {
+      const key = soulEnergyIssue === "reusable-stack"
+        ? "UESRPG.Notifications.Enchanting.ReusableSoulVesselStack"
+        : "UESRPG.Notifications.Enchanting.SoulEnergyExceedsCapacity";
+      ui.notifications?.warn?.(t(key));
+      return false;
+    }
 
     if (
       this.document.type === "spell" &&
@@ -620,7 +616,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     // Diff against current document state - only send changed fields
     const current = foundry.utils.flattenObject(this.document.toObject(false));
     flatData = foundry.utils.diffObject(current, flatData);
-    if (foundry.utils.isEmpty(flatData)) return false;
+    if (foundry.utils.isEmpty(flatData)) return { ok: true, changed: {} };
 
     if (isShieldLaneDoc) {
       _shieldDebug("form submit diff", {
@@ -631,10 +627,12 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       });
     }
 
-    await requestUpdateDocument(this.document, flatData);
+    const updated = await requestUpdateDocument(this.document, flatData);
+    if (!updated) return false;
     if (advancement.xpCost > 0 && advancement.actor) {
-      await requestUpdateDocument(advancement.actor, { "system.xp": advancement.nextXp });
-      ui.notifications?.info?.(`Spent ${advancement.xpCost} XP.`);
+      const actorUpdated = await requestUpdateDocument(advancement.actor, { "system.xp": advancement.nextXp });
+      if (!actorUpdated) return false;
+      ui.notifications?.info?.(game.i18n.format("UESRPG.Notifications.Items.SpentXp", { xp: advancement.xpCost }));
     }
     return {
       ok: true,
@@ -643,10 +641,27 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   }
 
   async _submitCurrentForm(event = null) {
-    const formEl = this.element;
-    if (!formEl?.isConnected) return false;
-    const fd = new foundry.applications.ux.FormDataExtended(formEl);
-    return this._onFormSubmit(event, formEl, fd);
+    // Event-driven spell controls still need their explicit event metadata.
+    if (event) return flushCurrentSheetForm(this, this._onFormSubmit, event);
+
+    if (!await flushSheetFormUpdates(this)) return false;
+    if (!this.isEditable || !this.document?.isOwner) return true;
+    const notifyFailure = () => {
+      ui.notifications?.error?.(t("UESRPG.Notifications.Sheets.FormSaveFailed"));
+      return false;
+    };
+
+    // ApplicationV2 owns construction of FormDataExtended for its top-level
+    // form. Do not silently skip submission when the form is unavailable.
+    const form = this.form;
+    if (!(form instanceof HTMLFormElement) || !form.isConnected) return notifyFailure();
+    try {
+      const result = await this.submit();
+      return result !== false && result?.ok !== false ? true : notifyFailure();
+    } catch (error) {
+      console.error("UESRPG | Item sheet native form submission failed", error);
+      return notifyFailure();
+    }
   }
 
   /**
@@ -654,17 +669,17 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
    * Equivalent to V1's `submitOnClose: true` default behaviour.
    * @override
    */
-  async close(options = {}) {
+  async _preClose(options = {}) {
     const skipSubmitOnClose = options?.uesrpgSkipSubmitOnClose === true || this._skipSubmitOnCloseOnce === true;
     this._skipSubmitOnCloseOnce = false;
     if (this.isEditable && !skipSubmitOnClose) {
-      try {
-        await this._submitCurrentForm(null);
-      } catch (err) {
-        console.warn("UESRPG | Item sheet V2 submit-on-close failed", err);
+      const saved = await this._submitCurrentForm(null);
+      if (!saved) {
+        const message = t("UESRPG.Notifications.Sheets.FormSaveFailed");
+        throw new Error(message);
       }
     }
-    return super.close(options);
+    return super._preClose(options);
   }
 
   /* Actions Map Handlers */
@@ -781,13 +796,14 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     const actor = this.document.actor;
     if (!this.document.isOwned || !actor) return;
     try {
-      await requestUpdateDocument(actor, { [`flags.${SYSTEM_ID}.activeCombatStyleId`]: this.document.id });
-      ui.notifications?.info?.(`Active combat style set to: ${this.document.name}`);
+      const updated = await requestUpdateDocument(actor, { [`flags.${SYSTEM_ID}.activeCombatStyleId`]: this.document.id });
+      if (!updated) throw new Error(t("UESRPG.Notifications.Sheets.ActiveCombatStyleSaveFailed"));
+      ui.notifications?.info?.(tf("UESRPG.Notifications.Sheets.ActiveCombatStyleSet", { item: this.document.name }));
       actor.sheet?.render?.(false);
       this.render({ parts: ["body"] });
     } catch (err) {
       console.error("UESRPG | Failed to set active combat style", { actor: actor?.uuid, item: this.document?.uuid, err });
-      ui.notifications?.error?.("Failed to set active combat style.");
+      ui.notifications?.error?.(t("UESRPG.Notifications.Sheets.ActiveCombatStyleSaveFailed"));
     }
   }
 
@@ -801,13 +817,14 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     const actor = this.document.actor;
     if (!this.document.isOwned || !actor) return;
     try {
-      await requestUpdateDocument(actor, { [`flags.${SYSTEM_ID}.-=activeCombatStyleId`]: null });
-      ui.notifications?.info?.("Combat style deactivated.");
+      const updated = await requestUpdateDocument(actor, { [`flags.${SYSTEM_ID}.-=activeCombatStyleId`]: null });
+      if (!updated) throw new Error(t("UESRPG.Notifications.Sheets.ActiveCombatStyleDeactivateFailed"));
+      ui.notifications?.info?.(t("UESRPG.Notifications.Sheets.ActiveCombatStyleDeactivated"));
       actor.sheet?.render?.(false);
       this.render({ parts: ["body"] });
     } catch (err) {
       console.error("UESRPG | Failed to deactivate combat style", { actor: actor?.uuid, item: this.document?.uuid, err });
-      ui.notifications?.error?.("Failed to deactivate combat style.");
+      ui.notifications?.error?.(t("UESRPG.Notifications.Sheets.ActiveCombatStyleDeactivateFailed"));
     }
   }
 
@@ -829,10 +846,37 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     if (this[lockKey]) return;
     this[lockKey] = true;
     try {
+      if (!await this._submitCurrentForm(null)) return;
       await fn();
     } finally {
       this[lockKey] = false;
     }
+  }
+
+  /**
+   * Run a structural mutation against a freshly resolved Item while holding
+   * the authority proxy's per-document lock.
+   *
+   * @param {Function} mutator Receives the current Item and returns an update.
+   * @returns {Promise<boolean>}
+   */
+  async _requestAtomicMutation(mutator) {
+    let intentionalNoop = false;
+    const ok = await requestAtomicUpdateDocument(this.document, async (fresh) => {
+      const update = await mutator(fresh);
+      if (!update || typeof update !== "object" || !Object.keys(update).length) {
+        intentionalNoop = true;
+        return {};
+      }
+      return update;
+    });
+    if (!ok && !intentionalNoop) {
+      ui.notifications?.error?.(t(
+        "UESRPG.Notifications.Sheets.FormSaveFailed",
+        "The document could not be saved. Review the entered values and try again."
+      ));
+    }
+    return ok || intentionalNoop;
   }
 
   /* Spell Scaling Actions */
@@ -847,30 +891,27 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     if (!this.isEditable) return;
 
     return this._withArrayMutationLock("_scalingMutLock", async () => {
-      const fallbackUnit = this.document.system?.duration?.unit || "instant";
-      const currentLevels = getScalingLevelsArray(this.document).map(e => normalizeScalingEntry(e, fallbackUnit));
-
-      const maxLevel = currentLevels.reduce((max, entry) => Math.max(max, Number(entry.level) || 0), 0);
-      const nextLevel = maxLevel + 1;
-      if (nextLevel > 7) {
-        ui.notifications?.warn?.("Maximum 7 spell levels (Novice to Grandmaster).");
-        return;
-      }
-
-      const newLevel = {
-        level: nextLevel,
-        known: true,
-        cost: 0,
-        spellStrengthFormula: "",
-        damageType: "none",
-        damageFormula: "",
-        duration: { value: 0, unit: fallbackUnit },
-        description: ""
-      };
-
-      logSpellDebug("Add scaling level", { nextLevel, currentLevels });
-      await requestUpdateDocument(this.document, {
-        "system.scaling.levels": [...currentLevels, newLevel]
+      await this._requestAtomicMutation((fresh) => {
+        const fallbackUnit = fresh.system?.duration?.unit || "instant";
+        const currentLevels = getScalingLevelsArray(fresh).map(e => normalizeScalingEntry(e, fallbackUnit));
+        const maxLevel = currentLevels.reduce((max, entry) => Math.max(max, Number(entry.level) || 0), 0);
+        const nextLevel = maxLevel + 1;
+        if (nextLevel > 7) {
+          ui.notifications?.warn?.(t("UESRPG.Notifications.Spell.MaximumScalingLevels"));
+          return {};
+        }
+        const newLevel = {
+          level: nextLevel,
+          known: true,
+          cost: 0,
+          spellStrengthFormula: "",
+          damageType: "none",
+          damageFormula: "",
+          duration: { value: 0, unit: fallbackUnit },
+          description: ""
+        };
+        logSpellDebug("Add scaling level", { nextLevel, currentLevels });
+        return { "system.scaling.levels": [...currentLevels, newLevel] };
       });
     });
   }
@@ -888,13 +929,12 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     if (isNaN(index)) return;
 
     return this._withArrayMutationLock("_scalingMutLock", async () => {
-      const fallbackUnit = this.document.system?.duration?.unit || "instant";
-      const currentLevels = getScalingLevelsArray(this.document).map(e => normalizeScalingEntry(e, fallbackUnit));
-      const newLevels = currentLevels.filter((_, idx) => idx !== index);
-
-      logSpellDebug("Remove scaling level", { index, newLevels });
-      await requestUpdateDocument(this.document, {
-        "system.scaling.levels": newLevels
+      await this._requestAtomicMutation((fresh) => {
+        const fallbackUnit = fresh.system?.duration?.unit || "instant";
+        const currentLevels = getScalingLevelsArray(fresh).map(e => normalizeScalingEntry(e, fallbackUnit));
+        const newLevels = currentLevels.filter((_, idx) => idx !== index);
+        logSpellDebug("Remove scaling level", { index, newLevels });
+        return { "system.scaling.levels": newLevels };
       });
     });
   }
@@ -911,16 +951,18 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     if (!this.isEditable) return;
 
     return this._withArrayMutationLock("_overtimeMutLock", async () => {
-      const entries = foundry.utils.deepClone(this.document.system?.overTimeEntries ?? []);
-      entries.push({
-        trigger: "turnStart", cadenceEvery: 1, cadenceUnit: "rounds",
-        payloadType: "damage", formula: "1d6", damageType: "fire",
-        saveKey: "", saveTN: 0, saveSuccess: "endEffect", saveFailure: "damage",
-        maxTicks: null, label: "", chatLog: true
-      });
-      await requestUpdateDocument(this.document, {
-        "system.hasOverTime": true,
-        "system.overTimeEntries": entries
+      await this._requestAtomicMutation((fresh) => {
+        const entries = foundry.utils.deepClone(fresh.system?.overTimeEntries ?? []);
+        entries.push({
+          trigger: "turnStart", cadenceEvery: 1, cadenceUnit: "rounds",
+          payloadType: "damage", formula: "1d6", damageType: "fire",
+          saveKey: "", saveTN: 0, saveSuccess: "endEffect", saveFailure: "damage",
+          maxTicks: null, label: "", chatLog: true
+        });
+        return {
+          "system.hasOverTime": true,
+          "system.overTimeEntries": entries
+        };
       });
     });
   }
@@ -938,9 +980,11 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     if (isNaN(index)) return;
 
     return this._withArrayMutationLock("_overtimeMutLock", async () => {
-      const entries = foundry.utils.deepClone(this.document.system?.overTimeEntries ?? []);
-      entries.splice(index, 1);
-      await requestUpdateDocument(this.document, { "system.overTimeEntries": entries });
+      await this._requestAtomicMutation((fresh) => {
+        const entries = foundry.utils.deepClone(fresh.system?.overTimeEntries ?? []);
+        entries.splice(index, 1);
+        return { "system.overTimeEntries": entries };
+      });
     });
   }
 
@@ -956,11 +1000,12 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     if (!this.isEditable) return;
 
     return this._withArrayMutationLock("_recipeMutLock", async () => {
-      const recipes = foundry.utils.deepClone(this.document.system?.engine?.effects?.recipes ?? []);
-      recipes.push({ key: "", mode: "add", value: "", target: "target", label: "" });
-
-      logSpellDebug("Add effect recipe", { newCount: recipes.length });
-      await requestUpdateDocument(this.document, { "system.engine.effects.recipes": recipes });
+      await this._requestAtomicMutation((fresh) => {
+        const recipes = foundry.utils.deepClone(fresh.system?.engine?.effects?.recipes ?? []);
+        recipes.push({ key: "", mode: "add", value: "", target: "target", label: "" });
+        logSpellDebug("Add effect recipe", { newCount: recipes.length });
+        return { "system.engine.effects.recipes": recipes };
+      });
     });
   }
 
@@ -977,11 +1022,12 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     if (isNaN(index)) return;
 
     return this._withArrayMutationLock("_recipeMutLock", async () => {
-      const recipes = foundry.utils.deepClone(this.document.system?.engine?.effects?.recipes ?? []);
-      recipes.splice(index, 1);
-
-      logSpellDebug("Remove effect recipe", { index, newCount: recipes.length });
-      await requestUpdateDocument(this.document, { "system.engine.effects.recipes": recipes });
+      await this._requestAtomicMutation((fresh) => {
+        const recipes = foundry.utils.deepClone(fresh.system?.engine?.effects?.recipes ?? []);
+        recipes.splice(index, 1);
+        logSpellDebug("Remove effect recipe", { index, newCount: recipes.length });
+        return { "system.engine.effects.recipes": recipes };
+      });
     });
   }
 
@@ -1027,9 +1073,11 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     if (this.document?.type !== "spell") return;
 
     return this._withArrayMutationLock("_dmgInstanceMutLock", async () => {
-      const instances = foundry.utils.deepClone(this.document.system?.damageInstances ?? []);
-      instances.push({ formula: "", type: "none", label: "" });
-      await requestUpdateDocument(this.document, { "system.damageInstances": instances });
+      await this._requestAtomicMutation((fresh) => {
+        const instances = foundry.utils.deepClone(fresh.system?.damageInstances ?? []);
+        instances.push({ formula: "", type: "none", label: "" });
+        return { "system.damageInstances": instances };
+      });
     });
   }
 
@@ -1047,9 +1095,11 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     if (isNaN(index)) return;
 
     return this._withArrayMutationLock("_dmgInstanceMutLock", async () => {
-      const instances = foundry.utils.deepClone(this.document.system?.damageInstances ?? []);
-      instances.splice(index, 1);
-      await requestUpdateDocument(this.document, { "system.damageInstances": instances });
+      await this._requestAtomicMutation((fresh) => {
+        const instances = foundry.utils.deepClone(fresh.system?.damageInstances ?? []);
+        instances.splice(index, 1);
+        return { "system.damageInstances": instances };
+      });
     });
   }
 
@@ -1077,6 +1127,8 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
 
   async _onEnableAlchemyIngredient(event) { return onEnableAlchemyIngredient(this, event); }
   async _onClearAlchemyIngredient(event) { return onClearAlchemyIngredient(this, event); }
+  async _onEnableSoulEnergyItem(event) { return onEnableSoulEnergyItem(this, event); }
+  async _onClearSoulEnergyItem(event) { return onClearSoulEnergyItem(this, event); }
 
   /* Alchemy Product Handlers */
 
@@ -1317,7 +1369,10 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
             "system.engine.conjure.actorLabel": label
           });
         } else {
-          ui.notifications.warn(`Expected a ${dropType === "item" ? "Item" : "Actor"} drop, got ${data.type ?? "unknown"}.`);
+          ui.notifications.warn(tf("UESRPG.Notifications.Sheets.ExpectedDropType", {
+            expected: dropType === "item" ? t("UESRPG.UI.Item") : t("UESRPG.UI.Actor"),
+            actual: data.type ?? t("UESRPG.UI.Unknown"),
+          }));
         }
       });
     });
@@ -1485,20 +1540,18 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       registerItemSpellcastingListeners(this, el);
     }
     if (type === "scroll") this._registerScrollListeners(el);
-    if (type === "equipment" || type === "item") registerAlchemyProductListeners(this, el);
-    if (type === "container") this._registerContainmentListeners(el);
-
-    // Legacy class-based modifier controls used by some item templates.
-    if (Object.prototype.hasOwnProperty.call(this.document.system ?? {}, "skillArray")) {
-      bindDelegated(el, "click", ".modifier-create", (ev) => onModifierCreate(this, ev));
-      bindDelegated(el, "click", "#item-modifiers .item-delete", (ev) => onDeleteModifier(this, ev));
+    if (type === "equipment" || type === "item") {
+      registerAlchemyProductListeners(this, el);
+      registerSoulEnergyListeners(this, el);
     }
+    if (type === "container") this._registerContainmentListeners(el);
 
     bindItemDescriptionTooltips(this, el);
   }
 
   _onClose(options) {
     clearItemDescriptionTooltip(this);
+    clearSheetFormUpdateState(this);
     return super._onClose(options);
   }
 
@@ -1557,7 +1610,10 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
         const result = await handleAlchemyProductSpellDrop(this, event, slotIdx);
         if (!result?.ok) return;
 
-        ui.notifications?.info?.(`Assigned ${result.spellName} to Slot ${slotIdx + 1}.`);
+        ui.notifications?.info?.(tf("UESRPG.Notifications.Sheets.AssignedSpellToSlot", {
+          spell: result.spellName,
+          slot: slotIdx + 1,
+        }));
         await this.render();
         return;
       }
@@ -1575,13 +1631,13 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
 
       const dropped = await resolveDroppedItem(data);
       if (!dropped) {
-        ui.notifications?.warn?.("Unable to resolve dropped item payload.");
+        ui.notifications?.warn?.(t("UESRPG.Notifications.Sheets.UnableResolveDroppedItem"));
         return;
       }
 
       const result = await resolveAndValidateScrollSpell(dropped);
       if (!result.ok) {
-        ui.notifications?.warn?.(result.error ?? "Only spell items can be linked to a scroll.");
+        ui.notifications?.warn?.(result.error ?? t("UESRPG.Notifications.Sheets.ScrollSpellItemsOnly"));
         return;
       }
 

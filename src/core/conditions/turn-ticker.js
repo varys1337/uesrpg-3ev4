@@ -15,6 +15,7 @@ import { scheduleBoundaryWork } from "../time/boundary-work-scheduler.js";
 import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../time/combat-boundary-orchestrator.js";
 import { getRegenerationCandidatesForCombat, getSilencedCandidatesForCombat } from "./round-start-candidate-registry.js";
 import { isAggregateRegenPromptsEnabled, isAggregateSilencedChecksEnabled } from "../config/automation-policy.js";
+import { isActiveGMUser } from "../../utils/users.js";
 import {
   applyGenericAEExpiryAction,
   effectMatchesGenericExpiry,
@@ -312,7 +313,7 @@ function _collectSilencedCandidatesByCombatScan(combat) {
 
 async function _handleCombatBoundaryTick(payload) {
   try {
-    if (!game.user?.isGM) return;
+    if (!isActiveGMUser(game.user)) return;
     if (payload?.source !== "combat") return;
     if (payload?.combat?.phase && payload.combat.phase !== "post") return;
 

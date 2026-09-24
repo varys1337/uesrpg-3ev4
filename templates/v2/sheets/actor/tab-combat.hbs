@@ -17,7 +17,7 @@
                                     </div>
                                 </div>
                                 <div class="flex-container">
-                                    <div class="small-text-label">AP</div>
+                                    <div class="small-text-label">{{localize "UESRPG.Sheets.Equipment.AP"}}</div>
                                 </div>
                             </div>
                             <div class="combat-stat">
@@ -115,13 +115,13 @@
                                     <div class="label-flex-container">
                                         <label data-tooltip="UESRPG.Sheets.Combat.FatigueLevelModifier">{{actor.system.fatigue.level}} ({{actor.system.fatigue.bonus}})</label>
                                         <div class="resourceButton">
-                                            <i class="fas fa-angle-up incrementFatigue" data-action="incrementFatigue" data-direction="increase"></i>
-                                            <i class="fas fa-angle-down incrementFatigue" data-action="incrementFatigue" data-direction="decrease"></i>
+                                            <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="incrementFatigue" data-direction="increase" aria-label="{{localize "UESRPG.UI.IncreaseFatigue"}}"><i class="fas fa-angle-up incrementFatigue" aria-hidden="true"></i></button>
+                                            <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="incrementFatigue" data-direction="decrease" aria-label="{{localize "UESRPG.UI.DecreaseFatigue"}}"><i class="fas fa-angle-down incrementFatigue" aria-hidden="true"></i></button>
                                         </div>
                                     </div>
                                 </div>
                                 <div class="flex-container">
-                                    <div>ENC</div>
+                                    <div>{{localize "UESRPG.UI.ENC"}}</div>
                                     <label data-tooltip-text="{{actor.system.carry_rating.current}} / {{actor.system.carry_rating.max}}">{{carryRatingLabel}}</label>
                                 </div>
                                 <div class="flex-container">
@@ -131,7 +131,7 @@
                                     </select>
                                 </div>
                                 <div class="flex-container">
-                                    <div>AC</div>
+                                    <div>{{localize "UESRPG.Sheets.Equipment.AC"}}</div>
                                     <select name="system.armor_class" data-type="String">
                                         {{selectOptions armorClassOptions selected=actor.system.armor_class localize=true}}
                                     </select>
@@ -140,7 +140,7 @@
                                 <div class="flex-container">
                                     <div>{{localize "UESRPG.Sheets.Combat.EngagementScore"}}</div>
                                     <div class="uesrpg-status-inline-control">
-                                        <input id="pc-max-engagement-score" name="flags.uesrpg-3ev4.homebrew.maxEngagementScore" type="number" class="uesrpg-max-engagement-score" min="0" step="1" placeholder="{{localize "UESRPG.UI.Auto"}}" value="{{engagementFlankingMaxES}}">
+                                        <input name="flags.uesrpg-3ev4.homebrew.maxEngagementScore" type="number" class="uesrpg-max-engagement-score" min="0" step="1" placeholder="{{localize "UESRPG.UI.Auto"}}" value="{{engagementFlankingMaxES}}" aria-label="{{localize "UESRPG.Sheets.Combat.EngagementScore"}}">
                                     </div>
                                 </div>
                                 {{/if}}
@@ -155,7 +155,7 @@
     <table class="combat-style-table uesrpg-sheet-table">
         <thead>
             <tr>
-                <th data-action="itemCreate" class="item-name-cell item-create" id="combatStyle">+ {{localize "UESRPG.Sheets.Combat.CombatStyle"}}</th>
+                <th class="item-name-cell item-create"><button type="button" class="uesrpg-semantic-control uesrpg-plain-control" data-action="itemCreate" data-item-type="combatStyle">+ {{localize "UESRPG.Sheets.Combat.CombatStyle"}}</button></th>
                 <th>%</th>
                 <th>{{localize "UESRPG.UI.Rank"}}</th>
                 <th class="right-align-cell"><i class="fas fa-trash"></i></th>
@@ -166,14 +166,14 @@
                 <tr class="item" data-item-id="{{item._id}}">
                     <td class="item-name-cell">
                         <div class="flex-container">
-                            <i data-action="combatRoll" class="fas fa-dice-d20 combat-roll"></i>
+                            <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="combatRoll" aria-label="{{localize "UESRPG.UI.Roll"}}"><i class="fas fa-dice-d20 combat-roll" aria-hidden="true"></i></button>
                             <img class="item-img" src="{{item.img}}" alt="{{item.name}}">
-                            <div data-action="itemOpen" class="item-name" data-tooltip-text="{{item.name}}">{{item.name}}</div>
+                            <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control" data-tooltip-text="{{item.name}}" aria-label="{{item.name}}">{{item.name}}</button>
                         </div>
                     </td>
                     <td>{{item.system.value}}%</td>
                     <td>{{item.system.rank}}</td>
-                    <td class="right-align-cell"><a data-action="itemDelete" class="item-control item-delete" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></a></td>
+                    <td class="right-align-cell"><button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></button></td>
                 </tr>
             {{/each}}
         </tbody>
@@ -182,10 +182,10 @@
 
 <div class="uesrpg-actions-section uesrpg-panel uesrpg-panel--subtle" data-actions-root>
     <nav class="uesrpg-actions-tabs tabs">
-        <a data-action="tab" class="uesrpg-actions-subtab" data-group="actions" data-tab="primary">{{localize "UESRPG.Sheets.Combat.Primary"}}</a>
-        <a data-action="tab" class="uesrpg-actions-subtab" data-group="actions" data-tab="secondary">{{localize "UESRPG.Sheets.Combat.Secondary"}}</a>
-        <a data-action="tab" class="uesrpg-actions-subtab" data-group="actions" data-tab="reactions">{{localize "UESRPG.Sheets.Combat.Reactions"}}</a>
-        <a data-action="tab" class="uesrpg-actions-subtab" data-group="actions" data-tab="special">{{localize "UESRPG.Sheets.Combat.Special"}}</a>
+        <button type="button" data-action="tab" class="uesrpg-actions-subtab uesrpg-semantic-control uesrpg-plain-control" data-group="actions" data-tab="primary" role="tab">{{localize "UESRPG.Sheets.Combat.Primary"}}</button>
+        <button type="button" data-action="tab" class="uesrpg-actions-subtab uesrpg-semantic-control uesrpg-plain-control" data-group="actions" data-tab="secondary" role="tab">{{localize "UESRPG.Sheets.Combat.Secondary"}}</button>
+        <button type="button" data-action="tab" class="uesrpg-actions-subtab uesrpg-semantic-control uesrpg-plain-control" data-group="actions" data-tab="reactions" role="tab">{{localize "UESRPG.Sheets.Combat.Reactions"}}</button>
+        <button type="button" data-action="tab" class="uesrpg-actions-subtab uesrpg-semantic-control uesrpg-plain-control" data-group="actions" data-tab="special" role="tab">{{localize "UESRPG.Sheets.Combat.Special"}}</button>
     </nav>
 
     <div class="uesrpg-actions-panels">
@@ -194,18 +194,18 @@
                 <div class="quickbar-title">{{localize "UESRPG.Sheets.Combat.Primary"}}</div>
                 <div class="quickbar-buttons quickbar-buttons--compact">
                     {{#if actor.sheetCombatQuick.meleeWeaponId}}
-                        <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action" data-combat-action="attack" data-weapon-id="{{actor.sheetCombatQuick.meleeWeaponId}}" data-attack-mode="melee" data-label="{{localize "UESRPG.Sheets.Combat.AttackMelee"}}" {{#if actor.sheetCombatQuick.quickAttacksDisabled}}disabled="disabled" data-tooltip-text="{{actor.sheetCombatQuick.quickAttacksDisabledReason}}"{{/if}} aria-label="{{actor.sheetCombatQuick.quickAttacksDisabledReason}}">{{localize "UESRPG.Sheets.Combat.AttackMelee"}}</button>
+                        <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action uesrpg-styled-action" data-combat-action="attack" data-weapon-id="{{actor.sheetCombatQuick.meleeWeaponId}}" data-attack-mode="melee" data-label="{{localize "UESRPG.Sheets.Combat.AttackMelee"}}" {{#if actor.sheetCombatQuick.quickAttacksDisabled}}disabled="disabled" data-tooltip-text="{{actor.sheetCombatQuick.quickAttacksDisabledReason}}"{{/if}} aria-label="{{actor.sheetCombatQuick.quickAttacksDisabledReason}}">{{localize "UESRPG.Sheets.Combat.AttackMelee"}}</button>
                     {{/if}}
                     {{#if actor.sheetCombatQuick.rangedWeaponId}}
-                        <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action" data-combat-action="attack" data-weapon-id="{{actor.sheetCombatQuick.rangedWeaponId}}" data-attack-mode="ranged" data-label="{{localize "UESRPG.Sheets.Combat.AttackRanged"}}" {{#if actor.sheetCombatQuick.quickAttacksDisabled}}disabled="disabled" data-tooltip-text="{{actor.sheetCombatQuick.quickAttacksDisabledReason}}"{{/if}} aria-label="{{actor.sheetCombatQuick.quickAttacksDisabledReason}}">{{localize "UESRPG.Sheets.Combat.AttackRanged"}}</button>
+                        <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action uesrpg-styled-action" data-combat-action="attack" data-weapon-id="{{actor.sheetCombatQuick.rangedWeaponId}}" data-attack-mode="ranged" data-label="{{localize "UESRPG.Sheets.Combat.AttackRanged"}}" {{#if actor.sheetCombatQuick.quickAttacksDisabled}}disabled="disabled" data-tooltip-text="{{actor.sheetCombatQuick.quickAttacksDisabledReason}}"{{/if}} aria-label="{{actor.sheetCombatQuick.quickAttacksDisabledReason}}">{{localize "UESRPG.Sheets.Combat.AttackRanged"}}</button>
                     {{/if}}
-                    <button type="button" data-action="castMagic" class="uesrpg-cast-magic" data-action-type="primary" {{#unless actor.sheetCombatActions.canCastMagic}}disabled="disabled" data-tooltip="UESRPG.Sheets.Combat.NoCastableSourcesOnSheet"{{/unless}} aria-label="{{localize "UESRPG.Sheets.Combat.NoCastableSourcesOnSheet"}}">{{localize "UESRPG.Sheets.Combat.CastMagic"}}</button>
+                    <button type="button" data-action="castMagic" class="uesrpg-cast-magic uesrpg-styled-action" data-action-type="primary" {{#unless actor.sheetCombatActions.canCastMagic}}disabled="disabled" data-tooltip="UESRPG.Sheets.Combat.NoCastableSourcesOnSheet"{{/unless}} aria-label="{{localize "UESRPG.Sheets.Combat.NoCastableSourcesOnSheet"}}">{{localize "UESRPG.Sheets.Combat.CastMagic"}}</button>
 
                     
-                    <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action" data-combat-action="disengage" data-label="{{localize "UESRPG.Sheets.Combat.Disengage"}}">{{localize "UESRPG.Sheets.Combat.Disengage"}}</button>
-                    <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action" data-combat-action="delay" data-label="{{localize "UESRPG.Sheets.Combat.DelayTurn"}}">{{localize "UESRPG.Sheets.Combat.Delay"}}</button>
-                    <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action" data-combat-action="defensive-stance" data-label="{{localize "UESRPG.Sheets.Combat.DefensiveStance"}}">{{localize "UESRPG.Sheets.Combat.DefensiveStance"}}</button>
-                    <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action" data-combat-action="grapple" data-action-type="primary" data-label="{{localize "UESRPG.Sheets.Combat.Grapple"}}">{{localize "UESRPG.Sheets.Combat.Grapple"}}</button>
+                    <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action uesrpg-styled-action" data-combat-action="disengage" data-label="{{localize "UESRPG.Sheets.Combat.Disengage"}}">{{localize "UESRPG.Sheets.Combat.Disengage"}}</button>
+                    <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action uesrpg-styled-action" data-combat-action="delay" data-label="{{localize "UESRPG.Sheets.Combat.DelayTurn"}}">{{localize "UESRPG.Sheets.Combat.Delay"}}</button>
+                    <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action uesrpg-styled-action" data-combat-action="defensive-stance" data-label="{{localize "UESRPG.Sheets.Combat.DefensiveStance"}}">{{localize "UESRPG.Sheets.Combat.DefensiveStance"}}</button>
+                    <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action uesrpg-styled-action" data-combat-action="grapple" data-action-type="primary" data-label="{{localize "UESRPG.Sheets.Combat.Grapple"}}">{{localize "UESRPG.Sheets.Combat.Grapple"}}</button>
 {{#unless actor.sheetCombatQuick.meleeWeaponId}}{{#unless actor.sheetCombatQuick.rangedWeaponId}}
                         <div class="quickbar-empty">{{localize "UESRPG.Sheets.Combat.EquipWeaponQuickActions"}}</div>
                     {{/unless}}{{/unless}}
@@ -217,21 +217,21 @@
             <div class="uesrpg-actions-card uesrpg-panel uesrpg-panel--alt">
                 <div class="quickbar-title">{{localize "UESRPG.Sheets.Combat.Secondary"}}</div>
                 <div class="quickbar-buttons quickbar-buttons--compact">
-                    <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action" data-combat-action="aim" data-label="{{localize "UESRPG.Sheets.Combat.Aim"}}">{{localize "UESRPG.Sheets.Combat.Aim"}}</button>
-                    <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action" data-combat-action="dash" data-label="{{localize "UESRPG.Sheets.Combat.Dash"}}">{{localize "UESRPG.Sheets.Combat.Dash"}}</button>
-                    <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action" data-combat-action="hide" data-label="{{localize "UESRPG.Sheets.Combat.Hide"}}">{{localize "UESRPG.Sheets.Combat.Hide"}}</button>
-                    <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action" data-combat-action="reload-weapon" data-label="{{localize "UESRPG.Sheets.Combat.ReloadWeapon"}}">{{localize "UESRPG.Sheets.Combat.ReloadWeapon"}}</button>
-                    <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action" data-combat-action="use-item" data-label="{{localize "UESRPG.Sheets.Combat.UseItem"}}">{{localize "UESRPG.Sheets.Combat.UseItem"}}</button>
+                    <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action uesrpg-styled-action" data-combat-action="aim" data-label="{{localize "UESRPG.Sheets.Combat.Aim"}}">{{localize "UESRPG.Sheets.Combat.Aim"}}</button>
+                    <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action uesrpg-styled-action" data-combat-action="dash" data-label="{{localize "UESRPG.Sheets.Combat.Dash"}}">{{localize "UESRPG.Sheets.Combat.Dash"}}</button>
+                    <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action uesrpg-styled-action" data-combat-action="hide" data-label="{{localize "UESRPG.Sheets.Combat.Hide"}}">{{localize "UESRPG.Sheets.Combat.Hide"}}</button>
+                    <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action uesrpg-styled-action" data-combat-action="reload-weapon" data-label="{{localize "UESRPG.Sheets.Combat.ReloadWeapon"}}">{{localize "UESRPG.Sheets.Combat.ReloadWeapon"}}</button>
+                    <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action uesrpg-styled-action" data-combat-action="use-item" data-label="{{localize "UESRPG.Sheets.Combat.UseItem"}}">{{localize "UESRPG.Sheets.Combat.UseItem"}}</button>
                     {{#if actor.sheetCombatActions.inCloseEnabled}}
                     <button type="button" data-action="combatQuickAction"
-                            class="uesrpg-quick-action{{#if actor.sheetCombatActions.actorIsInClose}} uesrpg-quick-action--active{{/if}}"
+                            class="uesrpg-quick-action{{#if actor.sheetCombatActions.actorIsInClose}} uesrpg-quick-action--active{{/if}} uesrpg-styled-action"
                             data-combat-action="inClose"
                             data-label="{{localize "UESRPG.Sheets.Combat.InClose"}}">
                         {{#if actor.sheetCombatActions.actorIsInClose}}{{localize "UESRPG.Sheets.Combat.LeaveInClose"}}{{else}}{{localize "UESRPG.Sheets.Combat.EnterInClose"}}{{/if}}
                     </button>
                     {{/if}}
                     {{#if actor.sheetCombatActions.canCastInstantMagic}}
-                    <button type="button" data-action="castMagic" class="uesrpg-cast-magic" data-action-type="secondary">{{localize "UESRPG.Sheets.Combat.CastMagicInstant"}}</button>
+                    <button type="button" data-action="castMagic" class="uesrpg-cast-magic uesrpg-styled-action" data-action-type="secondary">{{localize "UESRPG.Sheets.Combat.CastMagicInstant"}}</button>
                     {{/if}}
     
 </div>
@@ -250,7 +250,7 @@
                 {{#if actor.sheetCombatActions.specialActions.length}}
                     <div class="uesrpg-special-actions-list">
                         {{#each actor.sheetCombatActions.specialActions as |sa|}}
-                            <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action"
+                            <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action uesrpg-styled-action"
                                     data-combat-action="specialAction"
                                     data-special-id="{{sa.id}}"
                                     data-action-type="{{sa.actionType}}"
@@ -330,7 +330,7 @@
                             {{#each row.actions as |action|}}
                             <button
                                 type="button"
-                                class="uesrpg-quick-action uesrpg-quick-action--tiny"
+                                class="uesrpg-quick-action uesrpg-quick-action--tiny uesrpg-styled-action"
                                 data-action="woundsInjuriesControl"
                                 data-wi-action="{{action.wiAction}}"
                                 data-effect-id="{{action.effectId}}"
@@ -354,7 +354,7 @@
 {{#if sheetUi.showDiagnostics}}
                         <div class="uesrpg-diagnostics-panel">
                             <div class="diag-row"><span class="diag-label">{{localize "UESRPG.UI.Actor"}}</span><span class="diag-value">{{actor.name}} ({{actor._id}})</span></div>
-                            <div class="diag-row"><span class="diag-label">AP</span><span class="diag-value">{{actor.system.action_points.value}} / {{actor.system.action_points.max}}</span></div>
+                            <div class="diag-row"><span class="diag-label">{{localize "UESRPG.Sheets.Equipment.AP"}}</span><span class="diag-value">{{actor.system.action_points.value}} / {{actor.system.action_points.max}}</span></div>
                             <div class="diag-row"><span class="diag-label">{{localize "UESRPG.UI.Fatigue"}}</span><span class="diag-value">{{actor.system.fatigue.level}} ({{actor.system.fatigue.bonus}})</span></div>
                             <div class="diag-row"><span class="diag-label">{{localize "UESRPG.Sheets.Combat.QuickWeapons"}}</span><span class="diag-value">{{#if actor.sheetCombatQuick.meleeWeaponName}}{{localize "UESRPG.UI.Melee"}}: {{actor.sheetCombatQuick.meleeWeaponName}}{{else}}{{localize "UESRPG.UI.Melee"}}: —{{/if}}; {{#if actor.sheetCombatQuick.rangedWeaponName}}{{localize "UESRPG.UI.Ranged"}}: {{actor.sheetCombatQuick.rangedWeaponName}}{{else}}{{localize "UESRPG.UI.Ranged"}}: —{{/if}}</span></div>
                         </div>

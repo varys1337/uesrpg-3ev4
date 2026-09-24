@@ -1,6 +1,6 @@
 import {
   computeEffectCost,
-  computeUpkeepDuration,
+  computeAlchemyEffectDuration,
   effectHasUpkeep,
   getEffectByKey,
   getEffectToxinOverrides,
@@ -8,13 +8,13 @@ import {
 import { ALCHEMY_DEFAULT_ICON, cloneAlchemyData } from "./shared.js";
 import { computeEffectiveStrength } from "./workflow-actor.js";
 import {
-  actorKnowsSpellUuid,
   findActorSpellByUuid,
   getActorKnownAlchemyEffects,
   getSpellAlchemyAttributes,
   getSpellLevelOptions,
 } from "./workflow-known-effects.js";
 import { ALCHEMY_TOOL_RX, getActorItemsArray } from "./utils.js";
+import { SYSTEM_ID } from "../system/namespace.js";
 import { resolveSpellProfile } from "../magic/spell-profile.js";
 import {
   getSpellDamageFormula,
@@ -57,9 +57,11 @@ export function getUniquenessIdentifier(slot) {
 
 export function getSlotIdentifier(slot) {
   const normalized = normalizeRecipeSlot(slot);
+  const params = Object.entries(normalized.params ?? {}).sort(([a], [b]) => a.localeCompare(b));
+  const paramsKey = JSON.stringify(Object.fromEntries(params));
   return normalized.effectSource === "spell"
-    ? `spell:${normalized.spellUuid ?? ""}:${normalized.spellLevel ?? 1}`
-    : `catalog:${normalized.effectKey ?? ""}:${normalized.spellLevel ?? 1}`;
+    ? `spell:${normalized.spellUuid ?? ""}:${normalized.spellLevel ?? 1}:${paramsKey}`
+    : `catalog:${normalized.effectKey ?? ""}:${normalized.spellLevel ?? 1}:${paramsKey}`;
 }
 
 function _scaleSpellDuration(duration, multiplier) {
@@ -188,7 +190,6 @@ export function buildDirectAlchemyPayloadForSpell(spell, {
 
 function _buildSpellDescriptor(actor, slot, ingredient = null, talents = null, mode = "potion") {
   const normalized = normalizeRecipeSlot(slot);
-  if (!actorKnowsSpellUuid(actor, normalized.spellUuid)) return null;
   const spell = findActorSpellByUuid(actor, normalized.spellUuid);
   if (!spell) return null;
 
@@ -238,17 +239,18 @@ function _buildSpellDescriptor(actor, slot, ingredient = null, talents = null, m
   };
 }
 
-function _buildCatalogDescriptor(actor, slot, ingredient, talents) {
+function _buildCatalogDescriptor(actor, slot, ingredient, talents, mode = "potion") {
   const normalized = normalizeRecipeSlot(slot);
   const effectData = getEffectByKey(normalized.effectKey);
   if (!effectData) return null;
 
   const effectiveStrength = ingredient ? computeEffectiveStrength(ingredient, actor, { talents }) : null;
   const cost = computeEffectCost(normalized.effectKey, normalized.spellLevel);
-  const finalDuration = ingredient && effectHasUpkeep(normalized.effectKey) && effectiveStrength != null
-    ? computeUpkeepDuration(normalized.effectKey, effectiveStrength, cost)
+  const finalDuration = ingredient && effectiveStrength != null
+    ? computeAlchemyEffectDuration(normalized.effectKey, effectiveStrength, cost, normalized.spellLevel)
     : null;
-  const [slMin, slMax] = effectData.slRange ?? [1, 7];
+  const [slMin, slMax] = effectData.slRange ?? [1, 8];
+  const compatible = effectData.attributes.includes(String(mode ?? "potion").toLowerCase());
 
   return {
     identifier: `catalog:${effectData.key}`,
@@ -259,7 +261,9 @@ function _buildCatalogDescriptor(actor, slot, ingredient, talents) {
     school: String(effectData.school ?? "").toLowerCase(),
     attributes: Array.isArray(effectData.attributes) ? effectData.attributes.slice() : [],
     spellLevel: normalized.spellLevel,
-    levelOptions: [],
+    levelOptions: Array.isArray(effectData.levelOptions) ? effectData.levelOptions.slice() : [],
+    levelType: effectData.levelType,
+    costType: effectData.costType,
     slMin,
     slMax,
     cost,
@@ -268,19 +272,35 @@ function _buildCatalogDescriptor(actor, slot, ingredient, talents) {
     hasUpkeep: effectHasUpkeep(normalized.effectKey),
     toxinOverrides: getEffectToxinOverrides(normalized.effectKey),
     params: normalized.params ?? {},
-    compatible: true,
-    invalidReason: "",
-    directPayload: {
+    parameters: Array.isArray(effectData.parameters) ? effectData.parameters : [],
+    save: effectData.toxinSave ? { ...effectData.toxinSave, toxinCharacteristic: "end" } : null,
+    automation: String(effectData.automation ?? "manual"),
+    legacy: effectData.legacy === true,
+    compatible,
+    invalidReason: compatible ? "" : `${effectData.label} does not have the ${mode} attribute.`,
+    directPayload: compatible ? {
       applicationKind: "catalog",
       effectKey: effectData.key,
-    },
+    } : null,
   };
 }
 
 export function getAlchemyInventoryState(actor, { items = null } = {}) {
   const actorItems = Array.isArray(items) ? items : getActorItemsArray(actor);
+  let requireLab = true;
+  let gatheringEnabled = true;
+  try {
+    requireLab = game.settings?.get?.(SYSTEM_ID, "alchemy.requireLab") ?? true;
+    gatheringEnabled = game.settings?.get?.(SYSTEM_ID, "alchemy.enableGatheringHelper") ?? true;
+  } catch (_err) {
+    // Settings are unavailable during isolated domain checks; RAW defaults apply.
+  }
+  const toolsPresent = actorItems.some((item) => ALCHEMY_TOOL_RX.test(item?.name ?? ""));
   return {
-    toolsPresent: actorItems.some((item) => ALCHEMY_TOOL_RX.test(item?.name ?? "")),
+    toolsPresent,
+    requireLab: Boolean(requireLab),
+    requirementMet: !requireLab || toolsPresent,
+    gatheringEnabled: Boolean(gatheringEnabled),
   };
 }
 
@@ -313,5 +333,5 @@ export function getActorAlchemySpellEffects(actor, mode) {
 export function resolveAlchemyEffectDescriptor(actor, slot, { ingredient = null, talents = null, mode = "potion" } = {}) {
   const normalized = normalizeRecipeSlot(slot);
   if (normalized.effectSource === "spell") return _buildSpellDescriptor(actor, normalized, ingredient, talents, mode);
-  return _buildCatalogDescriptor(actor, normalized, ingredient, talents);
+  return _buildCatalogDescriptor(actor, normalized, ingredient, talents, mode);
 }

@@ -22,6 +22,7 @@ import {
 } from "../../../core/mass-warfare/siege/state.js";
 import { getActorSkillOptions, performTravelAssignmentRoll } from "../../../core/travel/rolls.js";
 import { openWarfareEncounterApp } from "./warfare-encounter-app.js";
+import { withApplicationUniqueId } from "./application-identity.js";
 import { startWarfareEncounter } from "../../../core/mass-warfare/encounter/controller.js";
 import { t, tf } from "../../../utils/i18n.js";
 import { AdvanceCampaignTurnService } from "../../../application/campaign/advance-campaign-turn-service.js";
@@ -197,6 +198,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
   _renderFrameId = null;
 
   static DEFAULT_OPTIONS = {
+    id: "uesrpg-army-campaign-{id}",
     classes: ["uesrpg", "uesrpg-army-campaign"],
     position: { width: 760, height: 720 },
     tag: "section",
@@ -220,7 +222,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
   };
 
   constructor(group, options = {}) {
-    super(options);
+    super(withApplicationUniqueId(options, group ?? options?.groupUuid ?? "unbound"));
     this._groupUuid = String(group?.uuid ?? options?.groupUuid ?? "");
     this._activeSiegeSceneUuid = "";
   }
@@ -296,8 +298,8 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
     };
   }
 
-  _onRender(context, options) {
-    super._onRender(context, options);
+  async _onFirstRender(context, options) {
+    await super._onFirstRender(context, options);
     _openApps.set(String(this._groupUuid ?? ""), this);
     _registerHooks();
   }
@@ -865,7 +867,7 @@ export async function openArmyCampaignApp(groupActorOrUuid) {
   if (existing) {
     return activateOpenApplication(existing, { render: true });
   }
-  const app = new ArmyCampaignAppV2(group, { id: `uesrpg-army-campaign-${group.id}` });
+  const app = new ArmyCampaignAppV2(group);
   await app.render(true);
   return app;
 }

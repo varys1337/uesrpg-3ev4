@@ -12,6 +12,7 @@ import {
 import { appendChargenAudit } from "./audit-log.js";
 import { SYSTEM_ID, templatePath } from "../../../constants.js";
 import { t, tf } from "../../../../utils/i18n.js";
+import { withApplicationUniqueId } from "../application-identity.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -51,7 +52,7 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
   #nextDraftId = 1;
 
   constructor(actor, options = {}) {
-    super(options);
+    super(withApplicationUniqueId(options, `${actor?.uuid ?? "actor"}-${foundry.utils.randomID()}`));
     this.#actor = actor;
     this.#onClose = typeof options.onClose === "function" ? options.onClose : null;
     this.#captureSessionBase();
@@ -59,7 +60,7 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
   }
 
   static DEFAULT_OPTIONS = {
-    id: "uesrpg-spell-learning-menu-v2",
+    id: "uesrpg-spell-learning-menu-v2-{id}",
     classes: ["worldbuilding", "uesrpg", "uesrpg-spell-learning-app"],
     position: { width: 900, height: 640 },
     window: {
@@ -430,7 +431,7 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
       title: t("UESRPG.Dialogs.SpellLearning.ChoosePaymentTitle"),
       classes: ["uesrpg-chargen-dialog"],
       content: `<div class="uesrpg-cg-dialog uesrpg-cg-stack uesrpg-cg-summary">
-        <p><b>${spell.name}</b></p>
+        <p><b>${foundry.utils.escapeHTML(spell.name)}</b></p>
         <p>${tf("UESRPG.Dialogs.SpellLearning.TypeLevel", { type: costs.type, level: costs.level })}</p>
         <p>${tf("UESRPG.Dialogs.SpellLearning.XpCost", { cost: costs.xpCost })}</p>
         <p>${tf("UESRPG.Dialogs.SpellLearning.DrakesCost", { cost: costs.drakesCost })}</p>
@@ -442,7 +443,7 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
       },
       default: "xp",
     });
-    if (!choice || choice === "cancel") return { ok: false, reason: "Cancelled." };
+    if (!choice || choice === "cancel") return { ok: false, reason: t("UESRPG.Notifications.SpellLearning.Cancelled") };
     return { ok: true, paymentMode: choice === "drakes" ? "drakes" : "xp" };
   }
 

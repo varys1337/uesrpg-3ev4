@@ -1,12 +1,14 @@
         <div class="sheet-fixed-container">
             <div class="character-profile-container">
                 <div class="profile-img-container">
-                    <img class="profile-img" src="{{actor.img}}" data-edit="img" data-action="editPortrait" data-tooltip-text="{{actor.name}}" alt="{{actor.name}}">
+                    <button type="button" class="profile-img-action uesrpg-semantic-control uesrpg-plain-control" data-edit="img" data-action="editPortrait" data-tooltip-text="{{actor.name}}" aria-label="{{actor.name}}">
+                        <img class="profile-img" src="{{actor.img}}" alt="" aria-hidden="true">
+                    </button>
                     <div class="status-column">
                         <div class="vertical-flex-container">
-                            <img id="wound-icon" src="icons/skills/wounds/blood-drip-droplet-red.webp" data-tooltip-text="{{localize "UESRPG.UI.WoundedPenalty" value=actor.system.woundPenalty}}" alt="">
-                            <img id="fatigue-icon" src="icons/magic/control/debuff-energy-hold-green.webp" data-tooltip-text="{{localize "UESRPG.UI.FatiguedPenalty" value=actor.system.fatigue.penalty}}" alt="">
-                            <img id="enc-icon" src="icons/containers/bags/pack-leather-brown.webp" data-tooltip-text="{{carryRatingLabel}} {{actor.system.carry_rating.penalty}}" alt="">
+                            <img data-role="wound-icon" src="icons/skills/wounds/blood-drip-droplet-red.webp" data-tooltip-text="{{localize "UESRPG.UI.WoundedPenalty" value=actor.system.woundPenalty}}" alt="">
+                            <img data-role="fatigue-icon" src="icons/magic/control/debuff-energy-hold-green.webp" data-tooltip-text="{{localize "UESRPG.UI.FatiguedPenalty" value=actor.system.fatigue.penalty}}" alt="">
+                            <img data-role="enc-icon" src="icons/containers/bags/pack-leather-brown.webp" data-tooltip-text="{{carryRatingLabel}} {{actor.system.carry_rating.penalty}}" alt="">
                         </div>
                     </div>
                 </div>
@@ -15,7 +17,7 @@
             <div class="fixed-data-container">
                 <div class="resourceBars">
                     {{!-- Health --}}
-                    <div class="resource-row" id="hpResource">
+                    <div class="resource-row" data-role="hp-resource">
                         <button type="button" class="resource-name resource-name--hp" data-resource="hp" data-tooltip="UESRPG.Sheets.FixedHeader.ManageHealth" aria-label="{{localize "UESRPG.Sheets.FixedHeader.ManageHealth"}}">{{localize "UESRPG.UI.HP"}}</button>
                         <div class="maxBar" data-resource="hp">
                             <div class="bar-values">
@@ -24,16 +26,16 @@
                                     <span class="temp-hp-overlay">+{{actor.system.tempHP}}</span>
                                 {{/if}}
                             </div>
-                            <div id="hpBar" class="currentBar" data-resource="hp"></div>
+                            <div class="currentBar" data-resource="hp"></div>
                         </div>
                         <div class="resource-controls">
-                            <i data-direction="increase" data-resource="hp" data-action="incrementResource" class="fas fa-angle-up" data-tooltip="UESRPG.UI.Increase" aria-label="{{localize "UESRPG.UI.Increase"}}"></i>
-                            <i data-direction="restore" data-resource="hp" data-action="restoreResource" class="fas fa-undo" data-tooltip="UESRPG.UI.Restore" aria-label="{{localize "UESRPG.UI.Restore"}}"></i>
-                            <i data-direction="decrease" data-resource="hp" data-action="incrementResource" class="fas fa-angle-down" data-tooltip="UESRPG.UI.Decrease" aria-label="{{localize "UESRPG.UI.Decrease"}}"></i>
+                            <button type="button" class="uesrpg-icon-button uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-direction="increase" data-resource="hp" data-action="incrementResource" data-tooltip="UESRPG.UI.Increase" aria-label="{{localize "UESRPG.UI.Increase"}}"><i class="fas fa-angle-up" aria-hidden="true"></i></button>
+                            <button type="button" class="uesrpg-icon-button uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-direction="restore" data-resource="hp" data-action="restoreResource" data-tooltip="UESRPG.UI.Restore" aria-label="{{localize "UESRPG.UI.Restore"}}"><i class="fas fa-undo" aria-hidden="true"></i></button>
+                            <button type="button" class="uesrpg-icon-button uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-direction="decrease" data-resource="hp" data-action="incrementResource" data-tooltip="UESRPG.UI.Decrease" aria-label="{{localize "UESRPG.UI.Decrease"}}"><i class="fas fa-angle-down" aria-hidden="true"></i></button>
                         </div>
                     </div>
                     {{!-- Stamina --}}
-                    <div class="resource-row" id="staminaResource">
+                    <div class="resource-row" data-role="stamina-resource">
                         <button type="button" class="resource-name resource-name--stamina" data-resource="stamina" data-tooltip="UESRPG.Sheets.FixedHeader.ManageStamina" aria-label="{{localize "UESRPG.Sheets.FixedHeader.ManageStamina"}}">{{localize "UESRPG.UI.SP"}}</button>
                         <div class="maxBar" data-resource="stamina">
                             <div class="bar-values">
@@ -42,16 +44,16 @@
                                     <span class="temp-hp-overlay">+{{actor.system.stamina.temp}}</span>
                                 {{/if}}
                             </div>
-                            <div id="staminaBar" class="currentBar" data-resource="stamina"></div>
+                            <div class="currentBar" data-resource="stamina"></div>
                         </div>
                         <div class="resource-controls">
-                            <i data-direction="increase" data-resource="stamina" data-action="incrementResource" class="fas fa-angle-up" data-tooltip="UESRPG.UI.Increase" aria-label="{{localize "UESRPG.UI.Increase"}}"></i>
-                            <i data-direction="restore" data-resource="stamina" data-action="restoreResource" class="fas fa-undo" data-tooltip="UESRPG.UI.Restore" aria-label="{{localize "UESRPG.UI.Restore"}}"></i>
-                            <i data-direction="decrease" data-resource="stamina" data-action="incrementResource" class="fas fa-angle-down" data-tooltip="UESRPG.UI.Decrease" aria-label="{{localize "UESRPG.UI.Decrease"}}"></i>
+                            <button type="button" class="uesrpg-icon-button uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-direction="increase" data-resource="stamina" data-action="incrementResource" data-tooltip="UESRPG.UI.Increase" aria-label="{{localize "UESRPG.UI.Increase"}}"><i class="fas fa-angle-up" aria-hidden="true"></i></button>
+                            <button type="button" class="uesrpg-icon-button uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-direction="restore" data-resource="stamina" data-action="restoreResource" data-tooltip="UESRPG.UI.Restore" aria-label="{{localize "UESRPG.UI.Restore"}}"><i class="fas fa-undo" aria-hidden="true"></i></button>
+                            <button type="button" class="uesrpg-icon-button uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-direction="decrease" data-resource="stamina" data-action="incrementResource" data-tooltip="UESRPG.UI.Decrease" aria-label="{{localize "UESRPG.UI.Decrease"}}"><i class="fas fa-angle-down" aria-hidden="true"></i></button>
                         </div>
                     </div>
                     {{!-- Magicka --}}
-                    <div class="resource-row" id="magickaResource">
+                    <div class="resource-row" data-role="magicka-resource">
                         <button type="button" class="resource-name resource-name--magicka" data-resource="magicka" data-tooltip="UESRPG.Sheets.FixedHeader.ManageMagicka" aria-label="{{localize "UESRPG.Sheets.FixedHeader.ManageMagicka"}}">{{localize "UESRPG.UI.MP"}}</button>
                         <div class="maxBar" data-resource="magicka">
                             <div class="bar-values">
@@ -66,16 +68,16 @@
                                     <span class="buffer-overlay" data-tooltip-text="{{localize "UESRPG.Sheets.FixedHeader.ElementalBuffer" value=actor.system.buffers.elemental}}">🔥{{actor.system.buffers.elemental}}</span>
                                 {{/if}}
                             </div>
-                            <div id="magickaBar" class="currentBar" data-resource="magicka"></div>
+                            <div class="currentBar" data-resource="magicka"></div>
                         </div>
                         <div class="resource-controls">
-                            <i data-direction="increase" data-resource="magicka" data-action="incrementResource" class="fas fa-angle-up" data-tooltip="UESRPG.UI.Increase" aria-label="{{localize "UESRPG.UI.Increase"}}"></i>
-                            <i data-direction="restore" data-resource="magicka" data-action="restoreResource" class="fas fa-undo" data-tooltip="UESRPG.UI.Restore" aria-label="{{localize "UESRPG.UI.Restore"}}"></i>
-                            <i data-direction="decrease" data-resource="magicka" data-action="incrementResource" class="fas fa-angle-down" data-tooltip="UESRPG.UI.Decrease" aria-label="{{localize "UESRPG.UI.Decrease"}}"></i>
+                            <button type="button" class="uesrpg-icon-button uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-direction="increase" data-resource="magicka" data-action="incrementResource" data-tooltip="UESRPG.UI.Increase" aria-label="{{localize "UESRPG.UI.Increase"}}"><i class="fas fa-angle-up" aria-hidden="true"></i></button>
+                            <button type="button" class="uesrpg-icon-button uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-direction="restore" data-resource="magicka" data-action="restoreResource" data-tooltip="UESRPG.UI.Restore" aria-label="{{localize "UESRPG.UI.Restore"}}"><i class="fas fa-undo" aria-hidden="true"></i></button>
+                            <button type="button" class="uesrpg-icon-button uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-direction="decrease" data-resource="magicka" data-action="incrementResource" data-tooltip="UESRPG.UI.Decrease" aria-label="{{localize "UESRPG.UI.Decrease"}}"><i class="fas fa-angle-down" aria-hidden="true"></i></button>
                         </div>
                     </div>
                     {{#if actor.ui.worship.available}}
-                    <div class="resource-row" id="worshipResource">
+                    <div class="resource-row" data-role="worship-resource">
                         <button type="button" class="resource-name resource-name--luck" data-resource="worship" data-tooltip="UESRPG.Sheets.FixedHeader.ManagePietyPoints" aria-label="{{localize "UESRPG.Sheets.FixedHeader.ManagePietyPoints"}}">{{localize "UESRPG.UI.PP"}}</button>
                         <div class="maxBar" data-resource="worship" data-value="{{actor.ui.worship.displayPietyValue}}" data-max="{{actor.ui.worship.displayPietyMax}}" data-tooltip-text="{{actor.ui.worship.displayDomainLabel}}">
                             <div class="bar-values">
@@ -84,43 +86,43 @@
                                 <span class="temp-hp-overlay">{{actor.ui.worship.displayDomainLabel}}</span>
                                 {{/if}}
                             </div>
-                            <div id="worshipBar" class="currentBar" data-resource="worship" style="background-color: var(--uesrpg-gold);"></div>
+                            <div class="currentBar" data-resource="worship" style="background-color: var(--uesrpg-gold);"></div>
                         </div>
                         <div class="resource-controls">
                             {{#if actor.ui.worship.hasPrimaryDomain}}
-                            <i data-direction="increase" data-resource="worship" data-action="incrementResource" class="fas fa-angle-up" data-tooltip="UESRPG.UI.Increase" aria-label="{{localize "UESRPG.UI.Increase"}}"></i>
-                            <i data-direction="restore" data-resource="worship" data-action="restoreResource" class="fas fa-undo" data-tooltip="UESRPG.UI.Restore" aria-label="{{localize "UESRPG.UI.Restore"}}"></i>
-                            <i data-direction="decrease" data-resource="worship" data-action="incrementResource" class="fas fa-angle-down" data-tooltip="UESRPG.UI.Decrease" aria-label="{{localize "UESRPG.UI.Decrease"}}"></i>
+                            <button type="button" class="uesrpg-icon-button uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-direction="increase" data-resource="worship" data-action="incrementResource" data-tooltip="UESRPG.UI.Increase" aria-label="{{localize "UESRPG.UI.Increase"}}"><i class="fas fa-angle-up" aria-hidden="true"></i></button>
+                            <button type="button" class="uesrpg-icon-button uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-direction="restore" data-resource="worship" data-action="restoreResource" data-tooltip="UESRPG.UI.Restore" aria-label="{{localize "UESRPG.UI.Restore"}}"><i class="fas fa-undo" aria-hidden="true"></i></button>
+                            <button type="button" class="uesrpg-icon-button uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-direction="decrease" data-resource="worship" data-action="incrementResource" data-tooltip="UESRPG.UI.Decrease" aria-label="{{localize "UESRPG.UI.Decrease"}}"><i class="fas fa-angle-down" aria-hidden="true"></i></button>
                             {{else}}
-                            <i class="fas fa-angle-up" data-tooltip="UESRPG.Sheets.FixedHeader.SetPrimaryRitualDomainFirst" style="opacity:0.35; cursor:not-allowed;" aria-label="{{localize "UESRPG.Sheets.FixedHeader.SetPrimaryRitualDomainFirst"}}"></i>
-                            <i class="fas fa-undo" data-tooltip="UESRPG.Sheets.FixedHeader.SetPrimaryRitualDomainFirst" style="opacity:0.35; cursor:not-allowed;" aria-label="{{localize "UESRPG.Sheets.FixedHeader.SetPrimaryRitualDomainFirst"}}"></i>
-                            <i class="fas fa-angle-down" data-tooltip="UESRPG.Sheets.FixedHeader.SetPrimaryRitualDomainFirst" style="opacity:0.35; cursor:not-allowed;" aria-label="{{localize "UESRPG.Sheets.FixedHeader.SetPrimaryRitualDomainFirst"}}"></i>
+                            <button type="button" class="uesrpg-icon-button uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" disabled data-tooltip="UESRPG.Sheets.FixedHeader.SetPrimaryRitualDomainFirst" aria-label="{{localize "UESRPG.Sheets.FixedHeader.SetPrimaryRitualDomainFirst"}}"><i class="fas fa-angle-up" aria-hidden="true"></i></button>
+                            <button type="button" class="uesrpg-icon-button uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" disabled data-tooltip="UESRPG.Sheets.FixedHeader.SetPrimaryRitualDomainFirst" aria-label="{{localize "UESRPG.Sheets.FixedHeader.SetPrimaryRitualDomainFirst"}}"><i class="fas fa-undo" aria-hidden="true"></i></button>
+                            <button type="button" class="uesrpg-icon-button uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" disabled data-tooltip="UESRPG.Sheets.FixedHeader.SetPrimaryRitualDomainFirst" aria-label="{{localize "UESRPG.Sheets.FixedHeader.SetPrimaryRitualDomainFirst"}}"><i class="fas fa-angle-down" aria-hidden="true"></i></button>
                             {{/if}}
                         </div>
                     </div>
                     {{/if}}
                     {{!-- Luck --}}
-                    <div class="resource-row" id="luckResource">
+                    <div class="resource-row" data-role="luck-resource">
                         <button type="button" class="resource-name resource-name--luck" data-resource="luck_points" data-tooltip="UESRPG.UI.LuckPoints" aria-label="{{localize "UESRPG.UI.LuckPoints"}}">{{localize "UESRPG.UI.LP"}}</button>
                         <div class="maxBar" data-resource="luck_points">
                             <div class="bar-values">
                                 <input type="number" name="system.luck_points.value" value="{{actor.system.luck_points.value}}"> / <label>{{actor.system.luck_points.max}}</label>
                             </div>
-                            <div id="luck_pointsBar" class="currentBar" data-resource="luck_points"></div>
+                            <div class="currentBar" data-resource="luck_points"></div>
                         </div>
                         <div class="resource-controls">
-                            <i data-direction="increase" data-resource="luck_points" data-action="incrementResource" class="fas fa-angle-up" data-tooltip="UESRPG.UI.Increase" aria-label="{{localize "UESRPG.UI.Increase"}}"></i>
-                            <i data-direction="restore" data-resource="luck_points" data-action="restoreResource" class="fas fa-undo" data-tooltip="UESRPG.UI.Restore" aria-label="{{localize "UESRPG.UI.Restore"}}"></i>
-                            <i data-direction="decrease" data-resource="luck_points" data-action="incrementResource" class="fas fa-angle-down" data-tooltip="UESRPG.UI.Decrease" aria-label="{{localize "UESRPG.UI.Decrease"}}"></i>
+                            <button type="button" class="uesrpg-icon-button uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-direction="increase" data-resource="luck_points" data-action="incrementResource" data-tooltip="UESRPG.UI.Increase" aria-label="{{localize "UESRPG.UI.Increase"}}"><i class="fas fa-angle-up" aria-hidden="true"></i></button>
+                            <button type="button" class="uesrpg-icon-button uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-direction="restore" data-resource="luck_points" data-action="restoreResource" data-tooltip="UESRPG.UI.Restore" aria-label="{{localize "UESRPG.UI.Restore"}}"><i class="fas fa-undo" aria-hidden="true"></i></button>
+                            <button type="button" class="uesrpg-icon-button uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-direction="decrease" data-resource="luck_points" data-action="incrementResource" data-tooltip="UESRPG.UI.Decrease" aria-label="{{localize "UESRPG.UI.Decrease"}}"><i class="fas fa-angle-down" aria-hidden="true"></i></button>
                         </div>
                     </div>
                 </div>
 
                 <div class="rest-controls">
-                    <button type="button" data-action="shortRest" class="short-rest rest-btn" data-tooltip="UESRPG.Sheets.FixedHeader.ShortRestTitle" aria-label="{{localize "UESRPG.Sheets.FixedHeader.ShortRestTitle"}}">
+                    <button type="button" data-action="shortRest" class="short-rest rest-btn uesrpg-styled-action" data-tooltip="UESRPG.Sheets.FixedHeader.ShortRestTitle" aria-label="{{localize "UESRPG.Sheets.FixedHeader.ShortRestTitle"}}">
                         {{localize "UESRPG.UI.ShortRest"}}
                     </button>
-                    <button type="button" data-action="longRest" class="long-rest rest-btn" data-tooltip="UESRPG.Sheets.FixedHeader.LongRestTitle" aria-label="{{localize "UESRPG.Sheets.FixedHeader.LongRestTitle"}}">
+                    <button type="button" data-action="longRest" class="long-rest rest-btn uesrpg-styled-action" data-tooltip="UESRPG.Sheets.FixedHeader.LongRestTitle" aria-label="{{localize "UESRPG.Sheets.FixedHeader.LongRestTitle"}}">
                         {{localize "UESRPG.UI.LongRest"}}
                     </button>
                 </div>
@@ -128,42 +130,42 @@
                 <div class="characteristics-container">
                     <div class="section-header">
                         {{#if (eq actor.type "NPC")}}
-                        <span class="section-header__label" data-action="advancementMenu" role="button" tabindex="0" data-tooltip="UESRPG.Sheets.FixedHeader.CharacteristicsOptions">{{localize "UESRPG.UI.Characteristics"}}</span>
+                        <button type="button" class="section-header__label uesrpg-semantic-control uesrpg-plain-control" data-action="advancementMenu" data-tooltip="UESRPG.Sheets.FixedHeader.CharacteristicsOptions" aria-label="{{localize "UESRPG.Sheets.FixedHeader.CharacteristicsOptions"}}">{{localize "UESRPG.UI.Characteristics"}}</button>
                         {{else}}
-                        <span class="section-header__label" data-action="advancementMenu" role="button" tabindex="0" data-tooltip="UESRPG.Sheets.FixedHeader.AdvancementOptions">{{localize "UESRPG.UI.Advancement"}}</span>
+                        <button type="button" class="section-header__label uesrpg-semantic-control uesrpg-plain-control" data-action="advancementMenu" data-tooltip="UESRPG.Sheets.FixedHeader.AdvancementOptions" aria-label="{{localize "UESRPG.Sheets.FixedHeader.AdvancementOptions"}}">{{localize "UESRPG.UI.Advancement"}}</button>
                         {{/if}}
                     </div>
                     <div class="characteristic-entry-container">
                         <div class="characteristic">
-                            <div id="str" name="Strength" data-action="characteristicRoll" class="characteristic-roll rollable">{{localize "UESRPG.UI.Strength"}}</div>
+                            <button type="button" data-characteristic="str" data-action="characteristicRoll" class="characteristic-roll rollable uesrpg-semantic-control uesrpg-plain-control">{{localize "UESRPG.UI.Strength"}}</button>
                             <div class="characteristic-value">{{actor.system.characteristics.str.total}}</div>
                         </div>
                         <div class="characteristic">
-                            <div id="end" name="Endurance" data-action="characteristicRoll" class="characteristic-roll rollable">{{localize "UESRPG.UI.Endurance"}}</div>
+                            <button type="button" data-characteristic="end" data-action="characteristicRoll" class="characteristic-roll rollable uesrpg-semantic-control uesrpg-plain-control">{{localize "UESRPG.UI.Endurance"}}</button>
                             <div class="characteristic-value">{{actor.system.characteristics.end.total}}</div>
                         </div>
                         <div class="characteristic">
-                            <div id="agi" name="Agility" data-action="characteristicRoll" class="characteristic-roll rollable">{{localize "UESRPG.UI.Agility"}}</div>
+                            <button type="button" data-characteristic="agi" data-action="characteristicRoll" class="characteristic-roll rollable uesrpg-semantic-control uesrpg-plain-control">{{localize "UESRPG.UI.Agility"}}</button>
                             <div class="characteristic-value">{{actor.system.characteristics.agi.total}}</div>
                         </div>
                         <div class="characteristic">
-                            <div id="int" name="Intelligence" data-action="characteristicRoll" class="characteristic-roll rollable">{{localize "UESRPG.UI.Intelligence"}}</div>
+                            <button type="button" data-characteristic="int" data-action="characteristicRoll" class="characteristic-roll rollable uesrpg-semantic-control uesrpg-plain-control">{{localize "UESRPG.UI.Intelligence"}}</button>
                             <div class="characteristic-value">{{actor.system.characteristics.int.total}}</div>
                         </div>
                         <div class="characteristic">
-                            <div id="wp" name="Willpower" data-action="characteristicRoll" class="characteristic-roll rollable">{{localize "UESRPG.UI.Willpower"}}</div>
+                            <button type="button" data-characteristic="wp" data-action="characteristicRoll" class="characteristic-roll rollable uesrpg-semantic-control uesrpg-plain-control">{{localize "UESRPG.UI.Willpower"}}</button>
                             <div class="characteristic-value">{{actor.system.characteristics.wp.total}}</div>
                         </div>
                         <div class="characteristic">
-                            <div id="prc" name="Perception" data-action="characteristicRoll" class="characteristic-roll rollable">{{localize "UESRPG.UI.Perception"}}</div>
+                            <button type="button" data-characteristic="prc" data-action="characteristicRoll" class="characteristic-roll rollable uesrpg-semantic-control uesrpg-plain-control">{{localize "UESRPG.UI.Perception"}}</button>
                             <div class="characteristic-value">{{actor.system.characteristics.prc.total}}</div>
                         </div>
                         <div class="characteristic">
-                            <div id="prs" name="Personality" data-action="characteristicRoll" class="characteristic-roll rollable">{{localize "UESRPG.UI.Personality"}}</div>
+                            <button type="button" data-characteristic="prs" data-action="characteristicRoll" class="characteristic-roll rollable uesrpg-semantic-control uesrpg-plain-control">{{localize "UESRPG.UI.Personality"}}</button>
                             <div class="characteristic-value">{{actor.system.characteristics.prs.total}}</div>
                         </div>
                         <div class="characteristic">
-                            <div id="lck" name="Luck" data-action="characteristicRoll" class="characteristic-roll rollable">{{localize "UESRPG.UI.Luck"}}</div>
+                            <button type="button" data-characteristic="lck" data-action="characteristicRoll" class="characteristic-roll rollable uesrpg-semantic-control uesrpg-plain-control">{{localize "UESRPG.UI.Luck"}}</button>
                             <div class="characteristic-value">{{actor.system.characteristics.lck.total}}</div>
                         </div>
                     </div>

@@ -1,0 +1,16 @@
+{{#if item.system.uiHasCastEnchantment}}
+<span class="uesrpg-cast-enchantment-controls">
+    <button type="button"
+            class="uesrpg-cast-enchantment-button uesrpg-semantic-control uesrpg-plain-control"
+            data-action="castEnchantment"
+            data-item-id="{{item._id}}"
+            data-tooltip="UESRPG.Sheets.Equipment.CastEnchantment"
+            aria-label="{{localize "UESRPG.Sheets.Equipment.CastEnchantmentFrom" item=item.name}}"
+            {{#unless item.system.uiCanCastEnchantment}}disabled{{/unless}}>
+        <i class="fas fa-wand-sparkles" aria-hidden="true"></i>
+    </button>
+    {{#if item.system.uiCastEnchantmentCharge}}
+    <span class="uesrpg-cast-charge-pill" data-tooltip="UESRPG.Sheets.Equipment.CastEnchantmentCharge">{{item.system.uiCastEnchantmentCharge}}</span>
+    {{/if}}
+</span>
+{{/if}}

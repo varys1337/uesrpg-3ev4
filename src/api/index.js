@@ -31,6 +31,8 @@ export {
   isChatMessageUpdateFresh
 } from "../utils/authority-proxy.js";
 
+export { AUTHORITY_RESULT_CODES, requestAuthorityIntent } from "../utils/authority-intents.js";
+
 // ─── Documents ─────────────────────────────────────────────────────────────
 export { SimpleActor } from "../core/documents/actor.js";
 export { SimpleItem } from "../core/documents/item.js";

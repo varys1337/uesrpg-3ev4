@@ -18,6 +18,7 @@ import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } 
 import { findOriginAEByGroupKey, cancelOriginAEUpkeep } from "./origin-effect.js";
 import { isFiniteDuration } from "./spell-effect-duration.js";
 import { resolveUuidSync } from "../../../utils/uuid-cache.js";
+import { isActiveGMUser } from "../../../utils/users.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 const _trackedSpellEffects = new Map();
@@ -313,7 +314,7 @@ async function _markGroupAwaitingUpkeep(originEffect, event, context) {
 }
 
 async function _processUpkeepPreExpiry(event, context) {
-  if (!game.user?.isGM) return;
+  if (!isActiveGMUser(game.user)) return;
   for (const actor of _getTrackedActors()) {
     _reconcileTrackedActor(actor);
     for (const effect of (actor.effects ?? [])) {
@@ -333,7 +334,7 @@ async function _processUpkeepPreExpiry(event, context) {
 }
 
 async function _processAwaitingUpkeepGrace(context) {
-  if (!game.user?.isGM) return;
+  if (!isActiveGMUser(game.user)) return;
   const handledOrigins = new Set();
   for (const actor of _getTrackedActors()) {
     _reconcileTrackedActor(actor);
@@ -370,14 +371,14 @@ async function _handleNativeBoundary(event, context) {
 
 function _registerTrackingHooks() {
   Hooks.on("createActiveEffect", (effect) => {
-    if (!game.user?.isGM) return;
+    if (!isActiveGMUser(game.user)) return;
     const actor = effect?.parent;
     if (actor?.documentName !== "Actor") return;
     _trackActorEffect(actor, effect);
   });
 
   Hooks.on("updateActiveEffect", (effect) => {
-    if (!game.user?.isGM) return;
+    if (!isActiveGMUser(game.user)) return;
     const actor = effect?.parent;
     if (actor?.documentName !== "Actor") return;
     if (_isSystemSpellEffect(effect)) _trackActorEffect(actor, effect);
@@ -385,13 +386,13 @@ function _registerTrackingHooks() {
   });
 
   Hooks.on("deleteActiveEffect", (effect) => {
-    if (!game.user?.isGM) return;
+    if (!isActiveGMUser(game.user)) return;
     _untrackActorEffect(effect?.parent?.id, effect?.id);
   });
 }
 
 async function _handleCombatBoundaryExpiration(payload) {
-  if (!game.user?.isGM) return;
+  if (!isActiveGMUser(game.user)) return;
   if (payload?.source !== "combat") return;
   if (payload?.combat?.phase && payload.combat.phase !== "post") return;
   const combat = game.combat ?? payload?.combat ?? null;
@@ -417,7 +418,7 @@ export function initializeSpellEffectExpirationSystem() {
   _registerTrackingHooks();
 
   MagicTimekeeping.onTimeChange(async ({ worldTime } = {}) => {
-    if (!game.user?.isGM) return;
+    if (!isActiveGMUser(game.user)) return;
     if (game.combat) return;
     await _handleNativeBoundary("worldTime", _contextForEvent("worldTime", { worldTime }));
   });
@@ -434,18 +435,18 @@ export function initializeSpellEffectExpirationSystem() {
   });
 
   Hooks.on("createCombat", async (combat) => {
-    if (!game.user?.isGM) return;
+    if (!isActiveGMUser(game.user)) return;
     await _handleNativeBoundary("combatStart", _contextForEvent("combatStart", { combat: combat ?? game.combat }));
   });
 
   Hooks.on("deleteCombat", async (combat) => {
-    if (!game.user?.isGM) return;
+    if (!isActiveGMUser(game.user)) return;
     await _handleNativeBoundary("combatEnd", _contextForEvent("combatEnd", { combat }));
   });
 }
 
 export async function cleanupExpiredSpellEffects({ actors = null, context = null, source = "maintenance" } = {}) {
-  if (!game.user?.isGM) return { checked: 0, deleted: 0 };
+  if (!isActiveGMUser(game.user)) return { checked: 0, deleted: 0 };
 
   const actorList = actors
     ? Array.from(actors)

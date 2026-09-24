@@ -11,7 +11,7 @@
  * @module talent-helpers
  */
 
-import { getEquippedWeaponItems } from "./combat.js";
+import { getEquippedWeaponItems, getOtherDualWieldWeaponUuid } from "./combat.js";
 
 /**
  * Phase 6 Extraction
@@ -26,7 +26,6 @@ import { _safeGetSetting, _getSystemId } from "./util.js";
 import { promptYesNo, promptSelectToken } from "../dialogs/common.js";
 import { t, tf } from "../../../../utils/i18n.js";
 import { _measureTokenDistance } from "./docs.js";
-import { getOtherDualWieldWeaponUuid } from "./combat.js";
 import { peekFreeNextDefenseCommit } from "../../activation-state-flags.js";
 import { getActorCapabilityFlag } from "../../../active-effects/modifier-evaluator.js";
 

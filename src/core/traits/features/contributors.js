@@ -281,6 +281,8 @@ export function contributeTraitMods(actor, item) {
   const sys = item.system ?? {};
   const traitKey = _norm(sys.traitKey ?? "");
   const traitParam = _norm(sys.traitParam ?? "");
+  const keyFlat = _normFlat(traitKey);
+  const paramFlat = _normFlat(traitParam);
   const traitValue = Number(sys.traitValue);
 
   const source = {

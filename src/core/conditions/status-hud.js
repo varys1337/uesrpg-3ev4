@@ -326,7 +326,7 @@ function _requestAnimationFrameSafe() {
 }
 
 function _getViewedCombatantToken() {
-  return game?.combat?.combatant?.token?.object ?? game?.combat?.combatant?.token?._object ?? null;
+  return game?.combat?.combatant?.token?.object ?? null;
 }
 
 function _isCombatTurnMarkerMeshPending() {

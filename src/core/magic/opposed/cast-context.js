@@ -1,7 +1,6 @@
-import { getSpellLevel, resolveSpellStrengthFormulaForActor } from "../magicka-utils.js";
+import { getSpellLevel, resolveSpellStrengthFormulaForActor, getActorWillpowerBonus } from "../magicka-utils.js";
 import { evaluateNumericExpression } from "../../../utils/numeric-expression.js";
 import { resolveActorFromUuidSync } from "../../../utils/uuid-cache.js";
-import { getActorWillpowerBonus } from "../magicka-utils.js";
 
 function toPositiveInt(value) {
   const n = Number(value);

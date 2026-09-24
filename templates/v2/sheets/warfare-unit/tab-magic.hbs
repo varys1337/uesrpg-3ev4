@@ -7,8 +7,8 @@
         <legend>{{localize "UESRPG.Sheets.WarfareUnit.Implements"}}</legend>
         <div class="warfare-form-grid">
           <div class="form-group">
-            <label for="wf-magic-mode">{{localize "UESRPG.Sheets.WarfareUnit.MagicMode"}}</label>
-            <select id="wf-magic-mode" name="system.magic.mode" {{#unless editable}}disabled{{/unless}}>
+            <label for="{{controlIdPrefix}}-wf-magic-mode">{{localize "UESRPG.Sheets.WarfareUnit.MagicMode"}}</label>
+            <select id="{{controlIdPrefix}}-wf-magic-mode" name="system.magic.mode" {{#unless editable}}disabled{{/unless}}>
               {{#each magic.supportedModes}}
               <option value="{{this}}" {{#if (eq this ../magic.mode)}}selected{{/if}}>
                 {{lookup ../magic.modeLabels this}}
@@ -18,11 +18,11 @@
           </div>
           <div class="form-group">
             <label>{{localize "UESRPG.Sheets.WarfareUnit.CastSpell"}}</label>
-            <span class="warfare-derived-value">{{#if derived.canCastSpell}}Available{{else}}Unavailable{{/if}}</span>
+            <span class="warfare-derived-value">{{#if derived.canCastSpell}}{{localize "UESRPG.ModernUI.Available"}}{{else}}{{localize "UESRPG.UI.Unavailable"}}{{/if}}</span>
           </div>
           <div class="form-group">
             <label>{{localize "UESRPG.Sheets.WarfareUnit.PassiveBonuses"}}</label>
-            <span class="warfare-derived-value">AR +{{derived.passiveImplementBonuses.ar}} / MAR +{{derived.passiveImplementBonuses.mar}}</span>
+            <span class="warfare-derived-value">{{localize "UESRPG.ModernUI.ARMAR" value1=derived.passiveImplementBonuses.ar value2=derived.passiveImplementBonuses.mar}}</span>
           </div>
           <div class="form-group">
             <label>{{localize "UESRPG.Sheets.WarfareUnit.BulkThresholdBonus"}}</label>
@@ -35,17 +35,17 @@
       <fieldset class="warfare-fieldset">
         <legend>{{localize "UESRPG.Sheets.WarfareUnit.ImplementEntries"}}</legend>
         {{#if editable}}
-        <button type="button" data-action="addMagicEntry" class="warfare-btn warfare-btn--small"><i class="fas fa-plus"></i> {{localize "UESRPG.Sheets.WarfareUnit.AddImplement"}}</button>
+        <button type="button" data-action="addMagicEntry" class="warfare-btn warfare-btn--small uesrpg-styled-action"><i class="fas fa-plus"></i> {{localize "UESRPG.Sheets.WarfareUnit.AddImplement"}}</button>
         {{/if}}
         {{#each magic.entries}}
         <div class="warfare-spell-row" data-entry-index="{{@index}}">
-          <input type="text" name="system.magic.entries.{{@index}}.key" value="{{this.key}}" placeholder="Catalog Key" {{#unless ../editable}}disabled{{/unless}}>
-          <input type="text" name="system.magic.entries.{{@index}}.name" value="{{this.name}}" placeholder="Display Name" {{#unless ../editable}}disabled{{/unless}}>
-          <input type="text" name="system.magic.entries.{{@index}}.family" value="{{this.family}}" placeholder="Family" {{#unless ../editable}}disabled{{/unless}}>
+          <input type="text" name="system.magic.entries.{{@index}}.key" value="{{this.key}}" placeholder="{{localize "UESRPG.UI.CatalogKey"}}" {{#unless ../editable}}disabled{{/unless}}>
+          <input type="text" name="system.magic.entries.{{@index}}.name" value="{{this.name}}" placeholder="{{localize "UESRPG.UI.DisplayName"}}" {{#unless ../editable}}disabled{{/unless}}>
+          <input type="text" name="system.magic.entries.{{@index}}.family" value="{{this.family}}" placeholder="{{localize "UESRPG.UI.Family"}}" {{#unless ../editable}}disabled{{/unless}}>
           <input type="number" name="system.magic.entries.{{@index}}.count" value="{{this.count}}" min="1" {{#unless ../editable}}disabled{{/unless}}>
-          <input type="text" name="system.magic.entries.{{@index}}.effect" value="{{this.effect}}" placeholder="Notes / Effect" {{#unless ../editable}}disabled{{/unless}}>
+          <input type="text" name="system.magic.entries.{{@index}}.effect" value="{{this.effect}}" placeholder="{{localize "UESRPG.ModernUI.NotesEffect"}}" {{#unless ../editable}}disabled{{/unless}}>
           {{#if ../editable}}
-          <button type="button" data-action="removeMagicEntry" data-entry-index="{{@index}}" class="warfare-btn warfare-btn--icon" data-tooltip="UESRPG.UI.Remove" aria-label="{{localize "UESRPG.UI.Remove"}}"><i class="fas fa-trash" aria-hidden="true"></i></button>
+          <button type="button" data-action="removeMagicEntry" data-entry-index="{{@index}}" class="warfare-btn warfare-btn--icon uesrpg-styled-action" data-tooltip="UESRPG.UI.Remove" aria-label="{{localize "UESRPG.UI.Remove"}}"><i class="fas fa-trash" aria-hidden="true"></i></button>
           {{/if}}
         </div>
         {{else}}
@@ -61,7 +61,7 @@
           <div class="warfare-effect-row">
             <span><strong>{{this.name}}</strong></span>
             <span>{{this.family}} x{{this.count}}</span>
-            <span class="warfare-effect-row__status">{{#if this.passive}}Passive{{else}}Active{{/if}}</span>
+            <span class="warfare-effect-row__status">{{#if this.passive}}{{localize "UESRPG.ActiveEffects.Fields.Passive"}}{{else}}{{localize "UESRPG.Apps.WarfareEncounter.Active"}}{{/if}}</span>
           </div>
           {{/each}}
         </div>

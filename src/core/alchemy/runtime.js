@@ -39,6 +39,7 @@ import {
 } from "./shared.js";
 import {
   clearAppliedAlchemy as _clearAppliedAlchemy,
+  buildWeaponAlchemyAEData,
   getAppliedAlchemy as _getAppliedAlchemy,
   isAppliedAlchemyExpired as _isAppliedAlchemyExpired,
   updateAppliedAlchemyHits as _updateAppliedAlchemyHits,
@@ -381,6 +382,20 @@ async function _applyPotionEffect(actor, effectDef, sl, potency, finalDuration, 
     return `<div class="uesrpg-da-row"><span class="k">${label}</span><span class="v">+${magnitude} HP restored</span></div>`;
   }
 
+  if (key === "heal") {
+    const amount = Math.max(1, Math.floor((2 * sl) * potency));
+    await applyHealing(actor, amount, { source: label, skipChatMessage: true });
+    return `<div class="uesrpg-da-row"><span class="k">${label}</span><span class="v">+${amount} HP restored</span></div>`;
+  }
+
+  if (key === "replenish") {
+    const amount = Math.max(1, Math.floor((2 * sl) * potency));
+    const current = Number(actor.system?.magicka?.value ?? 0);
+    const max = Number(actor.system?.magicka?.max ?? 0);
+    await requestUpdateDocument(actor, { "system.magicka.value": Math.min(max, current + amount) });
+    return `<div class="uesrpg-da-row"><span class="k">${label}</span><span class="v">+${amount} Magicka restored</span></div>`;
+  }
+
   if (key === "restoreMagicka") {
     const current = Number(actor.system?.magicka?.value ?? 0);
     const max = Number(actor.system?.magicka?.max ?? 0);
@@ -396,7 +411,12 @@ async function _applyPotionEffect(actor, effectDef, sl, potency, finalDuration, 
     return `<div class="uesrpg-da-row"><span class="k">${label}</span><span class="v">+${magnitude} Stamina restored</span></div>`;
   }
 
-  // Upkeep effects → create a timed Active Effect.
+  if (effectDef.automation === "manual") {
+    const parameterText = Object.values(params ?? {}).filter(Boolean).join(", ");
+    return `<div class="uesrpg-da-row"><span class="k">${label}</span><span class="v">SL ${sl}${parameterText ? ` (${parameterText})` : ""} — GM resolves effect</span></div>`;
+  }
+
+  // Safely representable upkeep effects create a timed Active Effect.
   if (effectDef.attributes.includes("upkeep") && finalDuration) {
     const durationRounds = finalDuration.unit === "minutes"
       ? finalDuration.value * 10   // 1 minute = 10 rounds (6-second rounds)
@@ -512,7 +532,7 @@ async function _onDamageApplied(targetActor, context) {
   if (!applied) return;
 
   if (applied.source === "legacy-flag") {
-    const legacyAe = _buildWeaponAlchemyAEData({
+    const legacyAe = buildWeaponAlchemyAEData({
       uuid: applied.itemUuid ?? null,
       name: applied.itemName ?? "Applied Alchemy",
     }, applied);
@@ -800,7 +820,7 @@ function _isSaveGatedToxinEffect(effectEntry) {
   }
 
   const effectDef = getEffectByKey(effectEntry?.effectKey);
-  return Boolean(effectDef?.toxinSave);
+  return Boolean(effectDef?.automation === "automatic" && effectDef?.toxinSave?.characteristic === "end");
 }
 
 async function _applyCatalogToxinEffect(targetActor, effectEntry, {
@@ -822,12 +842,20 @@ async function _applyCatalogToxinEffect(targetActor, effectEntry, {
   }
 
   const key = effectDef.key;
-  if (key === "drainHealth") {
+  if (effectDef.automation === "manual") {
+    const substitutedSave = effectDef.toxinSave?.label
+      ? `required Endurance test (substituting for the listed ${effectDef.toxinSave.label} test)`
+      : "listed effect";
+    noteRows.push(_alchemyNoteHtml(effectDef.label, `SL ${sl} — GM resolves the ${substitutedSave} and outcome manually.`, "is-warning"));
+  } else if (key === "drainHealth") {
     damageToApply += magnitude;
     noteRows.push(_alchemyNoteHtml(effectDef.label, `${magnitude} Health drained.`, "is-danger"));
   } else if (key === "drainMagicka") {
-    magickaDrain += magnitude;
-    noteRows.push(_alchemyNoteHtml(effectDef.label, `${magnitude} Magicka drained.`));
+    magickaDrain += 4 * magnitude;
+    noteRows.push(_alchemyNoteHtml(effectDef.label, `${4 * magnitude} Magicka drained.`));
+  } else if (key === "fatigue") {
+    staminaDrain += 1;
+    noteRows.push(_alchemyNoteHtml(effectDef.label, "1 Stamina Point lost."));
   } else if (key === "drainStamina") {
     staminaDrain += magnitude;
     noteRows.push(_alchemyNoteHtml(effectDef.label, `${magnitude} Stamina drained.`));
@@ -846,42 +874,8 @@ async function _applyCatalogToxinEffect(targetActor, effectEntry, {
   } else if (key === "demoralize") {
     aeCreates.push(_buildConditionAEData("Frightened", `Demoralize Toxin SL${sl}`, durationRounds, combatActive));
     noteRows.push(_alchemyNoteHtml(effectDef.label, `Frightened for ${durationRounds} rounds.`, "is-danger"));
-  } else if (key === "burden") {
-    aeCreates.push(buildGenericAEData({
-      source: "alchemy",
-      stack: {
-        policy: "replace",
-        group: `alchemy.toxin.burden.${sl}`,
-        max: null,
-        strengthKey: null,
-      },
-      name: `Burden Toxin SL${sl}`,
-      icon: "icons/equipment/back/pack-heavy.webp",
-      duration: combatActive
-        ? { rounds: durationRounds, combat: game.combat.id }
-        : { seconds: durationRounds * 6 },
-      flags: { [FLAG_NS]: { spellEffect: true, alchemyToxin: true } },
-      changes: [buildEffectChange({ key: "system.encumbrance.penalty", type: "add", value: String(sl * 5), priority: 20 })],
-    }));
-    noteRows.push(_alchemyNoteHtml(effectDef.label, `Encumbrance penalty +${sl * 5} for ${durationRounds} rounds.`));
   } else {
-    aeCreates.push(buildGenericAEData({
-      source: "alchemy",
-      stack: {
-        policy: "replace",
-        group: `alchemy.toxin.${key}.${sl}`,
-        max: null,
-        strengthKey: null,
-      },
-      name: `${_effectLabel(effectEntry)} (Toxin SL${sl})`,
-      icon: "icons/magic/death/undead-ghost-strike-green.webp",
-      duration: combatActive
-        ? { rounds: durationRounds, combat: game.combat.id }
-        : { seconds: durationRounds * 6 },
-      flags: { [FLAG_NS]: { spellEffect: true, alchemyToxin: true, toxinEffectKey: key, toxinSL: sl } },
-      changes: [],
-    }));
-    noteRows.push(_alchemyNoteHtml(effectDef.label, `Applied as a toxin effect for ${durationRounds} rounds.`));
+    noteRows.push(_alchemyNoteHtml(effectDef.label, `SL ${sl} — GM resolves effect.`, "is-warning"));
   }
 
   return { ok: true, aeCreates, noteRows, damageToApply, magickaDrain, staminaDrain };

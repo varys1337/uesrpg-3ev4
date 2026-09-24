@@ -17,6 +17,7 @@ import { createDebugLogger } from "../../utils/debug.js";
 import { recordAttackTrackerDiagnostic } from "./attack-tracker-diagnostics.js";
 import { buildAttackTrackerContext, resolveAttackTrackerActor } from "./attack-tracker-context.js";
 import { isActorInStartedCombatEncounter } from "./combat-scope.js";
+import { isActiveGMUser } from "../../utils/users.js";
 
 const ATTACK_OVERRIDE_MAX_PATH = `flags.${FLAG_SCOPE}.combat.attackTrackerOverrides.max`;
 const ATTACK_OVERRIDE_CURRENT_PATH = `flags.${FLAG_SCOPE}.combat.attackTrackerOverrides.current`;
@@ -849,7 +850,7 @@ function _getCombatRoundState(combat) {
 }
 
 async function _handleCombatBoundaryAttackReset(payload) {
-  if (!game.user?.isGM) return;
+  if (!isActiveGMUser(game.user)) return;
   if (payload?.source !== "combat") return;
   if (payload?.combat?.phase && payload.combat.phase !== "post") return;
 

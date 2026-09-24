@@ -1607,12 +1607,41 @@ body.theme-dark .worldbuilding) :is(.sheet.actor.player-character .tab.equipment
   text-align: center;
 }
 
-.worldbuilding button:not(.icon):not(.header-control):not(.control-icon) {
+.worldbuilding button:not(.icon):not(.header-control):not(.control-icon):not(.uesrpg-plain-control) {
   font-family: var(--uesrpg-font-family);
   border: var(--uesrpg-border-strong);
   min-height: var(--uesrpg-control-h-sm, 26px);
   padding: 2px var(--uesrpg-space-lg, 10px);
   line-height: 1.15;
+}
+
+/* Native buttons which replace the visually neutral anchors, images, icons,
+   text spans, and containers used by the 14.1.1 sheets. This reset is kept
+   separate from the semantic marker so established component rules below can
+   restore the exact legacy geometry without inheriting Foundry button chrome. */
+button.uesrpg-plain-control {
+  appearance: none;
+  box-sizing: border-box;
+  display: inline-block;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  text-align: inherit;
+  text-decoration: none;
+  vertical-align: baseline;
 }
 
 /* Reset font on AppV2 header-control buttons so FA icon glyphs render correctly.
@@ -2082,25 +2111,32 @@ body.theme-dark .worldbuilding) :is(.sheet.actor.player-character .tab.equipment
 }
 
 .ues-opposed-card .uesrpg-damage-panel .dmg-component-line {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: baseline;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
 }
 
 .ues-opposed-card .uesrpg-damage-panel .dmg-component-source {
+  flex: 1 1 auto;
   min-width: 0;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ues-opposed-card .uesrpg-damage-panel .dmg-component-value {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
   white-space: nowrap;
   text-align: right;
 }
 
 .ues-opposed-card .uesrpg-damage-panel .dmg-component-value .type-tag {
-  margin-left: 4px;
+  margin-left: 0;
 }
 
 .ues-opposed-card .uesrpg-damage-panel .dmg-formula {
@@ -3487,6 +3523,411 @@ button[data-ues-skill-opposed-action]) {
   }
 }
 
+/* Alchemy Workshop catalog-first refresh */
+.application.uesrpg.alchemy-workshop > .window-content {
+  display: flex;
+  flex-direction: column;
+  color: #2f2418;
+  background:
+    linear-gradient(rgba(247, 237, 207, 0.94), rgba(230, 210, 165, 0.94)),
+    var(--uesrpg-parchment-url) center / cover;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-root {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  overflow: auto;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-header {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(280px, auto);
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid rgba(88, 58, 24, 0.5);
+  border-radius: 7px;
+  background: rgba(255, 249, 230, 0.58);
+  box-shadow: inset 0 0 12px rgba(83, 54, 19, 0.08);
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-portrait {
+  width: 52px;
+  height: 52px;
+  flex: 0 0 52px;
+  border: 2px solid #73552e;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-identity__copy {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-identity__copy strong {
+  overflow: hidden;
+  font-family: "Trajan Pro", serif;
+  font-size: 1.1rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-kicker {
+  color: #73552e;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-inventory {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(74px, 1fr));
+  gap: 6px;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-stat {
+  display: grid;
+  align-content: center;
+  padding: 5px 7px;
+  border-left: 2px solid #8a6836;
+  background: rgba(116, 84, 37, 0.07);
+  font-size: 0.7rem;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-stat strong { font-size: 0.95rem; }
+.application.uesrpg.alchemy-workshop .alchemy-workshop-stat.is-danger { border-color: #982f27; color: #721b16; }
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-chips span {
+  padding: 2px 7px;
+  border: 1px solid rgba(91, 66, 34, 0.45);
+  border-radius: 999px;
+  background: rgba(229, 211, 174, 0.75);
+  font-size: 0.72rem;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-mode-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-mode-tab {
+  display: flex;
+  min-width: 0;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid #765b34;
+  background: rgba(247, 237, 207, 0.7);
+  color: #3a2a18;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-mode-tab.is-active {
+  border-color: #4e3518;
+  background: #74552c;
+  color: #fff7dc;
+  box-shadow: inset 0 0 0 1px rgba(255, 244, 204, 0.25);
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-mode-tab:disabled { opacity: 0.48; }
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-panel,
+.application.uesrpg.alchemy-workshop .alchemy-workshop-summary {
+  display: grid;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid rgba(91, 66, 34, 0.4);
+  border-radius: 7px;
+  background: rgba(255, 250, 234, 0.48);
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-panel__heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid rgba(91, 66, 34, 0.25);
+  padding-bottom: 7px;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-panel__heading h2 {
+  margin: 1px 0 0;
+  font-family: "Trajan Pro", serif;
+  font-size: 1rem;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-panel__heading > span {
+  max-width: 48%;
+  font-size: 0.75rem;
+  text-align: right;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-slot-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-recipe-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 7px;
+  padding: 8px;
+  border: 1px solid rgba(91, 66, 34, 0.35);
+  border-radius: 6px;
+  background: rgba(242, 225, 187, 0.34);
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-recipe-card.is-filled { border-color: #795a2f; }
+.application.uesrpg.alchemy-workshop .alchemy-recipe-card > header { display: flex; justify-content: space-between; font-weight: 700; }
+.application.uesrpg.alchemy-workshop .alchemy-recipe-card > header small { color: #75572f; font-weight: 400; }
+
+.application.uesrpg.alchemy-workshop .form-group {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+}
+
+.application.uesrpg.alchemy-workshop .form-group label { font-size: 0.72rem; font-weight: 700; }
+.application.uesrpg.alchemy-workshop :is(select, input[type="number"]) { width: 100%; min-width: 0; }
+
+.application.uesrpg.alchemy-workshop .alchemy-resource-line,
+.application.uesrpg.alchemy-workshop .alchemy-effect-summary,
+.application.uesrpg.alchemy-workshop .alchemy-poison-profile {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 8px;
+  padding: 5px 6px;
+  border-radius: 4px;
+  background: rgba(111, 80, 34, 0.08);
+  font-size: 0.7rem;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-effect-summary { display: grid; }
+.application.uesrpg.alchemy-workshop .alchemy-recipe-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.application.uesrpg.alchemy-workshop .alchemy-custom-effect { margin-top: auto; font-size: 0.72rem; }
+.application.uesrpg.alchemy-workshop .alchemy-custom-effect summary { cursor: pointer; font-weight: 700; }
+
+.application.uesrpg.alchemy-workshop .alchemy-custom-drop {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 5px;
+  padding: 6px;
+  border: 1px dashed rgba(91, 66, 34, 0.58);
+  border-radius: 5px;
+  text-align: center;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-custom-drop.is-dragover { background: rgba(196, 148, 61, 0.2); border-color: #6d4718; }
+.application.uesrpg.alchemy-workshop .alchemy-custom-drop button { flex: 0 0 24px; width: 24px; height: 24px; min-height: 24px; padding: 0; }
+
+.application.uesrpg.alchemy-workshop .alchemy-ingredient-field {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-ingredient-field__label {
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-ingredient-drop {
+  display: grid;
+  min-width: 0;
+  min-height: 54px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 7px;
+  border: 1px dashed rgba(91, 66, 34, 0.62);
+  border-radius: 6px;
+  background: rgba(255, 250, 234, 0.42);
+  color: rgba(61, 43, 23, 0.82);
+  text-align: left;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-ingredient-drop:is(:focus-visible, .is-dragover) {
+  border-color: #6d4718;
+  background: rgba(196, 148, 61, 0.2);
+  box-shadow: inset 0 0 0 1px rgba(109, 71, 24, 0.28);
+  outline: 2px solid rgba(139, 91, 23, 0.7);
+  outline-offset: 1px;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-ingredient-drop.is-selected {
+  border-style: solid;
+  border-color: rgba(102, 72, 34, 0.62);
+  background: rgba(246, 231, 195, 0.62);
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-ingredient-drop > img {
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(91, 66, 34, 0.48);
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-ingredient-drop > span {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-ingredient-drop > span :is(strong, small) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-ingredient-drop > span small {
+  font-size: 0.66rem;
+  opacity: 0.8;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-ingredient-drop > button {
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+  min-height: 26px;
+  margin: 0;
+  padding: 0;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-ingredient-choose {
+  width: 100%;
+  min-height: 28px;
+  margin: 0;
+  padding: 3px 7px;
+  font-size: 0.72rem;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-gather-overview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-gather-overview > div {
+  display: grid;
+  gap: 2px;
+  padding: 7px;
+  border-left: 2px solid #8a6836;
+  background: rgba(116, 84, 37, 0.07);
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-gather-overview span {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.74;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-gather-overview strong { font-size: 0.78rem; }
+.application.uesrpg.alchemy-workshop .alchemy-workshop-banner.is-info { display: grid; gap: 2px; }
+
+.application.uesrpg-dialog.alchemy-ingredient-picker-dialog .alchemy-picker-list,
+.application.uesrpg-dialog .alchemy-picker-list {
+  display: grid;
+  max-height: min(420px, 60vh);
+  gap: 5px;
+  overflow: auto;
+}
+
+.application.uesrpg-dialog .alchemy-picker-row {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto 36px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 7px;
+  border: 1px solid rgba(88, 57, 20, 0.3);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.application.uesrpg-dialog .alchemy-picker-row:has(input:checked) {
+  border-color: #6d4718;
+  background: rgba(196, 148, 61, 0.18);
+}
+
+.application.uesrpg-dialog .alchemy-picker-row img {
+  width: 36px;
+  height: 36px;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.application.uesrpg-dialog .alchemy-picker-row > span { display: grid; min-width: 0; }
+.application.uesrpg-dialog .alchemy-picker-row small { overflow: hidden; font-size: 0.76rem; text-overflow: ellipsis; white-space: nowrap; }
+
+.application.uesrpg.alchemy-workshop .alchemy-focused-card { grid-template-columns: minmax(0, 1fr); }
+.application.uesrpg.alchemy-workshop .alchemy-workshop-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.application.uesrpg.alchemy-workshop .alchemy-summary-stat { display: grid; text-align: center; }
+.application.uesrpg.alchemy-workshop .alchemy-summary-stat strong { font-size: 1.05rem; }
+.application.uesrpg.alchemy-workshop .alchemy-summary-modifier { display: flex; justify-content: space-between; grid-column: 1 / -1; font-size: 0.75rem; }
+.application.uesrpg.alchemy-workshop .alchemy-inline-check { grid-column: 1 / -1; }
+.application.uesrpg.alchemy-workshop .alchemy-workshop-banner.is-info { border-color: rgba(46, 83, 112, 0.55); background: rgba(67, 123, 164, 0.1); }
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-footer {
+  position: relative;
+  bottom: auto;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  border-top: 1px solid rgba(82, 55, 25, 0.45);
+  background: rgba(224, 200, 148, 0.96);
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-footer > div { display: grid; font-size: 0.7rem; }
+.application.uesrpg.alchemy-workshop .alchemy-workshop-primary { width: auto; min-width: 180px; min-height: 34px; padding: 5px 14px; background: #704f27; color: #fff6db; }
+
+@media (max-width: 680px) {
+  .application.uesrpg.alchemy-workshop .alchemy-workshop-header,
+  .application.uesrpg.alchemy-workshop .alchemy-slot-grid { grid-template-columns: minmax(0, 1fr); }
+  .application.uesrpg.alchemy-workshop .alchemy-mode-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .application.uesrpg.alchemy-workshop .alchemy-workshop-panel__heading { align-items: start; flex-direction: column; }
+  .application.uesrpg.alchemy-workshop .alchemy-workshop-panel__heading > span { max-width: none; text-align: left; }
+  .application.uesrpg.alchemy-workshop .alchemy-gather-overview { grid-template-columns: minmax(0, 1fr); }
+}
+
 /*---
   Actor Sheets
 ---*/
@@ -3983,7 +4424,7 @@ body.theme-dark .worldbuilding.sheet.actor > .window-content > nav.uesrpg-bookma
   flex: 0 0 auto;
 }
 
-.worldbuilding .sheet-fixed-container button {
+.worldbuilding .sheet-fixed-container button:not(.uesrpg-plain-control) {
   color: white;
   border: 1px solid black;
   background: rgb(73, 73, 73);
@@ -4263,22 +4704,22 @@ body.theme-dark .worldbuilding.sheet.actor > .window-content > nav.uesrpg-bookma
     width: 104px;
   }
 }
-.worldbuilding #hpBar {
+.worldbuilding .currentBar[data-resource="hp"] {
   color: white;
   background-color: var(--uesrpg-color-hp);
 }
 
-.worldbuilding #staminaBar {
+.worldbuilding .currentBar[data-resource="stamina"] {
   color: white;
   background-color: var(--uesrpg-color-stamina);
 }
 
-.worldbuilding #magickaBar {
+.worldbuilding .currentBar[data-resource="magicka"] {
   color: white;
   background-color: var(--uesrpg-color-magicka);
 }
 
-.worldbuilding #luck_pointsBar {
+.worldbuilding .currentBar[data-resource="luck_points"] {
   color: white;
   background-color: var(--uesrpg-color-luck);
 }
@@ -4395,19 +4836,24 @@ body.theme-dark .worldbuilding.sheet.actor > .window-content > nav.uesrpg-bookma
 
 .worldbuilding.sheet.actor:is(.player-character, .npc) .sheet-fixed-container .fixed-data-container {
   gap: var(--uesrpg-sidebar-content-gap, 5px);
-  margin-right: calc(-1 * var(--uesrpg-sidebar-scroll-rail-width, 12px));
-  padding-right: var(--uesrpg-sidebar-scroll-rail-width, 12px);
+  margin-right: 0;
+  padding-right: 0;
   scrollbar-gutter: stable;
 }
 
 .worldbuilding.sheet.actor:is(.player-character, .npc) .sheet-fixed-container .resourceBars {
   box-sizing: border-box;
-  width: calc(100% + var(--uesrpg-sidebar-scroll-content-bleed, 10px));
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   gap: var(--uesrpg-sidebar-resource-gap, 2px);
 }
 
 .worldbuilding.sheet.actor:is(.player-character, .npc) .sheet-fixed-container .resource-row {
   box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   min-height: 24px;
   align-items: center;
   gap: 5px;
@@ -4502,37 +4948,82 @@ body.theme-dark .worldbuilding.sheet.actor > .window-content > nav.uesrpg-bookma
 .worldbuilding.sheet.actor:is(.player-character, .npc) .sheet-fixed-container .resource-controls {
   flex: 0 0 16px;
   width: 16px;
+  min-width: 16px;
+  max-width: 16px;
   gap: 0;
 }
 
-.worldbuilding.sheet.actor:is(.player-character, .npc) .sheet-fixed-container .resource-controls i {
-  width: 16px;
-  height: 16px;
+.worldbuilding.sheet.actor:is(.player-character, .npc) .sheet-fixed-container .resource-controls > button.uesrpg-icon-button {
+  appearance: none;
   display: inline-flex;
+  flex: 0 0 16px;
   align-items: center;
   justify-content: center;
+  width: 16px;
+  min-width: 16px;
+  max-width: 16px;
+  height: 16px;
+  min-height: 16px;
+  max-height: 16px;
+  margin: 0;
+  padding: 0;
+  border: 0;
   border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
   color: rgba(52, 43, 28, 0.82);
+  font: inherit;
+  line-height: 1;
+  opacity: 0.58;
+  cursor: pointer;
   transition: opacity 120ms ease, color 120ms ease, background-color 120ms ease, transform 120ms ease;
 }
 
-.worldbuilding.sheet.actor:is(.player-character, .npc) .sheet-fixed-container .resource-controls i[data-direction=restore] {
-  background: transparent;
-  box-shadow: none;
+.worldbuilding.sheet.actor:is(.player-character, .npc) .sheet-fixed-container .resource-controls > button.uesrpg-icon-button[data-direction=restore] {
+  opacity: 0.78;
 }
 
-.worldbuilding.sheet.actor:is(.player-character, .npc) .sheet-fixed-container .resource-row:hover .resource-controls i {
+.worldbuilding.sheet.actor:is(.player-character, .npc) .sheet-fixed-container .resource-controls > button.uesrpg-icon-button > i {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  color: inherit;
+  opacity: 1;
+  pointer-events: none;
   transform: none;
 }
 
-.worldbuilding.sheet.actor:is(.player-character, .npc) .sheet-fixed-container .resource-controls i:hover {
+.worldbuilding.sheet.actor:is(.player-character, .npc) .sheet-fixed-container .resource-row:hover .resource-controls > button.uesrpg-icon-button,
+.worldbuilding.sheet.actor:is(.player-character, .npc) .sheet-fixed-container .resource-controls > button.uesrpg-icon-button:hover,
+.worldbuilding.sheet.actor:is(.player-character, .npc) .sheet-fixed-container .resource-controls > button.uesrpg-icon-button:focus-visible {
   color: rgba(104, 14, 10, 0.96);
   background: rgba(255, 238, 198, 0.38);
+  opacity: 1;
+}
+
+.worldbuilding.sheet.actor:is(.player-character, .npc) .sheet-fixed-container .resource-controls > button.uesrpg-icon-button:focus-visible {
+  outline: 2px solid var(--color-warm-2, #cf9f4a);
+  outline-offset: 1px;
+}
+
+.worldbuilding.sheet.actor:is(.player-character, .npc) .sheet-fixed-container .resource-controls > i {
+  flex: 0 0 16px;
+  width: 16px;
+  min-width: 16px;
+  max-width: 16px;
+  height: 16px;
+  min-height: 16px;
+  max-height: 16px;
 }
 
 .worldbuilding.sheet.actor:is(.player-character, .npc) .sheet-fixed-container .rest-controls {
   box-sizing: border-box;
-  width: calc(100% + var(--uesrpg-sidebar-scroll-content-bleed, 10px));
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   gap: 6px;
   margin: 2px 0;
 }
@@ -4577,7 +5068,9 @@ body.theme-dark .worldbuilding.sheet.actor > .window-content > nav.uesrpg-bookma
 
 .worldbuilding.sheet.actor:is(.player-character, .npc) .sheet-fixed-container .characteristics-container {
   box-sizing: border-box;
-  width: calc(100% + var(--uesrpg-sidebar-scroll-content-bleed, 10px));
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .worldbuilding.sheet.actor:is(.player-character, .npc) .sheet-fixed-container .characteristics-container .section-header__label {
@@ -6046,7 +6539,8 @@ body.theme-dark .worldbuilding.sheet.actor > .window-content > nav.uesrpg-bookma
   color: #2a2014;
 }
 
-.worldbuilding.sheet.actor:not(.group) .tab.magic :is(button, input:not([type=checkbox]), select, textarea) {
+.worldbuilding.sheet.actor:not(.group) .tab.magic :is(input:not([type=checkbox]), select, textarea),
+.worldbuilding.sheet.actor:not(.group) .tab.magic button:not(.uesrpg-plain-control) {
   color: #2a2014;
   border-color: rgba(92, 69, 34, 0.35);
   background: rgba(255, 247, 227, 0.9);
@@ -10095,6 +10589,197 @@ body.theme-dark .worldbuilding :is(.sheet.actor.player-character, .sheet.actor.n
   white-space: nowrap;
 }
 
+.worldbuilding :is(.sheet.actor:not(.group), .sheet.npc) .tab.equipment .uesrpg-cast-enchantment-controls {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-inline-start: 6px;
+}
+
+.worldbuilding :is(.sheet.actor:not(.group), .sheet.npc) .tab.equipment .uesrpg-cast-enchantment-button {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(72, 44, 20, 0.38);
+  border-radius: 50%;
+  background: rgba(255, 244, 204, 0.72);
+  color: #5a3518;
+  line-height: 1;
+}
+
+.worldbuilding :is(.sheet.actor:not(.group), .sheet.npc) .tab.equipment .uesrpg-cast-enchantment-button:hover,
+.worldbuilding :is(.sheet.actor:not(.group), .sheet.npc) .tab.equipment .uesrpg-cast-enchantment-button:focus-visible {
+  background: #f0d592;
+  color: #24160e;
+}
+
+.worldbuilding :is(.sheet.actor:not(.group), .sheet.npc) .tab.equipment .uesrpg-cast-enchantment-button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.worldbuilding.sheet.item .uesrpg-soul-energy-panel {
+  margin: 0 0 10px;
+  padding: 10px;
+  border: 1px solid rgba(83, 58, 27, 0.35);
+  border-radius: 6px;
+  background: rgba(255, 244, 204, 0.24);
+  color: #2f2117;
+}
+
+.worldbuilding.sheet.item .uesrpg-soul-energy-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.worldbuilding.sheet.item .uesrpg-soul-energy-panel__header h3,
+.worldbuilding.sheet.item .uesrpg-soul-energy-panel__header p {
+  margin: 0;
+  color: #2f2117;
+}
+
+.worldbuilding.sheet.item .uesrpg-soul-energy-panel__header p {
+  margin-top: 2px;
+  color: #66513c;
+  font-size: 12px;
+}
+
+.worldbuilding.sheet.item .uesrpg-soul-energy-panel__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin-top: 10px;
+}
+
+.worldbuilding.sheet.item .uesrpg-soul-energy-panel__grid .form-group {
+  min-width: 0;
+  margin: 0;
+}
+
+.worldbuilding.sheet.item .uesrpg-soul-energy-panel__grid :is(input, select) {
+  width: 100%;
+}
+
+.worldbuilding.sheet.item .uesrpg-soul-energy-panel__notice {
+  margin: 8px 0 0;
+  padding: 6px 8px;
+  border-left: 3px solid #8a6837;
+  background: rgba(138, 104, 55, 0.12);
+  color: #513b27;
+  font-size: 12px;
+}
+
+.worldbuilding.sheet.item .uesrpg-soul-energy-panel__notice.is-error {
+  border-color: #8f2f28;
+  color: #761f1a;
+}
+
+.worldbuilding.sheet.item .uesrpg-item-enchanting {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(83, 58, 27, 0.38);
+  border-radius: 8px;
+  background: rgba(255, 244, 204, 0.24);
+  color: #2f2117;
+}
+
+.worldbuilding.sheet.item .uesrpg-item-enchanting__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.worldbuilding.sheet.item .uesrpg-item-enchanting__header h3 {
+  margin: 0;
+  color: #2f2117;
+}
+
+.worldbuilding.sheet.item .uesrpg-item-enchanting__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+}
+
+.worldbuilding.sheet.item .uesrpg-item-enchanting__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.worldbuilding.sheet.item .uesrpg-item-enchanting__field > input {
+  width: 100%;
+}
+
+.worldbuilding.sheet.item .uesrpg-item-enchanting__effects {
+  display: grid;
+  gap: 5px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(83, 58, 27, 0.22);
+}
+
+.worldbuilding.sheet.item .uesrpg-item-enchanting__pool-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 9px;
+  border: 1px solid rgba(83, 58, 27, 0.22);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.worldbuilding.sheet.item .uesrpg-item-enchanting__effect {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.worldbuilding.sheet.item .uesrpg-item-enchanting__effect span {
+  color: #66513c;
+  text-align: right;
+}
+
+.worldbuilding.sheet.item .uesrpg-item-enchanting__cast {
+  align-self: flex-end;
+}
+
+@media (max-width: 520px) {
+  .worldbuilding.sheet.item .uesrpg-soul-energy-panel__header {
+    flex-direction: column;
+  }
+
+  .worldbuilding.sheet.item .uesrpg-soul-energy-panel__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .worldbuilding.sheet.item .uesrpg-item-enchanting__header,
+  .worldbuilding.sheet.item .uesrpg-item-enchanting__effect {
+    flex-direction: column;
+  }
+
+  .worldbuilding.sheet.item .uesrpg-item-enchanting__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .worldbuilding.sheet.item .uesrpg-item-enchanting__effect span {
+    text-align: left;
+  }
+}
+
 .worldbuilding.sheet.actor.group .ues-table--group-gear :is(th, td).ues-col-name {
   width: 70%;
 }
@@ -10997,6 +11682,616 @@ body.theme-dark .worldbuilding :is(.sheet.actor.player-character, .sheet.actor.n
   overflow: auto;
 }
 
+.application.uesrpg.enchanting-workshop .enchanting-workshop-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(240px, 1fr);
+  gap: var(--uesrpg-space-md);
+  padding: var(--uesrpg-space-md);
+  border: 1px solid rgba(91, 66, 34, 0.42);
+  border-radius: 7px;
+  background: linear-gradient(135deg, rgba(255, 250, 237, 0.78), rgba(226, 207, 165, 0.55)), var(--uesrpg-parchment-url);
+  box-shadow: var(--uesrpg-shadow-sm);
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-workshop-identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--uesrpg-space-md);
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-workshop-portrait {
+  width: 58px;
+  height: 58px;
+  flex: 0 0 58px;
+  border: 2px solid rgba(84, 58, 27, 0.72);
+  border-radius: 4px;
+  object-fit: cover;
+  object-position: top center;
+  box-shadow: var(--uesrpg-shadow-sm);
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-workshop-identity__copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-workshop-kicker,
+.application.uesrpg.enchanting-workshop .enchanting-panel__eyebrow {
+  color: rgba(83, 54, 24, 0.8);
+  font-size: var(--uesrpg-font-2xs);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-workshop-actor-name {
+  overflow: hidden;
+  font-family: var(--uesrpg-font-heading);
+  font-size: var(--uesrpg-font-xl);
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-workshop-skill {
+  color: var(--uesrpg-color-text-secondary);
+  font-size: var(--uesrpg-font-xs);
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-workshop-inventory {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--uesrpg-space-xs);
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-workshop-stat {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  padding: var(--uesrpg-space-sm);
+  border: 1px solid rgba(91, 66, 34, 0.25);
+  border-radius: 5px;
+  background: rgba(255, 252, 242, 0.52);
+  text-align: center;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-workshop-stat span {
+  overflow: hidden;
+  color: var(--uesrpg-color-muted);
+  font-size: var(--uesrpg-font-2xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-workshop-stat strong {
+  font-size: var(--uesrpg-font-lg);
+  line-height: 1.1;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-workshop-talents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--uesrpg-space-xs);
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-workshop-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border: 1px solid rgba(91, 66, 34, 0.35);
+  border-radius: 999px;
+  background: rgba(229, 211, 174, 0.72);
+  color: var(--uesrpg-color-text-secondary);
+  font-size: var(--uesrpg-font-2xs);
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-mode-tabs {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid rgba(79, 55, 27, 0.42);
+  border-radius: 7px;
+  background: rgba(75, 52, 28, 0.18);
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-mode-tab {
+  display: grid;
+  min-width: 0;
+  min-height: 46px;
+  height: auto;
+  grid-template-columns: auto minmax(0, auto);
+  align-content: center;
+  justify-content: center;
+  gap: 2px 6px;
+  margin: 0;
+  padding: 5px 7px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: rgba(255, 250, 237, 0.42);
+  box-shadow: none;
+  color: rgba(48, 34, 20, 0.9);
+  font-weight: 700;
+  line-height: 1.05;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-mode-tab:hover:not(:disabled),
+.application.uesrpg.enchanting-workshop .enchanting-mode-tab:focus-visible {
+  border-color: rgba(114, 75, 31, 0.58);
+  background: rgba(255, 251, 239, 0.78);
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-mode-tab.is-active {
+  border-color: rgba(90, 55, 19, 0.8);
+  background: linear-gradient(180deg, rgba(145, 103, 50, 0.94), rgba(93, 63, 30, 0.96));
+  color: #fff8e8;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), var(--uesrpg-shadow-sm);
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-mode-tab small {
+  grid-column: 1 / -1;
+  font-size: 9px;
+  font-weight: 400;
+  opacity: 0.72;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-mode-tab:disabled {
+  cursor: not-allowed;
+  filter: grayscale(0.75);
+  opacity: 0.48;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-workshop-banner,
+.application.uesrpg.enchanting-workshop .enchanting-note {
+  margin: 0;
+  padding: 7px 9px;
+  border: 1px solid rgba(91, 66, 34, 0.23);
+  border-radius: 5px;
+  background: rgba(92, 68, 35, 0.08);
+  font-size: var(--uesrpg-font-xs);
+  line-height: 1.35;
+}
+
+.application.uesrpg.enchanting-workshop :is(.enchanting-workshop-banner.is-danger, .enchanting-field__hint.is-danger) {
+  border-color: rgba(139, 0, 0, 0.4);
+  color: var(--uesrpg-color-danger);
+}
+
+.application.uesrpg.enchanting-workshop :is(.enchanting-note.is-warning, .enchanting-field__hint.is-warning) {
+  border-color: rgba(151, 102, 15, 0.45);
+  background: rgba(205, 153, 52, 0.13);
+  color: #67450e;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-panel {
+  display: grid;
+  gap: var(--uesrpg-space-md);
+  min-width: 0;
+  padding: var(--uesrpg-space-md);
+  border: 1px solid rgba(91, 66, 34, 0.34);
+  border-radius: 7px;
+  background: linear-gradient(180deg, rgba(255, 250, 237, 0.6), rgba(241, 228, 198, 0.43)), var(--uesrpg-parchment-url);
+  box-shadow: var(--uesrpg-shadow-sm);
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-panel__header {
+  display: flex;
+  min-width: 0;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--uesrpg-space-md);
+  padding-bottom: var(--uesrpg-space-sm);
+  border-bottom: 1px solid rgba(83, 58, 27, 0.23);
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-panel__header h3 {
+  margin: 1px 0 0;
+  font-family: var(--uesrpg-font-heading);
+  font-size: var(--uesrpg-font-lg);
+  line-height: 1.1;
+  color: var(--uesrpg-color-text);
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-panel__summary {
+  max-width: 48%;
+  color: var(--uesrpg-color-muted);
+  font-size: var(--uesrpg-font-2xs);
+  text-align: right;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-resource-grid,
+.application.uesrpg.enchanting-workshop .enchanting-form-grid,
+.application.uesrpg.enchanting-workshop .enchanting-effect-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--uesrpg-space-sm) var(--uesrpg-space-md);
+  min-width: 0;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-effect-grid {
+  grid-template-columns: minmax(180px, 2fr) repeat(4, minmax(72px, 1fr));
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-effect-grid.is-constant {
+  grid-template-columns: minmax(180px, 2fr) 72px 90px minmax(140px, 1.5fr);
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-field > span:first-child {
+  color: var(--uesrpg-color-text-secondary);
+  font-size: var(--uesrpg-font-xs);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-field.is-wide {
+  grid-column: 1 / -1;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-field__hint {
+  color: var(--uesrpg-color-muted);
+  font-size: var(--uesrpg-font-2xs);
+  line-height: 1.25;
+}
+
+.application.uesrpg.enchanting-workshop :is(input:not([type="checkbox"]), select) {
+  min-height: 30px;
+  border: var(--uesrpg-border-input);
+  border-radius: var(--uesrpg-border-radius-sm);
+  background-color: var(--uesrpg-bg-input);
+}
+
+.application.uesrpg.enchanting-workshop :is(input, select):invalid {
+  border-color: rgba(139, 0, 0, 0.72);
+}
+
+.application.uesrpg.enchanting-workshop option:disabled {
+  color: var(--uesrpg-color-muted);
+  font-style: italic;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-slot-list {
+  display: grid;
+  gap: var(--uesrpg-space-sm);
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-slot-card {
+  display: grid;
+  gap: var(--uesrpg-space-sm);
+  min-width: 0;
+  padding: var(--uesrpg-space-md);
+  border: 1px solid rgba(91, 66, 34, 0.27);
+  border-left: 3px solid rgba(117, 78, 34, 0.72);
+  border-radius: 5px;
+  background: rgba(255, 252, 242, 0.44);
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-slot-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--uesrpg-space-sm);
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-slot-card__header > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-slot-card__header small {
+  color: var(--uesrpg-color-muted);
+  font-size: var(--uesrpg-font-2xs);
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-advanced {
+  padding-top: var(--uesrpg-space-xs);
+  border-top: 1px solid rgba(91, 66, 34, 0.17);
+  font-size: var(--uesrpg-font-xs);
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-advanced > summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-advanced .enchanting-field {
+  margin-top: var(--uesrpg-space-sm);
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-toggle-field {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: var(--uesrpg-space-sm);
+  padding: var(--uesrpg-space-md);
+  border: 1px solid rgba(151, 102, 15, 0.42);
+  border-radius: 5px;
+  background: rgba(205, 153, 52, 0.12);
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-workshop-footer {
+  position: sticky;
+  z-index: 3;
+  bottom: -10px;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--uesrpg-space-md);
+  margin-top: auto;
+  padding: 12px 4px 10px;
+  background: linear-gradient(180deg, rgba(239, 222, 179, 0), rgba(239, 222, 179, 0.98) 24%);
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-workshop-footer__summary {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-workshop-footer__summary span {
+  overflow: hidden;
+  color: var(--uesrpg-color-muted);
+  font-size: var(--uesrpg-font-2xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-submit {
+  width: auto;
+  min-width: 210px;
+  min-height: 34px;
+  height: auto;
+  margin: 0;
+  padding: 5px 12px;
+  white-space: normal;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-resource-drop {
+  display: flex;
+  min-height: 68px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px dashed rgba(88, 57, 20, 0.55);
+  border-radius: 6px;
+  background: rgba(255, 248, 224, 0.38);
+  color: var(--uesrpg-color-muted);
+  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-resource-drop:is(:focus-visible, .is-dragover) {
+  border-color: #6d4718;
+  outline: none;
+  background: rgba(196, 148, 61, 0.2);
+  box-shadow: 0 0 0 2px rgba(109, 71, 24, 0.18);
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-resource-drop.is-selected {
+  border-style: solid;
+  background: rgba(248, 232, 190, 0.72);
+  color: var(--uesrpg-color-text);
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-resource-drop > img,
+.enchanting-picker-row > img {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border: 1px solid rgba(74, 48, 18, 0.55);
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-resource-drop > span,
+.enchanting-picker-row > span {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-resource-drop small,
+.enchanting-picker-row small {
+  color: var(--uesrpg-color-muted);
+  font-size: var(--uesrpg-font-2xs);
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-resource-drop > button {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  margin: 0;
+  padding: 0;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-resource-choose {
+  width: auto;
+  min-height: 30px;
+  margin: 4px 0 0;
+  align-self: flex-start;
+}
+
+.enchanting-picker-list {
+  display: grid;
+  max-height: 380px;
+  gap: 6px;
+  overflow: auto;
+}
+
+.enchanting-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px;
+  border: 1px solid rgba(88, 57, 20, 0.3);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.enchanting-picker-row:has(input:checked) {
+  border-color: #6d4718;
+  background: rgba(196, 148, 61, 0.18);
+}
+
+.chat-message .uesrpg-enchanting-card {
+  overflow: hidden;
+  border: 0;
+  border-left: 3px solid rgba(117, 82, 38, 0.64);
+  background: transparent;
+  color: inherit;
+}
+
+.chat-message .uesrpg-enchanting-card__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 8px 7px;
+  border-bottom: 1px solid rgba(86, 54, 20, 0.32);
+  background: transparent;
+}
+
+.chat-message .uesrpg-enchanting-card__header img {
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(83, 51, 19, 0.4);
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.chat-message .uesrpg-enchanting-card__identity {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.chat-message .uesrpg-enchanting-card__status {
+  max-width: 42%;
+  font-size: 11px;
+  font-style: italic;
+  text-align: right;
+}
+
+.chat-message .uesrpg-enchanting-card__body { padding: 7px 4px 4px 7px; }
+
+.chat-message .uesrpg-enchanting-card__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: baseline;
+  padding: 4px 0;
+  border-bottom: 1px dotted rgba(86, 54, 20, 0.28);
+}
+
+.chat-message .uesrpg-enchanting-card__entries {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chat-message .uesrpg-enchanting-card__entries li,
+.chat-message .uesrpg-enchanting-card__test {
+  display: grid;
+  gap: 3px;
+  padding: 5px 0;
+  border-top: 1px solid rgba(86, 54, 20, 0.18);
+  background: transparent;
+}
+
+.chat-message .uesrpg-enchanting-card__entries li {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+}
+
+.chat-message .uesrpg-enchanting-card__entries small { opacity: 0.78; }
+
+.chat-message .uesrpg-enchanting-card__summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  margin-top: 7px;
+}
+
+.chat-message .uesrpg-enchanting-card__summary > span {
+  display: grid;
+  padding: 5px 7px;
+  border: 1px solid rgba(86, 54, 20, 0.22);
+  border-radius: 4px;
+  text-align: center;
+}
+
+.chat-message .uesrpg-enchanting-card__test > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.chat-message .uesrpg-enchanting-card__test-values {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 8px;
+}
+
+.chat-message .uesrpg-enchanting-card__binding {
+  padding: 1px 6px;
+  border: 1px solid rgba(86, 54, 20, 0.35);
+  border-radius: 999px;
+  font-size: 10px;
+}
+
+.chat-message .uesrpg-enchanting-card__footer { padding: 7px 4px 4px 7px; }
+.chat-message .uesrpg-enchanting-card__footer button { width: 100%; margin: 0; }
+.chat-message .uesrpg-enchanting-card__issue { margin-top: 8px; padding: 6px; border: 1px solid #9d3127; border-radius: 4px; background: rgba(157, 49, 39, 0.12); color: #6d1712; }
+.chat-message .uesrpg-enchanting-card.is-resolved { border-left-color: #526b2c; }
+.chat-message .uesrpg-enchanting-card.is-success { border-left-color: #526b2c; }
+.chat-message .uesrpg-enchanting-card.is-error { border-color: #9d3127; }
+
+@container (max-width: 620px) {
+  .application.uesrpg.enchanting-workshop .enchanting-workshop-header,
+  .application.uesrpg.enchanting-workshop .enchanting-resource-grid,
+  .application.uesrpg.enchanting-workshop .enchanting-form-grid,
+  .application.uesrpg.enchanting-workshop :is(.enchanting-effect-grid, .enchanting-effect-grid.is-constant) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .application.uesrpg.enchanting-workshop .enchanting-mode-tabs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .application.uesrpg.enchanting-workshop .enchanting-field.is-wide {
+    grid-column: auto;
+  }
+
+  .application.uesrpg.enchanting-workshop .enchanting-workshop-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .application.uesrpg.enchanting-workshop .enchanting-submit {
+    width: 100%;
+  }
+}
+
 .application.uesrpg.enchanting-workshop .enchanting-actor-info {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr);
@@ -11166,17 +12461,6 @@ body.theme-dark .worldbuilding :is(.sheet.actor.player-character, .sheet.actor.n
   min-height: 0;
   padding: 8px 0 10px;
   background: linear-gradient(180deg, rgba(239, 222, 179, 0), rgba(239, 222, 179, 0.98) 28%);
-}
-
-.application.uesrpg.enchanting-workshop .enchanting-submit {
-  flex: 0 1 260px;
-  width: 260px;
-  max-width: 100%;
-  min-height: 30px;
-  height: auto;
-  padding: 4px 9px;
-  white-space: normal;
-  overflow-wrap: anywhere;
 }
 
 @media (max-width: 620px) {
@@ -13552,43 +14836,6 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
   font-size: 0.75em;
 }
 
-@media (max-width: 900px) {
-  .spell-sheet .spell-stats-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .spell-sheet .spell-2col-grid,
-  .spell-sheet .spell-modules-grid,
-  .spell-sheet .spell-row--grid-2col,
-  .spell-sheet .spell-row--grid-3col,
-  .spell-sheet .spell-row--grid-3col-auto {
-    grid-template-columns: 1fr;
-  }
-}
-@media (max-width: 640px) {
-  .spell-sheet .spell-header {
-    flex-direction: column;
-  }
-  .spell-sheet .spell-header .profile-img {
-    width: 64px;
-    height: 64px;
-  }
-  .spell-sheet .spell-stats-row {
-    grid-template-columns: 1fr;
-  }
-  .spell-sheet .spell-tabs {
-    flex-wrap: wrap;
-  }
-  .spell-sheet .sheet-tabs .item {
-    flex: 1 1 calc(50% - 6px);
-  }
-  .spell-sheet .spell-strength-field {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .spell-sheet .spell-subtabs .item {
-    flex: 1 1 calc(50% - 6px);
-  }
-}
 /* ---
    Compact header layout + structural fixes for non-spell item sheets.
 
@@ -17973,8 +19220,23 @@ body.system-uesrpg-3ev4 :is(
 }
 
 .application.uesrpg-dialog.uesrpg-dialog--buttons-2 :is(.dialog-buttons, .form-footer) {
-  grid-template-columns: repeat(2, minmax(0, 240px));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   justify-content: center;
+}
+
+.application.uesrpg-dialog.uesrpg-use-item-dialog {
+  min-width: min(360px, calc(100vw - 24px));
+}
+
+.application.uesrpg-dialog.uesrpg-use-item-dialog .uesrpg-use-item-form,
+.application.uesrpg-dialog.uesrpg-use-item-dialog .uesrpg-use-item-form .form-group,
+.application.uesrpg-dialog.uesrpg-use-item-dialog .uesrpg-use-item-form select {
+  width: 100%;
+  min-width: 0;
+}
+
+.application.uesrpg-dialog.uesrpg-use-item-dialog .uesrpg-use-item-form .form-group {
+  grid-template-columns: minmax(72px, 96px) minmax(0, 1fr);
 }
 
 .application.uesrpg-dialog:is(.uesrpg-dialog--buttons-3, .uesrpg-dialog--buttons-many) :is(.dialog-buttons, .form-footer) {
@@ -18102,6 +19364,10 @@ body.system-uesrpg-3ev4 :is(
   }
 
   .application.uesrpg-dialog:is(.uesrpg-dialog--buttons-2, .uesrpg-dialog--buttons-3, .uesrpg-dialog--buttons-many) :is(.dialog-buttons, .form-footer) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .application.uesrpg-dialog.uesrpg-use-item-dialog .uesrpg-use-item-form .form-group {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -18800,4 +20066,395 @@ body.system-uesrpg-3ev4 :is(
   text-align: left;
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+/* Semantic icon controls retain the compact appearance of the legacy anchors. */
+:is(.application, .worldbuilding).uesrpg :is(
+  button.item-control,
+  button.effect-control,
+  button.section-header__toggle,
+  button.uesrpg-icon-button
+) {
+  appearance: none;
+  width: auto;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0 0.15rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  cursor: pointer;
+}
+
+:is(.application, .worldbuilding).uesrpg :is(
+  button.item-control,
+  button.effect-control,
+  button.section-header__toggle,
+  button.uesrpg-icon-button
+):focus-visible {
+  outline: 2px solid var(--color-warm-2);
+  outline-offset: 2px;
+}
+
+/* ApplicationV2 accessibility marker. Visual neutralization belongs to
+   .uesrpg-plain-control above; this class must not erase component styling. */
+button.uesrpg-semantic-control {
+  cursor: pointer;
+}
+
+button.uesrpg-semantic-control:is(:hover, :focus-visible) {
+  color: inherit;
+}
+
+button.uesrpg-semantic-control:focus-visible {
+  outline: 2px solid var(--color-warm-2, #d9a441);
+  outline-offset: 2px;
+}
+
+button.uesrpg-semantic-control:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+button.uesrpg-semantic-control > :is(i, img) {
+  pointer-events: none;
+}
+
+button.uesrpg-image-action,
+button.uesrpg-icon-action {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: auto;
+}
+
+button.item-name.uesrpg-semantic-control {
+  display: block;
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spell-school-header__toggle {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 0;
+}
+
+/* 14.1.1 portrait contracts: the semantic wrapper occupies exactly the
+   rectangle formerly occupied by the directly actionable image. */
+.worldbuilding.sheet.item:not(.spell) .item-compact-header > button.uesrpg-image-action {
+  display: block;
+  flex: 0 0 var(--item-img, 64px);
+  width: var(--item-img, 64px);
+  height: var(--item-img, 64px);
+  overflow: visible;
+}
+
+.worldbuilding.sheet.item:not(.spell) .item-compact-header > button.uesrpg-image-action > .profile-img {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.worldbuilding.sheet.item.spell .spell-header > button.uesrpg-image-action,
+.worldbuilding.sheet.spell .spell-header > button.uesrpg-image-action {
+  display: block;
+  flex: 0 0 88px;
+  width: 88px;
+  height: 88px;
+  overflow: visible;
+}
+
+.worldbuilding.sheet.item.spell .spell-header > button.uesrpg-image-action > .profile-img,
+.worldbuilding.sheet.spell .spell-header > button.uesrpg-image-action > .profile-img {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* The legacy actor list icons occupied a 22px lane. Their button wrappers
+   must not add another flex contribution or an input-like box. */
+.worldbuilding.sheet.actor:not(.group) :is(.skillList, .single-column-list)
+  button.uesrpg-image-action {
+  width: 22px;
+  height: 22px;
+}
+
+.worldbuilding.sheet.actor:not(.group) :is(.skillList, .single-column-list)
+  button.uesrpg-image-action > .item-img {
+  width: 22px;
+  height: 22px;
+}
+
+@media (forced-colors: active) {
+  button.uesrpg-semantic-control {
+    color: ButtonText;
+    forced-color-adjust: auto;
+  }
+
+  button.uesrpg-semantic-control:focus-visible {
+    outline-color: Highlight;
+  }
+}
+
+/* Application-owned inline-size containment. Foundry windows are independently
+   resizable, so component breakpoints must follow their content box rather
+   than the browser viewport. */
+:is(
+  .application.uesrpg,
+  .worldbuilding.uesrpg-sheet-root,
+  .application.uesrpg-dialog,
+  .worldbuilding.uesrpg-dialog,
+  .application.uesrpg-resource-dialog,
+  .worldbuilding.uesrpg-resource-dialog
+) > .window-content {
+  container-type: inline-size;
+}
+
+:is(.application.uesrpg, .worldbuilding.uesrpg-sheet-root) > .window-content > *,
+:is(
+  .alchemy-workshop-wrap,
+  .enchanting-workshop-body,
+  .uesrpg-char-gen__root,
+  .uesrpg-settings,
+  .uesrpg-spendxp,
+  .uesrpg-spelllearn,
+  .uesrpg-travel-planner-root,
+  .uesrpg-worship-manager,
+  .uesrpg-army-campaign__body,
+  .uesrpg-warfare-encounter,
+  .warfare-sheet-content
+) {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+}
+
+:is(.application.uesrpg, .worldbuilding.uesrpg-sheet-root)
+  :is(section, article, fieldset, .tab, .sheet-body, .form-group, .grid-container) {
+  min-width: 0;
+}
+
+.worldbuilding.sheet.actor:not(.group) .profile-img-action {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.worldbuilding.sheet.actor:not(.group) .profile-img-action > .profile-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.travel-planner__tab,
+.spell-sheet .spell-details-section[data-uesrpg="scaling-levels"] .spell-table-scroll,
+.application.uesrpg-dialog--layout-table .dialog-content {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+@container (max-width: 1180px) {
+  .travel-planner__summary-grid,
+  .travel-planner__sidebar-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .travel-planner__header {
+    flex-direction: column;
+  }
+
+  .travel-planner__header-left {
+    max-width: none;
+    flex: 1 1 auto;
+  }
+
+  .travel-planner__header-controls {
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .travel-planner__journey-box,
+  .travel-planner__header-actions-row,
+  .travel-planner__checkbox {
+    grid-column: span 2;
+  }
+
+  .travel-planner__header-actions-row,
+  .travel-planner__resources {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .travel-planner__journey-row {
+    grid-template-columns: minmax(0, 1fr) 64px 64px auto;
+  }
+}
+
+@container (max-width: 1100px) {
+  .uesrpg-spendxp__header,
+  .uesrpg-spelllearn__header {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .uesrpg-spendxp__header-actions {
+    justify-content: center;
+  }
+
+  .uesrpg-spendxp__skill-list,
+  .uesrpg-spelllearn__dropzones {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@container (max-width: 820px) {
+  .uesrpg-warfare-encounter__layout,
+  .uesrpg-army-campaign__layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@container (max-width: 760px) {
+  .uesrpg-char-gen__layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .uesrpg-char-gen__stages {
+    max-height: 184px;
+  }
+
+  .uesrpg-char-gen__stages ol {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .uesrpg-spendxp__top-row,
+  .uesrpg-spendxp__stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container (max-width: 620px) {
+  .application.uesrpg.alchemy-workshop :is(.workshop-header, .alchemy-slot-card__top, .alchemy-slot-dropzone__top, .alchemy-poison-row),
+  .application.uesrpg.enchanting-workshop :is(.enchanting-actor-info, .form-group),
+  .uesrpg-settings .setting-row--toggle {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .application.uesrpg.alchemy-workshop :is(.alchemy-slot-dropzone__stats, .alchemy-poison-row__summary),
+  .application.uesrpg.enchanting-workshop .enchanting-skill-info {
+    text-align: left;
+  }
+
+  .uesrpg-settings .setting-row--toggle > input[type="checkbox"] {
+    justify-self: start;
+  }
+}
+
+/* Item sheets are 640px wide by default. Their compact adaptations therefore
+   begin below the standard 14.1.1 content width instead of changing the normal
+   presentation as soon as the sheet opens. */
+@container (max-width: 560px) {
+  .spell-sheet .spell-stats-row,
+  .worldbuilding.sheet.item .item-stats-row,
+  .worldbuilding.sheet.item .uesrpg-feature-stats,
+  .spell-sheet :is(.spell-row--grid-3col, .spell-row--grid-3col-auto) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container (max-width: 520px) {
+  .uesrpg-spelllearn__manual-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .uesrpg-char-gen__footer .dialog-button {
+    width: 88px;
+  }
+}
+
+@container (max-width: 480px) {
+  .spell-sheet .spell-header {
+    flex-direction: column;
+  }
+
+  .worldbuilding.sheet.item.spell .spell-header > button.uesrpg-image-action,
+  .worldbuilding.sheet.spell .spell-header > button.uesrpg-image-action {
+    flex-basis: 64px;
+    width: 64px;
+    height: 64px;
+  }
+
+  .spell-sheet .spell-tabs {
+    flex-wrap: wrap;
+  }
+
+  .spell-sheet .sheet-tabs .item,
+  .spell-sheet .spell-subtabs .item {
+    flex: 1 1 calc(50% - 6px);
+  }
+
+  .spell-sheet .spell-strength-field {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .spell-sheet :is(
+    .spell-stats-row,
+    .spell-2col-grid,
+    .spell-modules-grid,
+    .spell-row--grid-2col,
+    .spell-row--grid-3col,
+    .spell-row--grid-3col-auto
+  ),
+  .worldbuilding.sheet.item :is(
+    .item-stats-row,
+    .uesrpg-feature-stats,
+    .uesrpg-feature-grid,
+    .attr-struct-grid,
+    .item-spellcasting-config__toolbar--compact
+  ) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .uesrpg-spendxp__top-row,
+  .uesrpg-spendxp__stats,
+  .uesrpg-spendxp__confirm-actions,
+  .uesrpg-spelllearn__confirm-actions,
+  .travel-planner__header-controls,
+  .travel-planner__header-actions-row,
+  .travel-planner__resources {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .travel-planner__journey-box,
+  .travel-planner__header-actions-row,
+  .travel-planner__checkbox {
+    grid-column: 1;
+  }
+}
+
+@media (forced-colors: active) {
+  :is(.application.uesrpg, .worldbuilding.uesrpg-sheet-root)
+    :is(button, input, select, textarea, summary):focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+
+  :is(.application.uesrpg, .worldbuilding.uesrpg-sheet-root) :is(button, input, select, textarea) {
+    border-color: ButtonText;
+    forced-color-adjust: auto;
+  }
 }

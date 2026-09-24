@@ -15,25 +15,28 @@
             <div class="item-selection-container">
                         <h2>{{localize "UESRPG.Sheets.Item.Attributes"}}</h2>
                         <div class="selection-container">
+                            {{> "systems/uesrpg-3ev4/templates/partials/sheets/soul-energy-panel.hbs"}}
                             <div class="grid-container">
                                 <div>{{localize "UESRPG.Sheets.Item.Alchemy"}}</div>
                                 <div class="right-align-content">
                                     <div class="uesrpg-alchemy-action-row">
-                                        {{#if isAlchemyIngredient}}
-                                        <button type="button" class="uesrpg-alchemy-compact-btn" data-action="clearAlchemyIngredient">
+                                        {{#if canClearAlchemyIngredient}}
+                                        <button type="button" class="uesrpg-alchemy-compact-btn uesrpg-styled-action" data-action="clearAlchemyIngredient">
                                             <i class="fas fa-times"></i> {{localize "UESRPG.Sheets.Item.RemoveIngredient"}}
                                         </button>
                                         {{else}}
-                                        <button type="button" class="uesrpg-alchemy-compact-btn" data-action="enableAlchemyIngredient">
+                                        {{#unless isAlchemyIngredient}}
+                                        <button type="button" class="uesrpg-alchemy-compact-btn uesrpg-styled-action" data-action="enableAlchemyIngredient">
                                             <i class="fas fa-flask"></i> {{localize "UESRPG.Sheets.Item.EnableIngredient"}}
                                         </button>
+                                        {{/unless}}
                                         {{/if}}
                                         {{#if isAlchemyProduct}}
-                                        <button type="button" class="uesrpg-alchemy-compact-btn" data-action="clearAlchemyProduct">
+                                        <button type="button" class="uesrpg-alchemy-compact-btn uesrpg-styled-action" data-action="clearAlchemyProduct">
                                             <i class="fas fa-times"></i> {{localize "UESRPG.Sheets.Item.RemoveProduct"}}
                                         </button>
                                         {{else}}
-                                        <button type="button" class="uesrpg-alchemy-compact-btn" data-action="enableAlchemyProduct">
+                                        <button type="button" class="uesrpg-alchemy-compact-btn uesrpg-styled-action" data-action="enableAlchemyProduct">
                                             <i class="fas fa-vial"></i> {{localize "UESRPG.Sheets.Item.EnableProduct"}}
                                         </button>
                                         {{/if}}
@@ -49,24 +52,28 @@
                                         <span>{{localize "UESRPG.Sheets.Item.AlchemyIngredientHint"}}</span>
                                     </div>
                                     <div class="uesrpg-alchemy-inline-grid">
+                                        <input type="hidden" name="flags.uesrpg-3ev4.alchemy.kind" value="ingredient">
+                                        <input type="hidden" name="flags.uesrpg-3ev4.alchemy.quality" value="{{alchemyData.quality}}">
                                         <div class="form-group">
                                             <label>{{localize "UESRPG.Sheets.Item.School"}}</label>
                                             <select name="flags.uesrpg-3ev4.alchemy.school">
+                                                <option value="" {{#unless alchemyData.school}}selected{{/unless}}>{{localize "UESRPG.Apps.AlchemyWorkshop.AssignSchool"}}</option>
                                                 <option value="alteration" {{#if (eq alchemyData.school "alteration")}}selected{{/if}}>{{localize "UESRPG.Sheets.Item.AlchemySchool.Alteration"}}</option>
                                                 <option value="conjuration" {{#if (eq alchemyData.school "conjuration")}}selected{{/if}}>{{localize "UESRPG.Sheets.Item.AlchemySchool.Conjuration"}}</option>
                                                 <option value="destruction" {{#if (eq alchemyData.school "destruction")}}selected{{/if}}>{{localize "UESRPG.Sheets.Item.AlchemySchool.Destruction"}}</option>
                                                 <option value="illusion" {{#if (eq alchemyData.school "illusion")}}selected{{/if}}>{{localize "UESRPG.Sheets.Item.AlchemySchool.Illusion"}}</option>
                                                 <option value="mysticism" {{#if (eq alchemyData.school "mysticism")}}selected{{/if}}>{{localize "UESRPG.Sheets.Item.AlchemySchool.Mysticism"}}</option>
+                                                <option value="necromancy" {{#if (eq alchemyData.school "necromancy")}}selected{{/if}}>{{localize "UESRPG.Sheets.Item.AlchemySchool.Necromancy"}}</option>
                                                 <option value="restoration" {{#if (eq alchemyData.school "restoration")}}selected{{/if}}>{{localize "UESRPG.Sheets.Item.AlchemySchool.Restoration"}}</option>
                                             </select>
                                         </div>
                                         <div class="form-group">
                                             <label>{{localize "UESRPG.Sheets.Item.StrengthBase"}}</label>
-                                            <input type="number" name="flags.uesrpg-3ev4.alchemy.strengthBase" value="{{alchemyData.strengthBase}}" min="1" max="20">
+                                            <input type="number" name="flags.uesrpg-3ev4.alchemy.strengthBase" value="{{alchemyData.strengthBase}}" min="1" max="200">
                                         </div>
                                         <div class="form-group">
                                             <label>{{localize "UESRPG.Sheets.Item.DepthBase"}}</label>
-                                            <input type="number" name="flags.uesrpg-3ev4.alchemy.depthBase" value="{{alchemyData.depthBase}}" min="1" max="10">
+                                            <input type="number" name="flags.uesrpg-3ev4.alchemy.depthBase" value="{{alchemyData.depthBase}}" min="1" max="8">
                                         </div>
                                     </div>
                                 </div>
@@ -149,7 +156,7 @@
                                                             aria-label="{{localize "UESRPG.Sheets.Item.AlchemySpellDropzoneAria" index=slot.displayIndex}}">
                                                             {{#if slot.hasEffect}}
                                                             <div class="uesrpg-alchemy-product-dropzone__title">
-                                                                <b>{{slot.effect.label}}</b> (SL {{slot.effect.spellLevel}})
+                                                                <b>{{slot.effect.label}}</b> {{localize "UESRPG.ModernUI.SL" value1=slot.effect.spellLevel}}
                                                             </div>
                                                             {{#if slot.effect.school}}<div class="uesrpg-alchemy-product-dropzone__meta">{{localize "UESRPG.Sheets.Item.SpellSchoolMeta" school=(capitalize slot.effect.school)}}</div>{{/if}}
                                                             {{#if slot.effect.missingSpell}}<div class="uesrpg-alchemy-product-dropzone__warning">{{localize "UESRPG.Sheets.Item.SpellUnresolved"}}</div>{{/if}}
@@ -173,7 +180,7 @@
                                                     </div>
                                                 </div>
                                                 <div class="uesrpg-alchemy-inline-actions">
-                                                    <button type="button" class="uesrpg-alchemy-compact-btn" data-action="clearAlchemyProductEffect" data-slot-idx="{{slot.idx}}" {{#unless @root.alchemyProduct.canManageEffects}}disabled{{else}}{{#unless slot.hasEffect}}disabled{{/unless}}{{/unless}}>
+                                                    <button type="button" class="uesrpg-alchemy-compact-btn uesrpg-styled-action" data-action="clearAlchemyProductEffect" data-slot-idx="{{slot.idx}}" {{#unless @root.alchemyProduct.canManageEffects}}disabled{{else}}{{#unless slot.hasEffect}}disabled{{/unless}}{{/unless}}>
                                                         <i class="fas fa-times"></i> {{localize "UESRPG.Sheets.Item.ClearSlot"}}
                                                     </button>
                                                 </div>
@@ -185,11 +192,11 @@
 
                                     <div class="uesrpg-alchemy-inline-actions">
                                         {{#if (eq alchemyProduct.kind "potion")}}
-                                        <button type="button" class="uesrpg-alchemy-compact-btn" data-action="drinkAlchemyProduct">
+                                        <button type="button" class="uesrpg-alchemy-compact-btn uesrpg-styled-action" data-action="drinkAlchemyProduct">
                                             <i class="fas fa-glass-whiskey"></i> {{localize "UESRPG.Sheets.Item.Drink"}}
                                         </button>
                                         {{else}}
-                                        <button type="button" class="uesrpg-alchemy-compact-btn" data-action="applyAlchemyProductToWeapon">
+                                        <button type="button" class="uesrpg-alchemy-compact-btn uesrpg-styled-action" data-action="applyAlchemyProductToWeapon">
                                             <i class="fas fa-syringe"></i> {{localize "UESRPG.Sheets.Item.ApplyToWeapon"}}
                                         </button>
                                         {{/if}}
@@ -210,33 +217,9 @@
                                     <input class="checkbox" type="checkbox" name="system.equipped" {{checked item.system.equipped}}>
                                 </div>
                             </div>
-                            <div class="grid-container">
-                                <div>{{localize "UESRPG.Sheets.Item.ChargeReduction"}}</div>
-                                <div class="right-align-content">
-                                    {{!-- Guard: defensive access for charge.reduction with default 0 --}}
-                                    <input type="number" name="system.charge.reduction" value="{{#if item.system.charge.reduction}}{{item.system.charge.reduction}}{{else}}0{{/if}}">
-                                </div>
-                            </div>
-                            <div class="grid-container">
-                                <div>{{localize "UESRPG.Sheets.Item.EnchantLevel"}}</div>
-                                <div class="right-align-content">
-                                    <input type="number" name="system.enchant_level" value="{{#if item.system.enchant_level}}{{item.system.enchant_level}}{{else}}0{{/if}}">
-                                </div>
-                            </div>
-                            <div class="grid-container">
-                                <div>{{localize "UESRPG.Sheets.Item.Charge"}}</div>
-                                <div class="right-align-content enchant-inline enchant-charge-inline">
-                                    <button type="button" class="uesrpg-charge-btn" data-action="chargeMinus" data-tooltip="UESRPG.Sheets.Item.DecreaseCurrentCharge" aria-label="{{localize "UESRPG.Sheets.Item.DecreaseCurrentCharge"}}">
-                                        <i class="fas fa-minus"></i>
-                                    </button>
-                                    <input type="number" name="system.charge.value" value="{{#if item.system.charge.value}}{{item.system.charge.value}}{{else}}0{{/if}}" class="enchant-charge-input"/>
-                                    <span class="enchant-charge-sep">/</span>
-                                    <input type="number" name="system.charge.max" value="{{#if item.system.charge.max}}{{item.system.charge.max}}{{else}}0{{/if}}" class="enchant-charge-input"/>
-                                    <button type="button" class="uesrpg-charge-btn" data-action="chargePlus" data-tooltip="UESRPG.Sheets.Item.IncreaseCurrentCharge" aria-label="{{localize "UESRPG.Sheets.Item.IncreaseCurrentCharge"}}">
-                                        <i class="fas fa-plus"></i>
-                                    </button>
-                                </div>
-                            </div>
+                            {{#if showEnchantingInterface}}
+                            {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-enchanting-interface.hbs"}}
+                            {{/if}}
                         </div>
                     </div>
                     <div class="attribute-container">

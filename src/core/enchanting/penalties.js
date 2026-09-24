@@ -108,18 +108,19 @@ export function computeStrikeConstantPenalty(totalSpellLevels, effectiveEnchantR
  * @returns {number} The TN value (system.value) of the Enchant skill, or 0 if not found.
  */
 export function getEnchantTN(actor) {
-  if (!actor?.items) return 0;
+  return Math.max(0, Number(getEnchantSkill(actor)?.system?.value ?? 0));
+}
 
-  // Look for a skill or magicSkill item named "Enchant" or "Enchanting"
+/** Return the actor-owned Enchant skill document used by workshop rolls. */
+export function getEnchantSkill(actor) {
+  if (!actor?.items) return null;
   const names = new Set(["enchant", "enchanting"]);
   for (const item of actor.items) {
     if (item.type !== "skill" && item.type !== "magicSkill") continue;
     const n = String(item.name ?? "").toLowerCase().trim();
-    if (names.has(n)) {
-      return Math.max(0, Number(item.system?.value ?? 0));
-    }
+    if (names.has(n)) return item;
   }
-  return 0;
+  return null;
 }
 
 /**

@@ -108,8 +108,6 @@ export const SkillOpposedWorkflow = {
       rollMessage?.author?.id ??
       rollMessage?.user?.id ??
       (typeof rollMessage?.user === "string" ? rollMessage.user : null) ??
-      rollMessage?._source?.user ??
-      rollMessage?.data?.user ??
       null;
     const authorUser = authorId ? (game.users.get(authorId) ?? null) : null;
     if (!authorUser) return;
@@ -433,4 +431,3 @@ export const SkillOpposedWorkflow = {
 };
 
 window.UesrpgSkillOpposed = SkillOpposedWorkflow;
-

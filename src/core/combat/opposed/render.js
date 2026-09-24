@@ -101,7 +101,7 @@ export function _renderBreakdown(tnObj) {
  * @returns {number|null} Roll total or null
  */
 export function _extractRollTotal(res) {
-  const n = Number(res?.rollTotal ?? res?.total ?? res?.roll?.total ?? res?.roll?._total ?? res?.roll?.result ?? NaN);
+  const n = Number(res?.rollTotal ?? res?.total ?? res?.roll?.total ?? res?.roll?.result ?? NaN);
   return Number.isFinite(n) ? n : null;
 }
 

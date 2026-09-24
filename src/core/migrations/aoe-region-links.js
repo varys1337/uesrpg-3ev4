@@ -5,10 +5,11 @@ import {
   markMigrationRevisionApplied,
   setMigrationState
 } from "./state.js";
+import { MIGRATION_REVISIONS } from "./revisions.js";
 
 const MODULE_ID = SYSTEM_ID;
 const _AOE_REGION_LINK_MIGRATION_KEY = "aoeRegionLinks";
-const _AOE_REGION_LINK_MIGRATION_REVISION = 1;
+const _AOE_REGION_LINK_MIGRATION_REVISION = MIGRATION_REVISIONS.aoeRegionLinks;
 
 function _getContents(collectionLike) {
   if (Array.isArray(collectionLike?.contents)) return collectionLike.contents;

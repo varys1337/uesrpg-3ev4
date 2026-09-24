@@ -191,7 +191,7 @@ export function setResourceBars(sheet) {
   const data = sheet.actor.system;
 
   if (data) {
-    for (let bar of [...sheet.form.querySelectorAll(".currentBar")]) {
+    for (const bar of [...sheet.form.querySelectorAll(".currentBar")]) {
       const resource = data[bar.dataset.resource];
       const resourceContainer = bar.closest(".maxBar");
       const value = Number.isFinite(Number(resource?.value))
@@ -200,22 +200,15 @@ export function setResourceBars(sheet) {
       const max = Number.isFinite(Number(resource?.max))
         ? Number(resource.max)
         : Number(resourceContainer?.dataset?.max ?? bar.dataset.max);
-      const resourceElement = sheet.form.querySelector(`#${bar.id}`);
-      if (!resourceElement) continue;
-
       if (!Number.isFinite(max) || max <= 0) {
-        resourceElement.style.width = "0%";
+        bar.style.width = "0%";
         continue;
       }
 
-      let proportion = Number((100 * (value / max)).toFixed(0));
-
-      // if greater than 100 or lower than 20, set values to fit bars correctly
-      proportion < 100 ? (proportion = proportion) : (proportion = 100);
-      proportion < 0 ? (proportion = 0) : (proportion = proportion);
+      const proportion = Math.clamp(Number((100 * (value / max)).toFixed(0)), 0, 100);
 
       // Apply the proportion to the width of the resource bar
-      resourceElement.style.width = `${proportion}%`;
+      bar.style.width = `${proportion}%`;
     }
   }
 }

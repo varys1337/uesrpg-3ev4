@@ -1,76 +1,184 @@
 /**
- * src/utils/authority-proxy.js
+ * Permission-safe document mutation helpers.
  *
- * Centralized permission-safe mutation helper for distributed workflows.
- *
- * Foundry constraints:
- *  - Non-owners cannot mutate documents they do not own.
- *  - Some workflows require a remote, authorized writer (active GM preferred).
- *
- * This helper consolidates all "authority proxy" logic behind Foundry Queries
- * (CONFIG.queries + User#query), providing ack/return values.
- *
- * Supported operations:
- *  - ChatMessage updates (sanitized): content + flags[systemId].opposed / skillOpposed
- *  - Actor embedded ActiveEffect creation
- *  - Generic document updates (Actor / Item / ActiveEffect / TokenDocument / Combatant / Scene / Region)
- *  - Embedded document create/update/delete for direct-owner paths, with actor proxy support for ActiveEffect / Item
- *
- * Concurrency hardening:
- *  - The authority writer serializes mutations per-target (ChatMessage / Actor / Document)
- *    with a deterministic in-flight guard.
+ * Native Foundry document permissions are the authority for ordinary writes.
+ * Cross-owner writes are denied unless a sealed authority intent owns the
+ * complete validation and mutation flow. Chat workflow transitions currently
+ * use that intent service; arbitrary document payloads are never proxied.
  */
 
 import { isPerfEnabled, monoMs, perfRecord } from "./perf-tracker.js";
-import { getActiveGMUser } from "./users.js";
 import {
-  QUERY_UPDATE_CHAT_MESSAGE_V1,
-  QUERY_CREATE_ACTIVE_EFFECT_V1,
-  QUERY_UPDATE_DOCUMENT_V1,
-  QUERY_BATCH_UPDATE_DOCUMENTS_V1,
-  QUERY_CREATE_ACTOR_V1,
-  QUERY_CREATE_EMBEDDED_DOCS_V1,
-  QUERY_UPDATE_EMBEDDED_DOCS_V1,
-  QUERY_DELETE_EMBEDDED_DOCS_V1,
-  acquireLock as _acquireLock,
-  releaseLock as _releaseLock,
-  stableStringify as _stableStringify,
-  isRecentDuplicate as _isRecentDuplicate,
-  lockKeyForDoc as _lockKeyForDoc,
-  isAllowedGenericDocument as _isAllowedGenericDocument,
-  debugLog as _dlog,
+  acquireLock,
+  releaseLock,
+  lockKeyForDoc,
+  isAllowedGenericDocument,
   warnLog as _dwarn,
-  channelSystemId as _channelSystemId
 } from "./authority-proxy/shared.js";
-import {
-  deleteEmbeddedDocumentsIdempotent as _deleteEmbeddedDocumentsIdempotent
-} from "./authority-proxy/embedded-docs.js";
+import { deleteEmbeddedDocumentsIdempotent } from "./authority-proxy/embedded-docs.js";
 import {
   sanitizeChatMessageUpdatePayload,
   isChatMessageUpdateFresh,
-  sanitizeGenericUpdatePayload as _sanitizeGenericUpdatePayload,
-  sanitizeEmbeddedDocData as _sanitizeEmbeddedDocData,
-  sanitizeActorCreateData as _sanitizeActorCreateData
+  sanitizeGenericUpdatePayload,
+  sanitizeEmbeddedDocData,
+  sanitizeActorCreateData,
 } from "./authority-proxy/sanitize.js";
-import { createUuidResolver } from "./uuid-cache.js";
+import {
+  AUTHORITY_RESULT_CODES,
+  registerAuthorityIntentCommand,
+  registerAuthorityIntentService,
+  requestAuthorityIntent,
+} from "./authority-intents.js";
 
 export { sanitizeChatMessageUpdatePayload, isChatMessageUpdateFresh };
 
+const CHAT_TRANSITION_COMMAND = "chat.transition";
+const CHAT_WORKFLOW_LANES = Object.freeze([
+  "opposed",
+  "skillOpposed",
+  "magicOpposed",
+  "charOpposed",
+  "warfareClash",
+]);
+
+function _ownerLevel() {
+  return CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER;
+}
+
+function _canOwn(user, document) {
+  if (!user || !document) return false;
+  if (user.isGM) return true;
+  return document.testUserPermission?.(user, _ownerLevel()) === true;
+}
+
+function _notifyRemoteDenied(label = "change") {
+  const localized = game.i18n?.localize?.("UESRPG.Notifications.Authority.GMRequired");
+  const message = localized && localized !== "UESRPG.Notifications.Authority.GMRequired"
+    ? localized
+    : `A GM must perform this cross-owner ${label}.`;
+  ui.notifications?.warn?.(message);
+}
+
+function _workflowLane(payload) {
+  const flags = payload?.flags?.[game.system?.id ?? "uesrpg-3ev4"];
+  if (!flags || typeof flags !== "object") return null;
+  const lanes = CHAT_WORKFLOW_LANES.filter((lane) => Object.prototype.hasOwnProperty.call(flags, lane));
+  return lanes.length === 1 ? lanes[0] : null;
+}
+
+function _laneState(flags, lane) {
+  const value = flags?.[lane];
+  if (!value || typeof value !== "object") return null;
+  if (lane === "skillOpposed" || lane === "magicOpposed" || lane === "charOpposed") {
+    return value.state && typeof value.state === "object" ? value.state : null;
+  }
+  return value;
+}
+
+function _laneSequence(state) {
+  return Number(state?.context?.updatedSeq ?? 0) || 0;
+}
+
+function _collectActorUuids(value, output = new Set(), seen = new WeakSet()) {
+  if (!value || typeof value !== "object") return output;
+  if (seen.has(value)) return output;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    for (const entry of value) _collectActorUuids(entry, output, seen);
+    return output;
+  }
+  for (const [key, entry] of Object.entries(value)) {
+    if (/actoruuid$/i.test(key) && typeof entry === "string" && entry.trim()) output.add(entry.trim());
+    else if (entry && typeof entry === "object") _collectActorUuids(entry, output, seen);
+  }
+  return output;
+}
+
+function _sameStringSet(left, right) {
+  if (left.size !== right.size) return false;
+  for (const value of left) if (!right.has(value)) return false;
+  return true;
+}
+
+async function _requesterOwnsWorkflowActor(requester, message, state) {
+  if (requester?.isGM) return true;
+  const actorUuids = _collectActorUuids(state);
+  for (const uuid of actorUuids) {
+    try {
+      const actor = await fromUuid(uuid);
+      if (actor?.documentName === "Actor" && _canOwn(requester, actor)) return true;
+    } catch (_error) {
+      // Continue through the canonical references.
+    }
+  }
+  const speakerActorId = String(message?.speaker?.actor ?? "").trim();
+  const speakerActor = speakerActorId ? game.actors?.get?.(speakerActorId) : null;
+  return _canOwn(requester, speakerActor);
+}
+
+async function _handleChatTransitionIntent({ requester, data, expectedRevision }) {
+  const messageId = String(data?.messageId ?? "").trim();
+  const message = messageId ? game.messages?.get?.(messageId) : null;
+  if (!message) return { ok: false, code: AUTHORITY_RESULT_CODES.INVALID_REQUEST };
+
+  const payload = sanitizeChatMessageUpdatePayload(data?.payload);
+  const lane = _workflowLane(payload);
+  if (!lane) return { ok: false, code: AUTHORITY_RESULT_CODES.INVALID_REQUEST };
+
+  const systemId = game.system?.id ?? "uesrpg-3ev4";
+  const incomingFlags = payload.flags?.[systemId];
+  const currentFlags = message.flags?.[systemId];
+  const incomingState = _laneState(incomingFlags, lane);
+  const currentState = _laneState(currentFlags, lane);
+  if (!incomingState || !currentState) return { ok: false, code: AUTHORITY_RESULT_CODES.INVALID_REQUEST };
+  if (!(await _requesterOwnsWorkflowActor(requester, message, currentState))) {
+    return { ok: false, code: AUTHORITY_RESULT_CODES.UNAUTHORIZED };
+  }
+
+  const currentActors = _collectActorUuids(currentState);
+  const incomingActors = _collectActorUuids(incomingState);
+  if (!_sameStringSet(currentActors, incomingActors)) {
+    return { ok: false, code: AUTHORITY_RESULT_CODES.INVALID_REQUEST };
+  }
+
+  const lockKey = `ChatMessage:${message.id}`;
+  let acquired = false;
+  try {
+    await acquireLock(lockKey);
+    acquired = true;
+    const liveMessage = game.messages?.get?.(message.id) ?? message;
+    const liveState = _laneState(liveMessage.flags?.[systemId], lane);
+    const currentSeq = _laneSequence(liveState);
+    const incomingSeq = _laneSequence(incomingState);
+    if (Number(expectedRevision ?? currentSeq) !== currentSeq || incomingSeq !== currentSeq + 1) {
+      return {
+        ok: false,
+        code: AUTHORITY_RESULT_CODES.STALE_REVISION,
+        data: { currentRevision: currentSeq },
+      };
+    }
+    if (!isChatMessageUpdateFresh(liveMessage, payload)) {
+      return { ok: false, code: AUTHORITY_RESULT_CODES.STALE_REVISION, data: { currentRevision: currentSeq } };
+    }
+    await liveMessage.update(payload);
+    return { ok: true, data: { revision: incomingSeq } };
+  } catch (error) {
+    console.error("UESRPG | authority-proxy | Chat transition intent failed", error);
+    return { ok: false, code: AUTHORITY_RESULT_CODES.FAILED };
+  } finally {
+    if (acquired) releaseLock(lockKey);
+  }
+}
+
 export function getMessageAuthorId(message) {
   try {
-    // Foundry v13: ChatMessage has .author (User) and .user may be a string id.
-    const a = message?.author;
-    if (a && typeof a === "object" && typeof a.id === "string") return a.id;
-
-    const u = message?.user;
-    if (typeof u === "string") return u;
-    if (u && typeof u === "object" && typeof u.id === "string") return u.id;
-
-    const srcUser = message?._source?.user;
-    if (typeof srcUser === "string") return srcUser;
-
+    const author = message?.author;
+    if (author && typeof author === "object" && typeof author.id === "string") return author.id;
+    const user = message?.user;
+    if (typeof user === "string") return user;
+    if (user && typeof user === "object" && typeof user.id === "string") return user.id;
     return null;
-  } catch (_e) {
+  } catch (_error) {
     return null;
   }
 }
@@ -80,689 +188,115 @@ export function getChatMessageAuthorId(message) {
 }
 
 export function getChatMessageAuthorUser(message) {
-  try {
-    const authorId = getChatMessageAuthorId(message);
-    if (!authorId) return null;
-    const user = game.users?.get?.(authorId) ?? null;
-    return user?.active ? user : null;
-  } catch (_e) {
-    return null;
-  }
+  const authorId = getChatMessageAuthorId(message);
+  const user = authorId ? game.users?.get?.(authorId) : null;
+  return user?.active ? user : null;
 }
 
 export function doesUserOwnActor(user, actor) {
-  try {
-    if (!user || !actor) return false;
-    if (user.isGM) return true;
-    if (typeof actor.testUserPermission === "function") {
-      return actor.testUserPermission(user, CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER);
-    }
-    const userId = user?.id ?? user?._id ?? null;
-    if (!userId) return false;
-    const ownership = actor?.ownership ?? actor?.permission ?? {};
-    const userLevel = Number(ownership[userId] ?? ownership.default ?? 0);
-    return userLevel >= CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER;
-  } catch (_e) {
-    return false;
-  }
+  return actor?.documentName === "Actor" && _canOwn(user, actor);
 }
 
 export function getActorOwnerUser(actor) {
-  try {
-    if (!actor) return null;
-    const owners = (game.users?.contents ?? [])
-      .filter((user) => user?.active && doesUserOwnActor(user, actor));
-    if (!owners.length) return null;
-    owners.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-    return owners[0];
-  } catch (_e) {
-    return null;
-  }
+  const owners = (game.users?.contents ?? [])
+    .filter((user) => user?.active && doesUserOwnActor(user, actor))
+    .sort((left, right) => String(left.id).localeCompare(String(right.id)));
+  return owners[0] ?? null;
 }
 
 export function canUserUpdateChatMessage(message, user) {
-  try {
-    if (!message || !user) return false;
-    if (user.isGM) return true;
-    if (typeof message.canUserModify === "function") return message.canUserModify(user, "update");
-    if (typeof message.testUserPermission === "function") {
-      return message.testUserPermission(user, CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER);
-    }
-    // Fallback: author match.
-    return getChatMessageAuthorId(message) === user.id;
-  } catch (_e) {
-    return false;
-  }
-}
-
-function _isAuthor(message, user) {
-  try {
-    return Boolean(user?.id) && (getChatMessageAuthorId(message) === user.id);
-  } catch (_e) {
-    return false;
-  }
-}
-
-function _selectActiveGM() {
-  return getActiveGMUser();
-}
-
-function _selectActorOwner(actor) {
-  return getActorOwnerUser(actor);
-}
-
-function _selectChatMessageAuthor(message) {
-  return getChatMessageAuthorUser(message);
-}
-
-function _selectDocumentOwner(doc) {
-  try {
-    if (!doc) return null;
-    const owners = (game.users?.contents ?? [])
-      .filter(u => u?.active && doc.testUserPermission?.(u, CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER));
-    if (!owners.length) return null;
-    owners.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-    return owners[0];
-  } catch (_e) {
-    return null;
-  }
+  if (!message || !user) return false;
+  if (user.isGM) return true;
+  if (typeof message.canUserModify === "function") return message.canUserModify(user, "update");
+  if (typeof message.testUserPermission === "function") return _canOwn(user, message);
+  return getChatMessageAuthorId(message) === user.id;
 }
 
 export function registerAuthorityProxy() {
-  CONFIG.queries = CONFIG.queries ?? {};
-
-  if (!CONFIG.queries[QUERY_UPDATE_CHAT_MESSAGE_V1]) {
-    CONFIG.queries[QUERY_UPDATE_CHAT_MESSAGE_V1] = async function updateChatMessageHandler(queryData) {
-      const lockKey = `ChatMessage:${String(queryData?.messageId ?? "")}`;
-      try {
-        await _acquireLock(lockKey);
-      } catch (e) {
-        return { ok: false, error: e?.message ?? String(e) };
-      }
-      try {
-        const messageId = String(queryData?.messageId ?? "").trim();
-        if (!messageId) return { ok: false, error: "Missing messageId" };
-
-        const message = game.messages?.get?.(messageId) ?? null;
-        if (!message) return { ok: false, error: `ChatMessage not found: ${messageId}` };
-
-        // Eligibility: GM preferred, otherwise author. Still validate.
-        const eligible = Boolean(game.user?.isGM) || _isAuthor(message, game.user);
-        if (!eligible) return { ok: false, error: "Not eligible to apply ChatMessage updates" };
-        if (!canUserUpdateChatMessage(message, game.user)) return { ok: false, error: "No permission to update ChatMessage" };
-
-        const sanitized = sanitizeChatMessageUpdatePayload(queryData?.payload ?? {});
-        if (!sanitized || Object.keys(sanitized).length === 0) return { ok: false, error: "Empty or invalid payload" };
-        if (!isChatMessageUpdateFresh(message, sanitized)) return { ok: false, error: "Stale payload" };
-
-        await message.update(sanitized, { render: false });
-        if (ui?.chat) {
-          // Capture scroll state BEFORE render(true) resets the DOM (race-condition fix).
-          const _chatLog = document.getElementById("chat-log");
-          const _wasAtBottom = !_chatLog || (_chatLog.scrollHeight - _chatLog.scrollTop - _chatLog.clientHeight) < 50;
-          ui.chat.render?.(true);
-          if (_wasAtBottom) requestAnimationFrame(() => ui.chat?.scrollBottom?.());
-        }
-
-        return { ok: true };
-      } catch (err) {
-        console.error("UESRPG | authority-proxy | updateChatMessage query handler failed", err);
-        return { ok: false, error: err?.message ?? String(err) };
-      } finally {
-        _releaseLock(lockKey);
-      }
-    };
-  }
-
-  if (!CONFIG.queries[QUERY_CREATE_ACTIVE_EFFECT_V1]) {
-    CONFIG.queries[QUERY_CREATE_ACTIVE_EFFECT_V1] = async function createActiveEffectHandler(queryData) {
-      const actorUuid = queryData?.actorUuid ? String(queryData.actorUuid) : "";
-      const lockKey = `Actor:${actorUuid}`;
-
-      try {
-        await _acquireLock(lockKey);
-      } catch (e) {
-        return { ok: false, error: e?.message ?? String(e) };
-      }
-      try {
-        const effectData = queryData?.effectData ?? null;
-        if (!actorUuid || !effectData) return { ok: false, error: "Missing actorUuid/effectData" };
-
-        const actor = await fromUuid(actorUuid);
-        if (!actor) return { ok: false, error: `Actor not found for uuid=${actorUuid}` };
-        if (actor.documentName !== "Actor") return { ok: false, error: "Target is not an Actor" };
-
-        // Eligibility: GM preferred, otherwise an OWNER. Still validate.
-        if (!(game.user?.isGM || actor.isOwner)) {
-          return { ok: false, error: "Not authorized to create ActiveEffect on target Actor" };
-        }
-
-        // Best-effort duplicate suppression for rapid double-clicks.
-        const sig = `createAE:${actorUuid}:${_stableStringify(effectData)}`;
-        if (_isRecentDuplicate(sig)) return { ok: true, skipped: true };
-
-        const cleaned = _sanitizeEmbeddedDocData("ActiveEffect", effectData);
-        if (!cleaned || Object.keys(cleaned).length === 0) return { ok: false, error: "Invalid ActiveEffect data" };
-
-        const created = await actor.createEmbeddedDocuments("ActiveEffect", [cleaned]);
-        const effect = created?.[0] ?? null;
-        if (!effect) return { ok: false, error: "ActiveEffect creation returned no document" };
-
-        return { ok: true, effectId: effect.id, effectUuid: effect.uuid };
-      } catch (err) {
-        console.error("UESRPG | authority-proxy | createActiveEffect query handler failed", err);
-        return { ok: false, error: err?.message ?? String(err) };
-      } finally {
-        _releaseLock(lockKey);
-      }
-    };
-  }
-
-  if (!CONFIG.queries[QUERY_UPDATE_DOCUMENT_V1]) {
-    CONFIG.queries[QUERY_UPDATE_DOCUMENT_V1] = async function updateDocumentHandler(queryData) {
-      try {
-        const uuid = queryData?.uuid ? String(queryData.uuid) : "";
-        const updateData = queryData?.updateData ?? null;
-        if (!uuid || !updateData) return { ok: false, error: "Missing uuid/updateData" };
-
-        const doc = await fromUuid(uuid);
-        if (!doc) return { ok: false, error: `Document not found for uuid=${uuid}` };
-
-        // Avoid using this generic lane for ChatMessage; keep the existing sanitization path.
-        if (doc.documentName === "ChatMessage") return { ok: false, error: "Use updateChatMessage proxy for ChatMessage" };
-
-        // Supported docs only.
-        const allowedDocs = new Set(["Actor", "Item", "ActiveEffect", "Token", "Combatant", "Scene", "Region"]);
-        if (!allowedDocs.has(doc.documentName)) {
-          return { ok: false, error: `Unsupported document type: ${doc.documentName}` };
-        }
-
-        // Eligibility: GM preferred, otherwise OWNER.
-        if (!(game.user?.isGM || doc.isOwner)) {
-          return { ok: false, error: "Not authorized to update target document" };
-        }
-
-        const cleaned = _sanitizeGenericUpdatePayload(doc, updateData);
-        if (!cleaned || Object.keys(cleaned).length === 0) return { ok: false, error: "Empty/invalid update payload" };
-
-        const lockKey = _lockKeyForDoc(doc);
-        await _acquireLock(lockKey);
-        try {
-          await doc.update(cleaned);
-        } finally {
-          _releaseLock(lockKey);
-        }
-
-        return { ok: true };
-      } catch (err) {
-        console.error("UESRPG | authority-proxy | updateDocument query handler failed", err);
-        return { ok: false, error: err?.message ?? String(err) };
-      }
-    };
-  }
-
-  if (!CONFIG.queries[QUERY_BATCH_UPDATE_DOCUMENTS_V1]) {
-    CONFIG.queries[QUERY_BATCH_UPDATE_DOCUMENTS_V1] = async function batchUpdateDocumentsHandler(queryData) {
-      const started = isPerfEnabled() ? monoMs() : 0;
-      try {
-        const updates = Array.isArray(queryData?.updates) ? queryData.updates : [];
-        if (!updates.length) {
-          return { ok: false, totalCount: 0, updatedCount: 0, failureCount: 0, failures: [{ uuid: "", error: "No updates provided" }] };
-        }
-
-        const resolved = [];
-        const failures = [];
-        for (const row of updates) {
-          const uuid = String(row?.uuid ?? "").trim();
-          if (!uuid) {
-            failures.push({ uuid: "", error: "Missing uuid" });
-            continue;
-          }
-          const doc = await fromUuid(uuid);
-          if (!doc) {
-            failures.push({ uuid, error: `Document not found for uuid=${uuid}` });
-            continue;
-          }
-          if (!_isAllowedGenericDocument(doc)) {
-            failures.push({ uuid, error: `Unsupported document type: ${doc.documentName}` });
-            continue;
-          }
-          if (!(game.user?.isGM || doc.isOwner)) {
-            failures.push({ uuid, error: "Not authorized to update target document" });
-            continue;
-          }
-
-          const cleaned = _sanitizeGenericUpdatePayload(doc, row?.updateData ?? {});
-          if (!cleaned || Object.keys(cleaned).length === 0) {
-            failures.push({ uuid, error: "Empty/invalid update payload" });
-            continue;
-          }
-
-          resolved.push({ uuid, doc, cleaned, lockKey: _lockKeyForDoc(doc) });
-        }
-
-        const uniqueLockKeys = Array.from(new Set(resolved.map((r) => r.lockKey))).sort((a, b) => a.localeCompare(b));
-        const acquiredKeys = [];
-        for (const key of uniqueLockKeys) {
-          try {
-            await _acquireLock(key);
-            acquiredKeys.push(key);
-          } catch (err) {
-            failures.push({ uuid: "", error: err?.message ?? String(err) });
-            break;
-          }
-        }
-
-        let updatedCount = 0;
-        try {
-          const canApply = acquiredKeys.length === uniqueLockKeys.length;
-          for (const row of resolved) {
-            if (!canApply) {
-              failures.push({ uuid: row.uuid, error: "Batch lock acquisition failed" });
-              continue;
-            }
-            try {
-              await row.doc.update(row.cleaned);
-              updatedCount += 1;
-            } catch (err) {
-              failures.push({ uuid: row.uuid, error: err?.message ?? String(err) });
-            }
-          }
-        } finally {
-          for (let i = acquiredKeys.length - 1; i >= 0; i--) {
-            _releaseLock(acquiredKeys[i]);
-          }
-        }
-
-        const totalCount = updates.length;
-        const failureCount = failures.length;
-        const ok = failureCount === 0;
-
-        if (isPerfEnabled()) {
-          perfRecord({
-            event: "authorityProxy.batchUpdate",
-            totalCount,
-            updatedCount,
-            failureCount,
-            durationMs: monoMs() - started,
-          });
-        }
-
-        return { ok, totalCount, updatedCount, failureCount, failures };
-      } catch (err) {
-        if (isPerfEnabled()) {
-          perfRecord({
-            event: "authorityProxy.batchUpdate",
-            totalCount: 0,
-            updatedCount: 0,
-            failureCount: 1,
-            durationMs: monoMs() - started,
-          });
-        }
-        return {
-          ok: false,
-          totalCount: 0,
-          updatedCount: 0,
-          failureCount: 1,
-          failures: [{ uuid: "", error: err?.message ?? String(err) }]
-        };
-      }
-    };
-  }
-
-  if (!CONFIG.queries[QUERY_CREATE_ACTOR_V1]) {
-    CONFIG.queries[QUERY_CREATE_ACTOR_V1] = async function createActorHandler(queryData) {
-      try {
-        const actorData = _sanitizeActorCreateData(queryData?.actorData ?? null);
-        if (!actorData) return { ok: false, error: "Invalid actorData" };
-
-        if (!game.user?.isGM) {
-          try {
-            const createdDirect = await Actor.create(actorData);
-            if (!createdDirect) return { ok: false, error: "Actor.create returned no document" };
-            return { ok: true, actorUuid: createdDirect.uuid, actorId: createdDirect.id };
-          } catch (err) {
-            return { ok: false, error: err?.message ?? String(err) };
-          }
-        }
-
-        const created = await Actor.create(actorData);
-        if (!created) return { ok: false, error: "Actor.create returned no document" };
-        return { ok: true, actorUuid: created.uuid, actorId: created.id };
-      } catch (err) {
-        console.error("UESRPG | authority-proxy | createActor query handler failed", err);
-        return { ok: false, error: err?.message ?? String(err) };
-      }
-    };
-  }
-
-  if (!CONFIG.queries[QUERY_CREATE_EMBEDDED_DOCS_V1]) {
-    CONFIG.queries[QUERY_CREATE_EMBEDDED_DOCS_V1] = async function createEmbeddedDocumentsHandler(queryData) {
-      const actorUuid = queryData?.actorUuid ? String(queryData.actorUuid) : "";
-      const embeddedName = queryData?.embeddedName ? String(queryData.embeddedName) : "";
-      const lockKey = `Actor:${actorUuid}`;
-
-      try {
-        await _acquireLock(lockKey);
-      } catch (e) {
-        return { ok: false, error: e?.message ?? String(e) };
-      }
-      try {
-        const docsData = Array.isArray(queryData?.docsData) ? queryData.docsData : null;
-        if (!actorUuid || !embeddedName || !docsData) return { ok: false, error: "Missing actorUuid/embeddedName/docsData" };
-
-        if (embeddedName !== "ActiveEffect" && embeddedName !== "Item") {
-          return { ok: false, error: `Unsupported embedded type: ${embeddedName}` };
-        }
-
-        const actor = await fromUuid(actorUuid);
-        if (!actor || actor.documentName !== "Actor") return { ok: false, error: `Actor not found for uuid=${actorUuid}` };
-        if (!(game.user?.isGM || actor.isOwner)) return { ok: false, error: "Not authorized to create embedded documents on target Actor" };
-
-        const cleanedList = docsData
-          .map((d) => _sanitizeEmbeddedDocData(embeddedName, d))
-          .filter((d) => d && typeof d === "object" && Object.keys(d).length > 0);
-        if (!cleanedList.length) return { ok: false, error: "No valid documents in docsData" };
-
-        // Best-effort duplicate suppression for rapid double-clicks.
-        const sig = `createEmbedded:${actorUuid}:${embeddedName}:${_stableStringify(cleanedList)}`;
-        if (_isRecentDuplicate(sig)) return { ok: true, skipped: true, created: [] };
-
-        const created = await actor.createEmbeddedDocuments(embeddedName, cleanedList);
-        const descriptors = (created ?? []).map((d) => ({ id: d.id, uuid: d.uuid }));
-        return { ok: true, created: descriptors };
-      } catch (err) {
-        console.error("UESRPG | authority-proxy | createEmbeddedDocuments query handler failed", err);
-        return { ok: false, error: err?.message ?? String(err) };
-      } finally {
-        _releaseLock(lockKey);
-      }
-    };
-  }
-
-  if (!CONFIG.queries[QUERY_UPDATE_EMBEDDED_DOCS_V1]) {
-    CONFIG.queries[QUERY_UPDATE_EMBEDDED_DOCS_V1] = async function updateEmbeddedDocumentsHandler(queryData) {
-      const actorUuid = queryData?.actorUuid ? String(queryData.actorUuid) : "";
-      const embeddedName = queryData?.embeddedName ? String(queryData.embeddedName) : "";
-      const lockKey = `Actor:${actorUuid}`;
-
-      try {
-        await _acquireLock(lockKey);
-      } catch (e) {
-        return { ok: false, error: e?.message ?? String(e) };
-      }
-      try {
-        const updates = Array.isArray(queryData?.updates) ? queryData.updates : null;
-        if (!actorUuid || !embeddedName || !updates) return { ok: false, error: "Missing actorUuid/embeddedName/updates" };
-
-        if (embeddedName !== "ActiveEffect" && embeddedName !== "Item") {
-          return { ok: false, error: `Unsupported embedded type: ${embeddedName}` };
-        }
-
-        const actor = await fromUuid(actorUuid);
-        if (!actor || actor.documentName !== "Actor") return { ok: false, error: `Actor not found for uuid=${actorUuid}` };
-        if (!(game.user?.isGM || actor.isOwner)) return { ok: false, error: "Not authorized to update embedded documents on target Actor" };
-
-        const cleanedUpdates = updates
-          .map((u) => {
-            if (!u || typeof u !== "object") return null;
-            const id = u._id ?? u.id;
-            if (!id) return null;
-            const cleaned = _sanitizeEmbeddedDocData(embeddedName, u);
-            if (!cleaned) return null;
-            // Ensure id survives.
-            cleaned._id = String(id);
-            return cleaned;
-          })
-          .filter(Boolean);
-        if (!cleanedUpdates.length) return { ok: false, error: "No valid embedded document updates" };
-
-        await actor.updateEmbeddedDocuments(embeddedName, cleanedUpdates);
-        return { ok: true };
-      } catch (err) {
-        console.error("UESRPG | authority-proxy | updateEmbeddedDocuments query handler failed", err);
-        return { ok: false, error: err?.message ?? String(err) };
-      } finally {
-        _releaseLock(lockKey);
-      }
-    };
-  }
-
-  if (!CONFIG.queries[QUERY_DELETE_EMBEDDED_DOCS_V1]) {
-    CONFIG.queries[QUERY_DELETE_EMBEDDED_DOCS_V1] = async function deleteEmbeddedDocumentsHandler(queryData) {
-      const actorUuid = queryData?.actorUuid ? String(queryData.actorUuid) : "";
-      const embeddedName = queryData?.embeddedName ? String(queryData.embeddedName) : "";
-      const lockKey = `Actor:${actorUuid}`;
-
-      try {
-        await _acquireLock(lockKey);
-      } catch (e) {
-        return { ok: false, error: e?.message ?? String(e) };
-      }
-      try {
-        const ids = Array.isArray(queryData?.ids) ? queryData.ids : null;
-        const deleteOptions = (queryData?.deleteOptions && typeof queryData.deleteOptions === "object") ? queryData.deleteOptions : {};
-        if (!actorUuid || !embeddedName || !ids) return { ok: false, error: "Missing actorUuid/embeddedName/ids" };
-
-        if (embeddedName !== "ActiveEffect" && embeddedName !== "Item") {
-          return { ok: false, error: `Unsupported embedded type: ${embeddedName}` };
-        }
-
-        const actor = await fromUuid(actorUuid);
-        if (!actor || actor.documentName !== "Actor") return { ok: false, error: `Actor not found for uuid=${actorUuid}` };
-        if (!(game.user?.isGM || actor.isOwner)) return { ok: false, error: "Not authorized to delete embedded documents on target Actor" };
-
-        return await _deleteEmbeddedDocumentsIdempotent(actor, embeddedName, ids, deleteOptions);
-      } catch (err) {
-        console.error("UESRPG | authority-proxy | deleteEmbeddedDocuments query handler failed", err);
-        return { ok: false, error: err?.message ?? String(err) };
-      } finally {
-        _releaseLock(lockKey);
-      }
-    };
-  }
+  registerAuthorityIntentService();
+  registerAuthorityIntentCommand(CHAT_TRANSITION_COMMAND, _handleChatTransitionIntent);
 }
 
-/**
- * Permission-safe ChatMessage update.
- *
- * - If current user can update, update directly.
- * - Otherwise, delegate to an active GM; if none, delegate to the message author.
- */
-export async function requestUpdateChatMessage(message, payload, { timeout = 5000 } = {}) {
+export async function requestUpdateChatMessage(message, payload, { timeout = 5_000 } = {}) {
   if (!message) return false;
+  const sanitized = sanitizeChatMessageUpdatePayload(payload);
+  if (!Object.keys(sanitized).length) return false;
 
-  // Direct path.
   if (canUserUpdateChatMessage(message, game.user)) {
-    // Apply the same sanitization and freshness check as the proxy path
-    // to prevent stale payloads from overwriting newer state.
-    const sanitized = sanitizeChatMessageUpdatePayload(payload);
-    if (!sanitized || Object.keys(sanitized).length === 0) return false;
-    if (!isChatMessageUpdateFresh(message, sanitized)) {
-      _dwarn("direct update skipped (stale payload)", { messageId: message.id });
-      return false;
-    }
+    if (!isChatMessageUpdateFresh(message, sanitized)) return false;
     try {
       await message.update(sanitized);
       return true;
-    } catch (err) {
-      _dwarn("direct update failed; applying non-rendering fallback", { messageId: message.id, err });
-      try {
-        await message.update(sanitized, { render: false });
-        if (ui?.chat) {
-          const _chatLog = document.getElementById("chat-log");
-          const _wasAtBottom = !_chatLog || (_chatLog.scrollHeight - _chatLog.scrollTop - _chatLog.clientHeight) < 50;
-          ui.chat.render?.(true);
-          if (_wasAtBottom) requestAnimationFrame(() => ui.chat?.scrollBottom?.());
-        }
-        return true;
-      } catch (err2) {
-        console.error("UESRPG | authority-proxy | direct update fallback failed", { messageId: message.id, err: err2 });
-        return false;
-      }
-    }
-  }
-
-  // Proxy path.
-  const sanitized = sanitizeChatMessageUpdatePayload(payload);
-  if (!sanitized || Object.keys(sanitized).length === 0) return false;
-
-  const applier = _selectActiveGM() ?? _selectChatMessageAuthor(message);
-  if (!applier) {
-    ui.notifications?.warn?.("A GM (or the message author) must be online to update this opposed card.");
-    return false;
-  }
-
-  _dlog("proxy update requested", { messageId: message.id, applierUserId: applier.id, requestedBy: game.user?.id ?? null });
-
-  try {
-    const resp = await applier.query(QUERY_UPDATE_CHAT_MESSAGE_V1, { messageId: message.id, payload: sanitized }, { timeout });
-    if (!resp?.ok) {
-      _dwarn("proxy update rejected", { messageId: message.id, resp });
-      ui.notifications?.warn?.(`Failed to update opposed card: ${resp?.error ?? "unknown error"}`);
+    } catch (error) {
+      console.error("UESRPG | authority-proxy | Direct ChatMessage update failed", { messageId: message.id, error });
       return false;
     }
-    return true;
-  } catch (err) {
-    console.error("UESRPG | authority-proxy | proxy update failed", { messageId: message.id, err });
+  }
+
+  const lane = _workflowLane(sanitized);
+  if (!lane) {
+    _notifyRemoteDenied("chat update");
     return false;
   }
+  const systemId = game.system?.id ?? "uesrpg-3ev4";
+  const expectedRevision = _laneSequence(_laneState(message.flags?.[systemId], lane));
+  const result = await requestAuthorityIntent(CHAT_TRANSITION_COMMAND, {
+    messageId: message.id,
+    payload: sanitized,
+  }, { expectedRevision, timeout });
+  if (!result?.ok) {
+    _dwarn("Chat transition rejected", { messageId: message.id, code: result?.code });
+    if (result?.code === AUTHORITY_RESULT_CODES.STALE_REVISION) {
+      ui.notifications?.warn?.("This workflow changed on another client. Refresh the card and try again.");
+    } else if (result?.code === AUTHORITY_RESULT_CODES.NO_ACTIVE_GM) {
+      _notifyRemoteDenied("chat transition");
+    } else {
+      ui.notifications?.warn?.("The GM rejected this workflow transition.");
+    }
+    return false;
+  }
+  return true;
 }
 
-/**
- * Permission-safe ActiveEffect creation on a target Actor.
- *
- * - If current user can create (GM or actor owner), do it directly.
- * - Otherwise, delegate to an active GM; if none, delegate to an active Actor OWNER.
- */
-export async function requestCreateActiveEffect(actor, effectData, { timeout = 5000 } = {}) {
-  if (!actor || !effectData) return null;
-
-  const cleaned = _sanitizeEmbeddedDocData("ActiveEffect", effectData);
-  if (!cleaned || Object.keys(cleaned).length === 0) return null;
-
-  // Direct path.
-  if (game.user?.isGM || actor.isOwner) {
-    const created = await actor.createEmbeddedDocuments("ActiveEffect", [cleaned]);
-    return created?.[0] ?? null;
-  }
-
-  const applier = _selectActiveGM() ?? _selectActorOwner(actor);
-  if (!applier) {
-    ui.notifications?.warn?.("A GM (or an owner of the target Actor) must be online to apply effects to this target.");
-    return null;
-  }
-
-  _dlog("proxy createActiveEffect requested", { actorUuid: actor.uuid, applierUserId: applier.id, requestedBy: game.user?.id ?? null });
-
-  try {
-    const resp = await applier.query(QUERY_CREATE_ACTIVE_EFFECT_V1, { actorUuid: actor.uuid, effectData: cleaned }, { timeout });
-    if (!resp?.ok) {
-      _dwarn("proxy createActiveEffect rejected", { actorUuid: actor.uuid, resp });
-      ui.notifications?.warn?.(`Failed to apply effect to target: ${resp?.error ?? "unknown error"}`);
-      return null;
-    }
-
-    if (resp?.skipped) return null;
-
-    // Best-effort fetch of the created effect.
-    try {
-      const eff = await fromUuid(resp.effectUuid);
-      return eff ?? { id: resp.effectId, uuid: resp.effectUuid };
-    } catch {
-      return { id: resp.effectId, uuid: resp.effectUuid };
-    }
-  } catch (err) {
-    console.error("UESRPG | authority-proxy | proxy createActiveEffect failed", { actorUuid: actor.uuid, err });
-    return null;
-  }
+export async function requestCreateActiveEffect(actor, effectData) {
+  const created = await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [effectData]);
+  return created?.[0] ?? null;
 }
 
-/**
- * Freshness-aware, permission-safe document update.
- *
- * On the **direct path** (current user is GM or owner): acquires the per-document
- * lock, re-reads the document fresh via fromUuid(), calls `mutator(freshDoc)` to
- * produce the update payload, sanitizes it, and writes — all inside the lock.
- * This prevents stale-snapshot writes in read-wait-write workflows (e.g. rest
- * dialogs, stamina spend dialogs) where another client may have updated the
- * document between the original read and the eventual write.
- *
- * On the **proxy path** (non-authorized user): calls `mutator(doc)` with the
- * caller's current document reference to produce a static payload, then
- * delegates to requestUpdateDocument. The proxy handler re-reads the document
- * server-side, but cannot re-apply the mutator logic. Freshness is best-effort
- * on this path; document the known limitation at the call site.
- *
- * The mutator receives the fresh document and must return an update-data object
- * (or null / empty object to skip the write). Side-effects inside the mutator
- * (e.g. capturing computed values for chat lines) are valid because the mutator
- * is called exactly once per invocation.
- *
- * Supported document types: Actor / Item / ActiveEffect / TokenDocument / Combatant / Scene / Region
- *
- * @param {Document|string} docOrUuid
- * @param {function(Document): object|null} mutator - Returns updateData or null to skip
- * @param {object} [options]
- * @param {number} [options.timeout=5000]
- * @returns {Promise<boolean>}
- */
-export async function requestAtomicUpdateDocument(docOrUuid, mutator, { timeout = 5000 } = {}) {
+export async function requestAtomicUpdateDocument(docOrUuid, mutator) {
   if (!docOrUuid || typeof mutator !== "function") return false;
-
-  const doc = (typeof docOrUuid === "string") ? await fromUuid(docOrUuid) : docOrUuid;
-  if (!doc) return false;
-  if (doc.documentName === "ChatMessage") return false;
-
-  const allowedDocs = new Set(["Actor", "Item", "ActiveEffect", "Token", "Combatant", "Scene", "Region"]);
-  if (!allowedDocs.has(doc.documentName)) return false;
-
-  // Direct path: authorized user — re-read fresh inside lock for atomicity.
-  if (game.user?.isGM || doc.isOwner) {
-    const lockKey = _lockKeyForDoc(doc);
-    await _acquireLock(lockKey);
-    try {
-      const freshDoc = (doc.uuid ? (await fromUuid(doc.uuid)) : null) ?? doc;
-      const updateData = mutator(freshDoc);
-      if (!updateData || typeof updateData !== "object" || !Object.keys(updateData).length) return false;
-      const cleaned = _sanitizeGenericUpdatePayload(freshDoc, updateData);
-      if (!cleaned || !Object.keys(cleaned).length) return false;
-      await freshDoc.update(cleaned);
-      return true;
-    } catch (err) {
-      console.error("UESRPG | authority-proxy | requestAtomicUpdateDocument direct path failed", { uuid: doc.uuid, err });
-      return false;
-    } finally {
-      _releaseLock(lockKey);
-    }
+  const doc = typeof docOrUuid === "string" ? await fromUuid(docOrUuid) : docOrUuid;
+  if (!isAllowedGenericDocument(doc)) return false;
+  if (!_canOwn(game.user, doc)) {
+    _notifyRemoteDenied("document update");
+    return false;
   }
 
-  // Proxy path: non-authorized user — compute static payload from caller's doc.
-  // Freshness is best-effort; the proxy handler re-reads server-side but applies
-  // the static payload rather than the mutator logic.
-  _dlog("requestAtomicUpdateDocument proxy path (freshness best-effort)", { uuid: doc.uuid, docName: doc.documentName });
-  const updateData = mutator(doc);
-  if (!updateData || typeof updateData !== "object" || !Object.keys(updateData).length) return false;
-  return requestUpdateDocument(doc, updateData, { timeout });
+  const lockKey = lockKeyForDoc(doc);
+  let acquired = false;
+  try {
+    await acquireLock(lockKey);
+    acquired = true;
+    const fresh = (doc.uuid ? await fromUuid(doc.uuid) : null) ?? doc;
+    const updateData = await mutator(fresh);
+    const cleaned = sanitizeGenericUpdatePayload(fresh, updateData);
+    if (!Object.keys(cleaned).length) return false;
+    await fresh.update(cleaned);
+    return true;
+  } catch (error) {
+    console.error("UESRPG | authority-proxy | Atomic document update failed", { uuid: doc.uuid, error });
+    return false;
+  } finally {
+    if (acquired) releaseLock(lockKey);
+  }
 }
 
-/**
- * Permission-safe generic document update.
- *
- * Supported:
- *  - Actor / Item / ActiveEffect / TokenDocument / Combatant / Scene / Region
- *
- * The payload is sanitized to conservative lanes.
- */
-export async function requestUpdateDocument(docOrUuid, updateData, { timeout = 5000 } = {}) {
+export async function requestUpdateDocument(docOrUuid, updateData) {
   if (!docOrUuid || !updateData) return false;
-
-  const doc = (typeof docOrUuid === "string") ? await fromUuid(docOrUuid) : docOrUuid;
-  if (!doc) return false;
-  if (doc.documentName === "ChatMessage") return false;
-
-  const cleaned = _sanitizeGenericUpdatePayload(doc, updateData);
-  if (!cleaned || Object.keys(cleaned).length === 0) return false;
+  const doc = typeof docOrUuid === "string" ? await fromUuid(docOrUuid) : docOrUuid;
+  if (!isAllowedGenericDocument(doc)) return false;
+  const cleaned = sanitizeGenericUpdatePayload(doc, updateData);
+  if (!Object.keys(cleaned).length) return false;
 
   if (isPerfEnabled()) {
     perfRecord({
@@ -770,444 +304,142 @@ export async function requestUpdateDocument(docOrUuid, updateData, { timeout = 5
       docType: doc.documentName ?? null,
       docId: doc.id ?? null,
       keyCount: Object.keys(cleaned).length,
-      isDirectPath: !!(game.user?.isGM || doc.isOwner),
+      isDirectPath: _canOwn(game.user, doc),
     });
   }
-
-  // Direct path.
-  if (game.user?.isGM || doc.isOwner) {
-    try {
-      await doc.update(cleaned);
-      return true;
-    } catch (err) {
-      console.error("UESRPG | authority-proxy | direct document update failed", { uuid: doc.uuid, err });
-      return false;
-    }
-  }
-
-  const applier = _selectActiveGM() ?? _selectDocumentOwner(doc);
-  if (!applier) {
-    ui.notifications?.warn?.("A GM (or an owner of the target document) must be online to apply this change.");
+  if (!_canOwn(game.user, doc)) {
+    _notifyRemoteDenied("document update");
     return false;
   }
-
-  _dlog("proxy updateDocument requested", { uuid: doc.uuid, docName: doc.documentName, applierUserId: applier.id, requestedBy: game.user?.id ?? null });
-
   try {
-    const resp = await applier.query(QUERY_UPDATE_DOCUMENT_V1, { uuid: doc.uuid, updateData: cleaned }, { timeout });
-    if (!resp?.ok) {
-      _dwarn("proxy updateDocument rejected", { uuid: doc.uuid, resp });
-      ui.notifications?.warn?.(`Failed to apply change: ${resp?.error ?? "unknown error"}`);
-      return false;
-    }
+    await doc.update(cleaned);
     return true;
-  } catch (err) {
-    console.error("UESRPG | authority-proxy | proxy updateDocument failed", { uuid: doc.uuid, err });
+  } catch (error) {
+    console.error("UESRPG | authority-proxy | Direct document update failed", { uuid: doc.uuid, error });
     return false;
   }
 }
 
-/**
- * Permission-safe grouped generic document updates.
- *
- * Input rows:
- *  - { docOrUuid: Document|string, updateData: object }
- *
- * Returns:
- *  - { ok, totalCount, updatedCount, failureCount, failures[] }
- */
-export async function requestBatchUpdateDocuments(updates, { timeout = 5000 } = {}) {
+export async function requestBatchUpdateDocuments(updates) {
   const rows = Array.isArray(updates) ? updates : [];
   const started = isPerfEnabled() ? monoMs() : 0;
-
-  /** @type {Array<{uuid: string, updateData: object}>} */
   const prepared = [];
   const failures = [];
 
   for (const row of rows) {
-    try {
-      const candidate = row?.docOrUuid ?? null;
-      const doc = (typeof candidate === "string") ? await fromUuid(candidate) : candidate;
-      const updateData = row?.updateData ?? null;
-      if (!doc || !updateData) {
-        failures.push({ uuid: "", error: "Missing/invalid docOrUuid or updateData" });
-        continue;
-      }
-      if (!_isAllowedGenericDocument(doc)) {
-        failures.push({ uuid: String(doc?.uuid ?? ""), error: `Unsupported document type: ${doc?.documentName ?? "unknown"}` });
-        continue;
-      }
-      const cleaned = _sanitizeGenericUpdatePayload(doc, updateData);
-      if (!cleaned || Object.keys(cleaned).length === 0) {
-        failures.push({ uuid: String(doc?.uuid ?? ""), error: "Empty/invalid update payload" });
-        continue;
-      }
-      prepared.push({ uuid: String(doc.uuid), updateData: cleaned });
-    } catch (err) {
-      failures.push({ uuid: "", error: err?.message ?? String(err) });
+    const candidate = row?.docOrUuid ?? null;
+    const doc = typeof candidate === "string" ? await fromUuid(candidate) : candidate;
+    if (!isAllowedGenericDocument(doc) || !_canOwn(game.user, doc)) {
+      failures.push({ uuid: String(doc?.uuid ?? ""), error: "Native document permission is required" });
+      continue;
     }
+    const cleaned = sanitizeGenericUpdatePayload(doc, row?.updateData);
+    if (!Object.keys(cleaned).length) {
+      failures.push({ uuid: String(doc.uuid), error: "Empty or invalid update payload" });
+      continue;
+    }
+    prepared.push({ doc, cleaned });
   }
 
-  if (isPerfEnabled()) {
-    perfRecord({
-      event: "authorityProxy.batchUpdate",
-      totalCount: rows.length,
-      preparedCount: prepared.length,
-      preflightFailureCount: failures.length,
-      durationMs: monoMs() - started,
-    });
-  }
-
-  // Direct path: current user can update each document.
-  const resolver = createUuidResolver();
-  if (prepared.length && prepared.every((r) => {
-    const doc = resolver.resolveSync(r.uuid);
-    return !!doc && (game.user?.isGM || doc.isOwner);
-  })) {
-    const lockKeys = [];
+  const lockKeys = [...new Set(prepared.map(({ doc }) => lockKeyForDoc(doc)))].sort();
+  const acquired = [];
+  let updatedCount = 0;
+  try {
+    for (const key of lockKeys) {
+      await acquireLock(key);
+      acquired.push(key);
+    }
     for (const row of prepared) {
-      const doc = resolver.resolveSync(row.uuid);
-      if (!doc) {
-        failures.push({ uuid: row.uuid, error: "Document not found during direct update" });
-        continue;
-      }
-      lockKeys.push(_lockKeyForDoc(doc));
-    }
-
-    const uniqueLockKeys = Array.from(new Set(lockKeys)).sort((a, b) => a.localeCompare(b));
-    for (const key of uniqueLockKeys) {
       try {
-        await _acquireLock(key);
-      } catch (err) {
-        failures.push({ uuid: "", error: err?.message ?? String(err) });
+        await row.doc.update(row.cleaned);
+        updatedCount += 1;
+      } catch (error) {
+        failures.push({ uuid: String(row.doc.uuid), error: error?.message ?? String(error) });
       }
     }
-
-    let updatedCount = 0;
-    try {
-      for (const row of prepared) {
-        const doc = resolver.resolveSync(row.uuid);
-        if (!doc) {
-          failures.push({ uuid: row.uuid, error: "Document not found during apply" });
-          continue;
-        }
-        try {
-          await doc.update(row.updateData);
-          updatedCount += 1;
-        } catch (err) {
-          failures.push({ uuid: row.uuid, error: err?.message ?? String(err) });
-        }
-      }
-    } finally {
-      for (let i = uniqueLockKeys.length - 1; i >= 0; i--) {
-        _releaseLock(uniqueLockKeys[i]);
-      }
-    }
-
-    const totalCount = rows.length;
-    const failureCount = failures.length;
-    const out = { ok: failureCount === 0, totalCount, updatedCount, failureCount, failures };
-    if (isPerfEnabled()) {
-      perfRecord({
-        event: "authorityProxy.batchUpdate",
-        totalCount,
-        updatedCount,
-        failureCount,
-        isDirectPath: true,
-        durationMs: monoMs() - started,
-      });
-    }
-    return out;
+  } catch (error) {
+    failures.push({ uuid: "", error: error?.message ?? String(error) });
+  } finally {
+    for (let index = acquired.length - 1; index >= 0; index -= 1) releaseLock(acquired[index]);
   }
 
-  // Proxy path.
-  const applier = _selectActiveGM();
-  if (!applier) {
-    const totalCount = rows.length;
-    const failureCount = failures.length + prepared.length;
-    const out = {
-      ok: false,
-      totalCount,
-      updatedCount: 0,
-      failureCount,
-      failures: failures.concat(prepared.map((r) => ({ uuid: r.uuid, error: "A GM must be online to apply this change." })))
-    };
-    if (isPerfEnabled()) {
-      perfRecord({
-        event: "authorityProxy.batchUpdate",
-        totalCount,
-        updatedCount: 0,
-        failureCount,
-        isDirectPath: false,
-        durationMs: monoMs() - started,
-      });
-    }
-    return out;
+  const result = {
+    ok: failures.length === 0,
+    totalCount: rows.length,
+    updatedCount,
+    failureCount: failures.length,
+    failures,
+  };
+  if (isPerfEnabled()) {
+    perfRecord({ event: "authorityProxy.batchUpdate", ...result, durationMs: monoMs() - started });
   }
-
-  try {
-    const resp = await applier.query(QUERY_BATCH_UPDATE_DOCUMENTS_V1, { updates: prepared }, { timeout });
-    const proxyFailures = Array.isArray(resp?.failures) ? resp.failures : [];
-    const mergedFailures = failures.concat(proxyFailures);
-    const totalCount = rows.length;
-    const updatedCount = Number(resp?.updatedCount ?? 0) || 0;
-    const failureCount = mergedFailures.length;
-    const out = {
-      ok: failureCount === 0 && resp?.ok === true,
-      totalCount,
-      updatedCount,
-      failureCount,
-      failures: mergedFailures
-    };
-    if (isPerfEnabled()) {
-      perfRecord({
-        event: "authorityProxy.batchUpdate",
-        totalCount,
-        updatedCount,
-        failureCount,
-        isDirectPath: false,
-        durationMs: monoMs() - started,
-      });
-    }
-    return out;
-  } catch (err) {
-    const mergedFailures = failures.concat([{ uuid: "", error: err?.message ?? String(err) }]);
-    const totalCount = rows.length;
-    const out = {
-      ok: false,
-      totalCount,
-      updatedCount: 0,
-      failureCount: mergedFailures.length,
-      failures: mergedFailures
-    };
-    if (isPerfEnabled()) {
-      perfRecord({
-        event: "authorityProxy.batchUpdate",
-        totalCount,
-        updatedCount: 0,
-        failureCount: mergedFailures.length,
-        isDirectPath: false,
-        durationMs: monoMs() - started,
-      });
-    }
-    return out;
-  }
+  if (prepared.length < rows.length) _notifyRemoteDenied("batch update");
+  return result;
 }
 
-/**
- * Permission-safe Actor.create helper.
- *
- * - Attempts direct create first.
- * - Falls back to active GM query lane when direct creation is not permitted.
- */
-export async function requestCreateActor(actorData, { timeout = 5000 } = {}) {
-  const cleaned = _sanitizeActorCreateData(actorData);
+export async function requestCreateActor(actorData) {
+  const cleaned = sanitizeActorCreateData(actorData);
   if (!cleaned) return null;
-
   try {
-    const created = await Actor.create(cleaned);
-    if (created) return created;
-  } catch (_err) {
-    // Fall through to GM proxy path below.
-  }
-
-  const applier = _selectActiveGM();
-  if (!applier) {
-    ui.notifications?.warn?.("A GM must be online to create a new actor.");
-    return null;
-  }
-
-  try {
-    const resp = await applier.query(QUERY_CREATE_ACTOR_V1, { actorData: cleaned }, { timeout });
-    if (!resp?.ok) {
-      ui.notifications?.warn?.(`Failed to create actor: ${resp?.error ?? "unknown error"}`);
-      return null;
-    }
-
-    if (resp.actorUuid) {
-      try {
-        const actor = await fromUuid(resp.actorUuid);
-        if (actor?.documentName === "Actor") return actor;
-      } catch (_err) {
-        /* no-op */
-      }
-    }
-
-    if (resp.actorId) return game.actors?.get?.(resp.actorId) ?? null;
-    return null;
-  } catch (err) {
-    console.error("UESRPG | authority-proxy | proxy createActor failed", err);
+    return await Actor.create(cleaned);
+  } catch (error) {
+    console.error("UESRPG | authority-proxy | Actor creation failed", error);
+    _notifyRemoteDenied("actor creation");
     return null;
   }
 }
 
-/**
- * Permission-safe embedded docs create/update/delete.
- *
- * Supported proxy embedded types: ActiveEffect, Item.
- * Direct-owner paths also support scene-owned Token, MeasuredTemplate, and Region.
- */
-export async function requestCreateEmbeddedDocuments(actor, embeddedName, docsData, { timeout = 5000 } = {}) {
-  if (!actor || !embeddedName || !Array.isArray(docsData) || !docsData.length) return [];
-
-  const cleanedList = (embeddedName === "ActiveEffect" || embeddedName === "Item")
-    ? docsData
-      .map((d) => _sanitizeEmbeddedDocData(embeddedName, d))
-      .filter((d) => d && typeof d === "object" && Object.keys(d).length > 0)
-    : docsData
-      .map((d) => foundry.utils.deepClone(d))
-      .filter((d) => d && typeof d === "object" && Object.keys(d).length > 0);
-  if (!cleanedList.length) return [];
-
-  if (isPerfEnabled()) {
-    perfRecord({
-      event: "authorityProxy.createEmbedded",
-      docType: actor.documentName ?? "Actor",
-      embeddedName,
-      count: cleanedList.length,
-      actorId: actor.id ?? null,
-      isDirectPath: !!(game.user?.isGM || actor.isOwner),
-    });
-  }
-
-  // Direct path.
-  if (game.user?.isGM || actor.isOwner) {
-    return await actor.createEmbeddedDocuments(embeddedName, cleanedList);
-  }
-
-  if (embeddedName !== "ActiveEffect" && embeddedName !== "Item") return [];
-
-  const applier = _selectActiveGM() ?? _selectActorOwner(actor);
-  if (!applier) {
-    ui.notifications?.warn?.("A GM (or an owner of the target Actor) must be online to apply this change.");
+export async function requestCreateEmbeddedDocuments(parent, embeddedName, docsData) {
+  if (!parent || !embeddedName || !Array.isArray(docsData) || !docsData.length) return [];
+  if (!_canOwn(game.user, parent)) {
+    _notifyRemoteDenied("embedded-document creation");
     return [];
   }
-
-  _dlog("proxy createEmbeddedDocuments requested", { actorUuid: actor.uuid, embeddedName, applierUserId: applier.id, requestedBy: game.user?.id ?? null });
+  const cleaned = (embeddedName === "ActiveEffect" || embeddedName === "Item")
+    ? docsData.map((entry) => sanitizeEmbeddedDocData(embeddedName, entry)).filter(Boolean)
+    : docsData.map((entry) => foundry.utils.deepClone(entry));
+  if (!cleaned.length) return [];
   try {
-    const resp = await applier.query(QUERY_CREATE_EMBEDDED_DOCS_V1, { actorUuid: actor.uuid, embeddedName, docsData: cleanedList }, { timeout });
-    if (!resp?.ok) {
-      _dwarn("proxy createEmbeddedDocuments rejected", { actorUuid: actor.uuid, embeddedName, resp });
-      ui.notifications?.warn?.(`Failed to create embedded documents: ${resp?.error ?? "unknown error"}`);
-      return [];
-    }
-    if (resp?.skipped) return [];
-
-    // Best-effort hydrate.
-    const created = [];
-    for (const d of (resp.created ?? [])) {
-      try {
-        const doc = d?.uuid ? await fromUuid(d.uuid) : null;
-        if (doc) created.push(doc);
-      } catch {
-        /* ignore */
-      }
-    }
-    return created;
-  } catch (err) {
-    console.error("UESRPG | authority-proxy | proxy createEmbeddedDocuments failed", { actorUuid: actor.uuid, embeddedName, err });
+    return await parent.createEmbeddedDocuments(embeddedName, cleaned);
+  } catch (error) {
+    console.error("UESRPG | authority-proxy | Embedded-document creation failed", { uuid: parent.uuid, embeddedName, error });
     return [];
   }
 }
 
-export async function requestUpdateEmbeddedDocuments(actor, embeddedName, updates, { timeout = 5000 } = {}) {
-  if (!actor || !embeddedName || !Array.isArray(updates) || !updates.length) return false;
-  if (embeddedName !== "ActiveEffect" && embeddedName !== "Item") return false;
-
-  const cleanedUpdates = updates
-    .map((u) => {
-      if (!u || typeof u !== "object") return null;
-      const id = u._id ?? u.id;
-      if (!id) return null;
-      const cleaned = _sanitizeEmbeddedDocData(embeddedName, u);
-      if (!cleaned) return null;
-      cleaned._id = String(id);
-      return cleaned;
-    })
-    .filter((u) => u && Object.keys(u).length > 0);
-  if (!cleanedUpdates.length) return false;
-
-  if (isPerfEnabled()) {
-    perfRecord({
-      event: "authorityProxy.updateEmbedded",
-      docType: actor.documentName ?? "Actor",
-      embeddedName,
-      count: cleanedUpdates.length,
-      actorId: actor.id ?? null,
-      isDirectPath: !!(game.user?.isGM || actor.isOwner),
-    });
-  }
-
-  // Direct path.
-  if (game.user?.isGM || actor.isOwner) {
-    await actor.updateEmbeddedDocuments(embeddedName, cleanedUpdates);
-    return true;
-  }
-
-  const applier = _selectActiveGM() ?? _selectActorOwner(actor);
-  if (!applier) {
-    ui.notifications?.warn?.("A GM (or an owner of the target Actor) must be online to apply this change.");
+export async function requestUpdateEmbeddedDocuments(parent, embeddedName, updates) {
+  if (!parent || !embeddedName || !Array.isArray(updates) || !updates.length) return false;
+  if (!_canOwn(game.user, parent)) {
+    _notifyRemoteDenied("embedded-document update");
     return false;
   }
-
-  _dlog("proxy updateEmbeddedDocuments requested", { actorUuid: actor.uuid, embeddedName, applierUserId: applier.id, requestedBy: game.user?.id ?? null });
+  if (embeddedName !== "ActiveEffect" && embeddedName !== "Item") return false;
+  const cleaned = updates.map((entry) => {
+    const id = entry?._id ?? entry?.id;
+    const update = sanitizeEmbeddedDocData(embeddedName, entry);
+    return id && update ? { ...update, _id: String(id) } : null;
+  }).filter(Boolean);
+  if (!cleaned.length) return false;
   try {
-    const resp = await applier.query(
-      QUERY_UPDATE_EMBEDDED_DOCS_V1,
-      { actorUuid: actor.uuid, embeddedName, updates: cleanedUpdates },
-      { timeout }
-    );
-    if (!resp?.ok) {
-      _dwarn("proxy updateEmbeddedDocuments rejected", { actorUuid: actor.uuid, embeddedName, resp });
-      ui.notifications?.warn?.(`Failed to update embedded documents: ${resp?.error ?? "unknown error"}`);
-      return false;
-    }
+    await parent.updateEmbeddedDocuments(embeddedName, cleaned);
     return true;
-  } catch (err) {
-    console.error("UESRPG | authority-proxy | proxy updateEmbeddedDocuments failed", { actorUuid: actor.uuid, embeddedName, err });
+  } catch (error) {
+    console.error("UESRPG | authority-proxy | Embedded-document update failed", { uuid: parent.uuid, embeddedName, error });
     return false;
   }
 }
 
-export async function requestDeleteEmbeddedDocuments(actor, embeddedName, ids, { timeout = 5000, deleteOptions = {} } = {}) {
-  if (!actor || !embeddedName || !Array.isArray(ids) || !ids.length) return false;
-
-  if (isPerfEnabled()) {
-    perfRecord({
-      event: "authorityProxy.deleteEmbedded",
-      docType: actor.documentName ?? "Actor",
-      embeddedName,
-      count: ids.length,
-      actorId: actor.id ?? null,
-      isDirectPath: !!(game.user?.isGM || actor.isOwner),
-    });
-  }
-
-  // Direct path.
-  if (game.user?.isGM || actor.isOwner) {
-    const result = await _deleteEmbeddedDocumentsIdempotent(actor, embeddedName, ids, deleteOptions);
-    return !!result?.ok;
-  }
-
-  if (embeddedName !== "ActiveEffect" && embeddedName !== "Item") return false;
-
-  const applier = _selectActiveGM() ?? _selectActorOwner(actor);
-  if (!applier) {
-    ui.notifications?.warn?.("A GM (or an owner of the target Actor) must be online to apply this change.");
+export async function requestDeleteEmbeddedDocuments(parent, embeddedName, ids, { deleteOptions = {} } = {}) {
+  if (!parent || !embeddedName || !Array.isArray(ids) || !ids.length) return false;
+  if (!_canOwn(game.user, parent)) {
+    _notifyRemoteDenied("embedded-document deletion");
     return false;
   }
-
-  _dlog("proxy deleteEmbeddedDocuments requested", { actorUuid: actor.uuid, embeddedName, applierUserId: applier.id, requestedBy: game.user?.id ?? null });
   try {
-    const resp = await applier.query(QUERY_DELETE_EMBEDDED_DOCS_V1, { actorUuid: actor.uuid, embeddedName, ids, deleteOptions }, { timeout });
-    if (!resp?.ok) {
-      _dwarn("proxy deleteEmbeddedDocuments rejected", { actorUuid: actor.uuid, embeddedName, resp });
-      ui.notifications?.warn?.(`Failed to delete embedded documents: ${resp?.error ?? "unknown error"}`);
-      return false;
-    }
-    return true;
-  } catch (err) {
-    console.error("UESRPG | authority-proxy | proxy deleteEmbeddedDocuments failed", { actorUuid: actor.uuid, embeddedName, err });
+    const result = await deleteEmbeddedDocumentsIdempotent(parent, embeddedName, ids, deleteOptions);
+    return result?.ok === true;
+  } catch (error) {
+    console.error("UESRPG | authority-proxy | Embedded-document deletion failed", { uuid: parent.uuid, embeddedName, error });
     return false;
   }
 }

@@ -3,15 +3,6 @@ import { SYSTEM_ID } from "../../core/constants.js";
 
 export const NAMESPACE = SYSTEM_ID;
 
-export const QUERY_UPDATE_CHAT_MESSAGE_V1 = `${NAMESPACE}.authority.updateChatMessage.v1`;
-export const QUERY_CREATE_ACTIVE_EFFECT_V1 = `${NAMESPACE}.authority.createActiveEffect.v1`;
-export const QUERY_UPDATE_DOCUMENT_V1 = `${NAMESPACE}.authority.updateDocument.v1`;
-export const QUERY_BATCH_UPDATE_DOCUMENTS_V1 = `${NAMESPACE}.authority.batchUpdateDocuments.v1`;
-export const QUERY_CREATE_ACTOR_V1 = `${NAMESPACE}.authority.createActor.v1`;
-export const QUERY_CREATE_EMBEDDED_DOCS_V1 = `${NAMESPACE}.authority.createEmbeddedDocuments.v1`;
-export const QUERY_UPDATE_EMBEDDED_DOCS_V1 = `${NAMESPACE}.authority.updateEmbeddedDocuments.v1`;
-export const QUERY_DELETE_EMBEDDED_DOCS_V1 = `${NAMESPACE}.authority.deleteEmbeddedDocuments.v1`;
-
 const _IN_FLIGHT_LOCKS = new Set();
 const _RECENT_SIGNATURES = new Map();
 

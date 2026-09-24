@@ -21,6 +21,7 @@ import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } 
 import { buildEffectChange, getEffectChanges } from "../../../utils/compat.js";
 import { buildGenericAEData } from "../../active-effects/modifier-evaluator.js";
 import { createEvaluationMemo, effectMatchesContext } from "../../active-effects/conditions.js";
+import { isActiveGMUser } from "../../../utils/users.js";
 
 // ====== ACTIVE EFFECT CREATION ======
 
@@ -85,14 +86,16 @@ function _advantageEffectData({
 export function isAdvantageEffectExpired(effect, { worldTime = null, combat = null } = {}) {
   if (!effect) return false;
   const d = effect.duration ?? {};
-  const rounds = Number(d.rounds ?? 0) || 0;
+  const durationValue = Number(d.value ?? 0) || 0;
+  const durationUnits = String(d.units ?? "");
+  const isCombatDuration = durationValue > 0 && (durationUnits === "rounds" || durationUnits === "turns");
   const wt = Number(worldTime ?? TimeService.getWorldTimeSeconds?.() ?? game.time?.worldTime ?? 0) || 0;
   const c = combat ?? (game?.combat ?? null);
 
-  if (rounds > 0) {
+  if (isCombatDuration) {
     if (!c?.started) return true;
     const combatId = String(c?.id ?? "");
-    const effectCombatId = String(d.combat ?? "");
+    const effectCombatId = String(effect?.start?.combat ?? "");
     if (effectCombatId && combatId && effectCombatId !== combatId) return true;
     return isEffectExpiredByCombat(effect, c);
   }
@@ -101,7 +104,7 @@ export function isAdvantageEffectExpired(effect, { worldTime = null, combat = nu
 }
 
 export async function expireAdvantageEffects({ worldTime = null, combat = null } = {}) {
-  if (!game.user?.isGM) return;
+  if (!isActiveGMUser(game.user)) return;
 
   const wt = Number(worldTime ?? TimeService.getWorldTimeSeconds?.() ?? game.time?.worldTime ?? 0) || 0;
   const c = combat ?? (game?.combat ?? null);
@@ -133,7 +136,7 @@ export async function expireAdvantageEffects({ worldTime = null, combat = null }
 }
 
 async function _handleCombatBoundaryOpposedEffects(payload) {
-  if (!game.user?.isGM) return;
+  if (!isActiveGMUser(game.user)) return;
   if (payload?.source !== "combat") return;
   if (payload?.combat?.phase && payload.combat.phase !== "post") return;
   await expireAdvantageEffects({ worldTime: payload?.worldTime ?? null, combat: game?.combat ?? null });
@@ -147,7 +150,7 @@ export function registerAdvantageExpirationHooks() {
   globalThis.__UESRPG_ADVANTAGE_EXPIRY_HOOKS__ = true;
 
   Hooks.on("uesrpg.timeChanged", async (payload) => {
-    if (!game.user?.isGM) return;
+    if (!isActiveGMUser(game.user)) return;
     const source = String(payload?.source ?? "");
     if (source !== "worldTime" && source !== "calendaria") return;
     await expireAdvantageEffects({ worldTime: payload?.worldTime ?? null, combat: game?.combat ?? null });

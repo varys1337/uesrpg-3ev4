@@ -45,6 +45,7 @@ import { FLAG_SCOPE } from "../../system/namespace.js";
 import { isPerfEnabled, monoMs, perfRecord } from "../../../utils/perf-tracker.js";
 import { isCompositeBoundaryTickEnabled } from "../../config/automation-policy.js";
 import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../../time/combat-boundary-orchestrator.js";
+import { isActiveGMUser } from "../../../utils/users.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
@@ -191,7 +192,7 @@ export function initializeSpellTickEngine() {
   });
 
   const handleCombatBoundaryTicks = async (payload) => {
-    if (!game.user?.isGM) return;
+    if (!isActiveGMUser(game.user)) return;
     if (payload?.source !== "combat") return;
     if (payload?.combat?.phase && payload.combat.phase !== "post") return;
 
@@ -233,7 +234,7 @@ export function initializeSpellTickEngine() {
 
   // Out-of-combat world time tick
   Hooks.on("uesrpg.timeChanged", async (payload) => {
-    if (!game.user?.isGM) return;
+    if (!isActiveGMUser(game.user)) return;
     // Skip combat-sourced time changes (already handled above)
     const source = String(payload?.source ?? "");
     if (source === "combat" || source === "combatTurn" || source === "combatRound") return;

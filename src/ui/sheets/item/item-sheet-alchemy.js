@@ -13,6 +13,7 @@ import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { drinkPotion, applyAlchemyToTarget, pickAlchemyCoatingTarget } from "../../../core/alchemy/runtime.js";
 import { alertDialog, customDialog } from "../../../utils/dialog-v2-helper.js";
 import { SYSTEM_ID } from "../../constants.js";
+import { resolveAlchemyIngredientData } from "../../../core/alchemy/ingredients.js";
 
 async function _showAlchemyUpdateFailure(sheet, actionLabel) {
   const packId = String(sheet?.document?.pack ?? "").trim();
@@ -44,19 +45,22 @@ async function _prepareSheetForDestructiveAlchemyAction(sheet) {
 
 /**
  * Enable this generic item as an alchemy ingredient by writing the alchemy flags.
- * Sets default values for school, strengthBase, and depthBase.
+ * Persists normalized quality/strength/depth values and leaves the school
+ * intentionally blank until the user chooses one.
  *
  * @param {SimpleItemSheetV2} sheet
  * @param {Event} event
  */
 export async function onEnableAlchemyIngredient(sheet, event) {
   event.preventDefault();
+  const inferred = resolveAlchemyIngredientData(sheet.document);
   await _updateAlchemyDocument(sheet, {
     [`flags.${SYSTEM_ID}.alchemy`]: {
       kind: "ingredient",
-      school: "destruction",
-      strengthBase: 5,
-      depthBase: 2,
+      quality: inferred?.qualityKey ?? "",
+      school: inferred?.school ?? "",
+      strengthBase: inferred?.strengthBase || 2,
+      depthBase: inferred?.depthBase || 1,
     },
   }, "enable alchemy ingredient");
 }

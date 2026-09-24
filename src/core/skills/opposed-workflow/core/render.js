@@ -73,7 +73,7 @@ function _renderTNLine(tnLabel, tnObj = null) {
 }
 
 function _extractRollTotal(result) {
-  const n = Number(result?.rollTotal ?? result?.total ?? result?.roll?.total ?? result?.roll?._total ?? result?.roll?.result ?? NaN);
+  const n = Number(result?.rollTotal ?? result?.total ?? result?.roll?.total ?? result?.roll?.result ?? NaN);
   return Number.isFinite(n) ? n : null;
 }
 

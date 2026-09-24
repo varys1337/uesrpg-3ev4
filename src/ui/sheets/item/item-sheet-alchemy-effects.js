@@ -4,6 +4,7 @@ import { SYSTEM_ID } from "../../constants.js";
 import { readDropData, resolveDroppedItemDetailed } from "../../../utils/drop-data.js";
 import { resolveSpellProfile } from "../../../core/magic/spell-profile.js";
 import { buildDirectAlchemyPayloadForSpell } from "../../../core/alchemy/workflow.js";
+import { getEffectByKey } from "../../../core/alchemy/effects.js";
 import { getSpellCost, getSpellScalingEntry } from "../../../core/magic/magicka-utils.js";
 import {
   findActorSpellByUuid,
@@ -553,7 +554,7 @@ export function buildAlchemyProductEffectSlots(itemDoc, actor = null) {
             missingSpell: isSpellEffect && !spell,
             canConfigureLevel: Boolean(spell),
             isSpellEffect,
-            isLegacyCatalog: !isSpellEffect,
+            isLegacyCatalog: !isSpellEffect && Boolean(getEffectByKey(entry.effectKey)?.legacy),
           }
         : null,
       levelOptions: levelOptions.map((value) => ({

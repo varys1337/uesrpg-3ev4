@@ -3,7 +3,7 @@ import { createSystemSettingRegistrar } from "../../../utils/settings-registrati
 const _reg = createSystemSettingRegistrar("Crafting");
 
 export function registerCraftingSettings() {
-  // Hidden GM rules/policy: long-term crafting toggles that still branch live runtime behavior.
+  // Retained as an inert compatibility key for worlds and integrations which read it.
   _reg("enchanting.enableCastEnchantmentRuntime", {
     name: "Enchanting: Enable Cast Enchantment Runtime",
     hint: "When enabled, cast enchantments can cast stored spells using Soul Energy from the enchanted item pool.",
@@ -31,7 +31,7 @@ export function registerCraftingSettings() {
     type: Boolean,
   });
 
-  // Hidden GM rules/policy: long-term alchemy toggles with live workshop/runtime consumers.
+  // GM rules/policy: long-term alchemy toggles with live workshop/runtime consumers.
   _reg("alchemy.requireLab", {
     name: "Alchemy: Require Alchemy Lab",
     hint: "When enabled (RAW), the actor must have an Alchemy Lab item in their inventory to brew potions, poisons, or toxins.",
@@ -45,8 +45,8 @@ export function registerCraftingSettings() {
     name: "Alchemy: Enable Gathering Helper",
     hint: "When enabled, the Workshop includes a Gather Ingredients mode to roll for and record gathered alchemical ingredients.",
     scope: "world",
-    config: false,
-    default: false,
+    config: true,
+    default: true,
     type: Boolean,
   });
 }

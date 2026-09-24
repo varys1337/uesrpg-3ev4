@@ -26,7 +26,7 @@ export function getConstantMinSoulEnergy(totalSL) {
 }
 
 export async function buildConstant(cfg) {
-  const { actor, targetItem, soulGemItem, effects = [], cursed = false, skipRolls = false } = cfg;
+  const { actor, targetItem, soulGemItem, effects = [], cursed = false, skipRolls = false, testBaseTN = null } = cfg;
   const errors = [];
   if (cursed && !getEnchantingSettings().enableCursedConstant) {
     errors.push("Cursed Constant Enchantments are not enabled (enchanting.enableCursedConstant = false).");
@@ -91,7 +91,7 @@ export async function buildConstant(cfg) {
   let salvageResult = null;
   const hasSalvage = hasTalent(actor, "salvageenergy");
   if (!skipRolls) {
-    testResult = await executeEnchantTest(actor, penalty, { effectiveEnchantRank: session.effectiveEnchantRank });
+    testResult = await executeEnchantTest(actor, penalty, { effectiveEnchantRank: session.effectiveEnchantRank, baseTarget: testBaseTN });
     anySuccess = testResult.success;
     if (!anySuccess && hasSalvage) {
       salvageResult = await executeSalvageEnergyRoll(actor, testResult.tn);

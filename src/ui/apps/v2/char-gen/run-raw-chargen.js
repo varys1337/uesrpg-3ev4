@@ -3,6 +3,7 @@ import { SpendXpMenuAppV2 } from "./spend-xp-menu.js";
 import { SpellLearningMenuAppV2 } from "./spell-learning-menu.js";
 import { onSetBaseCharacteristics, onLuckyMenu } from "../../../sheets/shared/listeners/characteristics-handlers.js";
 import { onStartingResourcesMenu } from "../../../sheets/shared/dialogs/character-menus.js";
+import { t } from "../../../../utils/i18n.js";
 
 function _eventStub() {
   return { preventDefault() {} };
@@ -10,7 +11,7 @@ function _eventStub() {
 
 export async function runRawChargen(actor) {
   if (!actor || actor.documentName !== "Actor") {
-    ui.notifications?.warn?.("Select a valid actor first.");
+    ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.SelectOrCreateActorFirst"));
     return false;
   }
 

@@ -1179,32 +1179,24 @@ export async function rollSpellDamage(spell, options = {}) {
     .map((component) => component.formula)
     .filter(Boolean)
     .join(" + ") || damageFormula.replace(/\[[^\]]+\]/g, "");
-  const roll = await new Roll(safeFormula).evaluate();
-
-  // Critical success: return max damage instead
-  if (options.isCritical) {
-    const maxDamage = getMaxSpellDamage(spell, { level: options.level ?? null, actor });
-    // Foundry computes total at evaluate time; we preserve formula but override total for reporting.
-    // This is a controlled internal assignment used elsewhere in the codebase.
-    roll._total = maxDamage;
-  }
-
-  // Overload: optional flat bonus to damage.
+  let flatModifier = 0;
   if (_bool(options.isOverloaded)) {
-    const b = _num(options.overloadBonus, 0);
-    if (b) roll._total = _num(roll._total, roll.total) + b;
+    flatModifier += _num(options.overloadBonus, 0);
   }
 
   const damageType = getSpellDamageType(spell, options.level ?? null);
   const isHealingDamageType = damageType === "temporaryhealing" || damageType === "temporary healing";
   if (!isHealingSpell(spell) && !isHealingDamageType) {
     const threatDamageMod = getNpcThreatDamageModifier(actor);
-    if (threatDamageMod !== 0) {
-      roll._total = Math.max(0, _num(roll.total ?? roll._total, 0) + threatDamageMod);
-    }
+    flatModifier += threatDamageMod;
   }
 
-  return roll;
+  const modifiedFormula = flatModifier === 0
+    ? safeFormula
+    : `(${safeFormula}) ${flatModifier > 0 ? "+" : "-"} ${Math.abs(flatModifier)}`;
+  const roll = await new Roll(modifiedFormula).evaluate({ maximize: options.isCritical === true });
+  if (_num(roll.total, 0) >= 0) return roll;
+  return new Roll("0").evaluate();
 }
 
 /**

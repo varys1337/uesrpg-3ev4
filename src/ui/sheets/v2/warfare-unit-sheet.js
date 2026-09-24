@@ -13,6 +13,7 @@
 import { cachedEnrichHTML } from "../../../utils/enrich-cache.js";
 import { confirmDialog, customDialog } from "../../../utils/dialog-v2-helper.js";
 import {
+  requestAtomicUpdateDocument,
   requestUpdateDocument,
   requestCreateEmbeddedDocuments,
   requestDeleteEmbeddedDocuments,
@@ -49,7 +50,13 @@ import { areTokensInBaseContact } from "../../../core/mass-warfare/battlefield/g
 import { t, tf } from "../../../utils/i18n.js";
 import { buildActorSheetEffectView } from "./shared/sheet-context.js";
 import { createPartContextScope, selectDocumentSheetRenderParts } from "./shared/part-context.js";
-import { clearQueuedRenderPartsState, queueRenderParts } from "./shared/sheet-runtime-helpers.js";
+import {
+  clearQueuedRenderPartsState,
+  clearSheetFormUpdateState,
+  flushCurrentSheetForm,
+  queueRenderParts,
+  queueSheetFormUpdate,
+} from "./shared/sheet-runtime-helpers.js";
 import { isMassCombatEnabled, requireMassCombatEnabled } from "../../../core/homebrew/settings.js";
 
 const { HandlebarsApplicationMixin } = foundry.applications.api;
@@ -381,10 +388,6 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
     return this.document.name;
   }
 
-  get form() {
-    return this.element;
-  }
-
   // ── Form pipeline ─────────────────────────────────────────────────────────
 
   async _onChangeForm(formConfig, event) {
@@ -398,10 +401,21 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
     });
     if (!patch) return;
 
-    await requestUpdateDocument(this.document, expandWarfareCompatibilityPatch(this.document, patch));
-    await maybeInitializeWarfareCondition(this.document, {
-      maxCondition: Number(this.document.system?.stats?.resolve?.max ?? this.document.system?.stats?.condition?.max ?? this.document.system?._derived?.resolveMax ?? this.document.system?._derived?.conditionMax ?? 0) || 0,
+    return queueSheetFormUpdate(this, async () => {
+      const updated = await requestUpdateDocument(this.document, expandWarfareCompatibilityPatch(this.document, patch));
+      if (!updated) return false;
+      await maybeInitializeWarfareCondition(this.document, {
+        maxCondition: Number(this.document.system?.stats?.resolve?.max ?? this.document.system?.stats?.condition?.max ?? this.document.system?._derived?.resolveMax ?? this.document.system?._derived?.conditionMax ?? 0) || 0,
+      });
+      return true;
     });
+  }
+
+  async _preClose(options) {
+    if (this.isEditable && !await flushCurrentSheetForm(this, this._onFormSubmit, null)) {
+      throw new Error(t("UESRPG.Notifications.Sheets.FormSaveFailed"));
+    }
+    return super._preClose(options);
   }
 
   async _onFormSubmit(_event, _form, formData) {
@@ -413,10 +427,12 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
       allowPath: ALLOWED_WARFARE_FORM_PATH,
     });
     if (!patch) return;
-    await requestUpdateDocument(this.document, expandWarfareCompatibilityPatch(this.document, patch));
+    const updated = await requestUpdateDocument(this.document, expandWarfareCompatibilityPatch(this.document, patch));
+    if (!updated) return false;
     await maybeInitializeWarfareCondition(this.document, {
       maxCondition: Number(this.document.system?.stats?.resolve?.max ?? this.document.system?.stats?.condition?.max ?? this.document.system?._derived?.resolveMax ?? this.document.system?._derived?.conditionMax ?? 0) || 0,
     });
+    return true;
   }
 
   // ── Render configuration ──────────────────────────────────────────────────
@@ -440,6 +456,7 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
     context.editable = this.isEditable;
     context.limited = !game.user.isGM && actor.limited;
     context.owner = actor.isOwner;
+    context.controlIdPrefix = this.id;
     context.derived = sys._derived ?? {};
     context.warfareEnabled = isMassCombatEnabled();
     context.warfareMechanicsDisabledMessage = t(
@@ -651,20 +668,22 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
+  async _onFirstRender(context, options) {
+    await super._onFirstRender(context, options);
+    if (this._uesrpgCommanderHookId != null) return;
+    this._uesrpgCommanderHookId = Hooks.on("updateActor", (updatedActor) => {
+      const commanderUuid = String(this.document?.system?.commander?.uuid ?? "");
+      if (!commanderUuid || updatedActor?.uuid !== commanderUuid) return;
+      this._uesrpgCommanderCache = null;
+      void queueRenderParts(this, ["sidebar"]);
+    });
+  }
+
   _onRender(context, options) {
     super._onRender(context, options);
     const el = this.element;
     applySheetDensityClass(el);
     if (context.limited) return;
-
-    if (this._uesrpgCommanderHookId == null) {
-      this._uesrpgCommanderHookId = Hooks.on("updateActor", (updatedActor) => {
-        const commanderUuid = String(this.document?.system?.commander?.uuid ?? "");
-        if (!commanderUuid || updatedActor?.uuid !== commanderUuid) return;
-        this._uesrpgCommanderCache = null;
-        void queueRenderParts(this, ["sidebar"]);
-      });
-    }
 
     // Activate primary tab group
     const expectedPrimary = this.tabGroups.primary ?? "core";
@@ -680,6 +699,7 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
     this._uesrpgCommanderHookId = null;
     this._uesrpgCommanderCache = null;
     clearQueuedRenderPartsState(this);
+    clearSheetFormUpdateState(this);
     return super._onClose(options);
   }
 
@@ -780,76 +800,99 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
     ui.notifications.info(tf("UESRPG.Notifications.Warfare.SyncedTradition", { tradition: traditionKey }));
   }
 
+  async _requestAtomicMutation(mutator) {
+    if (!await flushCurrentSheetForm(this, this._onFormSubmit, null)) return false;
+    const ok = await requestAtomicUpdateDocument(this.document, mutator);
+    if (!ok) ui.notifications?.error?.(t("UESRPG.Notifications.Sheets.FormSaveFailed"));
+    return ok;
+  }
+
   // ── Trait array management (legacy system.traits[]) ───────────────────────
 
   async _onAddTrait(_event, _target) {
     if (!this.isEditable) return;
-    const traits = foundry.utils.deepClone(this.document.system.traits ?? []);
-    traits.push({ name: "", description: "" });
-    await requestUpdateDocument(this.document, { "system.traits": traits });
+    await this._requestAtomicMutation((fresh) => {
+      const traits = foundry.utils.deepClone(fresh.system.traits ?? []);
+      traits.push({ name: "", description: "" });
+      return { "system.traits": traits };
+    });
   }
 
   async _onRemoveTrait(_event, target) {
     if (!this.isEditable) return;
     const idx = Number(target?.dataset?.traitIndex ?? -1);
     if (idx < 0) return;
-    const traits = foundry.utils.deepClone(this.document.system.traits ?? []);
-    traits.splice(idx, 1);
-    await requestUpdateDocument(this.document, { "system.traits": traits });
+    await this._requestAtomicMutation((fresh) => {
+      const traits = foundry.utils.deepClone(fresh.system.traits ?? []);
+      traits.splice(idx, 1);
+      return { "system.traits": traits };
+    });
   }
 
   // ── Magic entries (neutral system.magic.entries[]) ────────────────────────
 
   async _onAddMagicEntry(_event, _target) {
     if (!this.isEditable) return;
-    const entries = foundry.utils.deepClone(this.document.system.magic?.entries ?? []);
-    entries.push({ key: "", name: "", family: "support", count: 1, effect: "" });
-    await requestUpdateDocument(this.document, { "system.magic.entries": entries });
+    await this._requestAtomicMutation((fresh) => {
+      const entries = foundry.utils.deepClone(fresh.system.magic?.entries ?? []);
+      entries.push({ key: "", name: "", family: "support", count: 1, effect: "" });
+      return { "system.magic.entries": entries };
+    });
   }
 
   async _onRemoveMagicEntry(_event, target) {
     if (!this.isEditable) return;
     const idx = Number(target?.dataset?.entryIndex ?? -1);
     if (idx < 0) return;
-    const entries = foundry.utils.deepClone(this.document.system.magic?.entries ?? []);
-    entries.splice(idx, 1);
-    await requestUpdateDocument(this.document, { "system.magic.entries": entries });
+    await this._requestAtomicMutation((fresh) => {
+      const entries = foundry.utils.deepClone(fresh.system.magic?.entries ?? []);
+      entries.splice(idx, 1);
+      return { "system.magic.entries": entries };
+    });
   }
 
   // ── Owned equipment (neutral system.equipment.owned[]) ────────────────────
 
   async _onAddOwnedEquipment(_event, _target) {
     if (!this.isEditable) return;
-    const owned = foundry.utils.deepClone(this.document.system.equipment?.owned ?? []);
-    owned.push({ key: "", name: "", deployTime: 1, deployProgress: 0, deployed: false, expended: false, placement: "", effect: "", cost: 0 });
-    await requestUpdateDocument(this.document, { "system.equipment.owned": owned });
+    await this._requestAtomicMutation((fresh) => {
+      const owned = foundry.utils.deepClone(fresh.system.equipment?.owned ?? []);
+      owned.push({ key: "", name: "", deployTime: 1, deployProgress: 0, deployed: false, expended: false, placement: "", effect: "", cost: 0 });
+      return { "system.equipment.owned": owned };
+    });
   }
 
   async _onRemoveOwnedEquipment(_event, target) {
     if (!this.isEditable) return;
     const idx = Number(target?.dataset?.ownedIndex ?? -1);
     if (idx < 0) return;
-    const owned = foundry.utils.deepClone(this.document.system.equipment?.owned ?? []);
-    owned.splice(idx, 1);
-    await requestUpdateDocument(this.document, { "system.equipment.owned": owned });
+    await this._requestAtomicMutation((fresh) => {
+      const owned = foundry.utils.deepClone(fresh.system.equipment?.owned ?? []);
+      owned.splice(idx, 1);
+      return { "system.equipment.owned": owned };
+    });
   }
 
   // ── Variant tag management (system.variant.tags[]) ────────────────────────
 
   async _onAddVariantTag(_event, _target) {
     if (!this.isEditable) return;
-    const tags = foundry.utils.deepClone(this.document.system.variant?.tags ?? []);
-    tags.push("");
-    await requestUpdateDocument(this.document, { "system.variant.tags": tags });
+    await this._requestAtomicMutation((fresh) => {
+      const tags = foundry.utils.deepClone(fresh.system.variant?.tags ?? []);
+      tags.push("");
+      return { "system.variant.tags": tags };
+    });
   }
 
   async _onRemoveVariantTag(_event, target) {
     if (!this.isEditable) return;
     const idx = Number(target?.dataset?.tagIndex ?? -1);
     if (idx < 0) return;
-    const tags = foundry.utils.deepClone(this.document.system.variant?.tags ?? []);
-    tags.splice(idx, 1);
-    await requestUpdateDocument(this.document, { "system.variant.tags": tags });
+    await this._requestAtomicMutation((fresh) => {
+      const tags = foundry.utils.deepClone(fresh.system.variant?.tags ?? []);
+      tags.splice(idx, 1);
+      return { "system.variant.tags": tags };
+    });
   }
 
   // ── Warfare action buttons ────────────────────────────────────────────────
@@ -1014,7 +1057,7 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
     if (!effect) return;
     const confirmed = await confirmDialog({
       title: t("UESRPG.Dialogs.Warfare.DeleteEffectTitle"),
-      content: `<p>${tf("UESRPG.Dialogs.Warfare.DeleteEffectContent", { effect: effect.name })}</p>`,
+      content: `<p>${tf("UESRPG.Dialogs.Warfare.DeleteEffectContent", { effect: foundry.utils.escapeHTML(effect.name) })}</p>`,
     });
     if (!confirmed) return;
     await requestDeleteEmbeddedDocuments(this.document, "ActiveEffect", [id]);
@@ -1048,7 +1091,7 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
     if (!item) return;
     const confirmed = await confirmDialog({
       title: t("UESRPG.Dialogs.Warfare.DeleteItemTitle"),
-      content: `<p>${tf("UESRPG.Dialogs.Warfare.DeleteItemContent", { item: item.name })}</p>`,
+      content: `<p>${tf("UESRPG.Dialogs.Warfare.DeleteItemContent", { item: foundry.utils.escapeHTML(item.name) })}</p>`,
     });
     if (!confirmed) return;
     await requestDeleteEmbeddedDocuments(this.document, "Item", [itemId]);

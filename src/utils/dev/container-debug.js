@@ -93,7 +93,6 @@ function _clearActorSheetCaches(actor) {
   const sheet = actor?.sheet;
   if (!sheet) return;
   try {
-    if ("_uesrpgItemsCache" in sheet) sheet._uesrpgItemsCache = null;
     if ("_uesrpgEncumbranceCache" in sheet) sheet._uesrpgEncumbranceCache = null;
   } catch (_e) {
     /* no-op */

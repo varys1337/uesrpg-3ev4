@@ -1,8 +1,9 @@
 export const MIGRATION_REVISIONS = Object.freeze({
   activeEffectChangeTypes: 1,
+  activeEffectDurationV14: 2,
   actors: 1,
   socialItemRetirementCleanup: 1,
-  itemLegacyRepair: 1,
+  itemLegacyRepair: 2,
   ruleElementRetirementCleanup: 1,
   items: 1,
   scrollCastingControls: 1,
@@ -14,12 +15,15 @@ export const MIGRATION_REVISIONS = Object.freeze({
   warfareUnitNeutralLanesV1: 1,
   warfareFlagsV1: 1,
   npcArmorCoverageDefaultsV1: 1,
+  spellDamageTypeNormalization: 1,
+  systemTemplateDirectiveCleanup: 1,
   timeDefaultsCompositeOrchestratorV1: 1,
   automationProfileRemovalDefaultsV2: 1
 });
 
 export const STARTUP_PENDING_MIGRATION_KEYS = Object.freeze([
   "activeEffectChangeTypes",
+  "activeEffectDurationV14",
   "actors",
   "socialItemRetirementCleanup",
   "itemLegacyRepair",
@@ -33,5 +37,7 @@ export const STARTUP_PENDING_MIGRATION_KEYS = Object.freeze([
   "npcThreatTemplateOptionsV1",
   "warfareUnitNeutralLanesV1",
   "warfareFlagsV1",
-  "npcArmorCoverageDefaultsV1"
+  "npcArmorCoverageDefaultsV1",
+  "spellDamageTypeNormalization",
+  "systemTemplateDirectiveCleanup"
 ]);

@@ -1,0 +1,51 @@
+<section class="uesrpg-item-enchanting" aria-labelledby="item-enchanting-title-{{item.id}}">
+  <div class="uesrpg-item-enchanting__header">
+    <h3 id="item-enchanting-title-{{item.id}}">{{#if enchantmentDisplay}}{{localize "UESRPG.Sheets.Item.ActiveEnchantment"}}{{else}}{{localize "UESRPG.Sheets.Item.SpellcastingConfiguration"}}{{/if}}</h3>
+    {{#if enchantmentDisplay}}
+    <span class="uesrpg-tag uesrpg-tag--success">{{enchantmentDisplay.typeLabel}}</span>
+    {{/if}}
+  </div>
+
+  {{#if enchantingInterface.charge}}
+    {{#if enchantingInterface.charge.isExtension}}
+    <div class="uesrpg-item-enchanting__grid">
+    <div class="uesrpg-item-enchanting__field uesrpg-item-enchanting__field--pool">
+      <span>{{localize "UESRPG.Sheets.Item.ChargeCurrentMax"}}</span>
+      <div class="enchant-inline enchant-charge-inline">
+        <button type="button" class="uesrpg-charge-btn uesrpg-styled-action" data-action="chargeMinus" aria-label="{{localize "UESRPG.Sheets.Item.DecreaseCurrentCharge"}}">
+          <i class="fas fa-minus" aria-hidden="true"></i>
+        </button>
+        <input type="number" name="{{enchantingInterface.charge.valuePath}}" value="{{enchantingInterface.charge.value}}" min="0" max="{{enchantingInterface.charge.max}}" step="1" class="enchant-charge-input" {{#if enchantingInterface.charge.isExtension}}data-spellcasting-charge="value"{{/if}}>
+        <span class="enchant-charge-sep">/</span>
+        <input type="number" name="{{enchantingInterface.charge.maxPath}}" value="{{enchantingInterface.charge.max}}" min="0" step="1" class="enchant-charge-input" {{#if enchantingInterface.charge.isExtension}}data-spellcasting-charge="max"{{/if}}>
+        <button type="button" class="uesrpg-charge-btn uesrpg-styled-action" data-action="chargePlus" aria-label="{{localize "UESRPG.Sheets.Item.IncreaseCurrentCharge"}}">
+          <i class="fas fa-plus" aria-hidden="true"></i>
+        </button>
+      </div>
+    </div>
+    </div>
+    {{else}}
+    <div class="uesrpg-item-enchanting__pool-status">
+      <span>{{localize "UESRPG.Sheets.Item.ChargePool"}}</span>
+      <strong>{{enchantingInterface.charge.value}} / {{enchantingInterface.charge.max}}</strong>
+    </div>
+    {{/if}}
+  {{/if}}
+
+  {{#if enchantmentDisplay}}
+  <div class="uesrpg-item-enchanting__effects">
+    {{#each enchantmentDisplay.effects as |fx|}}
+    <div class="uesrpg-item-enchanting__effect">
+      <strong>{{fx.label}}</strong>
+      {{#if fx.paramSummary}}<span>{{fx.paramSummary}}</span>{{/if}}
+    </div>
+    {{/each}}
+  </div>
+  {{#if (eq enchantmentDisplay.typeLabel "Cast")}}
+  <button class="uesrpg-styled-action uesrpg-item-enchanting__cast" type="button" data-action="castEnchantment">
+    <i class="fas fa-wand-magic-sparkles" aria-hidden="true"></i>
+    {{localize "UESRPG.Sheets.Equipment.CastEnchantment"}}
+  </button>
+  {{/if}}
+  {{/if}}
+</section>

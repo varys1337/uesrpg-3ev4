@@ -324,24 +324,49 @@ function _parseGroupKey(key) {
   return parseUpkeepGroupKey(key);
 }
 
+function _canonicalDurationSeconds(duration) {
+  const value = Number(duration?.value);
+  const units = String(duration?.units ?? "").trim().toLowerCase();
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  if (units === "seconds") return value;
+  if (!CONST.ACTIVE_EFFECT_TIME_DURATION_UNITS.includes(units)) return 0;
+
+  const component = units.replace(/s$/, "");
+  try {
+    const converted = game?.time?.calendar?.componentsToTime?.({ [component]: value });
+    if (Number.isFinite(Number(converted))) return Number(converted);
+  } catch (_error) {
+    // Fall through to deterministic fixed-unit conversions below.
+  }
+
+  const factors = { minutes: 60, hours: 3600, days: 86400 };
+  return value * (factors[units] ?? 0);
+}
+
 function _getNominalDuration(effect, flags = null) {
   const effectFlags = flags ?? effect?.flags?.[_FLAG_NS] ?? {};
   const canonical = effectFlags?.[SPELL_EFFECT_DURATION_FLAG_KEY] ?? null;
   if (Number(canonical?.value) > 0) {
+    const units = String(canonical.units ?? "seconds");
     return {
       value: Number(canonical.value),
-      units: String(canonical.units ?? "seconds"),
+      units,
       expiry: canonical.expiry ?? null,
-      seconds: 0,
-      rounds: String(canonical.units ?? "") === "rounds" ? Number(canonical.value) : 0,
-      turns: String(canonical.units ?? "") === "turns" ? Number(canonical.value) : 0
+      seconds: _canonicalDurationSeconds(canonical),
+      rounds: units === "rounds" ? Number(canonical.value) : 0,
+      turns: units === "turns" ? Number(canonical.value) : 0
     };
   }
   const live = effect?.duration ?? {};
+  const value = _num(live.value, 0);
+  const units = String(live.units ?? "seconds");
   return {
-    seconds: _num(effectFlags?.durationSeconds, _num(live.seconds, 0)),
-    rounds: _num(effectFlags?.durationRounds, _num(live.rounds, 0)),
-    turns: _num(effectFlags?.durationTurns, _num(live.turns, 0))
+    value,
+    units,
+    expiry: live.expiry ?? null,
+    seconds: _num(effectFlags?.durationSeconds, _canonicalDurationSeconds(live)),
+    rounds: _num(effectFlags?.durationRounds, units === "rounds" ? value : 0),
+    turns: _num(effectFlags?.durationTurns, units === "turns" ? value : 0)
   };
 }
 
@@ -427,11 +452,10 @@ function _getTokenForActorOnScene(actor, scene) {
  * @returns {number|null}
  */
 function _getEffectEndTime(effect) {
-  const d = effect?.duration ?? {};
   const flags = effect?.flags?.[_FLAG_NS] ?? {};
   const nominal = _getNominalDuration(effect, flags);
   const seconds = _num(nominal.seconds, 0);
-  const startTime = _num(flags?.durationStartTime, _num(d.startTime, 0));
+  const startTime = _num(flags?.durationStartTime, _num(effect?.start?.time, 0));
   if (!(seconds > 0) || !(startTime > 0)) return null;
   return startTime + seconds;
 }
@@ -445,9 +469,8 @@ function _getEffectEndTime(effect) {
  * @returns {{ endRound: number, endTurn: number }|null}
  */
 function _getEffectCombatBoundary(effect, flags) {
-  const d = effect?.duration ?? {};
-  const srRaw = flags?.durationStartRound ?? d.startRound;
-  const stRaw = flags?.durationStartTurn ?? d.startTurn;
+  const srRaw = flags?.durationStartRound ?? effect?.start?.round;
+  const stRaw = flags?.durationStartTurn ?? effect?.start?.turn;
   if (srRaw === null || srRaw === undefined) return null;
   if (stRaw === null || stRaw === undefined) return null;
 
@@ -1176,10 +1199,10 @@ export async function handleUpkeepGroupConfirm(message) {
       ? (enchantedItem.flags?.[_FLAG_NS]?.itemSpellcasting?.pool ?? {})
       : (enchantedItem.flags?.[_FLAG_NS]?.enchanting?.cast?.pool ?? {});
     const poolValue = enchantmentSourceLane === "extension"
-      ? _num(enchantedItem.system?.charge?.value, _num(pool.value, 0))
+      ? _num(pool.value, _num(enchantedItem.system?.charge?.value, 0))
       : _num(pool.value, 0);
     const poolMax = enchantmentSourceLane === "extension"
-      ? _num(enchantedItem.system?.charge?.max, _num(pool.max, 0))
+      ? _num(pool.max, _num(enchantedItem.system?.charge?.max, 0))
       : _num(pool.max, 0);
     if (poolValue < upkeepCost) {
       ui.notifications?.warn?.(`Upkeep failed: not enough Soul Energy (${poolValue}/${upkeepCost}). Spell ends.`);

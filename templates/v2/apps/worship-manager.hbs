@@ -1,13 +1,13 @@
 <div class="uesrpg-worship-manager">
   <header class="uesrpg-worship-manager__header" style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start;">
     <div>
-      <h2 style="margin:0;">Manage Piety Points</h2>
+      <h2 style="margin:0;">{{localize "UESRPG.Dialogs.Worship.ManagePietyTitle"}}</h2>
       <div>{{actorName}} ({{actorType}})</div>
       {{#if showTrackedDomainSummary}}
       {{#if trackedDomainLabel}}
-      <div><b>PP Bar Domain:</b> {{trackedDomainLabel}}</div>
+      <div><b>{{localize "UESRPG.ModernUI.PPBarDomain"}}</b> {{trackedDomainLabel}}</div>
       {{else}}
-      <div><b>PP Bar Domain:</b> Not Set</div>
+      <div><b>{{localize "UESRPG.ModernUI.PPBarDomain"}}</b> {{localize "UESRPG.ModernUI.NotSet"}}</div>
       {{/if}}
       {{/if}}
     </div>
@@ -24,25 +24,25 @@
           <div style="display:grid; grid-template-columns:minmax(0, 1fr) 90px 90px auto; gap:8px; align-items:end;">
             <div style="min-width:0;">
               <div><b>{{domain.label}}</b></div>
-              <div style="font-size:0.95em;">Prepared {{domain.preparedCount}} / {{domain.prepLimit}} | {{#if domain.initiated}}Initiated{{else}}Uninitiated{{/if}}{{#if domain.penanceBlocked}} | Penance Blocked{{/if}}{{#if domain.fastingActive}} | Fasting{{/if}}</div>
+              <div style="font-size:0.95em;">{{localize "UESRPG.ModernUI.Prepared"}} {{domain.preparedCount}} / {{domain.prepLimit}} | {{#if domain.initiated}}{{localize "UESRPG.ModernUI.Initiated"}}{{else}}{{localize "UESRPG.ModernUI.Uninitiated"}}{{/if}}{{#if domain.penanceBlocked}} {{localize "UESRPG.ModernUI.PenanceBlocked"}}{{/if}}{{#if domain.fastingActive}} {{localize "UESRPG.ModernUI.Fasting"}}{{/if}}</div>
             </div>
             <div>
-              <label style="display:block;"><b>PP</b></label>
+              <label style="display:block;"><b>{{localize "UESRPG.UI.PP"}}</b></label>
               <input type="number" name="domainCurrentPP" value="{{domain.pietyValue}}" min="0" style="width:100%;" />
             </div>
             <div>
-              <label style="display:block;"><b>Max</b></label>
+              <label style="display:block;"><b>{{localize "UESRPG.Sheets.Item.Max"}}</b></label>
               <input type="number" name="domainMaxPP" value="{{domain.pietyMax}}" min="0" style="width:100%;" />
             </div>
             <div style="display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;">
-              <button type="button" data-action="trackPietyDomain" data-domain-key="{{domain.key}}">{{#if domain.isTracked}}Tracked{{else}}Track PP{{/if}}</button>
-              <button type="button" data-action="saveDomainPiety">Save</button>
-              <button type="button" data-action="prepareInvocations" data-domain-key="{{domain.key}}">Prepare</button>
+              <button type="button" data-action="trackPietyDomain" data-domain-key="{{domain.key}}">{{#if domain.isTracked}}{{localize "UESRPG.ModernUI.Tracked"}}{{else}}{{localize "UESRPG.ModernUI.TrackPP"}}{{/if}}</button>
+              <button type="button" data-action="saveDomainPiety">{{localize "UESRPG.UI.Save"}}</button>
+              <button type="button" data-action="prepareInvocations" data-domain-key="{{domain.key}}">{{localize "UESRPG.ModernUI.Prepare"}}</button>
             </div>
           </div>
         </article>
         {{/each}}
-        {{#unless ritualDomains.length}}<p>No ritual domains trained.</p>{{/unless}}
+        {{#unless ritualDomains.length}}<p>{{localize "UESRPG.ModernUI.NoRitualDomainsTrained"}}</p>{{/unless}}
       </div>
     </section>
   </div>

@@ -18,6 +18,12 @@ import {
 } from "../../core/religion/ritual-domains.js";
 import { getDefaultPietyMax, getWorshipDomainState, getWorshipSystemData } from "../../core/religion/worship-store.js";
 import { getOrthodoxFaithBonus } from "../../core/religion/clerical-talents.js";
+import {
+  canAffordCastEnchantmentSlot,
+  getCastEnchantmentPool,
+  getCastEnchantmentSlots,
+  resolveStoredEnchantmentSpellSync,
+} from "../../core/enchanting/runtime/cast-enchantment-sources.js";
 
 const _debug = createDebugLogger("shieldDebug", "[UESRPG][ShieldDebug][PrepareItems]");
 
@@ -31,10 +37,8 @@ function _resolveWeaponDistanceDisplay(system = {}) {
   return reach || "-";
 }
 
-function _buildCastEnchantmentChargeDisplay(item) {
-  const systemCharge = item?.system?.charge ?? {};
-  const value = Math.max(0, Number(systemCharge?.value ?? 0) || 0);
-  const max = Math.max(0, Number(systemCharge?.max ?? 0) || 0);
+function _buildCastEnchantmentChargeDisplay(item, slot) {
+  const { value, max } = getCastEnchantmentPool(item, slot?.sourceLane);
   if (max <= 0) return "";
   return `${value}/${max}`;
 }
@@ -120,21 +124,16 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
     // Ensure rendering has an image fallback (safe: sheet-only object)
     i.img = i.img || CONST.DEFAULT_TOKEN;
     i.system = i.system ?? {};
-    const enchanting = i.flags?.["uesrpg-3ev4"]?.enchanting;
-    const extension = i.flags?.["uesrpg-3ev4"]?.itemSpellcasting ?? {};
-    const extensionEnabled = extension?.enabled === true;
-    const extensionSlots = Array.isArray(extension?.slots) ? extension.slots : [];
-    const extensionCanCast = extensionEnabled && extensionSlots.some((s) => s?.enabled !== false);
-
-    const workshopCast = enchanting?.cast ?? {};
-    const workshopCanCast = enchanting?.version === 2
-      && enchanting?.enchantType === "cast"
-      && Array.isArray(workshopCast?.spells)
-      && workshopCast.spells.some((s) => s?.enabled !== false);
-
-    i.system.uiHasCastEnchantment = extensionCanCast || workshopCanCast;
-    i.system.uiCastEnchantmentCharge = i.system.uiHasCastEnchantment
-      ? _buildCastEnchantmentChargeDisplay(i)
+    const liveItem = actorDoc?.items?.get?.(i._id ?? i.id) ?? i;
+    const castSlots = getCastEnchantmentSlots(liveItem);
+    const castableSlots = castSlots.filter((slot) =>
+      Boolean(resolveStoredEnchantmentSpellSync(liveItem, slot) || slot?.snapshot)
+      && canAffordCastEnchantmentSlot(liveItem, slot)
+    );
+    i.system.uiHasCastEnchantment = castSlots.length > 0;
+    i.system.uiCanCastEnchantment = castableSlots.length > 0;
+    i.system.uiCastEnchantmentCharge = castSlots.length
+      ? _buildCastEnchantmentChargeDisplay(liveItem, castSlots[0])
       : "";
 
     // If an item is inside a container, hide it from the main inventory lists.

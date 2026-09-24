@@ -17,6 +17,7 @@ import { forwardTimeForGroupRest } from "../../../core/time/rest-time-forwarding
 import { cachedEnrichHTML } from "../../../utils/enrich-cache.js";
 import { confirmDialog, customDialog } from "../../../utils/dialog-v2-helper.js";
 import {
+  requestAtomicUpdateDocument,
   requestUpdateDocument,
   requestCreateEmbeddedDocuments,
   requestDeleteEmbeddedDocuments,
@@ -53,8 +54,11 @@ import {
 import { createPartContextScope, selectDocumentSheetRenderParts } from "./shared/part-context.js";
 import {
   clearQueuedRenderPartsState,
+  clearSheetFormUpdateState,
+  flushCurrentSheetForm,
   partRendered,
   queueRenderParts,
+  queueSheetFormUpdate,
 } from "./shared/sheet-runtime-helpers.js";
 
 const { HandlebarsApplicationMixin } = foundry.applications.api;
@@ -380,11 +384,6 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     return this.document.name;
   }
 
-  /** V1 compat: inherited editor submit/save paths access `sheet.form`. */
-  get form() {
-    return this.element;
-  }
-
   async _onChangeForm(formConfig, event) {
     if (typeof super._onChangeForm === "function") super._onChangeForm(formConfig, event);
     if (!this.isEditable || !this.document?.isOwner) return;
@@ -395,7 +394,14 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       allowPath: ALLOWED_GROUP_FORM_PATH,
     });
     if (!patch) return;
-    await requestUpdateDocument(this.document, patch);
+    return queueSheetFormUpdate(this, () => requestUpdateDocument(this.document, patch));
+  }
+
+  async _preClose(options) {
+    if (this.isEditable && !await flushCurrentSheetForm(this, this._onFormSubmit, null)) {
+      throw new Error(t("UESRPG.Notifications.Sheets.FormSaveFailed"));
+    }
+    return super._preClose(options);
   }
 
   async _onFormSubmit(_event, _form, formData) {
@@ -407,7 +413,22 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       allowPath: ALLOWED_GROUP_FORM_PATH,
     });
     if (!patch) return;
-    await requestUpdateDocument(this.document, patch);
+    return requestUpdateDocument(this.document, patch);
+  }
+
+  async _requestAtomicMutation(mutator) {
+    if (!await flushCurrentSheetForm(this, this._onFormSubmit, null)) return false;
+    let intentionalNoop = false;
+    const ok = await requestAtomicUpdateDocument(this.document, async (fresh) => {
+      const update = await mutator(fresh);
+      if (!update || typeof update !== "object" || !Object.keys(update).length) {
+        intentionalNoop = true;
+        return {};
+      }
+      return update;
+    });
+    if (!ok && !intentionalNoop) ui.notifications?.error?.(t("UESRPG.Notifications.Sheets.FormSaveFailed"));
+    return ok || intentionalNoop;
   }
 
   /* ────────────────────────── Render Options ─────────────────────────── */
@@ -528,6 +549,11 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
 
   /* ───────────────────────────── Lifecycle ─────────────────────────────── */
 
+  async _onFirstRender(context, options) {
+    await super._onFirstRender(context, options);
+    this.#registerMemberUpdateHooks();
+  }
+
   /** @override */
   _onRender(context, options) {
     const perfStart = performance.now();
@@ -539,8 +565,6 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       }
       applySheetDensityClass(el);
       if (partRendered(options, "body")) clearItemDescriptionTooltip(this);
-
-      this.#registerMemberUpdateHooks();
 
       if (context.limited) return;
 
@@ -658,6 +682,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       this.#resolvedMembersCache = null;
       clearListFilterState(this);
       clearQueuedRenderPartsState(this);
+      clearSheetFormUpdateState(this);
       this._uesrpgContextMenuHandler = null;
       return super._onClose(options);
     } finally {
@@ -793,7 +818,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
   async #duplicateItem(item) {
     const confirmed = await confirmDialog({
       title: t("UESRPG.Dialogs.GroupSheet.DuplicateItemTitle"),
-      content: `<p>${tf("UESRPG.Dialogs.GroupSheet.DuplicateItemContent", { item: item.name })}</p>`,
+      content: `<p>${tf("UESRPG.Dialogs.GroupSheet.DuplicateItemContent", { item: foundry.utils.escapeHTML(item.name) })}</p>`,
     });
     if (confirmed) {
       const dupData = item.toObject();
@@ -813,14 +838,17 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       ui.notifications.warn(t("UESRPG.Notifications.Group.CannotAddGroupToGroup"));
       return;
     }
-    const members = this.document.system.members || [];
-    if (members.some(m => m.id === actor.uuid)) {
+    if ((this.document.system.members || []).some(m => m.id === actor.uuid)) {
       ui.notifications.warn(t("UESRPG.Notifications.Group.ActorAlreadyMember"));
       return;
     }
-    members.push({ id: actor.uuid, uuid: actor.uuid, sortOrder: members.length });
-    await requestUpdateDocument(this.document, { "system.members": members });
-    ui.notifications.info(tf("UESRPG.Notifications.Group.ActorAdded", { actor: actor.name }));
+    const updated = await this._requestAtomicMutation((fresh) => {
+      const members = foundry.utils.deepClone(fresh.system.members || []);
+      if (members.some((member) => member.id === actor.uuid || member.uuid === actor.uuid)) return {};
+      members.push({ id: actor.uuid, uuid: actor.uuid, sortOrder: members.length });
+      return { "system.members": members };
+    });
+    if (updated) ui.notifications.info(tf("UESRPG.Notifications.Group.ActorAdded", { actor: actor.name }));
   }
 
   /** Handle Item drag-drop (add to group inventory, route into container, or reorder) */
@@ -932,7 +960,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       try {
         return await super._onDrop(event);
       } catch (fallbackErr) {
-        dndWarnFailure("Item drop failed. Check console diagnostics.", {
+        dndWarnFailure(t("UESRPG.Notifications.Sheets.ItemDropFailed"), {
           traceId,
           details: {
             sheet: "GroupSheetV2",
@@ -996,17 +1024,18 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     if (!this.document.isOwner) return;
     const uuid = target.closest(".member-item")?.dataset?.uuid;
     if (!uuid) return;
-    const members = this.document.system.members.filter(m => m.id !== uuid);
-    await requestUpdateDocument(this.document, { "system.members": members });
+    await this._requestAtomicMutation((fresh) => ({
+      "system.members": (fresh.system.members || []).filter((member) => member.id !== uuid && member.uuid !== uuid),
+    }));
   }
 
   /** Cycle travel pace: slow → normal → fast → slow */
   async _onChangePace(_event, _target) {
-    const paces = ["slow", "normal", "fast"];
-    const current = this.document.system.travelPace || "normal";
-    const idx = paces.indexOf(current);
-    await requestUpdateDocument(this.document, {
-      "system.travelPace": paces[(idx + 1) % paces.length],
+    await this._requestAtomicMutation((fresh) => {
+      const paces = ["slow", "normal", "fast"];
+      const current = fresh.system.travelPace || "normal";
+      const idx = paces.indexOf(current);
+      return { "system.travelPace": paces[(idx + 1) % paces.length] };
     });
   }
 

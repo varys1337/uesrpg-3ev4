@@ -17,6 +17,7 @@ import { SYSTEM_ID } from "../system-id.js";
 import { getRoundTimeSecondsSafe } from "../time/round-time.js";
 import { getEffectChanges } from "../../../utils/compat.js";
 import { buildGenericAEData } from "../../active-effects/modifier-evaluator.js";
+import { buildEffectDuration } from "../../time/effect-duration.js";
 
 const _featureEffectsDebug = createSeverityDebugLogger("activationDebug", "", "debug");
 
@@ -64,34 +65,19 @@ function computeFeatureEffectDuration(item) {
  * @param {{ rounds: number, seconds: number } | null} computed
  * @returns {object}
  */
-function _buildDuration(mode, computed) {
-  const nowTime = Number(game?.time?.worldTime ?? 0) || 0;
+function _buildDuration(mode, computed, actor) {
 
   if (mode !== "timed" || !computed) {
     // Permanent — no automatic expiry
-    return { startTime: nowTime, seconds: null, rounds: null, turns: 0, combat: null };
+    return buildEffectDuration({ actor });
   }
 
   // Timed — choose combat vs time tracking
   const isCombat = Boolean(game?.combat?.started);
   if (isCombat) {
-    return {
-      combat: game.combat.id ?? null,
-      startTime: nowTime,
-      startRound: Number(game.combat.round ?? 0),
-      startTurn: Number(game.combat.turn ?? 0),
-      rounds: computed.rounds,
-      seconds: computed.seconds,
-      turns: 0,
-    };
+    return buildEffectDuration({ actor, rounds: computed.rounds, seconds: computed.seconds, preferCombat: true });
   }
-  return {
-    combat: null,
-    startTime: nowTime,
-    seconds: computed.seconds,
-    rounds: 0,
-    turns: 0,
-  };
+  return buildEffectDuration({ actor, seconds: computed.seconds, preferCombat: false });
 }
 
 /* ── Public API ──────────────────────────────────────────────────────── */
@@ -198,7 +184,7 @@ export async function applyFeatureEffectsToTargets(activatorActor, item, targetA
         img: ef.img || item.img,
         origin: itemUuid,
         disabled: false,
-        duration: _buildDuration(durationMode, computed),
+        duration: _buildDuration(durationMode, computed, targetActor),
         flags: {
           [SYSTEM_ID]: {
             featureEffect: true,

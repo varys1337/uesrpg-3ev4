@@ -186,7 +186,7 @@ export async function showSpellAuditReport(packName) {
         callback: () => {
           const json = JSON.stringify(report, null, 2);
           const blob = new Blob([json], { type: "application/json" });
-          saveDataToFile(blob, "text/json", `spell-audit-${Date.now()}.json`);
+          foundry.utils.saveDataToFile(blob, "text/json", `spell-audit-${Date.now()}.json`);
         }
       },
       close: {

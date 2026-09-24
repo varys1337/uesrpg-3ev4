@@ -44,7 +44,6 @@ function _retargetDebugEnabled() {
 function _retargetDebug(event, payload = {}) {
   if (!_retargetDebugEnabled()) return;
   try {
-    // eslint-disable-next-line no-console
     console.log(`UESRPG | RetargetDebug | ${event}`, payload);
   } catch (_e) {
     // no-op

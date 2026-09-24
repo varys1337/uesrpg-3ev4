@@ -29,9 +29,11 @@ import { buildSheetAttackTrackerContext } from "./shared/attack-tracker-sheet-co
 import { buildCombatTabAttackTrackerView } from "./shared/attack-tracker-view.js";
 import { cancelOriginAEUpkeep } from "../../../core/magic/effects/origin-effect.js";
 import { buildEncumbranceBreakdown } from "../../../core/actors/rules/item-aggregation.js";
+import { getActorSheetRevision } from "../../../core/actors/derived-cache/actor-derived-cache.js";
 
 import { onCombatQuickAction } from "../shared/listeners/combat-actions.js";
 import { onCastMagicAction } from "../shared/listeners/magic-cast.js";
+import { onCastEnchantmentAction } from "../shared/listeners/enchanting-cast.js";
 import { onSkillRoll, onSpellRoll, onCombatRoll, onResistanceRoll } from "../shared/listeners/rolls.js";
 
 import { onClickCharacteristic, onLuckyMenu } from "../shared/listeners/characteristics-handlers.js";
@@ -99,7 +101,7 @@ import {
 import { warnIfDuplicateSidebar } from "./shared/render-diagnostics.js";
 import { createPartContextScope, selectDocumentSheetRenderParts } from "./shared/part-context.js";
 import { syncBookmarkTabsActiveClass } from "./shared/bookmark-tabs-position.js";
-import { isEngagementFlankingHomebrewEnabled } from "../../../core/homebrew/settings.js";
+import { isEngagementFlankingHomebrewEnabled, isReligionWorshipEnabled } from "../../../core/homebrew/settings.js";
 import {
   buildAllowedChangePatch,
   buildAllowedSubmitPatch,
@@ -113,9 +115,12 @@ import {
 } from "../../../core/config/label-catalog.js";
 import {
   clearQueuedRenderPartsState,
+  clearSheetFormUpdateState,
+  flushCurrentSheetForm,
   isSheetPerfTraceEnabled,
   partRendered,
   queueRenderParts,
+  queueSheetFormUpdate,
   renderedPartsSet,
   localizeSheetChoiceLabels,
   resolveCarryRatingDisplayLabel,
@@ -172,38 +177,12 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
   _uesrpgSheetUiCache = null;
 
   _buildItemsSignature(actor) {
-    const parts = [
+    return [
       actor?.id ?? "",
       actor?.type ?? "",
-      "A",
-      actor?.system?.worship ? JSON.stringify(actor.system.worship) : "",
-      String(actor?.items?.size ?? 0),
-    ];
-
-    for (const i of actor?.items?.contents ?? []) {
-      const cs = i?.system?.containerStats;
-      const itemModifiedTime = i?._stats?.modifiedTime ?? i?.updatedTime ?? "";
-      parts.push([
-        i?.id ?? "",
-        i?.type ?? "",
-        i?.name ?? "",
-        String(itemModifiedTime),
-        i?.system?.equipped ? "1" : "0",
-        String(i?.system?.quantity ?? ""),
-        String(i?.system?.ammoId ?? ""),
-        String(i?.system?.attackMode ?? ""),
-        String(i?.system?.consumeAmmo ?? ""),
-        String(i?.system?.value ?? ""),
-        String(i?.system?.bonus ?? ""),
-        String(i?.system?.isProfession ?? ""),
-        String(i?.system?.school ?? ""),
-        String(i?.system?.rank ?? ""),
-        cs?.contained ? "1" : "0",
-        cs?.container_id ?? "",
-      ].join("~"));
-    }
-
-    return parts.join("|");
+      getActorSheetRevision(actor),
+      isReligionWorshipEnabled() ? "religion:on" : "religion:off",
+    ].join("|");
   }
 
   _renderedPartsSet(options) {
@@ -300,6 +279,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       skillRoll: PCActorSheetV2.prototype._onSkillRoll,
       combatRoll: PCActorSheetV2.prototype._onCombatRoll,
       castMagic: PCActorSheetV2.prototype._onCastMagicAction,
+      castEnchantment: PCActorSheetV2.prototype._onCastEnchantmentAction,
       castInvocation: PCActorSheetV2.prototype._onCastInvocationAction,
       cancelSpell: PCActorSheetV2.prototype._onCancelSpell,
       combatQuickAction: PCActorSheetV2.prototype._onCombatQuickAction,
@@ -383,10 +363,6 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     return this.document;
   }
 
-  get form() {
-    return this.element;
-  }
-
   /** @override */
   _getFrameButtons(options) {
     const buttons = super._getFrameButtons(options);
@@ -439,12 +415,19 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     const isMaxEngagementPatch = Object.keys(patch).length === 1
       && Object.prototype.hasOwnProperty.call(patch, MAX_ENGAGEMENT_SCORE_PATH);
     try {
-      await requestUpdateDocument(this.document, patch);
+      return await queueSheetFormUpdate(this, () => requestUpdateDocument(this.document, patch));
     } catch (err) {
       if (!isMaxEngagementPatch) throw err;
       console.error("UESRPG | Failed to update max engagement score", { actor: this.document?.uuid, err });
-      ui.notifications?.error?.("Failed to update max engagement score.");
+      // queueSheetFormUpdate already reported one localized persistence error.
     }
+  }
+
+  async _preClose(options) {
+    if (this.isEditable && !await flushCurrentSheetForm(this, this._onFormSubmit, null)) {
+      throw new Error(t("UESRPG.Notifications.Sheets.FormSaveFailed"));
+    }
+    return super._preClose(options);
   }
 
   async _onFormSubmit(_event, _form, formData) {
@@ -467,7 +450,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       normalizeValue: normalizePcFormValue,
     });
     if (!patch) return;
-    await requestUpdateDocument(this.document, patch);
+    return requestUpdateDocument(this.document, patch);
   }
 
   _configureRenderParts(options) {
@@ -1027,6 +1010,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
   async _onCombatRoll(event, target) { return onCombatRoll.call(this, event, target); }
   async _onResistanceRoll(event, target) { return onResistanceRoll.call(this, event, target); }
   async _onCastMagicAction(event, target, preselectedSpell = null) { return onCastMagicAction.call(this, event, target, preselectedSpell); }
+  async _onCastEnchantmentAction(event, target) { return onCastEnchantmentAction.call(this, event, target); }
   async _onCastInvocationAction(event, target) {
     event?.preventDefault?.();
     const li = target?.closest?.(".item") ?? event?.currentTarget?.closest?.(".item");
@@ -1079,10 +1063,10 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     event.preventDefault();
     const json = target?.dataset?.json ?? "[]";
     navigator.clipboard.writeText(json).then(() => {
-      ui.notifications?.info?.("Feature Inspector data copied to clipboard.");
+      ui.notifications?.info?.(t("UESRPG.Notifications.Sheets.FeatureInspectorCopied"));
     }).catch((err) => {
       console.warn("UESRPG | Failed to copy feature inspector data", err);
-      ui.notifications?.warn?.("Failed to copy to clipboard. Try using a secure (HTTPS) context.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.Sheets.ClipboardCopyFailed"));
     });
   }
 
@@ -1145,7 +1129,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     if (!effect) return;
     const confirmed = await confirmDialog({
       title: t("UESRPG.Dialogs.CancelSpell.Title"),
-      content: `<p>${tf("UESRPG.Dialogs.CancelSpell.Content", { spell: effect.flags?.[SYSTEM_ID]?.spellName ?? effect.name })}</p>`,
+      content: `<p>${tf("UESRPG.Dialogs.CancelSpell.Content", { spell: foundry.utils.escapeHTML(effect.flags?.[SYSTEM_ID]?.spellName ?? effect.name) })}</p>`,
     });
     if (confirmed) await cancelOriginAEUpkeep(effect);
   }
@@ -1156,7 +1140,6 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
   async _onWeaponAmmoSelect(event, target) {
     const result = await onWeaponAmmoSelect.call(this, event, target);
     if (result === false || result === null) return result;
-    this._uesrpgItemsCache = null;
     return result;
   }
   async _onItemCreate(event, target) { return onItemCreate(this, event, { target }); }
@@ -1175,7 +1158,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
 
     const confirmed = await confirmDialog({
       title: t("UESRPG.Dialogs.DuplicateItem.Title"),
-      content: `<p>${tf("UESRPG.Dialogs.DuplicateItem.Content", { item: item.name })}</p>`,
+      content: `<p>${tf("UESRPG.Dialogs.DuplicateItem.Content", { item: foundry.utils.escapeHTML(item.name) })}</p>`,
     });
     if (confirmed) {
       const created = await requestCreateEmbeddedDocuments(this.document, "Item", [item.toObject()]);
@@ -1400,7 +1383,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
         try {
           return await super._onDrop(event);
         } catch (fallbackErr) {
-          dndWarnFailure("Item drop failed. Check console diagnostics.", {
+          dndWarnFailure(t("UESRPG.Notifications.Sheets.ItemDropFailed"), {
             traceId,
             details: {
               sheet: "PCActorSheetV2",
@@ -1436,6 +1419,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       unregisterCombatTrackerSheetRefresh(this);
       clearItemDescriptionTooltip(this);
       clearListFilterState(this);
+      clearSheetFormUpdateState(this);
       return super._onClose(options);
     } finally {
       this._traceSheetPerf("_onClose", perfStart, {});

@@ -16,6 +16,15 @@ function getCriticalSourceSuffix(result) {
   return "";
 }
 
+/** Return the highest normal DoS the shared d100 test can produce at a TN. */
+export function getMaximumSuccessDegree(target = 0) {
+  const tn = Math.max(0, Number(target) || 0);
+  const highestSuccessfulRoll = Math.min(100, tn);
+  const baseDos = Math.max(1, Math.floor(highestSuccessfulRoll / 10));
+  const tnTensBonus = tn > 100 ? Math.floor((tn % 100) / 10) : 0;
+  return baseDos + tnTensBonus;
+}
+
 /**
  * Core DoS/DoF helper logic with minimal dependencies.
  */

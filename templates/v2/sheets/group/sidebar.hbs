@@ -1,13 +1,13 @@
     <div class="sheet-fixed-container group-sidebar">
       <div class="character-profile-container group-profile-frame">
         <div class="profile-img-container">
-          <img class="profile-img" src="{{actor.img}}" data-edit="img" data-action="editPortrait" data-tooltip-text="{{actor.name}}" alt="{{actor.name}}">
+          <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-image-action" data-action="editPortrait" data-edit="img" data-tooltip-text="{{actor.name}}" aria-label="{{actor.name}}"><img class="profile-img" src="{{actor.img}}" alt="" aria-hidden="true"></button>
         </div>
       </div>
       <h1 class="charname group-name-bar"><input type="text" name="name" value="{{actor.name}}" placeholder="{{localize "UESRPG.UI.GroupName"}}"></h1>
       <section class="group-skill-debrief uesrpg-collapsible" aria-label="{{localize "UESRPG.UI.SkillsDebrief"}}">
         <div class="group-skill-debrief__header">
-          <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="group-skill-debrief" data-tooltip="UESRPG.UI.CollapseExpand" aria-label="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a>
+          <button type="button" data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle uesrpg-semantic-control uesrpg-plain-control" data-group="group-skill-debrief" data-tooltip="UESRPG.UI.CollapseExpand" aria-label="{{localize "UESRPG.UI.CollapseExpand"}}" aria-expanded="true"><i class="fas fa-chevron-down"></i></button>
           <i class="fas fa-scroll"></i>
           <span>{{localize "UESRPG.UI.SkillsDebrief"}}</span>
         </div>

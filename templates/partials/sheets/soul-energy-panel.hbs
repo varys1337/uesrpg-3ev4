@@ -1,0 +1,73 @@
+<section class="uesrpg-soul-energy-panel" aria-labelledby="uesrpg-soul-energy-title-{{item.id}}">
+    <div class="uesrpg-soul-energy-panel__header">
+        <div>
+            <h3 id="uesrpg-soul-energy-title-{{item.id}}">{{localize "UESRPG.Sheets.Item.SoulEnergyConfiguration"}}</h3>
+            <p>{{localize "UESRPG.Sheets.Item.SoulEnergyConfigurationHint"}}</p>
+        </div>
+        {{#if isSoulEnergyItem}}
+            {{#if hasExplicitSoulEnergyFlags}}
+            <button type="button" class="uesrpg-alchemy-compact-btn uesrpg-styled-action" data-action="clearSoulEnergyItem">
+                <i class="fas fa-times" aria-hidden="true"></i>
+                {{localize "UESRPG.Sheets.Item.RemoveSoulEnergy"}}
+            </button>
+            {{else}}
+            <button type="button" class="uesrpg-alchemy-compact-btn uesrpg-styled-action" data-action="enableSoulEnergyItem">
+                <i class="fas fa-wand-sparkles" aria-hidden="true"></i>
+                {{localize "UESRPG.Sheets.Item.ConvertSoulEnergy"}}
+            </button>
+            {{/if}}
+        {{else}}
+        <button type="button" class="uesrpg-alchemy-compact-btn uesrpg-styled-action" data-action="enableSoulEnergyItem">
+            <i class="fas fa-gem" aria-hidden="true"></i>
+            {{localize "UESRPG.Sheets.Item.EnableSoulEnergy"}}
+        </button>
+        {{/if}}
+    </div>
+
+    {{#if isSoulEnergyItem}}
+    {{#if hasExplicitSoulEnergyFlags}}<input type="hidden" name="flags.uesrpg-3ev4.isSoulGem" value="true" data-dtype="Boolean">{{/if}}
+    <div class="uesrpg-soul-energy-panel__grid">
+        <div class="form-group">
+            <label for="soul-tier-{{item.id}}">{{localize "UESRPG.Sheets.Item.SoulEnergyTier"}}</label>
+            <select id="soul-tier-{{item.id}}" name="flags.uesrpg-3ev4.soulTier" {{#unless hasExplicitSoulEnergyFlags}}disabled{{/unless}}>
+                {{#each soulEnergyData.tierOptions as |option|}}
+                <option value="{{option.value}}" {{#if option.selected}}selected{{/if}}>{{option.label}}</option>
+                {{/each}}
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="soul-size-{{item.id}}">{{localize "UESRPG.Sheets.Item.SoulEnergyLabel"}}</label>
+            <input id="soul-size-{{item.id}}" type="text" name="flags.uesrpg-3ev4.soulSize" value="{{soulEnergyData.soulSize}}" {{#unless soulEnergyData.isCustomTier}}readonly{{/unless}} {{#unless hasExplicitSoulEnergyFlags}}disabled{{/unless}}>
+        </div>
+        <div class="form-group">
+            <label for="soul-type-{{item.id}}">{{localize "UESRPG.Sheets.Item.SoulEnergyType"}}</label>
+            <select id="soul-type-{{item.id}}" name="flags.uesrpg-3ev4.soulType" {{#unless soulEnergyData.isCustomTier}}disabled aria-disabled="true"{{/unless}} {{#unless hasExplicitSoulEnergyFlags}}disabled{{/unless}}>
+                <option value="white" {{#if (eq soulEnergyData.soulType "white")}}selected{{/if}}>{{localize "UESRPG.Sheets.Item.SoulEnergyWhite"}}</option>
+                <option value="black" {{#if (eq soulEnergyData.soulType "black")}}selected{{/if}}>{{localize "UESRPG.Sheets.Item.SoulEnergyBlack"}}</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="soul-consumption-{{item.id}}">{{localize "UESRPG.Sheets.Item.SoulEnergyConsumption"}}</label>
+            <select id="soul-consumption-{{item.id}}" name="flags.uesrpg-3ev4.soulGemConsumptionMode" {{#unless hasExplicitSoulEnergyFlags}}disabled{{/unless}}>
+                {{#each soulEnergyData.consumptionOptions as |option|}}
+                <option value="{{option.value}}" {{#if option.selected}}selected{{/if}}>{{option.label}}</option>
+                {{/each}}
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="soul-current-{{item.id}}">{{localize "UESRPG.Sheets.Item.SoulEnergyCurrent"}}</label>
+            <input id="soul-current-{{item.id}}" type="number" name="flags.uesrpg-3ev4.soulEnergy" value="{{soulEnergyData.soulEnergy}}" min="0" max="{{soulEnergyData.maxSoulEnergy}}" step="1" required {{#unless hasExplicitSoulEnergyFlags}}disabled{{/unless}}>
+        </div>
+        <div class="form-group">
+            <label for="soul-capacity-{{item.id}}">{{localize "UESRPG.Sheets.Item.SoulEnergyCapacity"}}</label>
+            <input id="soul-capacity-{{item.id}}" type="number" name="flags.uesrpg-3ev4.maxSoulEnergy" value="{{soulEnergyData.maxSoulEnergy}}" min="0" step="1" required {{#unless soulEnergyData.isCustomTier}}readonly{{/unless}} {{#unless hasExplicitSoulEnergyFlags}}disabled{{/unless}}>
+        </div>
+    </div>
+    {{#unless hasExplicitSoulEnergyFlags}}
+    <p class="uesrpg-soul-energy-panel__notice"><i class="fas fa-history" aria-hidden="true"></i> {{localize "UESRPG.Sheets.Item.SoulEnergyLegacyNotice"}}</p>
+    {{/unless}}
+    {{#if soulEnergyData.hasInvalidReusableStack}}
+    <p class="uesrpg-soul-energy-panel__notice is-error"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i> {{localize "UESRPG.Sheets.Item.SoulEnergyReusableStackWarning"}}</p>
+    {{/if}}
+    {{/if}}
+</section>

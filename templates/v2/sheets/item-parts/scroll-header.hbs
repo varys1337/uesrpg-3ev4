@@ -1,6 +1,6 @@
 <div class="uesrpg-item-sheet-header-part">
 <header class="item-compact-header">
-    <img class="profile-img" alt="{{item.name}}" src="{{item.img}}" data-edit="img" data-action="editPortrait" data-tooltip-text="{{item.name}}" width="64" height="64"/>
+    <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-image-action" data-action="editPortrait" data-edit="img" data-tooltip-text="{{item.name}}" aria-label="{{item.name}}"><img class="profile-img" alt="" src="{{item.img}}" width="64" height="64" aria-hidden="true"></button>
     <div class="item-header-fields">
         <input class="item-compact-name" name="name" type="text" value="{{item.name}}" placeholder="{{localize "UESRPG.Sheets.Item.ScrollName"}}"/>
         <div class="item-stats-row">

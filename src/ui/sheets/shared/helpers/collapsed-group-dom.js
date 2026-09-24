@@ -38,6 +38,7 @@ export async function applyCollapsedGroups(el) {
  */
 export function setGroupCollapsedInDom(toggleEl, collapsed) {
   if (!toggleEl) return;
+  toggleEl.setAttribute("aria-expanded", String(!collapsed));
 
   const icon = toggleEl.querySelector("i");
   if (icon) {

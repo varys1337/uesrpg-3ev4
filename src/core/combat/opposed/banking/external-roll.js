@@ -89,10 +89,8 @@ export async function applyExternalRollMessage(rollMessage, deps) {
 
   const authorId =
     rollMessage?.author?.id ??
-    rollMessage?._source?.author ??
-    rollMessage?._source?.user ??
-    rollMessage?.data?.author ??
-    rollMessage?.data?.user ??
+    rollMessage?.user?.id ??
+    (typeof rollMessage?.user === "string" ? rollMessage.user : null) ??
     null;
   const authorUser = authorId ? (game.users.get(String(authorId)) ?? null) : null;
   if (!authorUser) return;
@@ -105,17 +103,9 @@ export async function applyExternalRollMessage(rollMessage, deps) {
 
   let dirty = false;
   // Per-invocation UUID cache — deduplicates actor/token lookups within this banking call.
-  const _resolver = createUuidResolver();
-
   const applyResult = async (side) => {
     if (!side?.actorUuid) return null;
-    let actor = null;
-    try {
-      const doc = _resolver.resolveSync(side.actorUuid);
-      actor = (doc?.documentName === "Actor") ? doc : (doc?.actor ?? null);
-    } catch (_e) {
-      actor = null;
-    }
+    const actor = resolveActor(side.actorUuid);
     if (!actor) return null;
 
     const roll = rollMessage?.rolls?.[0] ?? null;

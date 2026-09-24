@@ -30,7 +30,7 @@ import { resolveOutcomeRAW as _resolveOutcomeRAW, computeAdvantageRAW as _comput
 import { _cleanupAutoRollContext } from "../banking/state.js";
 import { canDefenderRoll, markDefenderIneligibleForHidden, markDefenderNoDefense } from "./eligibility.js";
 import { DefenseDialog } from "../../defense-dialog.js";
-import { computeTN } from "../../tn.js";
+import { computeTN, hasEquippedShield, listCombatStyles } from "../../tn.js";
 import { getDefenseTalentOverrides, applyDefenderTalentTNMods, applyCombatTalentDoSAdjustments, getEvadeOverrideContext } from "../../../traits/combat-talents.js";
 import { _promptUnstoppableMightUsage, _hasUnstoppableMightEligibleWeapons, _getGladiatorContext, _getFreeDefenseReactionContext, _markGladiatorFreeReactionUsed } from "../helpers/talents.js";
 import { computeDefenseAvailability, normalizeDefenseType } from "../../defense-options.js";
@@ -38,7 +38,6 @@ import { applyHyperAwarenessToResult } from "../../../traits/awareness-talents.j
 import { hasTalent } from "../../../traits/talents-api.js";
 import { shouldDeferEvadeApForStepAside } from "../../../traits/mobility-talents.js";
 import { ActionEconomy } from "../../action-economy.js";
-import { hasEquippedShield, listCombatStyles } from "../../tn.js";
 import { breakAimChainIfPresent as _breakAimChainIfPresent, consumeInspireHeroismEffect as _consumeInspireHeroismEffect } from "../effects.js";
 import { consumeFreeNextDefenseCommit } from "../../activation-state-flags.js";
 import { canUseWardDefense, getPreferredWardDefenseSpell } from "../../ward-defense.js";

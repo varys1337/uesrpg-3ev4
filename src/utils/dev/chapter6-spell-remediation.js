@@ -217,14 +217,14 @@ export async function applyChapter6SpellRemediation(opts = {}) {
     }
   }
 
-  if (backup && backupPayload.length > 0 && typeof saveDataToFile === "function") {
+  if (backup && backupPayload.length > 0 && typeof foundry.utils.saveDataToFile === "function") {
     try {
       const blob = new Blob([JSON.stringify({
         generatedAt: new Date().toISOString(),
         packName: plan.packName,
         entries: backupPayload
       }, null, 2)], { type: "application/json" });
-      saveDataToFile(blob, "text/json", `chapter6-spell-remediation-backup-${Date.now()}.json`);
+      foundry.utils.saveDataToFile(blob, "text/json", `chapter6-spell-remediation-backup-${Date.now()}.json`);
     } catch (_e) {
       errors.push({ spellName: "(backup)", error: "Failed to export backup JSON file." });
     }

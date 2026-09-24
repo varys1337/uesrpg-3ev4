@@ -9,7 +9,7 @@
 --}}
 <header class="effects-header flexrow">
     <h3>{{localize "UESRPG.Sheets.Equipment.Effects"}}</h3>
-    <a class="effect-control" data-action="effectControl" data-effect-action="create" data-tooltip="UESRPG.Sheets.Equipment.CreateEffect" aria-label="{{localize "UESRPG.Sheets.Equipment.CreateEffect"}}"><i class="fas fa-plus"></i></a>
+    <button type="button" class="effect-control uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="effectControl" data-effect-action="create" data-tooltip="UESRPG.Sheets.Equipment.CreateEffect" aria-label="{{localize "UESRPG.Sheets.Equipment.CreateEffect"}}"><i class="fas fa-plus" aria-hidden="true"></i></button>
 </header>
 <ol class="effects-list">
     {{#each effects as |effect|}}
@@ -31,9 +31,9 @@
         <span class="effect-mode-badge activation" data-tooltip="UESRPG.ActiveEffects.Hints.Activation">{{localize "UESRPG.ActiveEffects.Fields.Activation"}}</span>
         {{/if}}
         <div class="effect-controls flexrow">
-            <a class="effect-control" data-action="effectControl" data-effect-action="toggle" data-effect-id="{{effect._id}}" data-tooltip="UESRPG.Sheets.Equipment.ToggleEffect" aria-label="{{localize "UESRPG.Sheets.Equipment.ToggleEffect"}}"><i class="fas {{#if effect.disabled}}fa-toggle-off{{else}}fa-toggle-on{{/if}}"></i></a>
-            <a class="effect-control" data-action="effectControl" data-effect-action="edit" data-effect-id="{{effect._id}}" data-tooltip="UESRPG.Sheets.Equipment.EditEffect" aria-label="{{localize "UESRPG.Sheets.Equipment.EditEffect"}}"><i class="fas fa-edit"></i></a>
-            <a class="effect-control" data-action="effectControl" data-effect-action="delete" data-effect-id="{{effect._id}}" data-tooltip="UESRPG.Sheets.Equipment.DeleteEffect" aria-label="{{localize "UESRPG.Sheets.Equipment.DeleteEffect"}}"><i class="fas fa-trash"></i></a>
+            <button type="button" class="effect-control uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="effectControl" data-effect-action="toggle" data-effect-id="{{effect._id}}" data-tooltip="UESRPG.Sheets.Equipment.ToggleEffect" aria-label="{{localize "UESRPG.Sheets.Equipment.ToggleEffect"}}"><i class="fas {{#if effect.disabled}}fa-toggle-off{{else}}fa-toggle-on{{/if}}" aria-hidden="true"></i></button>
+            <button type="button" class="effect-control uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="effectControl" data-effect-action="edit" data-effect-id="{{effect._id}}" data-tooltip="UESRPG.Sheets.Equipment.EditEffect" aria-label="{{localize "UESRPG.Sheets.Equipment.EditEffect"}}"><i class="fas fa-edit" aria-hidden="true"></i></button>
+            <button type="button" class="effect-control uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="effectControl" data-effect-action="delete" data-effect-id="{{effect._id}}" data-tooltip="UESRPG.Sheets.Equipment.DeleteEffect" aria-label="{{localize "UESRPG.Sheets.Equipment.DeleteEffect"}}"><i class="fas fa-trash" aria-hidden="true"></i></button>
         </div>
     </li>
     {{/each}}

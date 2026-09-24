@@ -1,4 +1,4 @@
-﻿<div class="tab core" data-group="primary" data-tab="core">
+<div class="tab core" data-group="primary" data-tab="core">
   <div class="tabContainer uesrpg-sheet-body">
 
     <div class="skillContainer">
@@ -8,13 +8,13 @@
       <ul class="skillList">
         {{#each actor.skill as |item id|}}
           <li class="item" data-item-id="{{item._id}}">
-            <div class="itemInfo skill-roll-target" data-action="skillRoll" role="button" tabindex="0">
+            <button type="button" class="itemInfo skill-roll-target uesrpg-semantic-control uesrpg-plain-control" data-action="skillRoll">
               <img class="item-img" src="{{item.img}}" data-tooltip="UESRPG.UI.PostToChat" alt="{{item.name}}" />
-              <div class="item-name skill-open-item">{{item.name}}</div>
-            </div>
+              <span class="item-name skill-open-item">{{item.name}}</span>
+            </button>
             <div class="item-controls">
               <div class="item-value">{{item.system.value}}%</div>
-              <a data-action="itemDelete" class="item-control item-delete" data-tooltip="UESRPG.UI.Delete" aria-label="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash"></i></a>
+              <button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.Delete" aria-label="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash"></i></button>
             </div>
           </li>
         {{/each}}
@@ -24,21 +24,25 @@
     <div class="three-column-flex-container">
       <div class="trait-container">
         <div class="section-header">
-          <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="traits" data-tooltip="UESRPG.UI.CollapseExpand" aria-label="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a>
+          <button type="button" data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle uesrpg-semantic-control uesrpg-plain-control" data-group="traits" data-tooltip="UESRPG.UI.CollapseExpand" aria-label="{{localize "UESRPG.UI.CollapseExpand"}}" aria-expanded="true"><i class="fas fa-chevron-down"></i></button>
           <span class="section-header__label">{{localize "UESRPG.UI.Traits"}}</span>
         </div>
         <ol class="single-column-list">
           {{#each actor.trait as |item id|}}
             <li class="item" data-item-id="{{item._id}}">
               <div class="itemInfo">
-                <img data-action="postItemToChat" class="item-img" src="{{item.img}}" data-tooltip="UESRPG.UI.PostToChat" alt="{{item.name}}" />
+                <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-image-action" data-action="postItemToChat" data-tooltip="UESRPG.UI.PostToChat" aria-label="{{localize "UESRPG.UI.PostToChat"}}"><img class="item-img" src="{{item.img}}" alt="" aria-hidden="true"></button>
                 {{#with (lookup @root.actor.ui.traitStackingById item._id) as |stack|}}
-                  <i class="fas fa-layer-group" data-tooltip-text="Trait stacking: key '{{stack.key}}' appears {{stack.count}} times{{#if stack.highest}}. Highest X: {{stack.highest}}{{#if stack.unit}} {{stack.unit}}{{/if}}{{/if}}" aria-label="Trait stacking: key '{{stack.key}}' appears {{stack.count}} times{{#if stack.highest}}. Highest X: {{stack.highest}}{{#if stack.unit}} {{stack.unit}}{{/if}}{{/if}}"></i>
+                  {{#if stack.highest}}
+                  <i class="fas fa-layer-group" data-tooltip-text="{{localize "UESRPG.Sheets.FeatureInspector.TraitStackingHighest" key=stack.key count=stack.count highest=stack.highest unit=stack.unit}}" aria-label="{{localize "UESRPG.Sheets.FeatureInspector.TraitStackingHighest" key=stack.key count=stack.count highest=stack.highest unit=stack.unit}}"></i>
+                  {{else}}
+                  <i class="fas fa-layer-group" data-tooltip-text="{{localize "UESRPG.Sheets.FeatureInspector.TraitStacking" key=stack.key count=stack.count}}" aria-label="{{localize "UESRPG.Sheets.FeatureInspector.TraitStacking" key=stack.key count=stack.count}}"></i>
+                  {{/if}}
                 {{/with}}
-                <div data-action="itemOpen" class="item-name">{{item.name}}</div>
+                <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control">{{item.name}}</button>
               </div>
               <div class="item-controls">
-                <a data-action="itemDelete" class="item-control item-delete" data-tooltip="UESRPG.UI.Delete" aria-label="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash"></i></a>
+                <button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.Delete" aria-label="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash"></i></button>
               </div>
             </li>
           {{/each}}
@@ -47,18 +51,18 @@
 
       <div class="talent-container">
         <div class="section-header">
-          <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="talents" data-tooltip="UESRPG.UI.CollapseExpand" aria-label="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a>
+          <button type="button" data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle uesrpg-semantic-control uesrpg-plain-control" data-group="talents" data-tooltip="UESRPG.UI.CollapseExpand" aria-label="{{localize "UESRPG.UI.CollapseExpand"}}" aria-expanded="true"><i class="fas fa-chevron-down"></i></button>
           <span class="section-header__label">{{localize "UESRPG.UI.Talents"}}</span>
         </div>
         <ol class="single-column-list">
           {{#each actor.talent as |item id|}}
             <li class="item" data-item-id="{{item._id}}">
               <div class="itemInfo">
-                <img data-action="postItemToChat" class="item-img" src="{{item.img}}" data-tooltip="UESRPG.UI.PostToChat" alt="{{item.name}}" />
-                <div data-action="itemOpen" class="item-name">{{item.name}}</div>
+                <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-image-action" data-action="postItemToChat" data-tooltip="UESRPG.UI.PostToChat" aria-label="{{localize "UESRPG.UI.PostToChat"}}"><img class="item-img" src="{{item.img}}" alt="" aria-hidden="true"></button>
+                <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control">{{item.name}}</button>
               </div>
               <div class="item-controls">
-                <a data-action="itemDelete" class="item-control item-delete" data-tooltip="UESRPG.UI.Delete" aria-label="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash"></i></a>
+                <button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.Delete" aria-label="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash"></i></button>
               </div>
             </li>
           {{/each}}
@@ -67,18 +71,18 @@
 
       <div class="power-container">
         <div class="section-header">
-          <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="powers" data-tooltip="UESRPG.UI.CollapseExpand" aria-label="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a>
+          <button type="button" data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle uesrpg-semantic-control uesrpg-plain-control" data-group="powers" data-tooltip="UESRPG.UI.CollapseExpand" aria-label="{{localize "UESRPG.UI.CollapseExpand"}}" aria-expanded="true"><i class="fas fa-chevron-down"></i></button>
           <span class="section-header__label">{{localize "UESRPG.UI.Powers"}}</span>
         </div>
         <ol class="single-column-list">
           {{#each actor.power as |item id|}}
             <li class="item" data-item-id="{{item._id}}">
               <div class="itemInfo">
-                <img data-action="postItemToChat" class="item-img" src="{{item.img}}" data-tooltip="UESRPG.UI.PostToChat" alt="{{item.name}}" />
-                <div data-action="itemOpen" class="item-name">{{item.name}}</div>
+                <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-image-action" data-action="postItemToChat" data-tooltip="UESRPG.UI.PostToChat" aria-label="{{localize "UESRPG.UI.PostToChat"}}"><img class="item-img" src="{{item.img}}" alt="" aria-hidden="true"></button>
+                <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control">{{item.name}}</button>
               </div>
               <div class="item-controls">
-                <a data-action="itemDelete" class="item-control item-delete" data-tooltip="UESRPG.UI.Delete" aria-label="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash"></i></a>
+                <button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.Delete" aria-label="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash"></i></button>
               </div>
             </li>
           {{/each}}
@@ -89,9 +93,9 @@
     <div class="social-section">
       <div class="social-field">
         <div class="section-header">
-          <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="languages" data-tooltip="UESRPG.UI.CollapseExpand" aria-label="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a>
+          <button type="button" data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle uesrpg-semantic-control uesrpg-plain-control" data-group="languages" data-tooltip="UESRPG.UI.CollapseExpand" aria-label="{{localize "UESRPG.UI.CollapseExpand"}}" aria-expanded="true"><i class="fas fa-chevron-down"></i></button>
           <span class="section-header__label">{{localize "UESRPG.UI.Languages"}}</span>
-          <button type="button" data-action="openLanguageSelector" class="section-header__action" data-tooltip="UESRPG.UI.ConfigureLanguages" aria-label="{{localize "UESRPG.UI.ConfigureLanguages"}}"><i class="fas fa-pen"></i></button>
+          <button type="button" data-action="openLanguageSelector" class="section-header__action uesrpg-styled-action" data-tooltip="UESRPG.UI.ConfigureLanguages" aria-label="{{localize "UESRPG.UI.ConfigureLanguages"}}"><i class="fas fa-pen"></i></button>
         </div>
         <div class="social-field__body">
           <div class="social-chip-wrap">
@@ -111,9 +115,9 @@
 
       <div class="social-field">
         <div class="section-header">
-          <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="factions" data-tooltip="UESRPG.UI.CollapseExpand" aria-label="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a>
+          <button type="button" data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle uesrpg-semantic-control uesrpg-plain-control" data-group="factions" data-tooltip="UESRPG.UI.CollapseExpand" aria-label="{{localize "UESRPG.UI.CollapseExpand"}}" aria-expanded="true"><i class="fas fa-chevron-down"></i></button>
           <span class="section-header__label">{{localize "UESRPG.UI.Factions"}}</span>
-          <button type="button" data-action="openFactionSelector" class="section-header__action" data-tooltip="UESRPG.UI.ConfigureFactions" aria-label="{{localize "UESRPG.UI.ConfigureFactions"}}"><i class="fas fa-pen"></i></button>
+          <button type="button" data-action="openFactionSelector" class="section-header__action uesrpg-styled-action" data-tooltip="UESRPG.UI.ConfigureFactions" aria-label="{{localize "UESRPG.UI.ConfigureFactions"}}"><i class="fas fa-pen"></i></button>
         </div>
         <div class="social-field__body">
           {{#if actor.system.socialDisplay.factions.preview.length}}
@@ -141,9 +145,9 @@
 
     <div class="bioPage">
       <div class="section-header">
-        <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="notes" data-tooltip="UESRPG.UI.CollapseExpand" aria-label="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a>
+        <button type="button" data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle uesrpg-semantic-control uesrpg-plain-control" data-group="notes" data-tooltip="UESRPG.UI.CollapseExpand" aria-label="{{localize "UESRPG.UI.CollapseExpand"}}" aria-expanded="true"><i class="fas fa-chevron-down"></i></button>
         <span class="section-header__label">{{localize "UESRPG.UI.Biography"}}</span>
-        <button type="button" class="section-header__action" data-action="openBioEditor" data-tooltip="UESRPG.UI.EditBiography" aria-label="{{localize "UESRPG.UI.EditBiography"}}">
+        <button type="button" class="section-header__action uesrpg-styled-action" data-action="openBioEditor" data-tooltip="UESRPG.UI.EditBiography" aria-label="{{localize "UESRPG.UI.EditBiography"}}">
           <i class="fas fa-pen"></i>
         </button>
       </div>

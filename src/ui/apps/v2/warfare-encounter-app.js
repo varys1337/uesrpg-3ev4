@@ -13,6 +13,7 @@ import {
   getWarfareUnitTokenDocs,
 } from "../../../core/mass-warfare/encounter/state.js";
 import { activateOpenApplication } from "./application-focus.js";
+import { withApplicationUniqueId } from "./application-identity.js";
 import { t } from "../../../utils/i18n.js";
 import { isMassCombatEnabled, requireMassCombatEnabled } from "../../../core/homebrew/settings.js";
 
@@ -83,6 +84,7 @@ export class WarfareEncounterAppV2 extends HandlebarsApplicationMixin(Applicatio
   _renderFrameId = null;
 
   static DEFAULT_OPTIONS = {
+    id: "uesrpg-warfare-encounter-{id}",
     classes: ["uesrpg", "uesrpg-warfare-encounter"],
     position: { width: 640, height: 520 },
     window: {
@@ -106,7 +108,7 @@ export class WarfareEncounterAppV2 extends HandlebarsApplicationMixin(Applicatio
   };
 
   constructor(scene, options = {}) {
-    super(options);
+    super(withApplicationUniqueId(options, scene ?? options?.sceneUuid ?? "unbound"));
     this._sceneUuid = String(scene?.uuid ?? options?.sceneUuid ?? "");
   }
 
@@ -181,8 +183,8 @@ export class WarfareEncounterAppV2 extends HandlebarsApplicationMixin(Applicatio
     };
   }
 
-  _onRender(context, options) {
-    super._onRender(context, options);
+  async _onFirstRender(context, options) {
+    await super._onFirstRender(context, options);
     _openApps.set(String(this._sceneUuid ?? ""), this);
     _registerHooks();
   }
@@ -246,9 +248,7 @@ export async function openWarfareEncounterApp(scene) {
     return activateOpenApplication(existing, { render: true });
   }
 
-  const app = new WarfareEncounterAppV2(scene, {
-    id: `uesrpg-warfare-encounter-${scene.id}`,
-  });
+  const app = new WarfareEncounterAppV2(scene);
   await app.render(true);
   return app;
 }

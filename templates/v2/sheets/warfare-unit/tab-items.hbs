@@ -7,16 +7,16 @@
         <legend>{{localize "UESRPG.Sheets.WarfareUnit.ApparelAndMounts"}}</legend>
         <div class="warfare-form-grid warfare-form-grid--compact">
           <div class="form-group">
-            <label for="wf-apparel">{{localize "UESRPG.Sheets.WarfareUnit.Apparel"}}</label>
-            <select id="wf-apparel" name="system.gear.apparel" {{#unless editable}}disabled{{/unless}}>
+            <label for="{{controlIdPrefix}}-wf-apparel">{{localize "UESRPG.Sheets.WarfareUnit.Apparel"}}</label>
+            <select id="{{controlIdPrefix}}-wf-apparel" name="system.gear.apparel" {{#unless editable}}disabled{{/unless}}>
               {{#each apparelOptions}}
               <option value="{{this.value}}" {{#if this.selected}}selected{{/if}}>{{this.label}}</option>
               {{/each}}
             </select>
           </div>
           <div class="form-group">
-            <label for="wf-mount">{{localize "UESRPG.Sheets.WarfareUnit.Mount"}}</label>
-            <select id="wf-mount" name="system.mounts.primary" {{#unless editable}}disabled{{/unless}}>
+            <label for="{{controlIdPrefix}}-wf-mount">{{localize "UESRPG.Sheets.WarfareUnit.Mount"}}</label>
+            <select id="{{controlIdPrefix}}-wf-mount" name="system.mounts.primary" {{#unless editable}}disabled{{/unless}}>
               {{#each mountOptions}}
               <option value="{{this.value}}" {{#if this.selected}}selected{{/if}}>{{this.label}}</option>
               {{/each}}
@@ -29,15 +29,15 @@
         </div>
         <div class="warfare-loadout-summary">
           <div class="form-group">
-            <label>DMG</label>
+            <label>{{localize "UESRPG.Sheets.WarfareUnit.DMG"}}</label>
             <span class="warfare-derived-value">{{system.gear.dmg}}</span>
           </div>
           <div class="form-group">
-            <label>AR</label>
+            <label>{{localize "UESRPG.Sheets.Equipment.AR"}}</label>
             <span class="warfare-derived-value">{{system.gear.ar}}</span>
           </div>
           <div class="form-group">
-            <label>MAR</label>
+            <label>{{localize "UESRPG.Sheets.Equipment.MAR"}}</label>
             <span class="warfare-derived-value">{{system.gear.mar}}</span>
           </div>
           <div class="form-group">
@@ -58,8 +58,8 @@
         <legend>{{localize "UESRPG.UI.Upkeep"}}</legend>
         <div class="warfare-form-grid warfare-form-grid--compact warfare-form-grid--upkeep">
           <div class="form-group">
-            <label for="wf-economy-cadence">{{localize "UESRPG.Sheets.WarfareUnit.PaymentCadence"}}</label>
-            <select id="wf-economy-cadence" name="system.economy.cadence" {{#unless editable}}disabled{{/unless}}>
+            <label for="{{controlIdPrefix}}-wf-economy-cadence">{{localize "UESRPG.Sheets.WarfareUnit.PaymentCadence"}}</label>
+            <select id="{{controlIdPrefix}}-wf-economy-cadence" name="system.economy.cadence" {{#unless editable}}disabled{{/unless}}>
               {{#each economy.supportedCadences}}
               <option value="{{this}}" {{#if (eq this ../economy.cadence)}}selected{{/if}}>{{capitalize this}}</option>
               {{/each}}
@@ -79,27 +79,27 @@
           </div>
         </div>
         <div class="warfare-upkeep-footer">
-          <span class="warfare-hint">{{localize "UESRPG.Sheets.WarfareUnit.DerivedWeeklyUpkeep"}} <strong>{{derived.weeklyUpkeep}} gp</strong>.</span>
+          <span class="warfare-hint">{{localize "UESRPG.Sheets.WarfareUnit.DerivedWeeklyUpkeep"}} <strong>{{localize "UESRPG.ModernUI.Gp" value1=derived.weeklyUpkeep}}</strong>.</span>
         </div>
       </fieldset>
 
       <fieldset class="warfare-fieldset">
         <legend>{{localize "UESRPG.Sheets.WarfareUnit.DeployablesSupportEquipment"}}</legend>
         {{#if editable}}
-        <button type="button" data-action="addOwnedEquipment" class="warfare-btn warfare-btn--small"><i class="fas fa-plus"></i> {{localize "UESRPG.Sheets.WarfareUnit.AddEquipment"}}</button>
+        <button type="button" data-action="addOwnedEquipment" class="warfare-btn warfare-btn--small uesrpg-styled-action"><i class="fas fa-plus"></i> {{localize "UESRPG.Sheets.WarfareUnit.AddEquipment"}}</button>
         {{/if}}
         {{#each equipmentOwned}}
         <div class="warfare-equipment-row" data-owned-index="{{@index}}">
-          <input type="text" name="system.equipment.owned.{{@index}}.key" value="{{this.key}}" placeholder="Catalog Key" {{#unless ../editable}}disabled{{/unless}}>
-          <input type="text" name="system.equipment.owned.{{@index}}.name" value="{{this.name}}" placeholder="Display Name" {{#unless ../editable}}disabled{{/unless}}>
+          <input type="text" name="system.equipment.owned.{{@index}}.key" value="{{this.key}}" placeholder="{{localize "UESRPG.UI.CatalogKey"}}" {{#unless ../editable}}disabled{{/unless}}>
+          <input type="text" name="system.equipment.owned.{{@index}}.name" value="{{this.name}}" placeholder="{{localize "UESRPG.UI.DisplayName"}}" {{#unless ../editable}}disabled{{/unless}}>
           <input type="number" name="system.equipment.owned.{{@index}}.deployTime" value="{{this.deployTime}}" min="1" {{#unless ../editable}}disabled{{/unless}}>
           <input type="number" name="system.equipment.owned.{{@index}}.deployProgress" value="{{this.deployProgress}}" min="0" {{#unless ../editable}}disabled{{/unless}}>
           <label><input type="checkbox" name="system.equipment.owned.{{@index}}.deployed" {{checked this.deployed}} {{#unless ../editable}}disabled{{/unless}}> {{localize "UESRPG.Sheets.WarfareUnit.Deployed"}}</label>
           <label><input type="checkbox" name="system.equipment.owned.{{@index}}.expended" {{checked this.expended}} {{#unless ../editable}}disabled{{/unless}}> {{localize "UESRPG.Sheets.WarfareUnit.Expended"}}</label>
-          <input type="text" name="system.equipment.owned.{{@index}}.placement" value="{{this.placement}}" placeholder="Placement" {{#unless ../editable}}disabled{{/unless}}>
-          <input type="text" name="system.equipment.owned.{{@index}}.effect" value="{{this.effect}}" placeholder="Effect" {{#unless ../editable}}disabled{{/unless}}>
+          <input type="text" name="system.equipment.owned.{{@index}}.placement" value="{{this.placement}}" placeholder="{{localize "UESRPG.UI.Placement"}}" {{#unless ../editable}}disabled{{/unless}}>
+          <input type="text" name="system.equipment.owned.{{@index}}.effect" value="{{this.effect}}" placeholder="{{localize "UESRPG.UI.Effect"}}" {{#unless ../editable}}disabled{{/unless}}>
           {{#if ../editable}}
-          <button type="button" data-action="removeOwnedEquipment" data-owned-index="{{@index}}" class="warfare-btn warfare-btn--icon" data-tooltip="UESRPG.UI.Remove" aria-label="{{localize "UESRPG.UI.Remove"}}"><i class="fas fa-trash" aria-hidden="true"></i></button>
+          <button type="button" data-action="removeOwnedEquipment" data-owned-index="{{@index}}" class="warfare-btn warfare-btn--icon uesrpg-styled-action" data-tooltip="UESRPG.UI.Remove" aria-label="{{localize "UESRPG.UI.Remove"}}"><i class="fas fa-trash" aria-hidden="true"></i></button>
           {{/if}}
         </div>
         {{else}}
@@ -114,8 +114,8 @@
           {{#each derived.equipmentEntries}}
           <div class="warfare-effect-row">
             <span><strong>{{this.name}}</strong></span>
-            <span>Deploy {{this.deployTime}}</span>
-            <span class="warfare-effect-row__status">{{#if this.isBattleScroll}}Battle Scroll{{else}}Support{{/if}}</span>
+            <span>{{localize "UESRPG.ModernUI.Deploy" value1=this.deployTime}}</span>
+            <span class="warfare-effect-row__status">{{#if this.isBattleScroll}}{{localize "UESRPG.ModernUI.BattleScroll"}}{{else}}{{localize "UESRPG.ModernUI.Support"}}{{/if}}</span>
           </div>
           {{/each}}
         </div>
@@ -135,18 +135,18 @@
             {{/each}}
           </span>
           {{else}}
-          <span class="warfare-effect-row__status">{{#if this.disabled}}(Disabled){{/if}}</span>
+          <span class="warfare-effect-row__status">{{#if this.disabled}}{{localize "UESRPG.ModernUI.Disabled"}}{{/if}}</span>
           {{/if}}
-          <button type="button" data-action="editEffect" data-effect-id="{{this.id}}" class="warfare-btn warfare-btn--icon" data-tooltip="UESRPG.UI.Open" aria-label="{{localize "UESRPG.UI.Open"}}"><i class="fas fa-edit" aria-hidden="true"></i></button>
+          <button type="button" data-action="editEffect" data-effect-id="{{this.id}}" class="warfare-btn warfare-btn--icon uesrpg-styled-action" data-tooltip="UESRPG.UI.Open" aria-label="{{localize "UESRPG.UI.Open"}}"><i class="fas fa-edit" aria-hidden="true"></i></button>
           {{#if ../editable}}
-          <button type="button" data-action="deleteEffect" data-effect-id="{{this.id}}" class="warfare-btn warfare-btn--icon" data-tooltip="UESRPG.UI.Delete" aria-label="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash" aria-hidden="true"></i></button>
+          <button type="button" data-action="deleteEffect" data-effect-id="{{this.id}}" class="warfare-btn warfare-btn--icon uesrpg-styled-action" data-tooltip="UESRPG.UI.Delete" aria-label="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash" aria-hidden="true"></i></button>
           {{/if}}
         </div>
         {{else}}
         <p class="warfare-hint">{{localize "UESRPG.Sheets.Equipment.NoActiveEffects"}}</p>
         {{/each}}
         {{#if editable}}
-        <button type="button" data-action="createEffect" class="warfare-btn warfare-btn--small"><i class="fas fa-plus"></i> {{localize "UESRPG.Sheets.Equipment.CreateEffect"}}</button>
+        <button type="button" data-action="createEffect" class="warfare-btn warfare-btn--small uesrpg-styled-action"><i class="fas fa-plus"></i> {{localize "UESRPG.Sheets.Equipment.CreateEffect"}}</button>
         {{/if}}
       </fieldset>
 

@@ -75,7 +75,7 @@ export async function onLoadoutApply(sheet, event) {
   if (!sheet.actor?.isOwner) return;
   if (!getCachedSetting("enableLoadouts")) return;
 
-  const select = sheet.element?.querySelector?.("#uesrpg-loadout-select");
+  const select = sheet.element?.querySelector?.('[data-role="loadout-select"]');
   const loadoutId = select?.value;
   if (!loadoutId) return;
 
@@ -96,7 +96,7 @@ export async function onLoadoutDelete(sheet, event) {
   if (!sheet.actor?.isOwner) return;
   if (!getCachedSetting("enableLoadouts")) return;
 
-  const select = sheet.element?.querySelector?.("#uesrpg-loadout-select");
+  const select = sheet.element?.querySelector?.('[data-role="loadout-select"]');
   const loadoutId = select?.value;
   if (!loadoutId) return;
 

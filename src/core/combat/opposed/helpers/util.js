@@ -16,7 +16,6 @@ export function _debugEnabled() {
 export function _logDebug(event, payload) {
   if (!_debugEnabled()) return;
   try {
-    // eslint-disable-next-line no-console
     console.log(`UESRPG Opposed | ${event}`, payload);
     try {
       const id = payload?.messageId ?? payload?.parentMessageId ?? null;
