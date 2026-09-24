@@ -134,21 +134,31 @@ function validateGeneratedSeed(documentName, type, documentTemplate, generatedSe
     return;
   }
 
+  const expectedSeed = {};
+
+  for (const templateName of Array.isArray(directSeed.templates) ? directSeed.templates : []) {
+    const templateSeed = documentTemplate?.templates?.[templateName];
+    if (!isPlainObject(templateSeed)) continue;
+
+    for (const [key, value] of Object.entries(templateSeed)) {
+      expectedSeed[key] = cloneValue(value);
+    }
+  }
+
   for (const [key, value] of Object.entries(directSeed)) {
+    if (key === "templates") continue;
+    expectedSeed[key] = cloneValue(value);
+  }
+
+  for (const [key, value] of Object.entries(expectedSeed)) {
     if (!Object.hasOwn(generatedSeed, key) || !equalData(value, generatedSeed[key])) {
       fail(`${documentName}.${type} generated defaults differ from template.json at ${key}`);
     }
   }
 
-  const referencedTemplates = (Array.isArray(directSeed.templates) ? directSeed.templates : [])
-    .map((name) => documentTemplate?.templates?.[name])
-    .filter(isPlainObject);
-  for (const [key, value] of Object.entries(generatedSeed)) {
-    if (Object.hasOwn(directSeed, key)) continue;
-    const matchesTemplate = referencedTemplates.some((templateSeed) =>
-      Object.hasOwn(templateSeed, key) && equalData(templateSeed[key], value));
-    if (!matchesTemplate) {
-      fail(`${documentName}.${type} generated-only default ${key} is not supplied by a referenced template`);
+  for (const key of Object.keys(generatedSeed)) {
+    if (!Object.hasOwn(expectedSeed, key)) {
+      fail(`${documentName}.${type} generated defaults contain unexpected field ${key}`);
     }
   }
 }
@@ -701,11 +711,11 @@ function validateSourceLayout(manifest, packageJson, packageLock) {
   if (packageLock.version !== packageJson.version || packageLock.packages?.[""]?.version !== packageJson.version) {
     fail(`package-lock.json version does not match package.json version ${packageJson.version}`);
   }
-  if (manifest?.compatibility?.minimum !== "14.363"
-      || manifest?.compatibility?.verified !== "14.367"
-      || String(manifest?.compatibility?.maximum ?? "") !== "14") {
-    fail("system.json compatibility must remain minimum 14.363, verified 14.367, maximum 14");
-  }
+if (manifest?.compatibility?.minimum !== "14.363"
+    || manifest?.compatibility?.verified !== "14.368"
+    || String(manifest?.compatibility?.maximum ?? "") !== "14") {
+  fail("system.json compatibility must remain minimum 14.363, verified 14.368, maximum 14");
+}
 
   if (manifest.manifest !== RELEASE_MANIFEST_URL) {
     fail(`Manifest update URL must be ${RELEASE_MANIFEST_URL}`);
