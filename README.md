@@ -8,11 +8,7 @@
 > Some visual UI elements and presentation assets were assembled from licensed or stock source materials and manually edited by the author. Where AI-assisted visual processing was used, it was limited to post-processing and editing human-made source assets rather than generating standalone artwork.
 
 # UESRPG 3e v4 - Automation and QoL 
-This system is a fork of the original uesrpg d100 system created by DogBoneZone at https://gitlab.com/DogBoneZone/uesrpg-3e and the earlier compatibility fork at https://github.com/jamesjtb/uesrpg-3ev4. This fork targets Foundry VTT v14.363 and later v14 builds only, and is verified against v14.367.
-
-This specific fork has advanced combat automation, active effects implementation and other up to date features of the current Foundry VTT iteration. 
-
-A system and a few compendiums used to play the UESRPG game. Special thanks to 2Minute Tabletop and to drhodesw for the tokens and help creating the compendiums.
+This system is a fork of the original uesrpg d100 system created by DogBoneZone at https://gitlab.com/DogBoneZone/uesrpg-3e and the earlier compatibility fork at https://github.com/jamesjtb/uesrpg-3ev4.  This specific fork has advanced combat automation, active effects implementation and other up to date features of the current Foundry VTT iteration.  A system and a few compendiums used to play the UESRPG game. Special thanks to 2Minute Tabletop and to drhodesw for the tokens and help creating the compendiums.
 
 Express permission to use the artwork and tokens included in the compendiums of this system was given by 2MinuteTabletop and the copyright holder.
 
