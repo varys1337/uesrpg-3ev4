@@ -1,6 +1,6 @@
 {
   "name": "uesrpg-3ev4",
-  "version": "14.2.0",
+  "version": "14.2.1",
   "private": true,
   "scripts": {
     "build:folder": "node scripts/build-release.js --build-folder",
