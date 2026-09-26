@@ -1,3 +1,4 @@
+import { escapeHtml as esc } from '../../utils/html.js';
 import { createOrUpdateStatusEffect } from "../active-effects/status-effect.js";
 import { requestDeleteEmbeddedDocuments, requestAtomicUpdateDocument } from "../../utils/authority-proxy.js";
 import { canUseHeroicActions } from "../rules/npc-rules.js";
@@ -9,16 +10,7 @@ import { getFlagValueWithFallback } from "../system/flags.js";
 import { getStaminaIcon } from "./stamina-options.js";
 import { buildEffectChange } from "../../utils/compat.js";
 
-function esc(value) {
-  const raw = String(value ?? "");
-  if (foundry?.utils?.escapeHTML) return foundry.utils.escapeHTML(raw);
-  return raw
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+
 
 export function spendFromPools({ sp = 0, temp = 0, cost = 0 } = {}) {
   let remainingCost = Math.max(0, Number(cost ?? 0) || 0);

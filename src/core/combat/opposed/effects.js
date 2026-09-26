@@ -11,13 +11,13 @@ import { buildEffectDuration } from "../../time/effect-duration.js";
 import { isEffectExpiredByCombat, isEffectExpiredByWorldTime } from "../../magic/effects/spell-effect-expiration.js";
 import { hasTalent } from "../../traits/talents-api.js";
 import { hasCondition } from "../../conditions/condition-engine.js";
-import { getEffectiveWeaponHands } from "../combat-utils.js";
+
 import { getContextAttackMode } from "./helpers/workflow.js";
 import { _resolveDoc } from "./helpers/docs.js";
 import { _getSystemId, _findEnabledEffectByUesrpgKey } from "./helpers/util.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { getFlagValueWithFallback, getSystemFlagsWithFallback } from "../../system/flags.js";
-import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../../time/combat-boundary-orchestrator.js";
+import { registerCombatBoundaryConsumer } from "../../time/combat-boundary-orchestrator.js";
 import { buildEffectChange, getEffectChanges } from "../../../utils/compat.js";
 import { buildGenericAEData } from "../../active-effects/modifier-evaluator.js";
 import { createEvaluationMemo, effectMatchesContext } from "../../active-effects/conditions.js";
@@ -163,10 +163,7 @@ export function registerAdvantageExpirationHooks() {
     handle: _handleCombatBoundaryOpposedEffects
   });
 
-  Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
-    if (noteCombatBoundaryLegacyFallbackSkip("combat-opposed-effects", payload)) return;
-    await _handleCombatBoundaryOpposedEffects(payload);
-  });
+  
 }
 
 // Auto-register hooks on module load

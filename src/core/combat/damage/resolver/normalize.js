@@ -81,3 +81,19 @@ export function asInt(v) {
   const m = String(v ?? "").match(/-?\d+/);
   return m ? Number(m[0]) : 0;
 }
+
+export function normalizeArmorLocationKey(hitLocation = "Body") {
+  const locationMap = {
+    Head: "Head",
+    Body: "Body",
+    "Right Arm": "RightArm",
+    "Left Arm": "LeftArm",
+    "Right Leg": "RightLeg",
+    "Left Leg": "LeftLeg",
+    RightArm: "RightArm",
+    LeftArm: "LeftArm",
+    RightLeg: "RightLeg",
+    LeftLeg: "LeftLeg",
+  };
+  return locationMap[hitLocation] ?? hitLocation;
+}

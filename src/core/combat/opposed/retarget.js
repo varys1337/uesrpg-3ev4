@@ -4,7 +4,9 @@
  */
 
 import { canUserRollActor } from "../../../utils/permissions.js";
-import { safeUpdateChatMessage } from "../../../utils/chat-message-socket.js";
+import { replaceOpposedCardState } from "../../opposed/shared/card-persistence.js";
+import { _updateCard as updateSkillCard } from "../../skills/opposed-workflow/core/card-updater.js";
+import { updateCard as updateMagicCard } from "../../magic/opposed/updater.js";
 import { cloneFlagState } from "../../../utils/clone.js";
 import { updateCard as _updateCardViaUpdater } from "./cards/updater.js";
 import {
@@ -194,14 +196,7 @@ function _renderCombatCard(data, messageId) {
 }
 
 async function _updateCombatCard(message, data) {
-  await _updateCardViaUpdater(message, data, _renderCombatCard);
-}
-
-function _touchContext(data) {
-  data.context = data.context ?? {};
-  data.context.updatedAt = Date.now();
-  data.context.updatedBy = game.user?.id ?? null;
-  data.context.updatedSeq = (Number(data.context.updatedSeq) || 0) + 1;
+  return replaceOpposedCardState(_updateCardViaUpdater, message, data, _renderCombatCard);
 }
 
 function _getSkillCardEnvelope(message) {
@@ -226,23 +221,11 @@ function _getMagicCardEnvelope(message) {
 }
 
 async function _updateSkillCard(message, data, version = SKILL_CARD_VERSION) {
-  _touchContext(data);
-  data.context.schemaVersion = data.context.schemaVersion ?? SKILL_CARD_VERSION;
-
-  await safeUpdateChatMessage(message, {
-    content: _renderSkillOpposedCard(data, message.id),
-    flags: { [SKILL_FLAG_NS]: { [SKILL_FLAG_KEY]: { version, state: data } } }
-  });
+  return replaceOpposedCardState(updateSkillCard, message, data, _renderSkillOpposedCard);
 }
 
 async function _updateMagicCard(message, data, version = 2) {
-  _touchContext(data);
-  data.context.schemaVersion = data.context.schemaVersion ?? (Number(version ?? 2) || 2);
-
-  await safeUpdateChatMessage(message, {
-    content: _renderMagicOpposedCard(data, message.id),
-    flags: { [SYSTEM_ID]: { [MAGIC_FLAG_KEY]: { version, state: data } } }
-  });
+  return replaceOpposedCardState(updateMagicCard, message, data, _renderMagicOpposedCard);
 }
 
 function _canInteractCombatOpposed(user, message, data) {
@@ -254,14 +237,7 @@ function _canInteractCombatOpposed(user, message, data) {
   return canUserRollActor(user, attacker) || canUserRollActor(user, defender);
 }
 
-function _canInteractSkillOpposed(user, message, data) {
-  if (user?.isGM) return true;
-  if (message?.isAuthor) return true;
-
-  const attacker = _resolveActor(data?.attacker?.actorUuid);
-  const defender = _resolveActor(data?.defender?.actorUuid);
-  return canUserRollActor(user, attacker) || canUserRollActor(user, defender);
-}
+function _canInteractSkillOpposed(user, message, data) { return _canInteractCombatOpposed(user, message, data); }
 
 function _canInteractMagicOpposed(user, message, data) {
   if (user?.isGM) return true;

@@ -49,7 +49,7 @@ export async function _skillRollDialog({
   const difficultyOptions = SKILL_DIFFICULTIES.map(d => {
     const sel = d.key === defaultDifficultyKey ? "selected" : "";
     const sign = d.mod >= 0 ? "+" : "";
-    return `<option value="${d.key}" ${sel}>${d.label} (${sign}${d.mod})</option>`;
+    return `<option value="${d.key}" ${sel}>${_esc(d.label)} (${sign}${d.mod})</option>`;
   }).join("\n");
 
   const specDisabled = !allowSpecialization;

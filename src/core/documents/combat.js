@@ -1,3 +1,4 @@
+import { _actorHasCondition, refreshActionPointsForCombatActor, resetAllActionPointsForCombat } from './combat/ap-automation.js';
 /**
  * Handles system-specific combat functionality.
  * @extends {Combat}
@@ -18,7 +19,7 @@ import {
 } from "./combat/initiative-helpers.js";
 import { getActionPointAutomationSetting, getCombatRollModeMessageOptions, isDynamicInitiativeEnabledSetting } from "./combat/settings.js";
 import { emitDynamicInitiativeRoundSummary } from "./combat/initiative-ui.js";
-import { refreshActionPointsForCombatActor, resetAllActionPointsForCombat } from "./combat/ap-automation.js";
+
 import { registerCombatApHooks } from "./combat/hooks.js";
 import { isActiveGMUser } from "../../utils/users.js";
 
@@ -88,26 +89,7 @@ export class SystemCombat extends Combat {
     return isDynamicInitiativeEnabledSetting();
   }
 
-  _actorHasCondition(actor, key) {
-    if (!actor || !key) return false;
-    const k = String(key).trim().toLowerCase();
-
-    // Prefer the system condition API (ActiveEffect flags)
-    const api = game?.uesrpg?.conditions;
-    if (api?.hasCondition && typeof api.hasCondition === "function") {
-      try {
-        return !!api.hasCondition(actor, k);
-      } catch (_e) {
-        // Fall through to name-based detection.
-      }
-    }
-
-    const effects = actor?.effects?.contents ?? [];
-    return effects.some((e) => {
-      const n = String(e?.name ?? "").trim().toLowerCase();
-      return n === k || n.startsWith(`${k} `) || n.startsWith(`${k}(`);
-    });
-  }
+  _actorHasCondition(actor, key) { return _actorHasCondition(actor, key); }
 
   async _refreshActionPoints(actor) {
     await refreshActionPointsForCombatActor(actor);

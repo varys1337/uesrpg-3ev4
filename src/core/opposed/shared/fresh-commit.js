@@ -9,7 +9,7 @@
  *
  * Used by: combat/magic/skills opposed attacker and defender commit handlers.
  *
- * Target: Foundry VTT v13.351
+ * Target: Foundry VTT v14.368+
  */
 
 /**
@@ -23,18 +23,21 @@
  * @param {Function}    opts.mutate       - (state) => void.
  *   Applies the current lane's mutations to the resolved state in place.
  *   The return value is ignored; mutations must be applied directly to `state`.
- * @param {Function}    opts.updateCard   - (freshMessage, state) => Promise.
- *   Persists the mutated state via the workflow's card updater.
+ * @param {Function}    opts.updateCard   - (message, mutator) => Promise.
+ *   Queues the mutator inside the workflow's card updater and returns its result.
  * @param {object|null} [opts.fallbackData=null]
  *   Handler's stale data to use as base when no live state exists yet
  *   (e.g. first write to a brand-new card). Prevents empty-object writes.
  * @returns {Promise<{ freshMessage: ChatMessage, state: object }>}
  */
 export async function commitLaneToFreshCardState({ message, readState, mutate, updateCard, fallbackData = null }) {
-  const freshMessage = game.messages.get(message?.id ?? message?._id) ?? message;
-  const liveState = readState(freshMessage);
-  const state = liveState ?? fallbackData ?? {};
-  mutate(state);
-  await updateCard(freshMessage, state);
-  return { freshMessage, state };
+  let committed;
+  const result = await updateCard(message, async (_liveState, freshMessage) => {
+    const state = readState(freshMessage) ?? foundry.utils.deepClone(fallbackData ?? {});
+    await mutate(state);
+    committed = { freshMessage, state };
+    return state;
+  });
+  if (result?.state) committed.state = result.state;
+  return committed;
 }

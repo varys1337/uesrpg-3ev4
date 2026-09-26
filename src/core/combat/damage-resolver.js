@@ -26,4 +26,7 @@
  */
 
 // Re-export from internal modules (stable public API)
-export { applyDamageResolved } from "./damage/resolver/resolve.js";
+export async function applyDamageResolved(actor, payload = {}) {
+  const { ApplyDamageService } = await import('../../application/combat/apply-damage-service.js');
+  return ApplyDamageService.applyResolved(actor, payload);
+}

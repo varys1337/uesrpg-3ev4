@@ -1,3 +1,6 @@
+import { editSheetPortrait } from "./shared/file-picker.js";
+import { _inferTypedLaneFromText, _extractFirstNumber } from '../../../core/documents/item-utils.js';
+
 /**
  * src/ui/sheets/v2/item-sheet.js
  *
@@ -25,7 +28,7 @@ import { getScalingLevelsArray, normalizeScalingEntry, logSpellDebug } from "../
 import { requestAtomicUpdateDocument, requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { activateProseMirrorEditors } from "../shared/editor-activation.js";
 import { ITEM_TYPE_MODEL_SEEDS } from "../../../core/data-models/defaults.generated.js";
-import { bindDelegated } from "./_delegated-bindings.js";
+
 import { readDropData, resolveDroppedItem } from "../../../utils/drop-data.js";
 import { onCastEnchantmentAction } from "../shared/listeners/enchanting-cast.js";
 import {
@@ -55,7 +58,7 @@ import {
 } from "../item/item-sheet-spellcasting.js";
 import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "./shared/sheet-tooltips.js";
 import { applySheetDensityClass } from "./shared/sheet-density.js";
-import { createImageVideoFilePicker } from "./shared/file-picker.js";
+
 import { buildItemDragPayload } from "../../../utils/drag-payload.js";
 import { dndDebug, makeDndTraceId } from "../../../utils/dnd-debugger.js";
 import { containerDebug, containerWarn } from "../../../utils/dev/container-debug.js";
@@ -140,33 +143,6 @@ function _cloneForRender(value) {
   }
 }
 
-function _extractFirstNumber(value) {
-  const raw = String(value ?? "").trim();
-  if (!raw) return null;
-  const m = raw.match(/[-+]?\d+(?:\.\d+)?/);
-  if (!m) return null;
-  const n = Number(m[0]);
-  return Number.isFinite(n) ? n : null;
-}
-
-function _inferTypedLaneFromText(value) {
-  const raw = String(value ?? "").trim().toLowerCase();
-  if (!raw) return null;
-  const map = [
-    ["sunlight", "sunlight"],
-    ["silver", "silver"],
-    ["disease", "disease"],
-    ["poison", "poison"],
-    ["frost", "frost"],
-    ["shock", "shock"],
-    ["fire", "fire"],
-    ["magic", "magic"],
-  ];
-  for (const [needle, out] of map) {
-    if (raw.includes(needle)) return out;
-  }
-  return null;
-}
 
 function _coerceNumericValue(raw, defaultValue, path, rootSystem) {
   if (typeof raw === "number" && Number.isFinite(raw)) return raw;
@@ -695,21 +671,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     return onEffectControl(this, event, target);
   }
 
-  async _onEditPortrait(event, target) {
-    event?.preventDefault?.();
-    event?.stopPropagation?.();
-    if (!this.isEditable) return;
-
-    const current = String(this.document?.img ?? "");
-    const picker = createImageVideoFilePicker({
-      current,
-      callback: async (path) => {
-        if (!path || path === current) return;
-        await requestUpdateDocument(this.document, { img: path });
-      },
-    });
-    await picker.browse();
-  }
+  async _onEditPortrait(event, target) { return editSheetPortrait.call(this, event, target); }
 
   /**
    * Increase item charges.

@@ -183,15 +183,7 @@ function _spellHasDamage(spell, options = {}) {
 }
 
 function _safeGetTemplatePath(root, path) {
-  if (!root || !path) return undefined;
-  if (globalThis.foundry?.utils?.getProperty) return globalThis.foundry.utils.getProperty(root, path);
-  let cur = root;
-  for (const part of String(path).split(".")) {
-    if (!part) return undefined;
-    cur = cur?.[part];
-    if (cur === undefined || cur === null) return cur;
-  }
-  return cur;
+  return root && path ? foundry.utils.getProperty(root, path) : undefined;
 }
 
 function _spellHasLegacyDamageData(spell) {

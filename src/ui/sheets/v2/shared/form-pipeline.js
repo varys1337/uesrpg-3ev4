@@ -1,3 +1,4 @@
+import { SYSTEM_ID } from "../../../../core/system/namespace.js";
 /**
  * Shared AppV2 sheet form helpers for deterministic, allow-listed updates.
  */
@@ -182,4 +183,14 @@ export function buildAllowedSubmitPatch({ document, formDataObject, allowPath, n
   const diff = foundry.utils.diffObject(currentSubset, filtered);
   if (foundry.utils.isEmpty(diff)) return null;
   return diff;
+}
+
+export function normalizeActorFormValue({ path, value, currentValue, rawValue }) {
+  if (path !== `flags.${SYSTEM_ID}.homebrew.maxEngagementScore`) return value;
+
+  const raw = String(rawValue ?? value ?? "").trim();
+  if (!raw) return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return currentValue;
+  return Math.max(0, Math.round(n));
 }

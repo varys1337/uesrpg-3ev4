@@ -1,13 +1,13 @@
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
+import { escapeHtml } from "../../../utils/html.js";
 import { registerActivationStateHooks } from "../../combat/activation-state-flags.js";
 import { validateRacialActivationAvailability } from "../../traits/racial-talents.js";
 import { validateInspireHeroismAvailability } from "../../traits/social-talents.js";
 import { createSeverityDebugLogger } from "../../../utils/debug.js";
 import { createUuidResolver } from "../../../utils/uuid-cache.js";
 import { getFeatureConfig } from "../../traits/features/feature-config.js";
-import { runFeatureAutomation } from "../../traits/features/feature-dispatcher.js";
+import { runFeatureAutomation, prepareFeatureActivation } from "../../traits/features/feature-dispatcher.js";
 import { featureNeedsEffectTransfer, applyFeatureEffectsToTargets } from "./feature-effects.js";
-import { confirmDialog } from "../../../utils/dialog-v2-helper.js";
 import { SYSTEM_ID } from "../system-id.js";
 import {
   buildActivationActorSnapshot,
@@ -22,47 +22,10 @@ import {
 } from "./costs-and-usage.js";
 import { renderActivationCard, appendActivationResultToMessage } from "./rendering.js";
 import { prepareAttackActivationContext, startAttackWorkflow } from "./attack-workflow.js";
-import {
-  resolveTalentAutomationKey,
-  runTalentActivationAutomation,
-  runPowerActivationAutomation
-} from "./talent-automation.js";
+import { resolveTalentAutomationKey } from "./talent-automation.js";
 
 const FEATURE_TYPES = new Set(["trait", "talent", "power"]);
 const activationDebug = createSeverityDebugLogger("activationDebug", "", "debug");
-
-async function showFeatureConfirmDialog(item, featureConfig) {
-  const promptMode = featureConfig.promptMode ?? "owner";
-  const isGM = game.user.isGM;
-  const isOwner = item.isOwner;
-
-  let shouldPrompt = false;
-  switch (promptMode) {
-    case "gm": shouldPrompt = isGM; break;
-    case "owner": shouldPrompt = isOwner; break;
-    case "both": shouldPrompt = isGM || isOwner; break;
-    case "never": return true;
-    default: shouldPrompt = isOwner; break;
-  }
-
-  if (!shouldPrompt) return true;
-
-  try {
-    const confirmed = await confirmDialog({
-      title: `Confirm: ${item.name}`,
-      content: `<p>Activate <strong>${item.name}</strong>?</p>`,
-      yesLabel: "Activate",
-      noLabel: "Cancel",
-      yesIcon: "fas fa-bolt",
-      noIcon: "fas fa-times",
-      rejectClose: false
-    });
-    return confirmed === true;
-  } catch (err) {
-    console.warn(`${SYSTEM_ID} | Feature confirm dialog error`, err);
-    return false;
-  }
-}
 
 function resolveTargetActors(actor, context = {}) {
   return getTargetsFromContext(context)
@@ -90,7 +53,7 @@ async function maybeTransferFeatureEffects({
   if (targetActors.length) {
     try {
       const result = await applyFeatureEffectsToTargets(actor, item, targetActors, { featureConfig });
-      if (!result.targets.length) return;
+      if (!result.targets.length) return result;
       const note = `Applied ${result.applied} effect(s) to ${result.targets.join(", ")}.`;
       const updated = activationMessage
         ? await appendActivationResultToMessage(activationMessage, {
@@ -107,14 +70,16 @@ async function maybeTransferFeatureEffects({
         await ChatMessage.create({
           user: game.user.id,
           speaker: ChatMessage.getSpeaker({ actor }),
-          content: `<div class="uesrpg"><b>${item.name}</b>: ${note}</div>`,
+          content: `<div class="uesrpg"><b>${escapeHtml(item.name)}</b>: ${escapeHtml(note)}</div>`,
+          whisper: featureConfig?.visibility === "gmOnly" ? game.users.filter((user) => user.isGM).map((user) => user.id) : [],
           style: CONST.CHAT_MESSAGE_STYLES.OTHER
         });
       }
+      return result;
     } catch (err) {
       console.warn(`${SYSTEM_ID} | Feature effect transfer failed`, { item: item?.name, err });
+      return { failed: targetActors.map((target) => target.name) };
     }
-    return;
   }
 
   if (rawTargets.length > 0) {
@@ -124,15 +89,7 @@ async function maybeTransferFeatureEffects({
     ui.notifications?.info?.(`${item.name} has activation effects — select target token(s) to transfer them.`);
     activationDebug(`${SYSTEM_ID} | feature-effects: item has activation AEs but no targets selected`, item.name);
   }
-}
-
-async function runLegacyFeatureAutomation({ item, actor, context, resolver, dispatchedByFeatureAutomation }) {
-  if (!FEATURE_TYPES.has(item?.type) || dispatchedByFeatureAutomation) return;
-  if (item.type === "talent") {
-    await runTalentActivationAutomation({ item, actor, context, resolver });
-  } else if (item.type === "power") {
-    await runPowerActivationAutomation({ item, actor });
-  }
+  return { failed: ["no eligible target"] };
 }
 
 export async function executeActivation({
@@ -189,26 +146,13 @@ export async function executeItemActivation({
   let featureConfig = null;
   let featureAutomationEnabled = true;
   if (FEATURE_TYPES.has(item.type)) {
-    featureConfig = getFeatureConfig(item);
-    if (featureConfig.enabled === false) {
-      featureAutomationEnabled = false;
-      activationDebug(`${SYSTEM_ID} | activation: featureConfig.enabled=false, automation disabled but chat+effects will proceed`, item.name);
+    const policy = await prepareFeatureActivation(item, { explicitUse: true, actor });
+    if (!policy.ok) {
+      if (policy.reason) ui.notifications?.warn?.(policy.reason);
+      return { ok: false, status: policy.status, reason: policy.reason };
     }
-    if (featureConfig.combatOnly && !game.combat?.started) {
-      ui.notifications?.warn?.(`${item.name} can only be used during combat.`);
-      return { ok: false };
-    }
-    if (!featureConfig.outOfCombatAllowed && !game.combat?.started) {
-      ui.notifications?.warn?.(`${item.name} cannot be used outside of combat.`);
-      return { ok: false };
-    }
-    if (featureAutomationEnabled && featureConfig.applyMode === "confirm") {
-      const confirmed = await showFeatureConfirmDialog(item, featureConfig);
-      if (!confirmed) {
-        activationDebug(`${SYSTEM_ID} | activation: CANCELLED by user confirmation`, item.name);
-        return { ok: false };
-      }
-    }
+    featureConfig = policy.config;
+    featureAutomationEnabled = policy.automationEnabled;
   }
 
   const activation = item?.system?.activation ?? {};
@@ -223,6 +167,7 @@ export async function executeItemActivation({
   let mergedContext = context;
   let usageResult = { ok: true };
   let activationMessage = null;
+  const failures = [];
 
   if (activationEnabled) {
     if (isAttack) {
@@ -264,6 +209,7 @@ export async function executeItemActivation({
       }
     } catch (err) {
       console.warn(`${SYSTEM_ID} | Racial activation preflight failed`, err);
+      return { ok: false, status: "failed", reason: "Activation requirements could not be checked." };
     }
 
     usageResult = await consumeActivationUsage({ item, activation });
@@ -278,14 +224,16 @@ export async function executeItemActivation({
       return { ok: false };
     }
 
-    await applyActivationActorFlags({ item, actor, activation });
+    const flagsResult = await applyActivationActorFlags({ item, actor, activation });
+    if (!flagsResult.ok) failures.push('NPC rule flags could not be applied.');
   }
 
   if (renderChat) {
     const whisper = (featureConfig?.visibility === "gmOnly")
       ? (game.users?.filter((user) => user?.isGM).map((user) => user.id) ?? [])
       : [];
-    activationMessage = await ChatMessage.create({
+    try {
+      activationMessage = await ChatMessage.create({
       user: game.user.id,
       speaker: ChatMessage.getSpeaker({ actor }),
       content: renderActivationCard({
@@ -299,9 +247,14 @@ export async function executeItemActivation({
       whisper,
       style: CONST.CHAT_MESSAGE_STYLES.OTHER
     });
+      if (!activationMessage) failures.push('The activation report could not be created.');
+    } catch (error) {
+      failures.push('The activation report could not be created.');
+      console.warn(`${SYSTEM_ID} | Activation report failed`, error);
+    }
   }
 
-  await maybeTransferFeatureEffects({
+  const transferResult = await maybeTransferFeatureEffects({
     actor,
     item,
     context: mergedContext,
@@ -312,43 +265,42 @@ export async function executeItemActivation({
     includeImage,
     usageResult
   });
-
-  let dispatchedByFeatureAutomation = false;
+  if (transferResult?.failed?.length) failures.push(`Effect transfer failed for ${transferResult.failed.join(', ')}.`);
   if (featureAutomationEnabled && FEATURE_TYPES.has(item?.type)) {
     try {
-      dispatchedByFeatureAutomation = await runFeatureAutomation({
-        actor,
-        item,
-        context: mergedContext,
-        enforceFeatureConfig: false
-      });
+      await runFeatureAutomation({ actor, item, context: mergedContext, resolver, enforceFeatureConfig: false });
     } catch (err) {
+      failures.push('Feature automation failed after activation.');
       console.warn(`${SYSTEM_ID} | Feature automation dispatch failed`, err);
     }
   }
 
-  if (featureAutomationEnabled) {
-    await runLegacyFeatureAutomation({
-      item,
-      actor,
-      context: mergedContext,
-      resolver,
-      dispatchedByFeatureAutomation
-    });
-  }
-
-  if (item) await executeItemMacroBestEffort(item, { event });
+  if (item && await executeItemMacroBestEffort(item, { event }) === false) failures.push('The ItemMacro failed.');
   if (isAttack) {
-    const ok = await startAttackWorkflow({
+    try {
+      const ok = await startAttackWorkflow({
       actor,
       item,
       activation,
       attackContext,
       actorSnapshot
     });
-    if (!ok) return { ok: false };
+    if (!ok) failures.push('The attack workflow could not start after activation.');
+    } catch (error) {
+      failures.push('The attack workflow failed after activation.');
+      console.warn(`${SYSTEM_ID} | Activation attack failed`, error);
+    }
   }
-  return { ok: true };
+  const status = failures.length ? 'partial' : 'applied';
+  if (activationMessage) {
+    const reported = await appendActivationResultToMessage(activationMessage, {
+      item, actor, activation, label, includeImage, usageOverride: usageResult,
+      note: failures.length ? failures.join(' ') + ' Costs already paid are retained; review before retrying.' : 'Activation completed.',
+    });
+    if (!reported) failures.push('The final activation report could not be saved.');
+  }
+  if (failures.length) ui.notifications?.warn?.(failures.join(' ') + ' Review the activation before retrying.');
+  return { ok: !failures.length, status: failures.length ? 'partial' : status, failures };
 }
 
 export async function executeItemMacroBestEffort(item, { event } = {}) {
@@ -356,8 +308,10 @@ export async function executeItemMacroBestEffort(item, { event } = {}) {
     const itemMacroActive = game.modules.get("itemacro")?.active;
     const canExecute = itemMacroActive && typeof item.executeMacro === "function" && typeof item.hasMacro === "function" && item.hasMacro();
     if (canExecute) await item.executeMacro({ event });
+    return true;
   } catch (err) {
     console.warn(`${SYSTEM_ID} | ItemMacro execution failed`, err);
+    return false;
   }
 }
 

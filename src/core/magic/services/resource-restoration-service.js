@@ -9,6 +9,8 @@ import { getSpellCost, getSpellScalingEntry } from "../magicka-utils.js";
 import { resolveNumericSpellStrength } from "../opposed/cast-context.js";
 import { evaluateNumericExpression } from "../../../utils/numeric-expression.js";
 import { requestAtomicUpdateDocument } from "../../../utils/authority-proxy.js";
+import { adjustCurrentResource } from "../../system/resource-updates.js";
+import { escapeHtml as _escapeHtml } from "../../../utils/html.js";
 
 const RESOURCE_RESTORE_DEFAULTS = Object.freeze({
   enabled: false,
@@ -264,18 +266,10 @@ async function _restoreResource(actor, resourceKey, amount, lines) {
   const delta = Math.max(0, Math.floor(Number(amount) || 0));
   if (delta <= 0) return false;
 
-  let actualDelta = 0;
-  const ok = await requestAtomicUpdateDocument(actor, (fresh) => {
-    const current = _readNumber(fresh, spec.path, 0);
-    const maxRaw = _readNumber(fresh, spec.maxPath, current);
-    const max = Number.isFinite(maxRaw) && maxRaw > 0 ? maxRaw : current;
-    const next = Math.max(0, Math.min(max, current + delta));
-    actualDelta = next - current;
-    return actualDelta > 0 ? { [spec.path]: next } : null;
-  });
-
-  if (!ok || actualDelta <= 0) return false;
-  lines.push(`${actor.name} gains ${actualDelta} ${spec.label}`);
+  const result = await adjustCurrentResource(actor, RESOURCE_PATHS[spec.path], delta, { requirePositiveMax: true });
+  if (!result) throw new Error(`Resource restoration failed for ${actor.name}.`);
+  if (result.delta <= 0) return false;
+  lines.push(`${actor.name} gains ${result.delta} ${spec.label}`);
   return true;
 }
 
@@ -292,6 +286,7 @@ async function _removeFatigueOrRestoreStamina(actor, operation, spell, caster, p
     return actualReduction > 0 ? { "system.fatigue.level": next } : null;
   });
 
+  if (!fatigueOk && actualReduction > 0) throw new Error(`Fatigue reduction failed for ${actor.name}.`);
   if (fatigueOk && actualReduction > 0) {
     lines.push(`${actor.name} reduces Fatigue by ${actualReduction}`);
     return true;
@@ -314,14 +309,6 @@ async function _postReport({ caster, spell, lines }) {
   } catch (err) {
     console.warn("UESRPG | resource-restoration-service | Failed to post restoration report", err);
   }
-}
-
-function _escapeHtml(value) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
 
 export async function applySpellResourceRestoration({ caster, target, spell, payload = {}, message = null } = {}) {

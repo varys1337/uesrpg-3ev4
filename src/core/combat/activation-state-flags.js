@@ -10,7 +10,7 @@ import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { _num } from "../../utils/coerce.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
 import { getFlagValueWithFallback } from "../system/flags.js";
-import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../time/combat-boundary-orchestrator.js";
+import { registerCombatBoundaryConsumer } from "../time/combat-boundary-orchestrator.js";
 import { isActiveGMUser } from "../../utils/users.js";
 
 const FLAG_FREE_DEFENSE = `flags.${FLAG_SCOPE}.combat.freeNextDefenseCommit`;
@@ -238,10 +238,7 @@ export function registerActivationStateHooks() {
     handle: _handleCombatBoundaryActivationCleanup
   });
 
-  Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
-    if (noteCombatBoundaryLegacyFallbackSkip("activation-state-flags", payload)) return;
-    await _handleCombatBoundaryActivationCleanup(payload);
-  });
+  
 
   Hooks.on("deleteCombat", async (combat) => {
     if (!isActiveGMUser(game.user)) return;

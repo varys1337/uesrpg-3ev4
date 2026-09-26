@@ -1,3 +1,5 @@
+import { requestDeleteEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
+import { unlinkAllItemsFromContainer, unlinkItemFromContainer } from "../../sheet-containers.js";
 import { isPerfEnabled, perfRecord } from "../../../../utils/perf-tracker.js";
 import { localizeChoiceObject, t } from "../../../../utils/i18n.js";
 
@@ -401,3 +403,34 @@ export function traceSheetPerfPhase(sheet, { systemId, sheetName, phase, started
     details,
   });
 }
+
+export async function castSheetInvocation(event, target) {
+    event?.preventDefault?.();
+    const li = target?.closest?.(".item") ?? event?.currentTarget?.closest?.(".item");
+    const itemId = li?.dataset?.itemId;
+    if (!itemId) return;
+    const invocation = this.document.items.get(itemId);
+    if (!invocation) return;
+    const { castInvocationFromItem } = await import("../../../../core/religion/invocation-runtime.js");
+    return castInvocationFromItem({
+      actor: this.document,
+      invocation,
+      token: this.token?.object ?? this.token ?? null,
+      sheet: this,
+    });
+  }
+
+export async function deleteSheetItem(event, target) {
+    const li = target?.closest?.(".item");
+    const itemId = li?.dataset?.itemId;
+    if (!itemId) return;
+    const itemToDelete = this.document.items.get(itemId)
+      ?? this.document.items.find(i => i?._id == itemId);
+    if (!itemToDelete) return;
+    if (itemToDelete.type === "container") {
+      await unlinkAllItemsFromContainer(this.document, itemToDelete);
+    } else {
+      await unlinkItemFromContainer(this.document, itemToDelete);
+    }
+    await requestDeleteEmbeddedDocuments(this.document, "Item", [itemId]);
+  }

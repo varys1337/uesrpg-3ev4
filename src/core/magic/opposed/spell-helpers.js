@@ -1,3 +1,5 @@
+import { emitSuppressedSubRollDice as emitSuppressedOpposedSubRollDice } from '../../../utils/dice-visualization.js';
+export { emitSuppressedOpposedSubRollDice };
 /**
  * @module magic/opposed/spell-helpers
  *
@@ -11,37 +13,10 @@ import { computeSpellMagickaCost, getSpellDamageFormula, getSpellDamageType, get
 import { confirmDialog } from "../../../utils/dialog-v2-helper.js";
 import { computeElementalDamageBonus } from "../magic-modifiers.js";
 import { canTokenEscapeArea } from "../../../utils/aoe-utils.js";
-import { getCoreRollMode, isPublicChatMessageMode } from "../../../utils/chat-roll-mode.js";
+
 import { canUserRollActor } from "../../../utils/permissions.js";
 import { getNpcThreatDamageModifier } from "../../rules/npc-threat-templates.js";
 
-export function emitSuppressedOpposedSubRollDice(roll, { rollMode = null } = {}) {
-  if (!roll) return null;
-  const dsn = game?.dice3d;
-  if (!dsn || typeof dsn.showForRoll !== "function") return null;
-
-  const sync = isPublicChatMessageMode(rollMode ?? getCoreRollMode());
-
-  try {
-    const primary = dsn.showForRoll(roll, game.user, sync);
-    Promise.resolve(primary).catch(() => {
-      try {
-        const fallback = dsn.showForRoll(roll);
-        Promise.resolve(fallback).catch(() => {});
-      } catch (_err2) {
-        // no-op
-      }
-    });
-  } catch (_err) {
-    try {
-      const fallback = dsn.showForRoll(roll);
-      Promise.resolve(fallback).catch(() => {});
-    } catch (_err2) {
-      // no-op
-    }
-  }
-  return null;
-}
 
 async function _postSpellDamageRollMessage({
   attacker,

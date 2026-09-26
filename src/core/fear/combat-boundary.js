@@ -1,6 +1,6 @@
 import { requestDeleteEmbeddedDocuments } from "../../utils/authority-proxy.js";
 import { isActiveGMUser } from "../wounds/wound-schema.js";
-import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../time/combat-boundary-orchestrator.js";
+import { registerCombatBoundaryConsumer } from "../time/combat-boundary-orchestrator.js";
 import { expireStartOfTurnFearEffects, fearLane, getFearEffects, pruneFearSnapPromptDedupe, tickFixedRoundFearEffects } from "./effects-and-restrictions.js";
 import { maybePromptSnapOutOnTurnStart } from "./snap-out.js";
 
@@ -38,10 +38,7 @@ export function registerFearSystemHooks() {
     handle: handleCombatBoundaryFear,
   });
 
-  Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
-    if (noteCombatBoundaryLegacyFallbackSkip("fear", payload)) return;
-    await handleCombatBoundaryFear(payload);
-  });
+  
 
   Hooks.on("deleteCombat", async (combat) => {
     try {

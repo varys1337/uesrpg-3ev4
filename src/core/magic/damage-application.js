@@ -1,3 +1,5 @@
+import { getOwnerAndGmRecipientIds as _getWhisperRecipients } from '../../utils/chat-recipients.js';
+import { normalizeArmorLocationKey as _normalizeHitLocationKey } from '../combat/damage/resolver/normalize.js';
 /**
  * @module magic/damage-application
  *
@@ -6,11 +8,13 @@
  * Magic damage/healing application wrappers which delegate to the unified combat
  * damage/healing pipeline for full parity.
  *
- * Target: Foundry VTT v13.351
+ * Target: Foundry VTT v14.368+
  */
 
 import { applyDamage, applyHealing, DAMAGE_TYPES, getDamageReduction } from "../combat/damage-automation.js";
-import { doesUserOwnActor, requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { escapeHtml } from "../../utils/html.js";
+import { acquireLock, releaseLock } from "../../utils/authority-proxy/shared.js";
+import { commitHealthUpdate, readDamageReceipts } from "../combat/damage/post-application.js";
 import { getActorTraitValue } from "../traits/trait-registry.js";
 import { evaluateAEModifierKeys } from "../active-effects/modifier-evaluator.js";
 import { _str, createDebugLogger } from "./_primitives.js";
@@ -40,35 +44,9 @@ function _maxEffectFlagNumber(actor, { flagPath } = {}) {
   return max;
 }
 
-function _getWhisperRecipients(actor) {
-  const out = new Set();
-  const users = game.users?.contents ?? [];
-  for (const user of users) {
-    if (!user) continue;
-    if (user.isGM) {
-      out.add(user.id);
-      continue;
-    }
-    if (doesUserOwnActor(user, actor)) out.add(user.id);
-  }
-  return Array.from(out);
-}
 
-function _normalizeHitLocationKey(hitLocation = "Body") {
-  const locationMap = {
-    Head: "Head",
-    Body: "Body",
-    "Right Arm": "RightArm",
-    "Left Arm": "LeftArm",
-    "Right Leg": "RightLeg",
-    "Left Leg": "LeftLeg",
-    RightArm: "RightArm",
-    LeftArm: "LeftArm",
-    RightLeg: "RightLeg",
-    LeftLeg: "LeftLeg",
-  };
-  return locationMap[hitLocation] ?? hitLocation;
-}
+
+
 
 function _listMagicArmorSources(actor, hitLocation, damageType) {
   const targetType = _str(damageType).toLowerCase();
@@ -151,8 +129,17 @@ function _buildMagicGmDamageReport({
   };
 }
 
-async function _applySpellAbsorption(targetActor, { casterActor = null, magicCost = 0, allowSelfAbsorption = false, sourceLabel = "Spell" } = {}) {
+async function _applySpellAbsorption(targetActor, { casterActor = null, magicCost = 0, allowSelfAbsorption = false, sourceLabel = "Spell", receiptId = "" } = {}) {
   if (!targetActor) return { absorbed: false, restored: 0, rollTotal: null, threshold: null };
+  const lockKey = `DamageApplication:${targetActor.uuid}`;
+  await acquireLock(lockKey);
+  try {
+  const absorptionId = receiptId ? `${receiptId}:absorption` : "";
+  const prior = absorptionId && readDamageReceipts(targetActor).find((entry) => entry.id === absorptionId);
+  if (prior) return { ...prior.result.absorption, replayed: true };
+  const remember = (absorption, updates = {}) => commitHealthUpdate(targetActor, updates, {
+    application: { receiptId: absorptionId }, result: { absorption }, receiptStatus: "applied",
+  });
 
   // Three independent threshold sources (take the highest):
   //   1. Trait-based spellAbsorption (racial / innate)
@@ -173,10 +160,9 @@ async function _applySpellAbsorption(targetActor, { casterActor = null, magicCos
   const modLane   = Number(aeResult["system.modifiers.magic.spellAbsorption"] ?? 0) || 0;
   const threshold = Math.max(traitVal, flagVal, modLane);
 
-  if (threshold <= 0) return { absorbed: false, restored: 0, rollTotal: null, threshold: null };
-
-  if (casterActor && targetActor && casterActor.uuid === targetActor.uuid && !allowSelfAbsorption) {
-    return { absorbed: false, restored: 0, rollTotal: null, threshold };
+  if (threshold <= 0 || (casterActor?.uuid === targetActor.uuid && !allowSelfAbsorption)) {
+    const result = { absorbed: false, restored: 0, rollTotal: null, threshold: threshold > 0 ? threshold : null };
+    return await remember(result) ? result : { absorbed: false, failed: true };
   }
 
   const roll = new Roll("1d10");
@@ -192,16 +178,18 @@ async function _applySpellAbsorption(targetActor, { casterActor = null, magicCos
     const restoreCap = Math.max(0, Number(magicCost ?? 0));
     restored = Math.min(missingMP, restoreCap);
 
-    if (restored > 0) {
-      await requestUpdateDocument(targetActor, { "system.magicka.value": currentMP + restored });
-    }
+  }
+  // Persist failed rolls as well: retrying a card must never reroll absorption.
+  if (!await remember({ absorbed, restored, rollTotal, threshold }, restored > 0
+    ? { "system.magicka.value": Number(targetActor.system?.magicka?.value ?? 0) + restored } : {})) {
+    return { absorbed: false, failed: true };
   }
 
   try {
     const content = `
       <div class="uesrpg-spell-absorption">
         <h3>Spell Absorption (${threshold})</h3>
-        <div><b>Source:</b> ${sourceLabel}</div>
+        <div><b>Source:</b> ${escapeHtml(sourceLabel)}</div>
         <div><b>Roll:</b> ${rollTotal}</div>
         <div><b>Outcome:</b> ${absorbed ? "Absorbed (no effect)" : "Failed"}</div>
         ${absorbed && restored > 0 ? `<div><b>MP Restored:</b> +${restored}</div>` : ""}
@@ -219,6 +207,9 @@ async function _applySpellAbsorption(targetActor, { casterActor = null, magicCos
   }
 
   return { absorbed, restored, rollTotal, threshold };
+  } finally {
+    releaseLock(lockKey);
+  }
 }
 
 /**
@@ -271,8 +262,9 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
       casterActor,
       magicCost,
       allowSelfAbsorption,
-      sourceLabel: source
+      sourceLabel: source, receiptId: options.receiptId
     });
+    if (absorption.failed) return null;
     if (absorption.absorbed) {
       return { spellAbsorbed: true, absorption };
     }
@@ -282,9 +274,10 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
     if (shouldApplyTypedComponents) {
       const results = [];
       let totalApplied = 0;
-      for (const component of typedComponents) {
+      for (const [componentIndex, component] of typedComponents.entries()) {
         const result = await applyMagicDamage(targetActor, component.amount, component.damageType, spell, {
           ...options,
+          receiptId: options.receiptId ? `${options.receiptId}:component:${componentIndex}` : undefined,
           damageComponents: null,
           skipSpellAbsorption: true,
           isOverloaded: false,
@@ -293,17 +286,20 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
           elementalBonusLabel: "",
           source: component.sourceLabel || source,
         });
+        if (!result || result.execution?.status === 'partial') {
+          if (!results.length) return result;
+          return { ...results.at(-1), damage: totalApplied + (Number(result?.damage) || 0),
+            componentResults: result ? [...results, result] : results,
+            execution: { status: 'partial', committed: true } };
+        }
         if (result) {
           totalApplied += Number(result.damage ?? 0) || 0;
           results.push(result);
         }
       }
       const last = results[results.length - 1] ?? null;
-      if (last) {
-        last.damage = totalApplied;
-        last.componentResults = results;
-      }
-      return last;
+      return last ? { ...last, damage: totalApplied, componentResults: results,
+        execution: { ...last.execution, replayed: results.some((entry) => entry.execution?.replayed) } } : null;
     }
   }
 
@@ -384,6 +380,8 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
     
     // Apply the layered damage with ignoreReduction=true since we calculated it manually
     const result = await applyDamage(targetActor, Math.max(0, finalDamage), dt, {
+      receiptId: options.receiptId,
+      applicationId: options.applicationId,
       source,
       hitLocation,
       rollHTML,
@@ -432,6 +430,8 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
   
   // Non-elemental spells (pure magic, physical, etc.) use normal damage pipeline
   const result = await applyDamage(targetActor, adjustedDamage, dt, {
+    receiptId: options.receiptId,
+    applicationId: options.applicationId,
     source,
     hitLocation,
     rollHTML,
@@ -507,8 +507,9 @@ export async function applyMagicHealing(targetActor, healing, spell, options = {
     casterActor,
     magicCost,
     allowSelfAbsorption,
-    sourceLabel: source
+    sourceLabel: source, receiptId: options.receiptId
   });
+  if (absorption.failed) return null;
   if (absorption.absorbed) {
     return { spellAbsorbed: true, absorption };
   }
@@ -521,6 +522,8 @@ export async function applyMagicHealing(targetActor, healing, spell, options = {
   });
 
   return applyHealing(targetActor, Number(healing || 0), {
+    receiptId: options.receiptId,
+    applicationId: options.applicationId,
     source,
     rollHTML,
     isTemporary: options.isTemporary === true,

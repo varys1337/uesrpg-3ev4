@@ -1,3 +1,4 @@
+import { escapeHtml } from "../../../utils/html.js";
 /**
  * @module magic/conjuration/summon-service
  *
@@ -283,7 +284,7 @@ export async function showSummonActorPicker(opts = {}) {
   }
 
   const options = candidates.map(a =>
-    `<option value="${a.id}">${a.name}</option>`
+    `<option value="${a.id}">${escapeHtml(a.name)}</option>`
   ).join("");
 
   const content = `

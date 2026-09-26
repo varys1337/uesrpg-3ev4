@@ -1,5 +1,4 @@
-import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
-import { isActorUndead } from "../../traits/trait-registry.js";
+import { requestUpdateDocument, requestAtomicUpdateDocument } from "../../../utils/authority-proxy.js";
 import { isActorInStartedCombatEncounter } from "../../combat/combat-scope.js";
 import { SYSTEM_ID } from "../system-id.js";
 import {
@@ -72,51 +71,39 @@ export function validateActivationContext({ actor, activation, context = {}, act
   return { ok: true };
 }
 
-export async function applyActivationCosts({ actor, activation, label = "Ability" } = {}) {
-  if (!activation?.spendCosts) return { ok: true, spent: false };
-  if (!actor) return { ok: false, spent: false };
-
-  const { ap: apCost, sp: spCost, mp: mpCost, lp: lpCost, hp: hpCost } = getActivationCostValues(activation.costs ?? {});
-  if (!apCost && !spCost && !mpCost && !lpCost && !hpCost) return { ok: true, spent: false };
-
-  const ap = getActorResource(actor, "action_points.value");
-  const enforceAP = isActorInStartedCombatEncounter(actor);
-  const sp = getActorResource(actor, "stamina.value");
-  const mp = getActorResource(actor, "magicka.value");
-  const lp = getActorResource(actor, "luck_points.value");
-  const hp = getActorResource(actor, "hp.value");
-
+/** Pure preview shared by confirmation, reporting and the committing mutator. */
+export function getActivationCostPreview({ actor, activation, label = 'Ability' } = {}) {
+  const costs = activation?.enabled !== false && activation?.spendCosts
+    ? getActivationCostValues(activation.costs ?? {})
+    : { ap: 0, sp: 0, mp: 0, lp: 0, hp: 0 };
+  if (!isActorInStartedCombatEncounter(actor)) costs.ap = 0;
+  const fields = { ap: 'action_points', sp: 'stamina', mp: 'magicka', lp: 'luck_points', hp: 'hp' };
   const missing = [];
-  if (enforceAP && ap < apCost) missing.push("AP");
-  if (sp < spCost) missing.push("SP");
-  if (!missing.length && spCost > 0 && isActorUndead(actor) && (sp - spCost) < 0) {
-    ui.notifications?.warn?.(`Undead cannot spend SP below 0 for ${label}.`);
-    return { ok: false, spent: false };
-  }
-  if (mp < mpCost) missing.push("MP");
-  if (lp < lpCost) missing.push("LP");
-  if (hp < hpCost) missing.push("HP");
-
-  if (missing.length) {
-    ui.notifications?.warn?.(`Insufficient resources to activate ${label}: ${missing.join(", ")}`);
-    return { ok: false, spent: false };
-  }
-
   const updateData = {};
-  if (enforceAP && apCost) updateData["system.action_points.value"] = ap - apCost;
-  if (spCost) updateData["system.stamina.value"] = sp - spCost;
-  if (mpCost) updateData["system.magicka.value"] = mp - mpCost;
-  if (lpCost) updateData["system.luck_points.value"] = lp - lpCost;
-  if (hpCost) updateData["system.hp.value"] = hp - hpCost;
-
-  if (!Object.keys(updateData).length) return { ok: true, spent: false };
-
-  const ok = await requestUpdateDocument(actor, updateData);
-  if (!ok) {
-    ui.notifications?.warn?.(`Failed to spend activation costs for ${label}.`);
-    return { ok: false, spent: false };
+  for (const [key, resource] of Object.entries(fields)) {
+    const cost = Number(costs[key]) || 0;
+    if (!cost) continue;
+    const current = getActorResource(actor, resource + '.value');
+    if (!actor || current < cost) missing.push(key.toUpperCase());
+    updateData['system.' + resource + '.value'] = current - cost;
   }
-  return { ok: true, spent: true };
+  return {
+    ok: missing.length === 0, costs, updateData,
+    reason: missing.length ? `Insufficient resources to activate ${label}: ${missing.join(', ')}` : null,
+    summary: Object.entries(costs).filter(([,cost]) => cost > 0).map(([key,cost]) => `${key.toUpperCase()}: ${cost}`).join(', '),
+  };
+}
+
+export async function applyActivationCosts({ actor, activation, label = 'Ability' } = {}) {
+  let preview = getActivationCostPreview({ actor, activation, label });
+  if (!preview.ok) { ui.notifications?.warn?.(preview.reason); return { ok: false, spent: false }; }
+  if (!Object.keys(preview.updateData).length) return { ok: true, spent: false, costs: preview.costs };
+  const ok = await requestAtomicUpdateDocument(actor, (fresh) => {
+    preview = getActivationCostPreview({ actor: fresh, activation, label });
+    return preview.ok ? preview.updateData : null;
+  });
+  if (!ok) ui.notifications?.warn?.(preview.reason ?? `Failed to spend activation costs for ${label}.`);
+  return { ok, spent: ok, costs: preview.costs };
 }
 
 export async function consumeActivationUsage({ item, activation } = {}) {

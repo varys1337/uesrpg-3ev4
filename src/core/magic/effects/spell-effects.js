@@ -216,9 +216,9 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
   });
   if (existing.length) {
     const ids = existing.map(e => e.id);
-    await requestDeleteEmbeddedDocuments(targetActor, "ActiveEffect", ids, {
+    if (!await requestDeleteEmbeddedDocuments(targetActor, "ActiveEffect", ids, {
       deleteOptions: { uesrpgExpirationSweep: true }
-    });
+    })) throw new Error("Existing spell effects could not be replaced.");
   }
   
   // Remove opposing effects (Frenzy vs Calm, etc.)
@@ -412,6 +412,7 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
     }
 
     createdEffects = await requestCreateEmbeddedDocuments(targetActor, "ActiveEffect", toCreate);
+    if (createdEffects?.length !== toCreate.length) throw new Error("Spell effects were not fully created.");
 
     // Register target AEs with the Origin AE for deterministic teardown
     if (originAE && Array.isArray(createdEffects) && createdEffects.length) {
@@ -454,7 +455,7 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
           const currentBuffer = Number(targetActor.system?.buffers?.[bufferType] ?? 0);
           // Buffer does not stack — set to the higher of current or new value
           const newValue = Math.max(currentBuffer, bufferValue);
-          await requestUpdateDocument(targetActor, { [bufferPath]: newValue });
+          if (!await requestUpdateDocument(targetActor, { [bufferPath]: newValue })) throw new Error("Spell buffer update failed.");
 
           // Store the original buffer value in a flag on the first created effect
           // so that upkeep can restore it later.
@@ -483,6 +484,7 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
         }
       } catch (err) {
         console.error("UESRPG | spell-effects | Failed to apply buffer", err);
+        throw err;
       }
     }
   }
@@ -517,9 +519,9 @@ async function removeOpposingSpellEffects(targetActor, spell) {
   );
   
   if (toRemove.length) {
-    await requestDeleteEmbeddedDocuments(targetActor, "ActiveEffect", toRemove.map(e => e.id), {
+    if (!await requestDeleteEmbeddedDocuments(targetActor, "ActiveEffect", toRemove.map(e => e.id), {
       deleteOptions: { uesrpgExpirationSweep: true }
-    });
+    })) throw new Error("Opposing spell effects could not be removed.");
     ui.notifications.info(`${opposing} was overridden by ${spell.name}.`);
   }
 }

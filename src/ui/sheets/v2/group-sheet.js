@@ -1,3 +1,4 @@
+import { editSheetPortrait } from "./shared/file-picker.js";
 /**
  * src/ui/sheets/v2/group-sheet.js
  *
@@ -31,7 +32,7 @@ import { bindListFilters, clearListFilterState } from "./shared/list-filter.js";
 import { applyCollapsedGroups } from "../shared/helpers/collapsed-group-dom.js";
 import { onToggleGroupCollapse } from "../shared/helpers/ui-state-handlers.js";
 import { applySheetDensityClass } from "./shared/sheet-density.js";
-import { createImageVideoFilePicker } from "./shared/file-picker.js";
+
 import { buildItemDragPayload } from "../../../utils/drag-payload.js";
 import { handleExternalItemDrop, inferDroppedItemType } from "../../../utils/drop-item-create-data.js";
 import { dndDebug, dndWarnFailure, makeDndTraceId } from "../../../utils/dnd-debugger.js";
@@ -979,21 +980,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
   // ApplicationV2 dispatches them with `this` bound to the app instance.
 
   /** Open a member's actor sheet */
-  async _onEditPortrait(event, target) {
-    event?.preventDefault?.();
-    event?.stopPropagation?.();
-    if (!this.isEditable) return;
-
-    const current = String(this.document?.img ?? "");
-    const picker = createImageVideoFilePicker({
-      current,
-      callback: async (path) => {
-        if (!path || path === current) return;
-        await requestUpdateDocument(this.document, { img: path });
-      },
-    });
-    await picker.browse();
-  }
+  async _onEditPortrait(event, target) { return editSheetPortrait.call(this, event, target); }
 
   _onOpenDescriptionEditor(event, _target) {
     event?.preventDefault?.();

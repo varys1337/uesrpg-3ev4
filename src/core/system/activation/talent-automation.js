@@ -1,4 +1,5 @@
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
+import { escapeHtml } from "../../../utils/html.js";
 import { findLatestOpposedMessageByDefender, retargetOpposedMessage } from "../../combat/opposed/retarget.js";
 import { grantFreeNextDefenseCommit } from "../../combat/activation-state-flags.js";
 import { activateHardTargetEffect } from "../../traits/mobility-talents.js";
@@ -69,19 +70,19 @@ async function activateDefenderTalent({ actor, context = {}, resolver = null } =
   if (targets.length !== 1) {
     activationDebug("UESRPG | DefenderActivation | invalidTargets", { targetCount: targets.length });
     ui.notifications?.warn?.("Defender requires exactly one targeted ally token.");
-    return;
+    return false;
   }
 
   const activatorToken = resolveTokenForActor(actor);
   if (!activatorToken) {
     ui.notifications?.warn?.("Defender requires the activating actor to have a placed token.");
-    return;
+    return false;
   }
 
   const originalDefenderToken = targets[0];
   if (!isAllyTokenPair(activatorToken, originalDefenderToken)) {
     ui.notifications?.warn?.("Defender target must be an ally.");
-    return;
+    return false;
   }
 
   let latest = findLatestOpposedMessageByDefender({
@@ -106,7 +107,7 @@ async function activateDefenderTalent({ actor, context = {}, resolver = null } =
   }
   if (!latest) {
     ui.notifications?.warn?.("No active opposed card found for the targeted defender.");
-    return;
+    return false;
   }
 
   let swapped = await retargetOpposedMessage(
@@ -132,7 +133,7 @@ async function activateDefenderTalent({ actor, context = {}, resolver = null } =
       }
     );
   }
-  if (!swapped) return;
+  if (!swapped) return false;
 
   const positionsSwapped = await swapTokenPositions(activatorToken, originalDefenderToken);
   if (!positionsSwapped) {
@@ -163,9 +164,10 @@ async function activateDefenderTalent({ actor, context = {}, resolver = null } =
   await ChatMessage.create({
     user: game.user.id,
     speaker: ChatMessage.getSpeaker({ actor, token: activatorToken?.document ?? null }),
-    content: `<div class="uesrpg"><b>Defender</b>: ${actor.name} intercepts for ${originalDefenderToken.actor?.name ?? "ally"}, swaps position, and gains a free next defense commit.</div>`,
+    content: `<div class="uesrpg"><b>Defender</b>: ${escapeHtml(actor.name)} intercepts for ${escapeHtml(originalDefenderToken.actor?.name ?? "ally")}. ${positionsSwapped ? 'Positions swapped.' : 'Position swap failed.'} ${granted ? 'Free next defense commit granted.' : 'Free defense state failed.'}</div>`,
     style: CONST.CHAT_MESSAGE_STYLES.OTHER
   });
+  return positionsSwapped && granted;
 }
 
 async function activateThunderChargeTalent({ actor }) {
@@ -187,14 +189,15 @@ export async function runTalentActivationAutomation({ item, actor, context = {},
     activationEnabled: Boolean(item?.system?.activation?.enabled)
   });
   try {
-    if (key === "hardtarget") await activateHardTargetEffect(actor);
-    if (key === "defender") await activateDefenderTalent({ actor, context, resolver });
+    if (key === "hardtarget" && !await activateHardTargetEffect(actor)) throw new Error("Hard Target could not be applied.");
+    if (key === "defender" && !await activateDefenderTalent({ actor, context, resolver })) throw new Error("Defender did not complete.");
     if (key === "thundercharge") await activateThunderChargeTalent({ actor });
-    if (key === "inspireheroism") await handleInspireHeroismActivation({ actor, item });
-    if (isActivatableSpellcastingTalent(item)) await activateSpellcastingTalent(actor, item);
+    if (key === "inspireheroism" && !await handleInspireHeroismActivation({ actor, item })) throw new Error("Inspire Heroism could not be applied.");
+    if (isActivatableSpellcastingTalent(item) && !await activateSpellcastingTalent(actor, item)) throw new Error("Spellcasting talent could not be applied.");
     await handleRacialTalentActivation({ actor, item, itemKey: key });
   } catch (err) {
     console.warn(`${SYSTEM_ID} | Talent activation automation failed`, { item: item?.name, key, err });
+    throw err;
   }
 }
 
@@ -204,5 +207,6 @@ export async function runPowerActivationAutomation({ item, actor } = {}) {
     await handleRacialPowerActivation({ actor, item, itemKey });
   } catch (err) {
     console.warn(`${SYSTEM_ID} | Talent activation automation failed`, err);
+    throw err;
   }
 }

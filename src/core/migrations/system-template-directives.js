@@ -1,3 +1,4 @@
+import { collectionContents } from "../../utils/coerce.js";
 import { SYSTEM_ID } from "../constants.js";
 import { isActiveGMUser } from "../../utils/users.js";
 import { MIGRATION_REVISIONS } from "./revisions.js";
@@ -10,14 +11,7 @@ import {
 
 const MIGRATION_KEY = "systemTemplateDirectiveCleanup";
 
-function _contents(collectionLike) {
-  if (Array.isArray(collectionLike?.contents)) return collectionLike.contents;
-  try {
-    return Array.from(collectionLike ?? []);
-  } catch (_error) {
-    return [];
-  }
-}
+function _contents(collectionLike) { return collectionContents(collectionLike); }
 
 function _plainSource(document) {
   if (typeof document?.toObject !== "function") return null;

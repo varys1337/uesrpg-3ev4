@@ -1,16 +1,19 @@
+import { executeAdvantageSpecialActions } from "../special-actions-automation.js";
+
+import { pushAdvantageMarker as _pushAdvantageMarker, _getDefenderOutcome, _getDefenderAdvantage, _getDefenderResolutionState, _getDefenderDamage, _setDefenderDamage } from '../schema.js';
 /**
  * src/core/combat/opposed/actions/damage.js
  * Damage roll handlers for opposed workflow
  */
 
-import { _resolveDoc, _resolveActorViaToken, _resolveItemViaActor } from "../helpers/docs.js";
-import { _getDefenderOutcome, _getDefenderAdvantage, _getDefenderResolutionState, _getDefenderDamage, _setDefenderDamage } from "../schema.js";
+import { _resolveActorViaToken, _resolveItemViaActor } from "../helpers/docs.js";
+
 import { getHitLocationFromRoll, resolveHitLocationForTarget, getDamageTypeFromWeapon, getAttackModeFromWeapon } from "../../combat-utils.js";
 import { rollWeaponDamage as _rollWeaponDamage, rollManualDamage as _rollManualDamage } from "../damage/roller.js";
-import { postWeaponDamageChatCard as _postWeaponDamageChatCard, postManualEffectChatCard as _postManualEffectChatCard } from "../damage/chat-cards.js";
+
 import { getPreferredWeaponUuid as _getPreferredWeaponUuid, getContextAttackMode, getTokenMovementAction as _getTokenMovementAction } from "../helpers/workflow.js";
 import { _canControlActor } from "../helpers/util.js";
-import { getSpecialActionById } from "../../combat-style-utils.js";
+
 import { hasCondition } from "../../../conditions/condition-engine.js";
 import { _ensureResolvedForPostActions } from "../../opposed-workflow.js";
 import { promptWeaponAndAdvantages as _promptWeaponAndAdvantages } from "../dialogs/attacker.js";
@@ -21,7 +24,7 @@ import {
   collectWeaponInlineQualities,
   collectActivationDamageQualities,
 } from "../helpers/weapon-quality-display.js";
-import { safeUpdateChatMessage } from "../../../../utils/chat-message-socket.js";
+
 import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import {
   getHybridDomain,
@@ -38,25 +41,6 @@ const DAMAGE_TYPES = {
   SILVER: "silver",
   SUNLIGHT: "sunlight",
 };
-
-function _pushAdvantageMarker(data, { actor = null, actorUuid = null, tokenUuid = null, kind = "advantage" } = {}) {
-  data.context = data.context ?? {};
-  const resolvedActorUuid = String(actorUuid ?? actor?.uuid ?? "").trim();
-  const resolvedTokenUuid = String(tokenUuid ?? "").trim();
-  const actorName = String(actor?.name ?? "Actor").trim() || "Actor";
-  const markerKey = [kind, resolvedActorUuid || actorName, resolvedTokenUuid].filter(Boolean).join(":");
-  const current = Array.isArray(data.context.advantageMarkers) ? data.context.advantageMarkers.slice() : [];
-  if (current.some((marker) => String(marker?.key ?? "").trim() === markerKey)) return;
-  current.push({
-    key: markerKey,
-    kind,
-    actorUuid: resolvedActorUuid || null,
-    tokenUuid: resolvedTokenUuid || null,
-    label: "Advantage Resolved"
-  });
-  data.context.advantageMarkers = current.slice(-8);
-}
-
 
 
 async function _resolveInlineRollHtml(dmg, sharedDamage) {
@@ -481,90 +465,24 @@ export async function handleDamageRoll(ctx) {
   }
 
   // Execute Special Advantage automation (free + auto-win)
-  if (Array.isArray(selection.specialActionsSelected) && selection.specialActionsSelected.length > 0) {
-    try {
-      const { showSpecialAdvantageDialog, executeSpecialAction } = await import("../../special-actions-helper.js");
-      const defenderActor = _resolveActorViaToken(data?.defender?.actorUuid, data?.defender?.tokenUuid);
+  if (Array.isArray(selection.specialActionsSelected) && selection.specialActionsSelected.length) {
+    await executeAdvantageSpecialActions({
+      specialActionIds: selection.specialActionsSelected,
+      actor: attacker,
+      opponent: _resolveActorViaToken(data?.defender?.actorUuid, data?.defender?.tokenUuid),
+      role: "attacker",
+      actorTokenUuid: data.attacker?.tokenUuid ?? null,
+      opponentTokenUuid: data.defender?.tokenUuid ?? null,
+      attackerStyleUuid: data.attacker?.itemUuid ?? null,
+      defenderStyleUuid: data.defender?.styleUuid ?? null,
+      sourceWeaponUuid: weapon?.uuid ?? null,
+      source: "advantage-attacker-free",
       
-      for (const saId of selection.specialActionsSelected) {
-        const choice = await showSpecialAdvantageDialog(saId);
-        if (!choice) continue;
-
-        if (choice.mode === "autowin") {
-          // Auto-Win: consume 1 AP, skip test, auto-succeed
-          const { ActionEconomy } = await import("../../action-economy.js");
-          const def = getSpecialActionById(saId);
-          await ActionEconomy.spendAP(attacker, 1, { 
-            reason: `Special Advantage: ${def?.name} (Auto-Win)`, 
-            silent: false 
-          });
-
-          const result = await executeSpecialAction({
-            specialActionId: saId,
-            actor: attacker,
-            target: defenderActor ?? null,
-            isAutoWin: true,
-            opposedResult: { winner: "attacker" }
-          });
-
-          if (result.success) {
-            _pushAdvantageMarker(data, {
-              actor: attacker,
-              actorUuid: data.attacker?.actorUuid ?? null,
-              tokenUuid: data.attacker?.tokenUuid ?? null,
-              kind: "attacker-special-advantage"
-            });
-          }
-        } else if (choice.mode === "free") {
-          // Free Action: 0 AP, initiate test with dropdown selection
-          const attackerTokenUuid = data.attacker?.tokenUuid ?? null;
-          const defenderTokenUuid = data.defender?.tokenUuid ?? null;
-          const attackerToken = attackerTokenUuid ? _resolveDoc(attackerTokenUuid)?.object : null;
-          const defenderToken = defenderTokenUuid ? _resolveDoc(defenderTokenUuid)?.object : null;
-
-          if (attackerToken && defenderToken) {
-            const { SkillOpposedWorkflow } = await import("../../../skills/opposed-workflow/index.js");
-            const def = getSpecialActionById(saId);
-            
-            const saMessage = await SkillOpposedWorkflow.createPending({
-              attackerTokenUuid: attackerToken?.document?.uuid ?? attackerToken?.uuid,
-              defenderTokenUuid: defenderToken?.document?.uuid ?? defenderToken?.uuid,
-              attackerSkillUuid: null,  // Let user choose from dropdown in card
-              attackerSkillLabel: `${def?.name} (Special Action)`
-            });
-
-            const state = saMessage?.flags?.["uesrpg-3ev4"]?.skillOpposed?.state;
-            if (state) {
-              state.specialActionId = saId;
-              state.allowCombatStyle = true;
-              state.isFreeAction = true;
-              state.specialActionContext = {
-                id: saId,
-                source: "advantage-attacker-free",
-                attackerStyleUuid: data.attacker?.itemUuid ?? null,
-                defenderStyleUuid: data.defender?.styleUuid ?? null,
-                sourceWeaponUuid: weapon?.uuid ?? null
-              };
-
-              await safeUpdateChatMessage(saMessage, {
-                flags: {
-                  "uesrpg-3ev4": {
-                    skillOpposed: {
-                      version: state.version ?? 1,
-                      state
-                    }
-                  }
-                }
-              });
-            }
-
-            ui.notifications.info(`Special Advantage: ${def?.name} used as free action.`);
-          }
-        }
-      }
-    } catch (err) {
-      console.error("UESRPG | Failed to execute Special Advantage automation", err);
-    }
+      onAutoWinSuccess: () => _pushAdvantageMarker(data, {
+        actor: attacker, actorUuid: data.attacker?.actorUuid ?? null,
+        tokenUuid: data.attacker?.tokenUuid ?? null, kind: "attacker-special-advantage",
+      }),
+    });
     await _updateCard(message, data);
   }
 

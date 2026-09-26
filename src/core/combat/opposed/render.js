@@ -1,3 +1,4 @@
+import { variantLabel } from "../../opposed/shared/card-rendering.js";
 /**
  * src/core/combat/opposed/render.js
  * Chat card rendering helpers extracted from opposed-workflow.js monolith
@@ -43,15 +44,7 @@ export function _renderCard(data, messageId) {
  * @param {string} variant - Variant key
  * @returns {string} Display label
  */
-export function _variantLabel(variant) {
-  switch (variant) {
-    case "allOut": return "All Out";
-    case "precision": return "Precision";
-    case "coup": return "Coup";
-    case "normal":
-    default: return "Attack";
-  }
-}
+export function _variantLabel(variant) { return variantLabel(variant); }
 
 /**
  * Format circumstance modifier label

@@ -12,7 +12,7 @@ import { requestUpdateDocument, requestDeleteEmbeddedDocuments, requestBatchUpda
 import { FLAG_SCOPE } from "./constants.js";
 import { isPerfEnabled, monoMs, perfRecord } from "../../utils/perf-tracker.js";
 import { scheduleBoundaryWork } from "../time/boundary-work-scheduler.js";
-import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../time/combat-boundary-orchestrator.js";
+import { registerCombatBoundaryConsumer } from "../time/combat-boundary-orchestrator.js";
 import { getRegenerationCandidatesForCombat, getSilencedCandidatesForCombat } from "./round-start-candidate-registry.js";
 import { isAggregateRegenPromptsEnabled, isAggregateSilencedChecksEnabled } from "../config/automation-policy.js";
 import { isActiveGMUser } from "../../utils/users.js";
@@ -511,8 +511,5 @@ export function registerConditionTurnTicker() {
     handle: _handleCombatBoundaryTick
   });
 
-  Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
-    if (noteCombatBoundaryLegacyFallbackSkip("turn-ticker", payload)) return;
-    await _handleCombatBoundaryTick(payload);
-  });
+  
 }

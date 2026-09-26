@@ -1,3 +1,4 @@
+import { collectionContents } from "../../utils/coerce.js";
 import { SYSTEM_ID } from "../constants.js";
 import {
   getMigrationState,
@@ -12,14 +13,7 @@ import { normalizeActiveEffectDurationV14 } from "../active-effects/effect-durat
 const CHANGE_KEY = "activeEffectChangeTypes";
 const DURATION_KEY = "activeEffectDurationV14";
 
-function _contents(collectionLike) {
-  if (Array.isArray(collectionLike?.contents)) return collectionLike.contents;
-  try {
-    return Array.from(collectionLike ?? []);
-  } catch (_error) {
-    return [];
-  }
-}
+function _contents(collectionLike) { return collectionContents(collectionLike); }
 
 function _plainSource(effect) {
   try {

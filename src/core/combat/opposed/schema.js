@@ -290,3 +290,21 @@ export function _applyAttackerCommitToData(data, commit) {
   }
   return dirty;
 }
+
+export function pushAdvantageMarker(data, { actor = null, actorUuid = null, tokenUuid = null, kind = "advantage" } = {}) {
+  data.context = data.context ?? {};
+  const resolvedActorUuid = String(actorUuid ?? actor?.uuid ?? "").trim();
+  const resolvedTokenUuid = String(tokenUuid ?? "").trim();
+  const actorName = String(actor?.name ?? "Actor").trim() || "Actor";
+  const markerKey = [kind, resolvedActorUuid || actorName, resolvedTokenUuid].filter(Boolean).join(":");
+  const current = Array.isArray(data.context.advantageMarkers) ? data.context.advantageMarkers.slice() : [];
+  if (current.some((marker) => String(marker?.key ?? "").trim() === markerKey)) return;
+  current.push({
+    key: markerKey,
+    kind,
+    actorUuid: resolvedActorUuid || null,
+    tokenUuid: resolvedTokenUuid || null,
+    label: "Advantage Resolved"
+  });
+  data.context.advantageMarkers = current.slice(-8);
+}

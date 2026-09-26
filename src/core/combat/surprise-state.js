@@ -6,7 +6,7 @@
 
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { SYSTEM_ID } from "../system/namespace.js";
-import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../time/combat-boundary-orchestrator.js";
+import { registerCombatBoundaryConsumer } from "../time/combat-boundary-orchestrator.js";
 import { getActorCapabilityFlag } from "../active-effects/modifier-evaluator.js";
 import { doTestRoll } from "../../utils/degree-roll-helper.js";
 import { hasAkaviriDangerSense } from "../traits/starsigns/index.js";
@@ -204,10 +204,7 @@ export function registerSurpriseHooks() {
     handle: _handleCombatBoundarySurprise
   });
 
-  Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
-    if (noteCombatBoundaryLegacyFallbackSkip("surprise-state", payload)) return;
-    await _handleCombatBoundarySurprise(payload);
-  });
+  
 
   Hooks.on("deleteCombat", async (combat) => {
     try {

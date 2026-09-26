@@ -35,6 +35,7 @@ export function createDamageAftermathBundle({
   const operations = [];
   const committed = [];
   const failed = [];
+  const completedKeys = new Set();
   const base = {
     applicationId,
     source,
@@ -61,9 +62,14 @@ export function createDamageAftermathBundle({
       const started = perf ? monoMs() : 0;
 
       for (const op of operations) {
+        if (completedKeys.has(op.key)) continue;
+        // Each staged operation runs once, including an operation that failed
+        // after a partial mutation. Retrying requires a domain-specific repair.
+        completedKeys.add(op.key);
         const opStarted = perf ? monoMs() : 0;
         try {
           const result = await op.run();
+          if (result?.failed === true || result === false) throw new Error(`${op.label} was not applied.`);
           const record = {
             key: op.key,
             label: op.label,

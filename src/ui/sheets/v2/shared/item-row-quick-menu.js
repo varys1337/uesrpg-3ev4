@@ -1,8 +1,10 @@
+import { escapeHtml as _escapeHtml } from '../../../../utils/html.js';
 import { alertDialog } from "../../../../utils/dialog-v2-helper.js";
 import { requestCreateEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
 import { postItemToChat } from "../../shared-handlers.js";
 import { t, tf } from "../../../../utils/i18n.js";
 import { executeItemActivation } from "../../../../core/system/activation/index.js";
+import { getActivationCostPreview } from "../../../../core/system/activation/costs-and-usage.js";
 import { castScrollFromItem } from "../../../../core/magic/scroll-casting.js";
 import { drinkPotion, applyAlchemyToTarget, pickAlchemyCoatingTarget } from "../../../../core/alchemy/runtime.js";
 import { onCastEnchantmentAction } from "../../shared/listeners/enchanting-cast.js";
@@ -25,14 +27,7 @@ function _isQuickMenuEnabled() {
   }
 }
 
-function _escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll("\"", "&quot;")
-    .replaceAll("'", "&#39;");
-}
+
 
 function _buildSyntheticEvent(target) {
   const safeTarget = target instanceof HTMLElement ? target : null;
@@ -135,9 +130,13 @@ async function _useContextItem(sheet, target) {
 
 async function _openItemInfoDialog(item) {
   const description = String(item?.system?.description ?? "").trim();
-  const content = description
+  let content = description
     ? `<div class="uesrpg-item-quickmenu-info"><p><strong>${_escapeHtml(item.name)}</strong> (${_escapeHtml(item.type)})</p><div>${description}</div></div>`
     : `<div class="uesrpg-item-quickmenu-info"><p><strong>${_escapeHtml(item.name)}</strong> (${_escapeHtml(item.type)})</p><p>${_escapeHtml(t("UESRPG.UI.NoItemDescription", "No description is available for this item yet."))}</p></div>`;
+  if (item.system?.activation?.enabled) {
+    const preview = getActivationCostPreview({ actor: item.actor, activation: item.system.activation, label: item.name });
+    content += `<p>${_escapeHtml(preview.reason ?? preview.summary)}</p>`;
+  }
   await alertDialog({
     title: t("UESRPG.UI.ItemInformation", "Item Information"),
     content,
@@ -337,3 +336,13 @@ export function handleItemRowContextMenu(sheet, event) {
 
   return true;
 }
+
+export async function openSheetItemQuickMenu(event, target) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    const itemId = String(target?.dataset?.itemId ?? target?.closest?.(".item")?.dataset?.itemId ?? "").trim();
+    if (!itemId) return;
+    const item = this.document.items.get(itemId);
+    if (!item) return;
+    openItemRowQuickMenu(this, item, { anchorEl: target, event });
+  }

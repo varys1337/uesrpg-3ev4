@@ -126,7 +126,7 @@ export function featureNeedsEffectTransfer(item) {
  * @param {Actor[]} targetActors - Resolved target actors to receive effects.
  * @param {object} [options]     - Additional options.
  * @param {object} [options.featureConfig] - Pre-resolved feature config (avoids re-read).
- * @returns {Promise<{ applied: number, targets: string[] }>}
+ * @returns {Promise<{ applied: number, targets: string[], failed: string[] }>}
  */
 export async function applyFeatureEffectsToTargets(activatorActor, item, targetActors, options = {}) {
 
@@ -142,10 +142,11 @@ export async function applyFeatureEffectsToTargets(activatorActor, item, targetA
   const sourceEffects = Array.from(item.effects ?? []).filter(e => !e.disabled && !e.transfer);
   if (!sourceEffects.length) {
     _featureEffectsDebug(`${SYSTEM_ID} | feature-effects: no enabled AEs on "${item.name}", skipping transfer`);
-    return { applied: 0, targets: [] };
+    return { applied: 0, targets: [], failed: [] };
   }
 
   const appliedTargets = [];
+  const failed = [];
   let totalCreated = 0;
 
   for (const targetActor of targetActors) {
@@ -160,9 +161,14 @@ export async function applyFeatureEffectsToTargets(activatorActor, item, targetA
     if (existing.length) {
       const ids = existing.map(e => e.id);
       try {
-        await requestDeleteEmbeddedDocuments(targetActor, "ActiveEffect", ids);
+        if (!await requestDeleteEmbeddedDocuments(targetActor, "ActiveEffect", ids)) {
+          failed.push(targetActor.name);
+          continue;
+        }
       } catch (err) {
         console.warn(`${SYSTEM_ID} | feature-effects: failed to remove existing effects on ${targetActor.name}`, err);
+        failed.push(targetActor.name);
+        continue;
       }
     }
 
@@ -209,12 +215,14 @@ export async function applyFeatureEffectsToTargets(activatorActor, item, targetA
       const count = Array.isArray(created) ? created.length : 0;
       totalCreated += count;
       if (count) appliedTargets.push(targetActor.name);
+      if (count !== toCreate.length) failed.push(targetActor.name);
 
       _featureEffectsDebug(`${SYSTEM_ID} | feature-effects: applied ${count} AE(s) from "${item.name}" to ${targetActor.name}`);
     } catch (err) {
       console.error(`${SYSTEM_ID} | feature-effects: failed to create AEs on ${targetActor.name}`, err);
+      failed.push(targetActor.name);
     }
   }
 
-  return { applied: totalCreated, targets: appliedTargets };
+  return { applied: totalCreated, targets: appliedTargets, failed };
 }

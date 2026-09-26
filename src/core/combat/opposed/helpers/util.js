@@ -1,3 +1,5 @@
+import { emitSuppressedSubRollDice as _emitSuppressedSubRollDice } from '../../../../utils/dice-visualization.js';
+export { _emitSuppressedSubRollDice };
 /**
  * src/core/combat/opposed/helpers/util.js
  * Utility functions for opposed workflow
@@ -5,7 +7,7 @@
 
 import { isDebugEnabled } from "../../../../utils/debug.js";
 import { doesUserOwnActor, getChatMessageAuthorUser } from "../../../../utils/authority-proxy.js";
-import { getCoreRollMode, isPublicChatMessageMode } from "../../../../utils/chat-roll-mode.js";
+
 export { getRuntimeSystemId as _getSystemId } from "../../../system/namespace.js";
 import { getFlagValueWithFallback } from "../../../system/flags.js";
 
@@ -91,30 +93,4 @@ export function _opposedFlags(parentMessageId, stage, extra = null) {
   };
 }
 
-export function _emitSuppressedSubRollDice(roll, { rollMode = null } = {}) {
-  if (!roll) return null;
-  const dsn = game?.dice3d;
-  if (!dsn || typeof dsn.showForRoll !== "function") return null;
 
-  const sync = isPublicChatMessageMode(rollMode ?? getCoreRollMode());
-
-  try {
-    const primary = dsn.showForRoll(roll, game.user, sync);
-    Promise.resolve(primary).catch(() => {
-      try {
-        const fallback = dsn.showForRoll(roll);
-        Promise.resolve(fallback).catch(() => {});
-      } catch (_err2) {
-        // no-op
-      }
-    });
-  } catch (_err) {
-    try {
-      const fallback = dsn.showForRoll(roll);
-      Promise.resolve(fallback).catch(() => {});
-    } catch (_err2) {
-      // no-op
-    }
-  }
-  return null;
-}

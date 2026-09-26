@@ -170,7 +170,9 @@ export async function recordAssassinStrikeAoOBlock(defender, { attackerUuid, com
   const seen = new Set(filtered.map(e => `${String(e?.source ?? "")}|${String(e?.attackerUuid ?? "")}|${String(e?.combatId ?? "")}|${_asInt(e?.round, 0)}|${_asInt(e?.turn, 0)}`));
   if (!seen.has(sig)) filtered.push(entry);
 
-  await requestUpdateDocument(defender, { [`flags.${scope}.${key}`]: filtered });
+  if (!await requestUpdateDocument(defender, { [`flags.${scope}.${key}`]: filtered })) {
+    throw new Error("Assassin Strike state could not be saved.");
+  }
 }
 
 /**

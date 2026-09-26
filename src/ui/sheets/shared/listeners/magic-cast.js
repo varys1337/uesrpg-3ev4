@@ -1,3 +1,4 @@
+import { escapeHtml as _escapeHtml } from '../../../../utils/html.js';
 /**
  * Magic casting handlers shared across sheets.
  *
@@ -41,14 +42,7 @@ const _SCHOOL_LABELS = Object.freeze({
 });
 const _SCHOOL_ORDER = Object.freeze(["alteration", "conjuration", "destruction", "illusion", "mysticism", "necromancy", "restoration", "enchant"]);
 
-function _escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll("\"", "&quot;")
-    .replaceAll("'", "&#39;");
-}
+
 
 function resolveRangeGatedTokenForActor(actor) {
   let token = canvas.tokens?.controlled?.find(t => t.actor?.id === actor.id) ?? null;

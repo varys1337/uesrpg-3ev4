@@ -2,7 +2,7 @@ import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { isPerfEnabled, monoMs, perfRecord } from "../../../utils/perf-tracker.js";
 
-function _actorHasCondition(actor, key) {
+export function _actorHasCondition(actor, key) {
   if (!actor || !key) return false;
   const k = String(key).trim().toLowerCase();
   const api = game?.uesrpg?.conditions;

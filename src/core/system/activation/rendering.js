@@ -1,12 +1,7 @@
 import { safeUpdateChatMessage } from "../../../utils/chat-message-socket.js";
 import { SYSTEM_ID } from "../system-id.js";
-import {
-  firstNonEmptyString,
-  getActivationCostValues,
-  normalizeUsage,
-  formatUsagePeriod
-} from "./helpers.js";
-import { getActivationActionTypeLabel } from "./costs-and-usage.js";
+import { firstNonEmptyString, normalizeUsage, formatUsagePeriod } from "./helpers.js";
+import { getActivationActionTypeLabel, getActivationCostPreview } from "./costs-and-usage.js";
 
 function buildActivationHeader({ label, img, actor, includeImage }) {
   const title = String(label ?? "Activation");
@@ -18,18 +13,6 @@ function buildActivationHeader({ label, img, actor, includeImage }) {
   ${actorLine}`;
 }
 
-function buildActivationCostsHtml(costs) {
-  const parts = [];
-  const { ap, sp, mp, lp, hp } = getActivationCostValues(costs);
-  if (ap) parts.push(`AP: ${ap}`);
-  if (sp) parts.push(`SP: ${sp}`);
-  if (mp) parts.push(`MP: ${mp}`);
-  if (lp) parts.push(`LP: ${lp}`);
-  if (hp) parts.push(`HP: ${hp}`);
-  return parts.length
-    ? `<div class="uesrpg-activation-costs"><b>Costs:</b> ${parts.join(", ")}</div>`
-    : "";
-}
 
 function buildItemDescriptionHtml({ item, includeImage }) {
   if (!item) return "";
@@ -53,9 +36,12 @@ export function renderActivationCard({
   textOverride = null,
   resultNotes = []
 } = {}) {
+  const costPreview = getActivationCostPreview({ actor, activation, label });
+  const costsHtml = costPreview.summary
+    ? `<div class="uesrpg-activation-costs"><b>Costs:</b> ${foundry.utils.escapeHTML(costPreview.summary)}</div>` : "";
   const renderSimple = Boolean(item && activation?.renderFullCard !== true);
   if (renderSimple) {
-    const baseHtml = buildItemDescriptionHtml({ item, includeImage });
+    const baseHtml = buildItemDescriptionHtml({ item, includeImage }) + costsHtml;
     const notes = Array.isArray(resultNotes)
       ? resultNotes.map((note) => String(note ?? "").trim()).filter(Boolean)
       : [];
@@ -77,7 +63,6 @@ export function renderActivationCard({
   const typeLine = item?.type
     ? `<div class="uesrpg-activation-type"><i><b>${item.type}</b></i></div>`
     : "";
-  const costsHtml = buildActivationCostsHtml(activation.costs ?? {});
 
   const usage = normalizeUsage(activation);
   const usageCurrent = (usageOverride && usageOverride.consumed && usageOverride.current != null)

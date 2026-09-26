@@ -9,13 +9,13 @@ import { hasTalent } from "../traits/talents-api.js";
 import { getAttackModeFromWeapon, getEffectiveWeaponHands } from "./combat-utils.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
 import { getFlagValueWithFallback } from "../system/flags.js";
-import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../time/combat-boundary-orchestrator.js";
+import { registerCombatBoundaryConsumer } from "../time/combat-boundary-orchestrator.js";
 import { requestBatchUpdateDocuments } from "../../utils/authority-proxy.js";
 import { evaluateAEModifierKeys, getActorCapabilityFlag } from "../active-effects/modifier-evaluator.js";
 import { isAttackTrackerEagerResetSkipped } from "../config/automation-policy.js";
 import { createDebugLogger } from "../../utils/debug.js";
 import { recordAttackTrackerDiagnostic } from "./attack-tracker-diagnostics.js";
-import { buildAttackTrackerContext, resolveAttackTrackerActor } from "./attack-tracker-context.js";
+import { buildAttackTrackerContext } from "./attack-tracker-context.js";
 import { isActorInStartedCombatEncounter } from "./combat-scope.js";
 import { isActiveGMUser } from "../../utils/users.js";
 
@@ -966,8 +966,5 @@ if (!_combatHooksRegistered) {
     handle: _handleCombatBoundaryAttackReset
   });
 
-  Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
-    if (noteCombatBoundaryLegacyFallbackSkip("attack-tracker", payload)) return;
-    await _handleCombatBoundaryAttackReset(payload);
-  });
+  
 }

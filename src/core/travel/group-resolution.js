@@ -1,3 +1,4 @@
+import { escapeHtml } from "../../utils/html.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
 
 const LAST_GROUP_SCOPE = "uesrpg-3ev4";
@@ -34,7 +35,7 @@ async function getRememberedGroupActor() {
 
 async function pickGroupActorDialog(groupActors) {
   const options = groupActors
-    .map((a) => `<option value="${a.uuid}">${a.name}</option>`)
+    .map((a) => `<option value="${a.uuid}">${escapeHtml(a.name)}</option>`)
     .join("");
 
   const content = `

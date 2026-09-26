@@ -1,3 +1,5 @@
+import { renderSpecialActionOption as renderSpecialOpt } from "./advantage-options.js";
+import { escapeHtml as _escapeHtml } from '../../../../utils/html.js';
 /**
  * src/core/combat/opposed/dialogs/attacker.js
  *
@@ -10,7 +12,7 @@
  */
 
 import { hasCondition } from "../../../conditions/condition-engine.js";
-import { clearTokenDashContext } from "../../combat-utils.js";
+
 import { buildSpecialActionsForActor } from "../../combat-style-utils.js";
 import { hasTalent } from "../../../traits/talents-api.js";
 import { 
@@ -20,21 +22,12 @@ import {
   getPreferredWeaponUuid as _getPreferredWeaponUuid
 } from "../helpers/workflow.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
-import { buildSpecialActionTooltipText, buildSpecialActionHelpText } from "../../../../data/tooltips/index.js";
+
 import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "../../../../ui/sheets/v2/shared/sheet-tooltips.js";
 import { buildCircumstanceOptionsHtml } from "../../../opposed/circumstance.js";
 import { t, tf } from "../../../../utils/i18n.js";
 import { isActorInStartedCombatEncounter } from "../../combat-scope.js";
-import { systemTooltipAttributes } from "../../../../ui/shared/system-tooltips.js";
 
-function _escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll("\"", "&quot;")
-    .replaceAll("'", "&#39;");
-}
 
 const HIT_LOCATION_KEYS = Object.freeze({
   Head: "Head",
@@ -73,7 +66,7 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
         <select name="weaponUuid">
           ${equippedWeapons.map(w => {
             const sel = (w.uuid === preferredWeaponUuid) ? "selected" : "";
-            return `<option value="${w.uuid}" ${sel}>${w.name}</option>`;
+            return `<option value="${w.uuid}" ${sel}>${_escapeHtml(w.name)}</option>`;
           }).join("\n")}
         </select>
       </div>
@@ -87,7 +80,7 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
         <select name="styleUuid">
           ${styles.map(s => {
             const sel = (s.uuid === selectedStyleUuid) ? "selected" : "";
-            return `<option value="${s.uuid}" ${sel}>${s.name}</option>`;
+            return `<option value="${s.uuid}" ${sel}>${_escapeHtml(s.name)}</option>`;
           }).join("\n")}
         </select>
       </div>
@@ -374,33 +367,12 @@ export async function promptWeaponAndAdvantages({
     }
   })();
 
-  const renderSpecialOpt = (sa) => {
-    const id = String(sa?.id ?? "").trim();
-    if (!id) return "";
-    const label = String(sa?.name ?? id);
-    const typ = String(sa?.actionType ?? "").toLowerCase();
-    const tooltip = buildSpecialActionTooltipText({ name: label, id, actionType: typ || "primary/secondary" });
-    const helpText = buildSpecialActionHelpText({ name: label, id });
-    const chipClass = typ === "primary" ? "uesrpg-adv-chip--primary" : "uesrpg-adv-chip--secondary";
-    const chipLabel = typ === "primary"
-      ? t("UESRPG.Sheets.Combat.Primary", "Primary")
-      : t("UESRPG.Sheets.Combat.Secondary", "Secondary");
-    return `
-      <label class="uesrpg-adv-choice" ${systemTooltipAttributes({ text: tooltip })} data-uesrpg-inline-help="true" data-uesrpg-inline-help-label="${_escapeHtml(label)}" data-uesrpg-inline-help-text="${_escapeHtml(tooltip)}" data-uesrpg-inline-help-dialog-text="${_escapeHtml(helpText)}">
-        <input type="checkbox" name="sa_${id}" />
-        <span class="uesrpg-adv-choice__label">
-          <span class="uesrpg-adv-choice__title">${label}</span>
-          <span class="uesrpg-adv-chip uesrpg-adv-chip--inline ${chipClass}">${chipLabel}</span>
-        </span>
-      </label>
-    `;
-  };
 
-  const showWeaponSelect = allowNoWeapon || weapons.length >= 2;
+const showWeaponSelect = allowNoWeapon || weapons.length >= 2;
   const noneSelected = allowNoWeapon && !defaultWeapon;
   const noneOption = allowNoWeapon ? `<option value="" ${noneSelected ? "selected" : ""}>${t("UESRPG.UI.None", "(none)")}</option>` : "";
   const weaponOptions = `${noneOption}${weapons
-    .map(w => `<option value="${w.uuid}" ${w.uuid === defaultWeapon?.uuid ? "selected" : ""}>${w.name}</option>`)
+    .map(w => `<option value="${w.uuid}" ${w.uuid === defaultWeapon?.uuid ? "selected" : ""}>${_escapeHtml(w.name)}</option>`)
     .join("\n")}`;
   const resolvedWeaponUuid = defaultWeapon?.uuid ?? "";
   const hasChoiceUi = max > 0;

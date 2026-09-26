@@ -1,3 +1,5 @@
+import { normalizeDiceExpression } from '../../documents/item-utils.js';
+export { normalizeDiceExpression };
 /**
  * src/core/combat/opposed/rolls.js
  * Roll execution and validation extracted from opposed-workflow.js monolith
@@ -10,37 +12,7 @@ import { isDebugEnabled } from "../../../utils/debug.js";
  * @param {string} expr - Dice expression to normalize
  * @returns {string} Normalized expression
  */
-export function normalizeDiceExpression(expr) {
-  const raw = String(expr ?? "").trim();
-  if (!raw) return "0";
 
-  // Legacy annotation / import artefact
-  if (/uses\s+nat\.?\s*weapon/i.test(raw)) return "0";
-
-  // Handle alternate damage formats like: "1d8 (1d10)" -> prefer the base
-  const paren = raw.match(/^(.+?)\s*\((.+?)\)\s*$/);
-  const base = paren ? String(paren[1]).trim() : raw;
-
-  // Normalize unicode minus/en-dash to ASCII hyphen
-  const ascii = base.replace(/[\u2012\u2013\u2014\u2212]/g, "-");
-
-  // Remove non-roll characters, keep basic math, dice letters, parentheses and whitespace
-  let cleaned = ascii.replace(/[^0-9dDkKfFhHlL+\-*/().,\s@]/g, " ").trim();
-
-  // Normalize decimal comma to dot (common in some locales)
-  cleaned = cleaned.replace(/(\d),(\d)/g, "$1.$2");
-
-  // Collapse whitespace
-  cleaned = cleaned.replace(/\s+/g, " ").trim();
-
-  // Strip trailing operators or punctuation
-  cleaned = cleaned.replace(/[+\-*/.,\s]+$/g, "").trim();
-
-  // Strip leading operators
-  cleaned = cleaned.replace(/^[+\-*/.,\s]+/g, "").trim();
-
-  return cleaned || "0";
-}
 
 /**
  * Safely evaluate a roll formula with normalization and fallback

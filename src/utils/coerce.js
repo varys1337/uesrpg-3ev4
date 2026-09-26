@@ -95,3 +95,12 @@ export function _lower(v) {
 export function normalizeKey(v) {
   return String(v ?? "").trim().toLowerCase();
 }
+/** Read a Foundry collection or an iterable without retaining a mutable cache. */
+export function collectionContents(collectionLike) {
+  if (Array.isArray(collectionLike?.contents)) return collectionLike.contents;
+  try {
+    return Array.from(collectionLike ?? []);
+  } catch (_error) {
+    return [];
+  }
+}

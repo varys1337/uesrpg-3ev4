@@ -1,3 +1,4 @@
+import { escapeHtml } from "../../utils/html.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
 import { t, tf } from "../../utils/i18n.js";
 import {
@@ -311,7 +312,7 @@ export async function pickAlchemyWeapon(actor) {
 
   if (weapons.length === 1) return weapons[0];
 
-  const options = weapons.map((item) => `<option value="${item.id}">${item.name}</option>`).join("");
+  const options = weapons.map((item) => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join("");
   const content = `<p>${t("UESRPG.Dialogs.ApplyToWeapon.Prompt")}</p><select name="weaponId" style="width:100%;">${options}</select>`;
 
   const result = await customDialog({

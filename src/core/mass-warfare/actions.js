@@ -1,3 +1,4 @@
+import { escapeHtml as esc } from "../../utils/html.js";
 import { SYSTEM_ID, FLAG_SCOPE, SYSTEM_ROLL_FORMULA } from "../constants.js";
 import { resolveWarfareProfile } from "./profile-registry.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
@@ -33,9 +34,7 @@ const _tokenPositionCache = new Map();
 const LEADER_UPDATE_SUPPRESS_MS = 200;
 let _warfareAttachmentHooksRegistered = false;
 
-function esc(value) {
-  return foundry.utils.escapeHTML(String(value ?? ""));
-}
+
 
 function getActionEntry(actor, actionId, actionType) {
   const profileId = String(actor?.system?.profile?.id ?? "uesrpg-0_2");
@@ -93,7 +92,7 @@ function _buildCommandDifficultyOptions(defaultKey = "average") {
   return SKILL_DIFFICULTIES.map((entry) => {
     const sign = entry.mod >= 0 ? "+" : "";
     const selected = entry.key === defaultKey ? "selected" : "";
-    return `<option value="${entry.key}" ${selected}>${entry.label} (${sign}${entry.mod})</option>`;
+    return `<option value="${entry.key}" ${selected}>${esc(entry.label)} (${sign}${entry.mod})</option>`;
   }).join("\n");
 }
 
@@ -476,7 +475,7 @@ function getTargetWarfareUnit(sourceActor, { allowSelf = false } = {}) {
   return { actor, token };
 }
 
-export async function applyResolveLoss(actor, amount, { suppressed = null } = {}) {
+export async function applyResolveLoss(actor, amount, { suppressed = null, _application = null } = {}) {
   if (!requireMassCombatEnabled()) return null;
   const current = Number(actor?.system?.stats?.resolve?.value ?? actor?.system?.stats?.condition?.value ?? 0) || 0;
   const max = Number(actor?.system?.stats?.resolve?.max ?? actor?.system?.stats?.condition?.max ?? current) || current;
@@ -499,7 +498,10 @@ export async function applyResolveLoss(actor, amount, { suppressed = null } = {}
     update["system.status.battle.defeated"] = nextBulk <= 0;
   }
   if (suppressed !== null) update["system.status.battle.suppressed"] = Boolean(suppressed);
-  await requestUpdateDocument(actor, update);
+  const { commitHealthUpdate } = await import("../combat/damage/post-application.js");
+  if (!await commitHealthUpdate(actor, update, {
+    application: _application, result: { resolveLoss: loss, current, next, bulkLoss, currentBulk, nextBulk },
+  })) throw new Error("Warfare Resolve update was not applied.");
   return { current, next, loss, totalLoss, bulkLoss, currentBulk, nextBulk, db };
 }
 

@@ -1,3 +1,5 @@
+import { getActorSheetRevision } from "../../../../core/actors/derived-cache/actor-derived-cache.js";
+import { isReligionWorshipEnabled } from "../../../../core/homebrew/settings.js";
 /**
  * src/ui/sheets/v2/shared/sheet-signatures.js
  *
@@ -8,9 +10,7 @@
  * Signatures are cheap string/JSON representations of the actor state used
  * to skip expensive context-building when nothing relevant has changed.
  *
- * NOTE: _buildItemsSignature is intentionally NOT here — the PC and NPC
- * versions include different fields (NPC adds npcSchoolRanks and different
- * item fingerprint fields) and must remain sheet-specific.
+ * Item signatures now use the same document revision and religion setting.
  */
 
 import { SYSTEM_ID } from "../../../../core/system/namespace.js";
@@ -168,3 +168,12 @@ export function buildSheetUiSignature(actor) {
     loadouts,
   });
 }
+
+export function buildItemsSignature(actor) {
+    return [
+      actor?.id ?? "",
+      actor?.type ?? "",
+      getActorSheetRevision(actor),
+      isReligionWorshipEnabled() ? "religion:on" : "religion:off",
+    ].join("|");
+  }

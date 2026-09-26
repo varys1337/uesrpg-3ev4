@@ -1,3 +1,5 @@
+import { renderSpecialActionOption as renderSpecialOpt } from "./advantage-options.js";
+
 /**
  * src/core/combat/opposed/dialogs/defender.js
  *
@@ -13,18 +15,9 @@ import { hasTalent } from "../../../traits/talents-api.js";
 import { canUseExploitAdvantage as _canUseExploitAdvantage } from "../helpers/workflow.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { t, tf } from "../../../../utils/i18n.js";
-import { buildSpecialActionTooltipText, buildSpecialActionHelpText } from "../../../../data/tooltips/index.js";
-import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "../../../../ui/sheets/v2/shared/sheet-tooltips.js";
-import { systemTooltipAttributes } from "../../../../ui/shared/system-tooltips.js";
 
-function _escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll("\"", "&quot;")
-    .replaceAll("'", "&#39;");
-}
+import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "../../../../ui/sheets/v2/shared/sheet-tooltips.js";
+
 
 /**
  * Prompt defender to spend Advantage after successful defense.
@@ -58,29 +51,8 @@ export async function promptDefenderAdvantage({
     }
   })();
 
-  const renderSpecialOpt = (sa) => {
-    const id = String(sa?.id ?? "").trim();
-    if (!id) return "";
-    const label = String(sa?.name ?? id);
-    const typ = String(sa?.actionType ?? "").toLowerCase();
-    const tooltip = buildSpecialActionTooltipText({ name: label, id, actionType: typ || "primary/secondary" });
-    const helpText = buildSpecialActionHelpText({ name: label, id });
-    const chipClass = typ === "primary" ? "uesrpg-adv-chip--primary" : "uesrpg-adv-chip--secondary";
-    const chipLabel = typ === "primary"
-      ? t("UESRPG.Sheets.Combat.Primary", "Primary")
-      : t("UESRPG.Sheets.Combat.Secondary", "Secondary");
-    return `
-      <label class="uesrpg-adv-choice" ${systemTooltipAttributes({ text: tooltip })} data-uesrpg-inline-help="true" data-uesrpg-inline-help-label="${_escapeHtml(label)}" data-uesrpg-inline-help-text="${_escapeHtml(tooltip)}" data-uesrpg-inline-help-dialog-text="${_escapeHtml(helpText)}">
-        <input type="checkbox" name="sa_${id}" />
-        <span class="uesrpg-adv-choice__label">
-          <span class="uesrpg-adv-choice__title">${label}</span>
-          <span class="uesrpg-adv-chip uesrpg-adv-chip--inline ${chipClass}">${chipLabel}</span>
-        </span>
-      </label>
-    `;
-  };
 
-  const content = `
+const content = `
     <div class="uesrpg-adv-dialog uesrpg-adv-dialog--defender">
       <div class="uesrpg-adv-summary">
         <div><b>${t("UESRPG.Dialogs.Opposed.Advantage", "Advantage")}</b>: ${tf("UESRPG.Dialogs.Opposed.AvailableCount", { count: max }, `${max} available`)}</div>

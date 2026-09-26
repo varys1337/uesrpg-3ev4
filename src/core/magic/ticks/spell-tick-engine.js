@@ -6,11 +6,11 @@
  * Unified spell tick engine for UESRPG 3ev4.
  *
  * Responsibilities:
- * - Exactly-once per-turn ticking for active spell zones and ongoing effects
- * - Combat ticks via `uesrpg.combatTimeChanged` (phase "post")
+ * - Deduplicated per-turn ticking for active spell zones and ongoing effects
+ * - Combat ticks via the awaited boundary orchestrator (phase "post")
  * - Out-of-combat ticks via `uesrpg.timeChanged` at configurable intervals
  * - GM-only execution to prevent races
- * - lastTick markers on Origin AE to guarantee idempotency
+ * - lastTick markers on Origin AE to suppress repeated work
  *
  * Design follows wound-ticker.js pattern:
  * - Snapshot prior combat state per combat ID
@@ -19,10 +19,7 @@
  *
  * ## Composite boundary dispatch (Milestone B)
  *
- * When `compositeBoundaryTickEnabled` is true, the four sequential
- * `_dispatchTick` calls at a round boundary (turnStart → turnEnd →
- * roundStart → roundEnd) are collapsed into a single `_dispatchTickComposite`
- * call that carries all phase contexts at once.
+ * Each combat boundary uses one composite dispatch with its captured phase contexts.
  *
  * Handlers that register an `fnBoundary` callback receive the full
  * `SpellTickBoundaryContext` and can iterate phases themselves (e.g.,
@@ -32,22 +29,16 @@
  * using the individual `SpellTickContext` from `phaseContexts`, preserving
  * backward compatibility.
  *
- * The legacy path (default, `compositeBoundaryTickEnabled = false`) is
- * unchanged and is extracted into `_handleBoundaryLegacy()` for clarity.
- *
- * Target: Foundry VTT v14.359+
+ * Target: Foundry VTT v14.368+
  */
 
-import { getOriginAEs } from "../effects/origin-effect.js";
+
 import { getActiveSpellZones, getTokensInArea, hasActiveZones } from "../spell-runtime.js";
 import { createDebugLogger } from "../_primitives.js";
-import { FLAG_SCOPE } from "../../system/namespace.js";
 import { isPerfEnabled, monoMs, perfRecord } from "../../../utils/perf-tracker.js";
-import { isCompositeBoundaryTickEnabled } from "../../config/automation-policy.js";
-import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../../time/combat-boundary-orchestrator.js";
+import { registerCombatBoundaryConsumer } from "../../time/combat-boundary-orchestrator.js";
 import { isActiveGMUser } from "../../../utils/users.js";
 
-const _FLAG_NS = FLAG_SCOPE;
 
 let _registered = false;
 
@@ -98,7 +89,7 @@ const _seenBoundaryKeys = new Set();
  * @typedef {object} SpellTickHandler
  * @property {string} id - Unique handler id
  * @property {string} label - Human-readable label
- * @property {(ctx: SpellTickContext) => Promise<void>} fn - Tick handler function (always called on legacy path; shim-called per-phase on composite path when fnBoundary is absent)
+ * @property {(ctx: SpellTickContext) => Promise<void>} fn - Tick handler function (called for world-time ticks and once per combat phase when fnBoundary is absent)
  * @property {((boundaryCtx: SpellTickBoundaryContext) => Promise<void>)|null} fnBoundary - Optional boundary handler called once with the full composite context (composite path only)
  * @property {((ctx: SpellTickContext) => boolean)|null} [hasWork] - Optional cheap predicate. If provided and returns false for a given SpellTickContext, the handler's fn is skipped for that tick entirely. For fnBoundary handlers this is not auto-applied — the handler manages its own skip logic.
  */
@@ -122,15 +113,6 @@ function _getState(combat) {
   return _combatState.get(String(combat.id)) ?? null;
 }
 
-/**
- * Read the compositeBoundaryTickEnabled setting.
- * Defaults to false if the setting is unavailable (e.g., before ready).
- *
- * @returns {boolean}
- */
-function _isCompositeBoundaryEnabled() {
-  return isCompositeBoundaryTickEnabled();
-}
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
@@ -200,24 +182,20 @@ export function initializeSpellTickEngine() {
     if (!combat?.id) return;
     if (payload?.combat?.id && String(payload.combat.id) !== String(combat.id)) return;
 
-    const prev = _getState(combat);
+    const prev = payload.combat?.prior ?? _getState(combat);
     if (!prev) {
       _setState(combat);
       return;
     }
 
-    const next = _snapshotCombat(combat);
+    const next = payload.combat?.current ?? _snapshotCombat(combat);
     const advanced = (next.round !== prev.round) || (next.turn !== prev.turn) || (next.combatantId !== prev.combatantId);
-    _setState(combat);
+    _combatState.set(String(combat.id), { ...next });
     if (!advanced) return;
 
-    const nowTime = Number(game.time?.worldTime ?? 0);
+    const nowTime = Number(payload.worldTime ?? game.time?.worldTime ?? 0);
 
-    if (_isCompositeBoundaryEnabled()) {
-      await _handleBoundaryComposite(combat, prev, next, nowTime);
-    } else {
-      await _handleBoundaryLegacy(combat, prev, next, nowTime);
-    }
+    await _handleBoundaryComposite(combat, prev, next, nowTime);
   };
 
   registerCombatBoundaryConsumer({
@@ -227,12 +205,8 @@ export function initializeSpellTickEngine() {
     handle: handleCombatBoundaryTicks
   });
 
-  Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
-    if (noteCombatBoundaryLegacyFallbackSkip("spell-tick-engine", payload)) return;
-    await handleCombatBoundaryTicks(payload);
-  });
 
-  // Out-of-combat world time tick
+// Out-of-combat world time tick
   Hooks.on("uesrpg.timeChanged", async (payload) => {
     if (!isActiveGMUser(game.user)) return;
     // Skip combat-sourced time changes (already handled above)
@@ -318,79 +292,6 @@ export function registerZoneTickHandler() {
 
 // ─── Internal — Boundary Paths ───────────────────────────────────────────────
 
-/**
- * Legacy boundary path: four sequential _dispatchTick calls.
- * Behavior is identical to the original hook body.
- *
- * @param {Combat} combat
- * @param {{round: number, turn: number, combatantId: string|null}} prev
- * @param {{round: number, turn: number, combatantId: string|null}} next
- * @param {number} nowTime
- */
-async function _handleBoundaryLegacy(combat, prev, next, nowTime) {
-  // Start-of-turn tick for the combatant whose turn is starting
-  if (next.combatantId) {
-    const currCombatant = combat.combatants?.get?.(next.combatantId) ?? null;
-    const actor = currCombatant?.actor ?? null;
-
-    _debug("Turn started for", actor?.name ?? next.combatantId, "round:", next.round, "turn:", next.turn);
-
-    await _dispatchTick({
-      trigger: "turnStart",
-      actor,
-      round: next.round,
-      turn: next.turn,
-      worldTime: nowTime,
-      dtSeconds: 0,
-      combat
-    });
-  }
-
-  // End-of-turn tick for the combatant whose turn just ended
-  if (prev.combatantId) {
-    const prevCombatant = combat.combatants?.get?.(prev.combatantId) ?? null;
-    const actor = prevCombatant?.actor ?? null;
-
-    _debug("Turn ended for", actor?.name ?? prev.combatantId, "round:", next.round, "turn:", next.turn);
-
-    await _dispatchTick({
-      trigger: "turnEnd",
-      actor,
-      round: next.round,
-      turn: next.turn,
-      worldTime: nowTime,
-      dtSeconds: 0,
-      combat
-    });
-  }
-
-  // Round boundary ticks (when round number changes)
-  if (next.round !== prev.round) {
-    _debug("Round started:", next.round);
-
-    await _dispatchTick({
-      trigger: "roundStart",
-      actor: null,
-      round: next.round,
-      turn: next.turn,
-      worldTime: nowTime,
-      dtSeconds: 0,
-      combat
-    });
-
-    _debug("Round ended:", prev.round, "→", next.round);
-
-    await _dispatchTick({
-      trigger: "roundEnd",
-      actor: null,
-      round: next.round,
-      turn: next.turn,
-      worldTime: nowTime,
-      dtSeconds: 0,
-      combat
-    });
-  }
-}
 
 /**
  * Composite boundary path: build a SpellTickBoundaryContext carrying all

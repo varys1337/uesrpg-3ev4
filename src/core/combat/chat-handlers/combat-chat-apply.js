@@ -1,3 +1,7 @@
+import { updateCard as updateMagicCard } from "../../magic/opposed/updater.js";
+import { _renderCard as renderCombatCard } from "../opposed/render.js";
+import { getOwnerAndGmRecipientIds as getWhisperRecipients } from '../../../utils/chat-recipients.js';
+export { getWhisperRecipients };
 /**
  * src/core/combat/chat-handlers/combat-chat-apply.js
  *
@@ -6,8 +10,8 @@
  */
 
 import { DAMAGE_TYPES } from "../damage-automation.js";
-import { doesUserOwnActor, requestUpdateChatMessage, requestUpdateDocument } from "../../../utils/authority-proxy.js";
-import { cloneFlagState } from "../../../utils/clone.js";
+import { doesUserOwnActor } from "../../../utils/authority-proxy.js";
+
 import {
   getMessageState as getMagicMessageState,
   isMultiDefender as isMagicMultiDefender,
@@ -18,16 +22,11 @@ import { renderCard as renderMagicCard } from "../../magic/opposed/render.js";
 import { applyMagicDamage, applyMagicHealing } from "../../magic/damage-application.js";
 import { applyResolvedSpellEffects } from "../../magic/effects/spell-effects.js";
 import { applySpellResourceRestoration } from "../../magic/services/resource-restoration-service.js";
-import { safeUpdateChatMessage } from "../../../utils/chat-message-socket.js";
-import {
-  _isMultiDefender, _getDefenderDamage, _setDefenderDamage,
-  _getDefenderEntries, _isBankChoicesEnabledForData, _getBankCommitState,
-  _anyActiveGMOnline, _allDefendersCommitted,
-  _getDefenderOutcome, _getDefenderAdvantage, _getDefenderResolutionState,
-} from "../opposed/schema.js";
-import { renderSingleDefenderCard, renderMultiDefenderCard } from "../opposed/cards/renderers.js";
+
+import { _isMultiDefender, _getDefenderDamage, _setDefenderDamage, _getDefenderEntries } from "../opposed/schema.js";
+
 import { updateCard } from "../opposed/cards/updater.js";
-import { _safeGetSetting } from "../opposed/helpers/util.js";
+
 import { resolveActorFromUuidSync, resolveUuidSync } from "../../../utils/uuid-cache.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { ApplyDamageService } from "../../../application/combat/apply-damage-service.js";
@@ -38,6 +37,7 @@ import {
   requestAuthorityIntent,
 } from "../../../utils/authority-intents.js";
 import { acquireLock, releaseLock } from "../../../utils/authority-proxy/shared.js";
+import { getActiveGMUser } from "../../../utils/users.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 const COMBAT_OUTCOME_INTENT = "combat.applyOutcome";
@@ -144,15 +144,24 @@ export function registerCombatOutcomeAuthorityIntent() {
         return { ok: false, code: AUTHORITY_RESULT_CODES.UNAUTHORIZED };
       }
 
+      await _updateInlineApplication(message, targetUuid, (damage) => { damage.applicationStatus = 'pending'; });
       const event = { preventDefault() {}, currentTarget: { dataset: outcome.dataset } };
-      if (kind === "healing") await onApplyHealing(event, message);
-      else await onApplyDamage(event, message);
+      if (kind === "healing") await onApplyHealing(event, message, { authoritative: true });
+      else await onApplyDamage(event, message, { authoritative: true });
 
       const unapplied = _getCanonicalOutcome(game.messages?.get?.(messageId), targetUuid, kind);
-      if (unapplied) return { ok: false, code: AUTHORITY_RESULT_CODES.FAILED };
+      if (unapplied) {
+        await _updateInlineApplication(message, targetUuid, (damage) => { damage.applicationStatus = 'failed'; });
+        return { ok: false, code: AUTHORITY_RESULT_CODES.FAILED };
+      }
       return { ok: true };
     } catch (error) {
       console.error("UESRPG | combat outcome authority intent failed", error);
+      const message = game.messages?.get?.(messageId);
+      if (message) {
+        try { await _updateInlineApplication(message, targetUuid, (damage) => { if (!damage.applied) damage.applicationStatus = 'failed'; }); }
+        catch (reportError) { console.warn('UESRPG | Could not save failed application feedback', reportError); }
+      }
       return { ok: false, code: AUTHORITY_RESULT_CODES.FAILED };
     } finally {
       if (acquired) releaseLock(lockKey);
@@ -241,19 +250,7 @@ export function resolveActor(message, uuid) {
  * @param {Actor} actor
  * @returns {string[]}
  */
-export function getWhisperRecipients(actor) {
-  const out = new Set();
-  const users = game.users?.contents ?? [];
-  for (const user of users) {
-    if (!user) continue;
-    if (user.isGM) {
-      out.add(user.id);
-      continue;
-    }
-    if (doesUserOwnActor(user, actor)) out.add(user.id);
-  }
-  return Array.from(out);
-}
+
 
 // ── Opposed card inline-damage marking ──────────────────────────────────────
 
@@ -271,148 +268,77 @@ function _resolvedDamageComponents(components) {
   return normalized.length ? normalized : null;
 }
 
-async function _markInlineDamageApplied(message, targetUuid, { gmDamageReport = null, components = null } = {}) {
-  const raw = message?.flags?.[_FLAG_NS]?.opposed;
-  if (!raw) return;
-  const data = foundry.utils.deepClone(raw);
-
-  let defender = null;
-  if (_isMultiDefender(data)) {
-    const list = data.defenders ?? [];
-    defender = list.find(d =>
-      (d.actorUuid && d.actorUuid === targetUuid) ||
-      (d.tokenUuid && d.tokenUuid === targetUuid)
-    ) ?? null;
-  } else {
-    defender = data.defender ?? null;
-  }
-  if (!defender) return;
-
-  const dmg = _getDefenderDamage(data, defender);
-  if (!dmg || dmg.applied) return;
-
-  dmg.applied = true;
-  const resolvedComponents = _resolvedDamageComponents(components);
-  if (resolvedComponents) dmg.damageComponents = resolvedComponents;
-  if (gmDamageReport && typeof gmDamageReport === "object") {
-    dmg.gmDamageReport = foundry.utils.deepClone(gmDamageReport);
-  }
-  _setDefenderDamage(data, defender, dmg);
-
-  const helpers = {
-    _getDefenderEntries, _isBankChoicesEnabledForData, _anyActiveGMOnline,
-    _getBankCommitState, _getDefenderOutcome, _getDefenderAdvantage,
-    _getDefenderResolutionState, _allDefendersCommitted, _isMultiDefender,
-    _safeGetSetting,
-  };
-  const _renderCard = (d, msgId) =>
-    _isMultiDefender(d) ? renderMultiDefenderCard(d, msgId, helpers) : renderSingleDefenderCard(d, msgId, helpers);
-  await updateCard(message, data, _renderCard);
+async function _updateInlineApplication(message, targetUuid, mutate) {
+  const magic = Boolean(getMagicMessageState(message));
+  const updater = magic ? updateMagicCard : updateCard;
+  return updater(message, (data) => {
+    const entries = magic ? getMagicDefenderEntries(data) : _getDefenderEntries(data);
+    const defender = entries.find((entry) => entry.actorUuid === targetUuid || entry.tokenUuid === targetUuid)
+      ?? ((!targetUuid || entries.length <= 1) ? data.defender : null);
+    if (!defender) throw new Error('Application target is no longer on this card.');
+    const damage = magic ? getMagicDefenderDamage(data, defender) : _getDefenderDamage(data, defender);
+    if (!damage) throw new Error('No resolved outcome is available for this target.');
+    mutate(damage);
+    if (magic) setMagicDefenderDamage(data, defender, damage);
+    else _setDefenderDamage(data, defender, damage);
+    return data;
+  }, magic ? renderMagicCard : renderCombatCard);
 }
 
-async function _markMagicInlineDamageApplied(message, targetUuid, { gmDamageReport = null } = {}) {
-  const raw = message?.flags?.["uesrpg-3ev4"]?.magicOpposed;
-  if (!raw) return;
-  const data = cloneFlagState(raw.state ?? raw);
-
-  let defender = null;
-  if (isMagicMultiDefender(data)) {
-    const list = getMagicDefenderEntries(data);
-    defender = list.find(d =>
-      (d.actorUuid && d.actorUuid === targetUuid) ||
-      (d.tokenUuid && d.tokenUuid === targetUuid)
-    ) ?? null;
-  } else {
-    defender = data.defender ?? null;
-  }
-  if (!defender) return;
-
-  const dmg = getMagicDefenderDamage(data, defender);
-  if (!dmg || dmg.applied) return;
-
-  dmg.applied = true;
-  if (gmDamageReport && typeof gmDamageReport === "object") {
-    dmg.gmDamageReport = foundry.utils.deepClone(gmDamageReport);
-  }
-  setMagicDefenderDamage(data, defender, dmg);
-
-  const _FLAG_KEY = "magicOpposed";
-  const version = Number(raw.version ?? 2);
-  const content = renderMagicCard(data, message.id);
-  const payload = {
-    content,
-    flags: { [_FLAG_NS]: { [_FLAG_KEY]: { version, state: data } } },
-  };
-  await safeUpdateChatMessage(message, payload);
+async function _markInlineDamageApplied(message, targetUuid, { gmDamageReport = null, components = null, execution = null } = {}) {
+  return _updateInlineApplication(message, targetUuid, (damage) => {
+    damage.applied = true;
+    damage.applicationStatus = execution?.status === 'partial' ? 'partial' : 'applied';
+    const resolvedComponents = _resolvedDamageComponents(components);
+    if (resolvedComponents) damage.damageComponents = resolvedComponents;
+    if (gmDamageReport) damage.gmDamageReport = foundry.utils.deepClone(gmDamageReport);
+  });
 }
+
+const _markMagicInlineDamageApplied = _markInlineDamageApplied;
 
 export async function appendSupplementalDamageReportToMessage(message, targetUuid, { gmDamageReport = null } = {}) {
   if (!message || !targetUuid || !gmDamageReport || typeof gmDamageReport !== "object") return false;
+  if (!message.flags?.[_FLAG_NS]?.opposed && !getMagicMessageState(message)) return false;
+  await _updateInlineApplication(message, targetUuid, (damage) => {
+    damage.applied = true;
+    damage.gmDamageReport = _mergeSupplementalGmDamageReport(damage.gmDamageReport, gmDamageReport);
+  });
+  return true;
+}
 
-  const rawOpposed = message?.flags?.[_FLAG_NS]?.opposed;
-  if (rawOpposed) {
-    const data = foundry.utils.deepClone(rawOpposed);
-
-    let defender = null;
-    if (_isMultiDefender(data)) {
-      const list = data.defenders ?? [];
-      defender = list.find((d) =>
-        (d.actorUuid && d.actorUuid === targetUuid)
-        || (d.tokenUuid && d.tokenUuid === targetUuid)
-      ) ?? null;
-    } else {
-      defender = data.defender ?? null;
+/** Record the start before any secondary write; interrupted work requires review. */
+async function _applyMagicFollowups({ message, targetUuid, damage, casterActor, targetActor, spell, payload, emitHit = false }) {
+  if (damage.followupsStarted) return { status: "partial", committed: true };
+  let claimed = false;
+  await _updateInlineApplication(message, targetUuid, (current) => {
+    if (current.followupsStarted) return;
+    current.followupsStarted = true;
+    claimed = true;
+  });
+  if (!claimed) return { status: "partial", committed: true };
+  const execution = { status: "applied", committed: true };
+  if (payload.needsEffects) {
+    try {
+      if (!spell || !casterActor) throw new Error("The spell or caster is no longer available.");
+      await applyResolvedSpellEffects({ casterActor, targetActor, spell, payload });
+    } catch (error) {
+      execution.status = "partial";
+      console.error("UESRPG | Deferred spell effects failed", error);
     }
-    if (!defender) return false;
-
-    const dmg = _getDefenderDamage(data, defender) ?? {};
-    dmg.applied = true;
-    dmg.gmDamageReport = _mergeSupplementalGmDamageReport(dmg.gmDamageReport ?? null, gmDamageReport);
-    _setDefenderDamage(data, defender, dmg);
-
-    const helpers = {
-      _getDefenderEntries, _isBankChoicesEnabledForData, _anyActiveGMOnline,
-      _getBankCommitState, _getDefenderOutcome, _getDefenderAdvantage,
-      _getDefenderResolutionState, _allDefendersCommitted, _isMultiDefender,
-      _safeGetSetting,
-    };
-    const renderCard = (d, msgId) =>
-      _isMultiDefender(d) ? renderMultiDefenderCard(d, msgId, helpers) : renderSingleDefenderCard(d, msgId, helpers);
-    await updateCard(message, data, renderCard);
-    return true;
   }
-
-  const rawMagic = message?.flags?.[_FLAG_NS]?.magicOpposed;
-  if (rawMagic) {
-    const data = cloneFlagState(rawMagic.state ?? rawMagic);
-
-    let defender = null;
-    if (isMagicMultiDefender(data)) {
-      const list = getMagicDefenderEntries(data);
-      defender = list.find((d) =>
-        (d.actorUuid && d.actorUuid === targetUuid)
-        || (d.tokenUuid && d.tokenUuid === targetUuid)
-      ) ?? null;
-    } else {
-      defender = data.defender ?? null;
-    }
-    if (!defender) return false;
-
-    const dmg = getMagicDefenderDamage(data, defender) ?? {};
-    dmg.applied = true;
-    dmg.gmDamageReport = _mergeSupplementalGmDamageReport(dmg.gmDamageReport ?? null, gmDamageReport);
-    setMagicDefenderDamage(data, defender, dmg);
-
-    const version = Number(rawMagic.version ?? 2);
-    const content = renderMagicCard(data, message.id);
-    await safeUpdateChatMessage(message, {
-      content,
-      flags: { [_FLAG_NS]: { magicOpposed: { version, state: data } } },
-    });
-    return true;
+  if (emitHit) Hooks.callAll("uesrpg.spellHitTarget", {
+    caster: casterActor, target: targetActor, spell,
+    hitLocation: payload.hitLocation ?? "Body", defenseType: payload.defenseType ?? "",
+    isCritical: Boolean(payload.isCritical), isDamaging: payload.isDamaging !== false,
+  });
+  try {
+    await applySpellResourceRestoration({ caster: casterActor, target: targetActor, spell, payload, message });
+  } catch (error) {
+    execution.status = "partial";
+    console.error("UESRPG | Spell resource restoration failed", error);
   }
-
-  return false;
+  return execution;
 }
 
 // ── Magic inline damage / healing ────────────────────────────────────────────
@@ -456,42 +382,13 @@ async function _onApplyMagicDamage(ev, message, btn) {
   const casterActor = mp.casterUuid ? resolveActorFromUuidSync(mp.casterUuid) : null;
 
   if (mp.isDamaging === false && !mp.isHealing) {
-    if (mp.needsEffects && spell) {
-      try {
-        await applyResolvedSpellEffects({ casterActor, targetActor, spell, payload: mp });
-      } catch (err) {
-        console.error("UESRPG | Failed to apply spell effects (effects-only):", err);
-      }
-    }
-    try {
-      Hooks.callAll("uesrpg.spellHitTarget", {
-        caster: casterActor,
-        target: targetActor,
-        spell,
-        hitLocation: mp.hitLocation ?? "Body",
-        defenseType: mp.defenseType ?? "",
-        isCritical: Boolean(mp.isCritical),
-        isDamaging: false,
-      });
-    } catch (_e) { /* no-op */ }
-
-    try {
-      await applySpellResourceRestoration({
-        caster: casterActor,
-        target: targetActor,
-        spell,
-        payload: mp,
-        message
-      });
-    } catch (err) {
-      console.error("UESRPG | Failed to apply spell resource restoration:", err);
-    }
-
-    await _markMagicInlineDamageApplied(message, targetUuid);
+    const execution = await _applyMagicFollowups({ message, targetUuid, damage: dmgData, casterActor, targetActor, spell, payload: mp, emitHit: true });
+    await _markMagicInlineDamageApplied(message, targetUuid, { execution });
     return;
   }
 
   const damageResult = await applyMagicDamage(targetActor, Number(mp.damage ?? 0), mp.damageType || "magic", spell, {
+    receiptId: `${message.id}:${targetActor.uuid}:damage`,
     hitLocation: mp.hitLocation ?? "Body",
     isCritical: Boolean(mp.isCritical),
     source: mp.source ?? "Spell",
@@ -508,46 +405,16 @@ async function _onApplyMagicDamage(ev, message, btn) {
     skipChatMessage: true,
   });
 
-  if (damageResult?.spellAbsorbed) {
-    await _markMagicInlineDamageApplied(message, targetUuid);
-    return;
+  if (!damageResult) return;
+  let execution = damageResult.execution;
+  if (!damageResult.spellAbsorbed) {
+    // HP receipts prevent duplicate damage; they cannot prove that subsequent
+    // multi-document effects completed if the final chat write was interrupted.
+    execution = execution?.replayed || execution?.status === "partial"
+      ? { ...execution, status: "partial" }
+      : await _applyMagicFollowups({ message, targetUuid, damage: dmgData, casterActor, targetActor, spell, payload: mp, emitHit: true });
   }
-
-  if (mp.needsEffects && spell) {
-    try {
-      await applyResolvedSpellEffects({ casterActor, targetActor, spell, payload: mp });
-    } catch (err) {
-      console.error("UESRPG | Failed to apply deferred spell effects:", err);
-    }
-  }
-
-  try {
-    Hooks.callAll("uesrpg.spellHitTarget", {
-      caster: casterActor,
-      target: targetActor,
-      spell,
-      hitLocation: mp.hitLocation ?? "Body",
-      defenseType: mp.defenseType ?? "",
-      isCritical: Boolean(mp.isCritical),
-      isDamaging: true,
-    });
-  } catch (_e) { /* no-op */ }
-
-  try {
-    await applySpellResourceRestoration({
-      caster: casterActor,
-      target: targetActor,
-      spell,
-      payload: mp,
-      message
-    });
-  } catch (err) {
-    console.error("UESRPG | Failed to apply spell resource restoration:", err);
-  }
-
-  await _markMagicInlineDamageApplied(message, targetUuid, {
-    gmDamageReport: damageResult?.gmDamageReport ?? null
-  });
+  await _markMagicInlineDamageApplied(message, targetUuid, { gmDamageReport: damageResult.gmDamageReport, execution });
 }
 
 async function _onApplyMagicHealing(ev, message, btn) {
@@ -589,6 +456,7 @@ async function _onApplyMagicHealing(ev, message, btn) {
   const casterActor = mp.casterUuid ? resolveActorFromUuidSync(mp.casterUuid) : null;
 
   const healResult = await applyMagicHealing(targetActor, Number(mp.damage ?? 0), spell, {
+    receiptId: `${message.id}:${targetActor.uuid}:healing`,
     source: mp.source ?? "Spell",
     rollHTML: mp.rollHTML ?? "",
     isTemporary: Boolean(mp.isTemporary),
@@ -596,37 +464,19 @@ async function _onApplyMagicHealing(ev, message, btn) {
     magicCost: Number(mp.magicCost ?? 0),
   });
 
-  if (healResult?.spellAbsorbed) {
-    await _markMagicInlineDamageApplied(message, targetUuid);
-    return;
+  if (!healResult) return;
+  let execution = healResult.execution;
+  if (!healResult.spellAbsorbed) {
+    execution = execution?.replayed || execution?.status === "partial"
+      ? { ...execution, status: "partial" }
+      : await _applyMagicFollowups({ message, targetUuid, damage: dmgData, casterActor, targetActor, spell, payload: mp });
   }
-
-  if (mp.needsEffects && spell) {
-    try {
-      await applyResolvedSpellEffects({ casterActor, targetActor, spell, payload: mp });
-    } catch (err) {
-      console.error("UESRPG | Failed to apply deferred spell effects after healing:", err);
-    }
-  }
-
-  try {
-    await applySpellResourceRestoration({
-      caster: casterActor,
-      target: targetActor,
-      spell,
-      payload: mp,
-      message
-    });
-  } catch (err) {
-    console.error("UESRPG | Failed to apply spell resource restoration:", err);
-  }
-
-  await _markMagicInlineDamageApplied(message, targetUuid);
+  await _markMagicInlineDamageApplied(message, targetUuid, { execution });
 }
 
 // ── Public handlers ───────────────────────────────────────────────────────────
 
-export async function onApplyDamage(ev, message) {
+export async function onApplyDamage(ev, message, { authoritative = false } = {}) {
   ev.preventDefault();
 
   const btn = ev.currentTarget;
@@ -636,7 +486,8 @@ export async function onApplyDamage(ev, message) {
     ui.notifications.warn("No valid target actor found for damage application.");
     return;
   }
-  if (!doesUserOwnActor(game.user, targetActor)) {
+  if (!authoritative && (!doesUserOwnActor(game.user, targetActor)
+    || (getActiveGMUser() && _getCanonicalOutcome(message, targetUuid, "damage")))) {
     await _requestCombatOutcome(message, targetUuid, "damage");
     return;
   }
@@ -685,6 +536,7 @@ export async function onApplyDamage(ev, message) {
 
   const targetDomain = String(btn.dataset.targetDomain ?? "").trim().toLowerCase();
   const resolvedDamage = await ApplyDamageService.applyChatCard({
+    receiptId: `${message.id}:${targetActor.uuid}:damage`,
     targetActor,
     rawDamage,
     damageType,
@@ -713,13 +565,15 @@ export async function onApplyDamage(ev, message) {
     },
   });
 
+  if (!resolvedDamage) return;
   await _markInlineDamageApplied(message, targetUuid, {
     gmDamageReport: resolvedDamage?.gmDamageReport ?? null,
     components: resolvedDamage?.components ?? null,
+    execution: resolvedDamage.execution,
   });
 }
 
-export async function onApplyHealing(ev, message) {
+export async function onApplyHealing(ev, message, { authoritative = false } = {}) {
   ev.preventDefault();
 
   const btn = ev.currentTarget;
@@ -729,7 +583,8 @@ export async function onApplyHealing(ev, message) {
     ui.notifications.warn("No valid target actor found for healing.");
     return;
   }
-  if (!doesUserOwnActor(game.user, targetActor)) {
+  if (!authoritative && (!doesUserOwnActor(game.user, targetActor)
+    || (getActiveGMUser() && _getCanonicalOutcome(message, targetUuid, "healing")))) {
     await _requestCombatOutcome(message, targetUuid, "healing");
     return;
   }
@@ -742,7 +597,10 @@ export async function onApplyHealing(ev, message) {
   const source = btn.dataset.source || (message?.speaker?.alias ?? "Healing");
   const isTemporary = String(btn.dataset.tempHp ?? "0") === "1";
 
-  await ApplyDamageService.applyHealing(targetActor, healing, { source, isTemporary });
+  const result = await ApplyDamageService.applyHealing(targetActor, healing, {
+    source, isTemporary, receiptId: `${message.id}:${targetActor.uuid}:healing`,
+  });
+  if (!result) return;
 
-  await _markInlineDamageApplied(message, targetUuid);
+  await _markInlineDamageApplied(message, targetUuid, { execution: result.execution });
 }

@@ -1,3 +1,4 @@
+import { escapeHtml } from "../../../../utils/html.js";
 /**
  * @module magic/opposed/actions/attacker
  *
@@ -218,7 +219,7 @@ function _difficultyOptionsHtml(selectedKey = "average") {
   return SKILL_DIFFICULTIES.map((df) => {
     const sign = Number(df?.mod ?? 0) >= 0 ? "+" : "";
     const selected = String(df?.key) === String(selectedKey) ? "selected" : "";
-    return `<option value="${String(df?.key ?? "average")}" ${selected}>${String(df?.label ?? "Average")} (${sign}${Number(df?.mod ?? 0)})</option>`;
+    return `<option value="${String(df?.key ?? "average")}" ${selected}>${escapeHtml(String(df?.label ?? "Average"))} (${sign}${Number(df?.mod ?? 0)})</option>`;
   }).join("");
 }
 
@@ -253,7 +254,7 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
     const school = String(s?.system?.school ?? "");
     const level = Number(getSpellLevel(s) ?? 1) || 1;
     const cost = Number(getSpellCost(s, level) ?? 0) || 0;
-    return `<option value="${String(s.id)}">${s.name} (${school} ${t("UESRPG.Dialogs.SpellOptions.LevelAbbrev", "L")}${level}, ${cost} MP)</option>`;
+    return `<option value="${String(s.id)}">${escapeHtml(s.name)} (${school} ${t("UESRPG.Dialogs.SpellOptions.LevelAbbrev", "L")}${level}, ${cost} MP)</option>`;
   }).join("");
 
   return await customDialog({
@@ -463,6 +464,7 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
  */
 export async function handleAttackerCommit(ctx) {
   const { message, data, attacker, bankMode, workflow, _updateCard } = ctx;
+  const characteristicDefenseUpdates = [];
 
   if (!bankMode) return;
   if (data.attacker.result) return;
@@ -570,6 +572,7 @@ export async function handleAttackerCommit(ctx) {
       for (const def of defs) {
         def.defenseType = "characteristic-save";
         def.characteristicLabel = chaLabel;
+        const patch = { defenseType: def.defenseType, characteristicLabel: chaLabel };
         
         // Pre-calculate TN for card display using canonical TN computation
         const defActor = def?.actorUuid ? await fromUuid(def.actorUuid) : null;
@@ -585,8 +588,10 @@ export async function handleAttackerCommit(ctx) {
               totalMod: tnData.totalMod,
               breakdown: tnData.breakdown
             };
+            patch.tn = def.tn;
           }
         }
+        characteristicDefenseUpdates.push({ actorUuid: def.actorUuid, tokenUuid: def.tokenUuid, patch });
       }
     }
   }
@@ -604,12 +609,12 @@ export async function handleAttackerCommit(ctx) {
     mutate: (_t) => {
       _t.attacker = foundry.utils.mergeObject(_t.attacker ?? {}, data.attacker, { overwrite: true, insertKeys: true });
       _t.context = foundry.utils.mergeObject(_t.context ?? {}, data.context, { overwrite: true, insertKeys: true });
-      if (Array.isArray(data.defenders) && Array.isArray(_t.defenders)) {
-        for (let _di = 0; _di < data.defenders.length; _di++) {
-          if (_t.defenders[_di] && data.defenders[_di]) {
-            _t.defenders[_di] = foundry.utils.mergeObject(_t.defenders[_di], data.defenders[_di], { overwrite: true, insertKeys: true });
-          }
-        }
+      // The chosen spell owns defense configuration, never a defender's banked
+      // choice or roll. Match participants by identity after the dialog closes.
+      for (const { actorUuid, tokenUuid, patch } of characteristicDefenseUpdates) {
+        const lane = getDefenderEntries(_t).find((entry) => tokenUuid
+          ? entry.tokenUuid === tokenUuid : actorUuid && entry.actorUuid === actorUuid);
+        if (lane) foundry.utils.mergeObject(lane, patch, { overwrite: true, insertKeys: true });
       }
     },
     updateCard: _updateCard,
@@ -948,13 +953,6 @@ export async function handleAttackerRoll(ctx) {
     mutate: (_t) => {
       _t.attacker = foundry.utils.mergeObject(_t.attacker ?? {}, workingData.attacker, { overwrite: true, insertKeys: true });
       _t.context = foundry.utils.mergeObject(_t.context ?? {}, workingData.context, { overwrite: true, insertKeys: true });
-      if (Array.isArray(workingData.defenders) && Array.isArray(_t.defenders)) {
-        for (let _di = 0; _di < workingData.defenders.length; _di++) {
-          if (_t.defenders[_di] && workingData.defenders[_di]) {
-            _t.defenders[_di] = foundry.utils.mergeObject(_t.defenders[_di], workingData.defenders[_di], { overwrite: true, insertKeys: true });
-          }
-        }
-      }
     },
     updateCard: _updateCard,
     fallbackData: workingData,

@@ -1,3 +1,4 @@
+import { escapeHtml } from "../../utils/html.js";
 /**
  * @module traits/social-talents
  * @description Automation helpers for Social talents (Chapter 4):
@@ -127,7 +128,7 @@ export async function handleInspireHeroismActivation({ actor, item } = {}) {
   const difficultyOptions = SKILL_DIFFICULTIES.map(d => {
     const sign = d.mod >= 0 ? "+" : "";
     const sel = d.key === "average" ? "selected" : "";
-    return `<option value="${d.key}" ${sel}>${d.label} (${sign}${d.mod})</option>`;
+    return `<option value="${d.key}" ${sel}>${escapeHtml(d.label)} (${sign}${d.mod})</option>`;
   }).join("\n");
 
   let decl = null;

@@ -1,3 +1,9 @@
+import { normalizeActorFormValue as normalizeNpcFormValue, buildAllowedChangePatch, buildAllowedSubmitPatch, createFormPathMatcher } from './shared/form-pipeline.js';
+import { buildItemsSignature, buildEffectsSignature, buildWoundsSignature, buildCombatSignature, buildSheetUiSignature } from './shared/sheet-signatures.js';
+import { deleteSheetItem, castSheetInvocation, clearQueuedRenderPartsState, clearSheetFormUpdateState, flushCurrentSheetForm, isSheetPerfTraceEnabled, partRendered, queueRenderParts, queueSheetFormUpdate, renderedPartsSet, localizeSheetChoiceLabels, resolveCarryRatingDisplayLabel, resolveWeaponDistanceHeaderLabel, traceSheetPerf, traceSheetPerfPhase } from './shared/sheet-runtime-helpers.js';
+
+import { openSheetItemQuickMenu, bindItemRowQuickMenus, handleItemRowContextMenu } from "./shared/item-row-quick-menu.js";
+import { editSheetPortrait } from "./shared/file-picker.js";
 /**
  * src/ui/sheets/v2/npc-sheet.js
  *
@@ -16,7 +22,7 @@
 import { prepareCharacterItems } from "../sheet-prepare-items.js";
 import { applyCollapsedGroups } from "../shared/helpers/collapsed-group-dom.js";
 import { postItemToChat } from "../shared-handlers.js";
-import { unlinkAllItemsFromContainer, unlinkItemFromContainer } from "../sheet-containers.js";
+
 import { requestUpdateDocument, requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { buildGenericAEData } from "../../../core/active-effects/modifier-evaluator.js";
 import { getCoreRollMode } from "../../../utils/chat-roll-mode.js";
@@ -30,7 +36,7 @@ import { AttackTracker } from "../../../core/combat/attack-tracker.js";
 import { buildSheetAttackTrackerContext } from "./shared/attack-tracker-sheet-context.js";
 import { buildCombatTabAttackTrackerView } from "./shared/attack-tracker-view.js";
 import { buildEncumbranceBreakdown } from "../../../core/actors/rules/item-aggregation.js";
-import { getActorSheetRevision } from "../../../core/actors/derived-cache/actor-derived-cache.js";
+
 import { NPC_THREAT_TEMPLATE_OPTIONS } from "../../../core/rules/npc-threat-templates.js";
 import {
   NPC_CREATURE_TYPE_OPTIONS,
@@ -69,16 +75,16 @@ import {
 // Resource button dialog handlers (consolidated)
 import { registerResourceButtonHandlers } from "../shared/listeners/resource-button-handlers.js";
 import { MagicOpposedWorkflow } from "../../../core/magic/opposed-workflow.js";
-import { isEngagementFlankingHomebrewEnabled, isReligionWorshipEnabled } from "../../../core/homebrew/settings.js";
+import { isEngagementFlankingHomebrewEnabled } from "../../../core/homebrew/settings.js";
 import { buildSocialDisplay } from "../../../core/social/social-data.js";
 import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "./shared/sheet-tooltips.js";
 import { enableItemRowDragSources } from "./shared/drag-sources.js";
 import { bindListFilters, clearListFilterState } from "./shared/list-filter.js";
 import { applySheetDensityClass } from "./shared/sheet-density.js";
-import { createImageVideoFilePicker } from "./shared/file-picker.js";
+
 import { enableResizeMotionGuard, disableResizeMotionGuard } from "./shared/resize-motion-guard.js";
 import { annotateEncumbranceHighlights, openEncumbranceBreakdownDialog } from "./shared/encumbrance-ui.js";
-import { bindItemRowQuickMenus, openItemRowQuickMenu, handleItemRowContextMenu } from "./shared/item-row-quick-menu.js";
+
 import { registerCombatTrackerSheetRefresh, unregisterCombatTrackerSheetRefresh } from "./shared/combat-tracker-refresh.js";
 import { setSystemTooltip } from "../../shared/system-tooltips.js";
 import {
@@ -87,12 +93,7 @@ import {
   onWoundsInjuriesControl
 } from "./shared/wounds-injuries-panel.js";
 import { activateProseMirrorEditors, openProseMirrorEditor } from "../shared/editor-activation.js";
-import {
-  buildEffectsSignature,
-  buildWoundsSignature,
-  buildCombatSignature,
-  buildSheetUiSignature,
-} from "./shared/sheet-signatures.js";
+
 import {
   buildActorSheetActorView,
   buildActorSheetEffects,
@@ -101,18 +102,13 @@ import {
 import { warnIfDuplicateSidebar } from "./shared/render-diagnostics.js";
 import { createPartContextScope, selectDocumentSheetRenderParts } from "./shared/part-context.js";
 import { syncBookmarkTabsActiveClass } from "./shared/bookmark-tabs-position.js";
-import {
-  buildAllowedChangePatch,
-  buildAllowedSubmitPatch,
-  createFormPathMatcher,
-} from "./shared/form-pipeline.js";
+
 import {
   ACTOR_ARMOR_CLASS_LABELS,
   ACTOR_SIZE_LABELS,
   SUPPLY_DICE_LABELS,
   TRAINING_RANK_LABELS,
 } from "../../../core/config/label-catalog.js";
-
 
 
 // NPC prepare / context helpers
@@ -133,21 +129,7 @@ import { computeSkillTN, SKILL_DIFFICULTIES } from "../../../core/skills/skill-t
 import { SkillOpposedWorkflow } from "../../../core/skills/opposed-workflow/index.js";
 import { buildResistanceBonusSection, readResistanceBonusSelections, buildResistanceBonusMods } from "../../../core/traits/trait-resistance-ui.js";
 import { SYSTEM_ID, templatePath } from "../../constants.js";
-import {
-  clearQueuedRenderPartsState,
-  clearSheetFormUpdateState,
-  flushCurrentSheetForm,
-  isSheetPerfTraceEnabled,
-  partRendered,
-  queueRenderParts,
-  queueSheetFormUpdate,
-  renderedPartsSet,
-  localizeSheetChoiceLabels,
-  resolveCarryRatingDisplayLabel,
-  resolveWeaponDistanceHeaderLabel,
-  traceSheetPerf,
-  traceSheetPerfPhase,
-} from "./shared/sheet-runtime-helpers.js";
+
 
 // Spell routing
 import { getUserSpellTargets, shouldUseTargetedSpellWorkflow, shouldUseModernSpellWorkflow, debugMagicRoutingLog } from "../../../core/magic/spell-runtime.js";
@@ -194,15 +176,6 @@ const ALLOWED_NPC_FORM_PATH = createFormPathMatcher({
   ],
 });
 
-function normalizeNpcFormValue({ path, value, currentValue, rawValue }) {
-  if (path !== MAX_ENGAGEMENT_SCORE_PATH) return value;
-
-  const raw = String(rawValue ?? value ?? "").trim();
-  if (!raw) return null;
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return currentValue;
-  return Math.max(0, Math.round(n));
-}
 
 export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
@@ -231,14 +204,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
    * @param {Actor} actor
    * @returns {string}
    */
-  _buildItemsSignature(actor) {
-    return [
-      actor?.id ?? "",
-      actor?.type ?? "",
-      getActorSheetRevision(actor),
-      isReligionWorshipEnabled() ? "religion:on" : "religion:off",
-    ].join("|");
-  }
+  _buildItemsSignature(actor) { return buildItemsSignature.call(this, actor); }
 
   _renderedPartsSet(options) {
     return renderedPartsSet(options);
@@ -1040,21 +1006,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
   // Characteristics
   async _onSetBaseCharacteristics(event, target) { return onSetBaseCharacteristics.call(this, event, target); }
   async _onClickCharacteristic(event, target) { return onClickCharacteristic.call(this, event, target); }
-  async _onEditPortrait(event, target) {
-    event?.preventDefault?.();
-    event?.stopPropagation?.();
-    if (!this.isEditable) return;
-
-    const current = String(this.document?.img ?? "");
-    const picker = createImageVideoFilePicker({
-      current,
-      callback: async (path) => {
-        if (!path || path === current) return;
-        await requestUpdateDocument(this.document, { img: path });
-      },
-    });
-    await picker.browse();
-  }
+  async _onEditPortrait(event, target) { return editSheetPortrait.call(this, event, target); }
 
   // Rolls
   async _onCombatRoll(event, target) { return onCombatRoll.call(this, event, target); }
@@ -1063,21 +1015,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
   // Magic
   async _onCastMagicAction(event, target, preselectedSpell = null) { return onCastMagicAction.call(this, event, target, preselectedSpell); }
   async _onCastEnchantmentAction(event, target) { return onCastEnchantmentAction.call(this, event, target); }
-  async _onCastInvocationAction(event, target) {
-    event?.preventDefault?.();
-    const li = target?.closest?.(".item") ?? event?.currentTarget?.closest?.(".item");
-    const itemId = li?.dataset?.itemId;
-    if (!itemId) return;
-    const invocation = this.document.items.get(itemId);
-    if (!invocation) return;
-    const { castInvocationFromItem } = await import("../../../core/religion/invocation-runtime.js");
-    return castInvocationFromItem({
-      actor: this.document,
-      invocation,
-      token: this.token?.object ?? this.token ?? null,
-      sheet: this,
-    });
-  }
+  async _onCastInvocationAction(event, target) { return castSheetInvocation.call(this, event, target); }
   async _showSpellOptionsDialog(spell) { return showSpellOptionsDialog(this.document, spell); }
   async _castAttackSpell(spell, targets, spellOptions = {}, castActionType = "primary", opts = {}) {
     return castAttackSpell(this, spell, targets, spellOptions, castActionType, opts);
@@ -1145,31 +1083,10 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     if (item?.sheet) item.sheet.render(true);
   }
 
-  async _onItemQuickMenu(event, target) {
-    event?.preventDefault?.();
-    event?.stopPropagation?.();
-    const itemId = String(target?.dataset?.itemId ?? target?.closest?.(".item")?.dataset?.itemId ?? "").trim();
-    if (!itemId) return;
-    const item = this.document.items.get(itemId);
-    if (!item) return;
-    openItemRowQuickMenu(this, item, { anchorEl: target, event });
-  }
+  async _onItemQuickMenu(event, target) { return openSheetItemQuickMenu.call(this, event, target); }
 
   /** Delete inventory item (container-safe unlink + delete) */
-  async _onItemDelete(event, target) {
-    const li = target?.closest?.(".item");
-    const itemId = li?.dataset?.itemId;
-    if (!itemId) return;
-    const itemToDelete = this.document.items.get(itemId)
-      ?? this.document.items.find(i => i?._id == itemId);
-    if (!itemToDelete) return;
-    if (itemToDelete.type === "container") {
-      await unlinkAllItemsFromContainer(this.document, itemToDelete);
-    } else {
-      await unlinkItemFromContainer(this.document, itemToDelete);
-    }
-    await requestDeleteEmbeddedDocuments(this.document, "Item", [itemId]);
-  }
+  async _onItemDelete(event, target) { return deleteSheetItem.call(this, event, target); }
 
   /** Open container sheet from backpack icon */
   _onOpenContainer(event, target) {

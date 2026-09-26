@@ -1,3 +1,4 @@
+import { escapeHtml as _escapeHtml } from '../../../../utils/html.js';
 /**
  * @file src/core/combat/opposed/helpers/weapon-quality-display.js
  * Weapon quality and trait display utilities for chat cards.
@@ -19,14 +20,7 @@ import { systemTooltipAttributes } from "../../../../ui/shared/system-tooltips.j
 
 let _qualityLabelIndexCache = null;
 
-function _escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll("\"", "&quot;")
-    .replaceAll("'", "&#39;");
-}
+
 
 function _buildQualityTagHtml({ label, key, value = null, className = "tag" } = {}) {
   const normalizedKey = String(key ?? "").trim();

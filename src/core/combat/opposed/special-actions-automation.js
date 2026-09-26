@@ -1,3 +1,4 @@
+import { setSpecialActionContext } from "../../skills/opposed-workflow/core/card-updater.js";
 /**
  * src/core/combat/opposed/special-actions-automation.js
  *
@@ -9,7 +10,7 @@
  */
 
 import { getSpecialActionById } from "../combat-style-utils.js";
-import { safeUpdateChatMessage } from "../../../utils/chat-message-socket.js";
+
 import { _resolveDoc } from "./helpers/docs.js";
 
 /**
@@ -33,7 +34,11 @@ export async function executeAdvantageSpecialActions({
   opponentTokenUuid = null,
   attackerStyleUuid = null,
   defenderStyleUuid = null,
-  source = "advantage-free"
+  source = "advantage-free",
+  sourceWeaponUuid = null,
+  freeActionCost = 0,
+  freeActionReason = "Special Advantage",
+  onAutoWinSuccess = null
 } = {}) {
   if (!Array.isArray(specialActionIds) || specialActionIds.length === 0) return;
   if (!actor) return;
@@ -44,16 +49,19 @@ export async function executeAdvantageSpecialActions({
     for (const saId of specialActionIds) {
       const choice = await showSpecialAdvantageDialog(saId);
       if (!choice) continue;
+      const def = getSpecialActionById(saId);
+      const apCost = choice.mode === "autowin" ? 1 : choice.mode === "free" ? Math.max(0, Number(freeActionCost) || 0) : 0;
+      if (apCost > 0) {
+        const { ActionEconomy } = await import("../action-economy.js");
+        const paid = await ActionEconomy.spendAP(actor, apCost, {
+          reason: choice.mode === "autowin" ? `Special Advantage: ${def?.name} (Auto-Win)` : `${freeActionReason} (${def?.name ?? saId})`,
+          silent: false,
+        });
+        if (!paid) continue;
+      }
 
       if (choice.mode === "autowin") {
         // Auto-Win: consume 1 AP, skip test, auto-succeed
-        const { ActionEconomy } = await import("../action-economy.js");
-        const def = getSpecialActionById(saId);
-        await ActionEconomy.spendAP(actor, 1, { 
-          reason: `Special Advantage: ${def?.name} (Auto-Win)`, 
-          silent: false 
-        });
-
         const result = await executeSpecialAction({
           specialActionId: saId,
           actor: actor,
@@ -63,7 +71,8 @@ export async function executeAdvantageSpecialActions({
         });
 
         if (result.success) {
-          await ChatMessage.create({
+          if (onAutoWinSuccess) await onAutoWinSuccess(result);
+          else await ChatMessage.create({
             user: game.user.id,
             speaker: ChatMessage.getSpeaker({ actor: actor }),
             content: `<div class="uesrpg-special-action-advantage"><b>Special Advantage (Auto-Win):</b><p>${result.message}</p></div>`,
@@ -77,7 +86,6 @@ export async function executeAdvantageSpecialActions({
 
         if (actorToken && opponentToken) {
           const { SkillOpposedWorkflow } = await import("../../skills/opposed-workflow/index.js");
-          const def = getSpecialActionById(saId);
           
           // Actor initiates the free action test against opponent
           const message = await SkillOpposedWorkflow.createPending({
@@ -89,25 +97,12 @@ export async function executeAdvantageSpecialActions({
 
           const state = message?.flags?.["uesrpg-3ev4"]?.skillOpposed?.state;
           if (state) {
-            state.specialActionId = saId;
-            state.allowCombatStyle = true;
-            state.isFreeAction = true;
-            state.specialActionContext = {
+            await setSpecialActionContext(message, {
               id: saId,
               source,
               attackerStyleUuid: attackerStyleUuid ?? null,
-              defenderStyleUuid: defenderStyleUuid ?? null
-            };
-
-            await safeUpdateChatMessage(message, {
-              flags: {
-                "uesrpg-3ev4": {
-                  skillOpposed: {
-                    version: state.version ?? 1,
-                    state
-                  }
-                }
-              }
+              defenderStyleUuid: defenderStyleUuid ?? null,
+              sourceWeaponUuid,
             });
           }
 

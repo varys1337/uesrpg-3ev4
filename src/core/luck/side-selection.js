@@ -1,15 +1,8 @@
 import { customDialog } from "../../utils/dialog-v2-helper.js";
 import { canUserActOnLuckActor, createLuckUuidResolver, resolveLuckActor } from "./actor-resolution.js";
 import { classifyLuckMessage } from "./message-classification.js";
-
-export function escapeLuckHtml(str) {
-  const raw = String(str ?? "");
-  try {
-    return foundry.utils.escapeHTML(raw);
-  } catch (_err) {
-    return raw;
-  }
-}
+import { escapeHtml as escapeLuckHtml } from "../../utils/html.js";
+export { escapeLuckHtml };
 
 export async function pickLuckSide(info, opts = {}) {
   if (!info) return null;

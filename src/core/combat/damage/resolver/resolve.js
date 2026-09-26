@@ -52,15 +52,13 @@ import { getRuntimeSystemId as _getSystemId } from "../../../system/namespace.js
 import { getEffectChanges, normalizeActiveEffectOrigin } from "../../../../utils/compat.js";
 import {
   applyPostDamageUpdate,
+  calculateHealthDamage,
   dispatchDamageAppliedHook,
   dispatchDamageLifecycleHook,
   finalizeDamageTargetState,
   resolveDamageUpdateTarget
 } from "../post-application.js";
-import {
-  createDamageAftermathBundle,
-  isDamageAftermathBundlingEnabled
-} from "../aftermath-bundle.js";
+import { createDamageAftermathBundle } from "../aftermath-bundle.js";
 
 const PENDING_SNEAK_TTL_MS = 30000;
 const _isNpcActor = (actor) => String(actor?.type ?? "").trim().toLowerCase() === "npc";
@@ -151,7 +149,7 @@ async function _promptUntouchableLpSpend({ actor, availableLp, woundThreshold, d
   return result ?? 0;
 }
 
-function _consumePendingSneakAttack(attackerActor, { weapon = null, attackMode = null } = {}) {
+function _hasPendingSneakAttack(attackerActor, { weapon = null, attackMode = null } = {}) {
   try {
     if (!attackerActor || typeof attackerActor.getFlag !== "function") return false;
     const systemId = _getSystemId();
@@ -160,7 +158,6 @@ function _consumePendingSneakAttack(attackerActor, { weapon = null, attackMode =
 
     const ageMs = Date.now() - Number(pending.at ?? 0);
     if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs > PENDING_SNEAK_TTL_MS) {
-      requestUpdateDocument(attackerActor, { [`flags.${systemId}.combat.-=pendingSneakAttack`]: null }).catch(() => {});
       return false;
     }
 
@@ -175,8 +172,6 @@ function _consumePendingSneakAttack(attackerActor, { weapon = null, attackMode =
     if (pendingMode) {
       if (!mode || pendingMode !== mode) return false;
     }
-
-    requestUpdateDocument(attackerActor, { [`flags.${systemId}.combat.-=pendingSneakAttack`]: null }).catch(() => {});
     return true;
   } catch (_e) {
     return false;
@@ -210,11 +205,8 @@ function _isSunlightSource(item) {
 }
 
 async function _stageOrRunAftermath(bundle, operation) {
-  if (bundle) {
-    bundle.stage(operation);
-    return null;
-  }
-  return operation.run();
+  bundle.stage(operation);
+  return bundle.commit();
 }
 
 function _freezeObservationPayload(payload) {
@@ -412,12 +404,7 @@ export async function applyDamageResolved(targetActor, payload = {}) {
       if (Number.isFinite(fromFlag) && fromFlag !== 0) powerAttackAppliedBonus = fromFlag;
       else if (Number.isFinite(fromChange) && fromChange !== 0) powerAttackAppliedBonus = fromChange;
       else powerAttackAppliedBonus = powerAttackFromAe;
-      const paParent = powerAttackEffect.parent;
-      if (paParent?.isOwner) {
-        await powerAttackEffect.delete();
-      } else if (paParent) {
-        await requestDeleteEmbeddedDocuments(paParent, "ActiveEffect", [powerAttackEffect.id]);
-      }
+
     } catch (err) {
       console.warn("UESRPG | Failed to consume Power Attack effect:", err);
     }
@@ -445,8 +432,8 @@ export async function applyDamageResolved(targetActor, payload = {}) {
   const attackMode = ctx.options?.attackMode || (weaponCtx ? getAttackModeFromWeapon(weaponCtx) : null);
   ctx.options.attackMode = attackMode || null;
 
+  const pendingHidden = _hasPendingSneakAttack(attackerActor, { weapon: weaponCtx, attackMode });
   if (attackerActor) {
-    const pendingHidden = _consumePendingSneakAttack(attackerActor, { weapon: weaponCtx, attackMode });
     if (pendingHidden) ctx.options.attackFromHidden = true;
   }
 
@@ -806,44 +793,6 @@ export async function applyDamageResolved(targetActor, payload = {}) {
     }
   }
 
-  // Cutthroat: apply Bleeding after post-mitigation damage when applicable.
-  if (totalApplied > 0 && attackerActor && weaponCtx && hasTalent(attackerActor, "cutthroat")) {
-    let bleedAdd = 0;
-    const sneakApplied = Number(results.find(r => r.kind === "sneak")?.finalApplied ?? 0) || 0;
-    if (sneakApplied > 0) bleedAdd += 1;
-
-    const hasSmall = itemHasToken(weaponCtx, "small");
-    if (hasSmall && hasCondition(updateTarget, "bleeding")) bleedAdd += 1;
-
-    if (bleedAdd > 0) {
-      try {
-        await applyBleeding(updateTarget, bleedAdd, { origin: ctx.options?.origin ?? null, source: "Cutthroat" });
-      } catch (err) {
-        console.warn("UESRPG | Cutthroat bleeding application failed", err);
-      }
-    }
-  }
-  if (powerAttackAppliedBonus !== 0) {
-    traitNotes.push(`Power Attack: +${powerAttackAppliedBonus} damage`);
-  }
-
-  // Assassin Strike (Chapter 4): if damage is inflicted (after mitigation), the target cannot make an AoO
-  // against the attacker during that Turn.
-  if (totalApplied > 0 && attackerActor && hasTalent(attackerActor, "assassinstrike")) {
-    try {
-      const combat = (game.combat && game.combat.started) ? game.combat : null;
-      await recordAssassinStrikeAoOBlock(updateTarget, {
-        attackerUuid: attackerActor.uuid,
-        combatId: combat?.id ?? null,
-        round: Number(combat?.round ?? 0) || 0,
-        turn: Number(combat?.turn ?? 0) || 0
-      });
-      traitNotes.push("Assassin Strike: Target cannot AoO attacker this turn");
-    } catch (err) {
-      console.warn("UESRPG | Assassin Strike AoO block record failed", err);
-    }
-  }
-
   // Untouchable (Chapter 4): after being hit, the defender may spend LP to increase WT for this attack only.
   let untouchableSpentLp = 0;
   let untouchableCurrentLp = 0;
@@ -924,16 +873,7 @@ export async function applyDamageResolved(targetActor, payload = {}) {
     }
   }
 
-  let newTempHP = currentTempHP;
-  let tempHPAbsorbed = 0;
-
-  if (currentTempHP > 0 && remainingDamage > 0) {
-    tempHPAbsorbed = Math.min(currentTempHP, remainingDamage);
-    newTempHP = currentTempHP - tempHPAbsorbed;
-    remainingDamage -= tempHPAbsorbed;
-  }
-
-  let newHP = Math.max(0, Number(currentHP) - remainingDamage);
+  let { newHP, newTempHP, tempHPAbsorbed } = calculateHealthDamage(currentHP, currentTempHP, remainingDamage);
 
   const extraUpdates = {};
   if (bufferAbsorbed > 0) {
@@ -993,7 +933,59 @@ export async function applyDamageResolved(targetActor, payload = {}) {
     traitNotes.splice(0, traitNotes.length, ...beforeCommitPayload.traitNotes.map((note) => String(note ?? "")));
   }
 
-  await applyPostDamageUpdate(targetActor, { newHP, newTempHP, extraUpdates });
+  if (!await applyPostDamageUpdate(targetActor, {
+    newHP, newTempHP, extraUpdates, application: ctx.options._application,
+    result: { damage: Math.max(0, totalApplied), oldHP: currentHP, newHP, oldTempHP: currentTempHP, newTempHP, tempHPAbsorbed, bufferAbsorbed },
+  })) return null;
+
+  // Consumption and secondary effects follow the confirmed HP commit.
+  const aftermathBundle = createDamageAftermathBundle({ applicationId, targetActor: updateTarget, source: ctx.options?.source ?? "Attack" });
+  if (powerAttackEffect) {
+    await _stageOrRunAftermath(aftermathBundle, {
+      key: "powerAttack", label: "Power Attack consumption",
+      run: () => requestDeleteEmbeddedDocuments(powerAttackEffect.parent, "ActiveEffect", [powerAttackEffect.id]),
+    });
+  }
+  if (pendingHidden) {
+    await _stageOrRunAftermath(aftermathBundle, {
+      key: "pendingSneak", label: "Sneak Attack consumption",
+      run: () => requestUpdateDocument(attackerActor, { [`flags.${_getSystemId()}.combat.-=pendingSneakAttack`]: null }),
+    });
+  }
+  // Cutthroat: apply Bleeding after post-mitigation damage when applicable.
+  if (totalApplied > 0 && attackerActor && weaponCtx && hasTalent(attackerActor, "cutthroat")) {
+    let bleedAdd = 0;
+    const sneakApplied = Number(results.find(r => r.kind === "sneak")?.finalApplied ?? 0) || 0;
+    if (sneakApplied > 0) bleedAdd += 1;
+
+    const hasSmall = itemHasToken(weaponCtx, "small");
+    if (hasSmall && hasCondition(updateTarget, "bleeding")) bleedAdd += 1;
+
+    if (bleedAdd > 0) {
+      await _stageOrRunAftermath(aftermathBundle, {
+        key: "cutthroat", label: "Cutthroat bleeding",
+        run: () => applyBleeding(updateTarget, bleedAdd, { origin: ctx.options?.origin ?? null, source: "Cutthroat" }),
+      });
+    }
+  }
+  if (powerAttackAppliedBonus !== 0) {
+    traitNotes.push(`Power Attack: +${powerAttackAppliedBonus} damage`);
+  }
+
+  // Assassin Strike (Chapter 4): if damage is inflicted (after mitigation), the target cannot make an AoO
+  // against the attacker during that Turn.
+  if (totalApplied > 0 && attackerActor && hasTalent(attackerActor, "assassinstrike")) {
+    await _stageOrRunAftermath(aftermathBundle, { key: "assassinStrike", label: "Assassin Strike", run: async () => {
+      const combat = (game.combat && game.combat.started) ? game.combat : null;
+      await recordAssassinStrikeAoOBlock(updateTarget, {
+        attackerUuid: attackerActor.uuid,
+        combatId: combat?.id ?? null,
+        round: Number(combat?.round ?? 0) || 0,
+        turn: Number(combat?.turn ?? 0) || 0
+      });
+      traitNotes.push("Assassin Strike: Target cannot AoO attacker this turn");
+    } });
+  }
 
   const woundEval = shouldTriggerWound({
     damageApplied: Math.max(0, totalApplied),
@@ -1057,14 +1049,6 @@ export async function applyDamageResolved(targetActor, payload = {}) {
     logPrefix: "UESRPG | uesrpgDamageApplied hook failed",
     logLevel: "warn"
   });
-
-  const aftermathBundle = isDamageAftermathBundlingEnabled()
-    ? createDamageAftermathBundle({
-        applicationId,
-        targetActor: updateTarget,
-        source: ctx.options?.source ?? "Attack",
-      })
-    : null;
 
   // Consume strike enchantment charge AFTER damage is applied and hooks have fired.
   await _stageOrRunAftermath(aftermathBundle, {
@@ -1157,7 +1141,10 @@ export async function applyDamageResolved(targetActor, payload = {}) {
     }
   });
 
-  await finalizeDamageTargetState(updateTarget, { newHP });
+  await _stageOrRunAftermath(aftermathBundle, {
+    key: "targetState", label: "Target condition state",
+    run: () => finalizeDamageTargetState(updateTarget, { newHP }),
+  });
 
   // Entangling (Chapter 7): on hit, target makes STR or AGI test; failure applies Entangled.
   await _stageOrRunAftermath(aftermathBundle, {
@@ -1438,9 +1425,10 @@ export async function applyDamageResolved(targetActor, payload = {}) {
     }
   });
 
-  const aftermathSummary = aftermathBundle ? await aftermathBundle.commit() : null;
+  const aftermathSummary = aftermathBundle.summary();
 
   const result = {
+    aftermathSummary,
     actor: updateTarget,
     damage: Math.max(0, Number(totalApplied || 0)),
     components: results,

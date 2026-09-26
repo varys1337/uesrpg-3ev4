@@ -45,12 +45,7 @@ import {
   computeRangedRangeContext as _computeRangedRangeContext,
   computeMeleeReachContext as _computeMeleeReachContext
 } from "../helpers/combat.js";
-import {
-  consumeOneShotAdvantageEffects as _consumeOneShotAdvantageEffects,
-  consumeInspireHeroismEffect as _consumeInspireHeroismEffect,
-  consumeOrBreakAimAfterAttack as _consumeOrBreakAimAfterAttack,
-  consumeHiddenAfterAttack as _consumeHiddenAfterAttack
-} from "../effects.js";
+import { consumeOneShotAdvantageEffects as _consumeOneShotAdvantageEffects, consumeInspireHeroismEffect as _consumeInspireHeroismEffect, consumeOrBreakAimAfterAttack as _consumeOrBreakAimAfterAttack } from "../effects.js";
 import { markWeaponNeedsReload as _markWeaponNeedsReload } from "../damage/ammunition.js";
 import { rollWeaponDamage as _rollWeaponDamage } from "../damage/roller.js";
 import { applyLengthPenaltyToTN } from "../../../homebrew/reach-length/weapon.js";
@@ -631,12 +626,8 @@ export async function handleAttackerAction(action, ctx) {
         mutate: (_t) => {
           _t.attacker = foundry.utils.mergeObject(_t.attacker ?? {}, data.attacker, { overwrite: true, insertKeys: true });
           _t.context = foundry.utils.mergeObject(_t.context ?? {}, data.context, { overwrite: true, insertKeys: true });
-          if (data.context?.attackFromHidden === true && Array.isArray(data.defenders) && Array.isArray(_t.defenders)) {
-            for (let _di = 0; _di < data.defenders.length; _di++) {
-              if (_t.defenders[_di] && data.defenders[_di]) {
-                _t.defenders[_di] = foundry.utils.mergeObject(_t.defenders[_di], data.defenders[_di], { overwrite: true, insertKeys: true });
-              }
-            }
+          if (data.context?.attackFromHidden === true) {
+            for (const def of _getDefenderEntries(_t)) markDefenderIneligibleForHidden(def);
           }
           reconcileBankedAutoRollRequest(_t);
         },
@@ -932,12 +923,8 @@ export async function handleAttackerAction(action, ctx) {
     mutate: (_t) => {
       _t.attacker = foundry.utils.mergeObject(_t.attacker ?? {}, data.attacker, { overwrite: true, insertKeys: true });
       _t.context = foundry.utils.mergeObject(_t.context ?? {}, data.context, { overwrite: true, insertKeys: true });
-      if (Array.isArray(data.defenders) && Array.isArray(_t.defenders)) {
-        for (let _di = 0; _di < data.defenders.length; _di++) {
-          if (_t.defenders[_di] && data.defenders[_di]) {
-            _t.defenders[_di] = foundry.utils.mergeObject(_t.defenders[_di], data.defenders[_di], { overwrite: true, insertKeys: true });
-          }
-        }
+      if (data.context?.attackFromHidden === true) {
+        for (const def of _getDefenderEntries(_t)) markDefenderIneligibleForHidden(def);
       }
     },
     updateCard: _updateCard,

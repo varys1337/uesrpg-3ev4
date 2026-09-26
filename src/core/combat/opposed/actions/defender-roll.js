@@ -17,6 +17,7 @@ import { _resolveItemViaActor } from "../helpers/docs.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { t, tf } from "../../../../utils/i18n.js";
 import { 
+  _resolveDefenderWeapon, _maybeGrantConcussiveNextBash,
   getTokenMovementAction as _getTokenMovementAction,
   asNumber as _asNumber,
   collectDefenseSensorySituationalMods as _collectDefenseSensorySituationalMods,
@@ -41,9 +42,9 @@ import { ActionEconomy } from "../../action-economy.js";
 import { breakAimChainIfPresent as _breakAimChainIfPresent, consumeInspireHeroismEffect as _consumeInspireHeroismEffect } from "../effects.js";
 import { consumeFreeNextDefenseCommit } from "../../activation-state-flags.js";
 import { canUseWardDefense, getPreferredWardDefenseSpell } from "../../ward-defense.js";
-import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
+
 import { applyLengthPenaltyToTN } from "../../../homebrew/reach-length/weapon.js";
-import { FLAG_SCOPE } from "../../../system/namespace.js";
+
 import { getFlagValueWithFallback } from "../../../system/flags.js";
 import { hasEquippedShieldType } from "../../../items/shield-utils.js";
 import {
@@ -55,26 +56,6 @@ import {
 } from "../hybrid.js";
 import { requireMassCombatEnabled } from "../../../homebrew/settings.js";
 
-async function _maybeGrantConcussiveNextBash(attacker, data, advantage) {
-  try {
-    if (!attacker || Number(advantage?.attacker ?? 0) <= 0) return;
-    if (String(data?.context?.attackMode ?? "melee").toLowerCase() !== "melee") return;
-    const weaponUuid = String(data?.context?.weaponUuid ?? "").trim();
-    if (!weaponUuid) return;
-    const weapon = _resolveItemViaActor(weaponUuid, attacker);
-    if (!weapon || weapon.type !== "weapon") return;
-    if (!_weaponHasQuality(weapon, "concussive")) return;
-    await requestUpdateDocument(attacker, {
-      [`flags.${FLAG_SCOPE}.combat.concussiveNextBash`]: {
-        bonus: 20,
-        grantedAt: Date.now(),
-        sourceWeaponUuid: weapon.uuid ?? null
-      }
-    });
-  } catch (err) {
-    console.warn("UESRPG | Concussive bonus grant failed", err);
-  }
-}
 
 /**
  * Handle defender-nodefense action
@@ -542,21 +523,7 @@ export async function handleDefenderRoll(ctx) {
         return doc?.type === "weapon" ? doc : null;
       } catch { return null; }
     })();
-    const defenderWeapon = (() => {
-      try {
-        const choiceUuid = String(choice?.weaponUuid ?? "").trim();
-        if (choiceUuid) {
-          const doc = _resolveItemViaActor(choiceUuid, defender);
-          if (doc?.type === "weapon" && String(doc?.system?.attackMode ?? "melee").toLowerCase() === "melee") return doc;
-        }
-        for (const item of (defender?.items ?? [])) {
-          if (item.type !== "weapon") continue;
-          if (!item.system?.equipped) continue;
-          if (String(item.system?.attackMode ?? "").toLowerCase() === "melee") return item;
-        }
-        return null;
-      } catch { return null; }
-    })();
+    const defenderWeapon = _resolveDefenderWeapon(defender, choice);
     const mode = String(data?.context?.attackMode ?? "melee").toLowerCase();
     const attackerMelee = String(attackerWeapon?.system?.attackMode ?? "").toLowerCase() === "melee";
     const defenderMelee = String(defenderWeapon?.system?.attackMode ?? "").toLowerCase() === "melee";

@@ -1,3 +1,4 @@
+import { escapeHtml as _escapeHtml } from '../../utils/html.js';
 /**
  * Shared circumstance modifier helpers for opposed and casting dialogs.
  * Labels are resolved from CIRCUMSTANCE_MOD_LABELS in label-catalog.js.
@@ -34,14 +35,7 @@ export function circumstanceLabel(value) {
   return t(`UESRPG.Choices.Circumstance.${normalized}`, fallback);
 }
 
-function _escapeHtml(value) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+
 
 export function buildCircumstanceOptionsHtml(selectedValue = 0) {
   const normalized = normalizeCircumstanceMod(selectedValue, 0);

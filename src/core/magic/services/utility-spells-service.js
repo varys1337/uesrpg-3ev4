@@ -1,3 +1,4 @@
+import { escapeHtml } from "../../../utils/html.js";
 /**
  * @module magic/services/utility-spells-service
  *
@@ -137,7 +138,7 @@ async function _handleTelepathy(caster, spell) {
     return;
   }
 
-  const options = targets.map((a) => `<option value="${a.uuid}">${a.name}</option>`).join("");
+  const options = targets.map((a) => `<option value="${a.uuid}">${escapeHtml(a.name)}</option>`).join("");
   const selectedUuid = await customDialog({
     layout: "workflow",
     title: "Telepathy Target",

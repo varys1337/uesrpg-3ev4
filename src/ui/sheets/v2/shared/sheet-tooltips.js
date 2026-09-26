@@ -1,3 +1,4 @@
+import { escapeHtml as _escapeHtml } from '../../../../utils/html.js';
 import UESRPG from "../../../../core/constants.js";
 import { ITEM_QUALITY_LABELS } from "../../../../core/config/label-catalog.js";
 import { SPECIAL_ACTIONS_BY_ID, getSpecialActionById } from "../../../../core/config/special-actions.js";
@@ -38,14 +39,7 @@ function _isInlineHelpEnabled() {
   }
 }
 
-function _escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll("\"", "&quot;")
-    .replaceAll("'", "&#39;");
-}
+
 
 function _humanizeIdentifier(value) {
   const raw = String(value ?? "").trim();

@@ -484,44 +484,9 @@ export function augmentChatMessageHTML(message, root) {
     }
   });
 
-  // Shock Test chat card buttons (Wounds).
-  root.querySelectorAll("[data-ues-shock-action]").forEach((el) => {
-    const actorUuid = el.dataset.actorUuid;
-    const actor = actorUuid ? resolveActorFromUuidSync(actorUuid) : null;
-
-    if (actor && !canUserRollActor(game.user, actor)) {
-      el.setAttribute("disabled", "disabled");
-      setSystemTooltip(el, { text: "You do not have permission to roll for this actor." });
-    }
-  });
-
-  // Death Test chat card buttons (Wounds).
-  root.querySelectorAll("[data-ues-death-action]").forEach((el) => {
-    const actorUuid = el.dataset.actorUuid;
-    const actor = actorUuid ? resolveActorFromUuidSync(actorUuid) : null;
-
-    if (actor && !canUserRollActor(game.user, actor)) {
-      el.setAttribute("disabled", "disabled");
-      setSystemTooltip(el, { text: "You do not have permission to roll for this actor." });
-    }
-  });
-
-  // Disease check buttons.
-  root.querySelectorAll("[data-ues-disease-action]").forEach((el) => {
-    const actorUuid = el.dataset.actorUuid;
-    const actor = actorUuid ? resolveActorFromUuidSync(actorUuid) : null;
-
-    if (actor && !canUserRollActor(game.user, actor)) {
-      el.setAttribute("disabled", "disabled");
-      setSystemTooltip(el, { text: "You do not have permission to roll for this actor." });
-    }
-  });
-
-  // Regeneration check buttons.
-  root.querySelectorAll("[data-ues-regeneration-action]").forEach((el) => {
-    const actorUuid = el.dataset.actorUuid;
-    const actor = actorUuid ? resolveActorFromUuidSync(actorUuid) : null;
-
+  // Shared ownership gating for wound, disease and regeneration checks.
+  root.querySelectorAll("[data-ues-shock-action], [data-ues-death-action], [data-ues-disease-action], [data-ues-regeneration-action]").forEach((el) => {
+    const actor = el.dataset.actorUuid ? resolveActorFromUuidSync(el.dataset.actorUuid) : null;
     if (actor && !canUserRollActor(game.user, actor)) {
       el.setAttribute("disabled", "disabled");
       setSystemTooltip(el, { text: "You do not have permission to roll for this actor." });

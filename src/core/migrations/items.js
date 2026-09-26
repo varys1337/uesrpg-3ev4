@@ -1,3 +1,5 @@
+import { _inferTypedLaneFromText, _extractFirstNumber } from '../documents/item-utils.js';
+
 /**
  * Items migration / normalization (v13-safe, no ApplicationV2 dependency).
  *
@@ -64,33 +66,9 @@ function _isNonNumericString(value) {
   return !Number.isFinite(Number(trimmed));
 }
 
-function _extractFirstNumber(value) {
-  const raw = String(value ?? "").trim();
-  if (!raw) return null;
-  const m = raw.match(/[-+]?\d+(?:\.\d+)?/);
-  if (!m) return null;
-  const n = Number(m[0]);
-  return Number.isFinite(n) ? n : null;
-}
 
-function _inferTypedLaneFromText(value) {
-  const raw = String(value ?? "").trim().toLowerCase();
-  if (!raw) return null;
-  const map = [
-    ["sunlight", "sunlight"],
-    ["silver", "silver"],
-    ["disease", "disease"],
-    ["poison", "poison"],
-    ["frost", "frost"],
-    ["shock", "shock"],
-    ["fire", "fire"],
-    ["magic", "magic"],
-  ];
-  for (const [needle, out] of map) {
-    if (raw.includes(needle)) return out;
-  }
-  return null;
-}
+
+
 
 function _parseLegacyTypedNumeric(value) {
   const number = _extractFirstNumber(value);

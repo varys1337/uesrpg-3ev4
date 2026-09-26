@@ -8,7 +8,7 @@ export const AUTOMATION_DEFAULTS = Object.freeze({
   skipAttackTrackerEagerReset: false,
   useCombatBoundaryOrchestrator: true,
   compositeBoundaryTickEnabled: true,
-  damageAftermathBundlingEnabled: false,
+  damageAftermathBundlingEnabled: true,
 });
 
 function _readBooleanSetting(key, fallback = false) {
@@ -45,13 +45,13 @@ export function isAttackTrackerEagerResetSkipped() {
 }
 
 export function isCombatBoundaryOrchestratorPolicyEnabled() {
-  return _readPolicyFlag("useCombatBoundaryOrchestrator") === true;
+  return true; // Compatibility query: the canonical pipeline is always enabled.
 }
 
 export function isCompositeBoundaryTickEnabled() {
-  return _readPolicyFlag("compositeBoundaryTickEnabled") === true;
+  return true; // Compatibility query: the canonical pipeline is always enabled.
 }
 
 export function isDamageAftermathBundlingEnabled() {
-  return _readPolicyFlag("damageAftermathBundlingEnabled") === true;
+  return true; // Compatibility query: the canonical pipeline is always enabled.
 }

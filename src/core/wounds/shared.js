@@ -1,3 +1,4 @@
+import { escapeHtml } from "../../utils/html.js";
 import { requestDeleteEmbeddedDocuments } from "../../utils/authority-proxy.js";
 import { SYSTEM_ID } from "../constants.js";
 import { SKILL_DIFFICULTIES } from "../skills/skill-tn.js";
@@ -6,7 +7,7 @@ export function buildDifficultyOptionsHtml(defaultKey = "average") {
   return SKILL_DIFFICULTIES.map((d) => {
     const sign = d.mod >= 0 ? "+" : "";
     const selected = d.key === defaultKey ? "selected" : "";
-    return `<option value="${d.key}" ${selected}>${d.label} (${sign}${d.mod})</option>`;
+    return `<option value="${d.key}" ${selected}>${escapeHtml(d.label)} (${sign}${d.mod})</option>`;
   }).join("\n");
 }
 

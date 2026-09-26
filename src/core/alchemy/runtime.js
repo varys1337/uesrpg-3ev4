@@ -26,7 +26,7 @@ import {
   requestUpdateDocument,
 } from "../../utils/authority-proxy.js";
 import { t, tf } from "../../utils/i18n.js";
-import { applyDamage, applyHealing } from "../combat/damage/apply.js";
+import { applyDamage, applyHealing } from "../combat/damage-automation.js";
 import { applyDamageResolved } from "../combat/damage-resolver.js";
 import { renderPoisonResistanceCard, renderToxinResistanceCard } from "./render.js";
 import {

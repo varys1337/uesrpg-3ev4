@@ -28,9 +28,14 @@ export function createMessageQueue() {
     const next = prev.catch(() => {}).then(fn);
     _queues.set(messageId, next);
     // Clean up once the full chain for this id settles (avoid memory leak).
-    next.finally(() => {
+    const cleanup = () => {
       if (_queues.get(messageId) === next) _queues.delete(messageId);
-    });
+    };
+    // Observe both branches; finally() would create an unobserved rejection.
+    next.then(cleanup, cleanup);
     return next;
   };
 }
+
+// All workflow families share the same ChatMessage serialization boundary.
+export const enqueueCardUpdate = createMessageQueue();

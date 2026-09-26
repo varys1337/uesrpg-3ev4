@@ -21,12 +21,11 @@
  * Target: Foundry VTT v13.351
  */
 
+import { adjustCurrentResource } from "../../system/resource-updates.js";
 import { _num, _str, createDebugLogger } from "../_primitives.js";
-import { FLAG_SCOPE } from "../../system/namespace.js";
 import { getEffectChanges } from "../../../utils/compat.js";
 import { resolveSpellStrengthFormulaForActor } from "../magicka-utils.js";
 
-const _FLAG_NS = FLAG_SCOPE;
 
 const _debug = createDebugLogger("debugMagicRouting", "[UESRPG][DrainService]");
 
@@ -45,105 +44,27 @@ const _debug = createDebugLogger("debugMagicRouting", "[UESRPG][DrainService]");
  * @param {boolean} [opts.transferToCaster] - If true, caster gains the drained amount
  * @returns {Promise<{drained: number, remainingMP: number}|null>}
  */
-export async function drainMagicka(targetActor, amount, opts = {}) {
-  if (!targetActor) return null;
+async function drainResource(targetActor, amount, resource, opts) {
   amount = Math.max(0, Math.floor(_num(amount, 0)));
-  if (amount <= 0) return null;
-
-  const { requestUpdateDocument } = await import("../../../utils/authority-proxy.js");
-
-  const currentMP = _num(targetActor.system?.magicka?.value, 0);
-  const actualDrain = Math.min(amount, currentMP);
-  const newMP = Math.max(0, currentMP - actualDrain);
-
-  try {
-    await requestUpdateDocument(targetActor, { "system.magicka.value": newMP });
-    _debug("drainMagicka:", {
-      target: targetActor.name,
-      amount,
-      actualDrain,
-      oldMP: currentMP,
-      newMP
-    });
-  } catch (err) {
-    console.error("[UESRPG][DrainService] drainMagicka failed", err);
-    return null;
+  if (!targetActor || amount <= 0) return null;
+  const change = await adjustCurrentResource(targetActor, resource, -amount);
+  if (!change) return null;
+  const drained = Math.max(0, -change.delta);
+  let status = 'applied';
+  if (opts.transferToCaster && opts.caster && drained > 0) {
+    if (!await adjustCurrentResource(opts.caster, resource, drained)) status = 'partial';
   }
-
-  // Transfer drained amount to caster if requested (Absorb Magicka)
-  if (opts.transferToCaster && opts.caster && actualDrain > 0) {
-    const casterMP = _num(opts.caster.system?.magicka?.value, 0);
-    const casterMaxMP = _num(opts.caster.system?.magicka?.max, casterMP);
-    const newCasterMP = Math.min(casterMaxMP, casterMP + actualDrain);
-    try {
-      await requestUpdateDocument(opts.caster, { "system.magicka.value": newCasterMP });
-      _debug("drainMagicka: transferred to caster", {
-        caster: opts.caster.name,
-        transferred: actualDrain,
-        newCasterMP
-      });
-    } catch (err) {
-      console.warn("[UESRPG][DrainService] Transfer to caster failed", err);
-    }
-  }
-
-  return { drained: actualDrain, remainingMP: newMP };
+  return { drained, remaining: change.value, execution: { status, committed: true } };
 }
 
-/**
- * Drain current health from a target actor.
- *
- * @param {Actor} targetActor  - The actor to drain
- * @param {number} amount      - Amount to drain
- * @param {object} [opts]      - Optional context
- * @param {Actor} [opts.caster]     - The caster
- * @param {Item}  [opts.spell]      - The spell
- * @param {boolean} [opts.transferToCaster] - If true, caster gains the drained amount as healing
- * @returns {Promise<{drained: number, remainingHP: number}|null>}
- */
+export async function drainMagicka(targetActor, amount, opts = {}) {
+  const result = await drainResource(targetActor, amount, 'magicka', opts);
+  return result ? { ...result, remainingMP: result.remaining } : null;
+}
+
 export async function drainHealth(targetActor, amount, opts = {}) {
-  if (!targetActor) return null;
-  amount = Math.max(0, Math.floor(_num(amount, 0)));
-  if (amount <= 0) return null;
-
-  const { requestUpdateDocument } = await import("../../../utils/authority-proxy.js");
-
-  const currentHP = _num(targetActor.system?.hp?.value, 0);
-  const actualDrain = Math.min(amount, currentHP);
-  const newHP = Math.max(0, currentHP - actualDrain);
-
-  try {
-    await requestUpdateDocument(targetActor, { "system.hp.value": newHP });
-    _debug("drainHealth:", {
-      target: targetActor.name,
-      amount,
-      actualDrain,
-      oldHP: currentHP,
-      newHP
-    });
-  } catch (err) {
-    console.error("[UESRPG][DrainService] drainHealth failed", err);
-    return null;
-  }
-
-  // Transfer to caster as healing
-  if (opts.transferToCaster && opts.caster && actualDrain > 0) {
-    const casterHP = _num(opts.caster.system?.hp?.value, 0);
-    const casterMaxHP = _num(opts.caster.system?.hp?.max, casterHP);
-    const newCasterHP = Math.min(casterMaxHP, casterHP + actualDrain);
-    try {
-      await requestUpdateDocument(opts.caster, { "system.hp.value": newCasterHP });
-      _debug("drainHealth: healed caster", {
-        caster: opts.caster.name,
-        healed: actualDrain,
-        newCasterHP
-      });
-    } catch (err) {
-      console.warn("[UESRPG][DrainService] Healing transfer to caster failed", err);
-    }
-  }
-
-  return { drained: actualDrain, remainingHP: newHP };
+  const result = await drainResource(targetActor, amount, 'hp', opts);
+  return result ? { ...result, remainingHP: result.remaining } : null;
 }
 
 /**

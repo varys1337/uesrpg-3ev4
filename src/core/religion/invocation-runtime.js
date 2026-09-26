@@ -1,3 +1,4 @@
+import { escapeHtml } from "../../utils/html.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
 import { doTestRoll, formatResultSummary } from "../../utils/degree-roll-helper.js";
 import { getCoreRollMode } from "../../utils/chat-roll-mode.js";
@@ -29,9 +30,7 @@ function asNumber(value, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function escapeHtml(value) {
-  return foundry.utils.escapeHTML(String(value ?? ""));
-}
+
 
 function formatTextBlock(value) {
   return escapeHtml(value).replace(/\r?\n/g, "<br>");
@@ -97,7 +96,7 @@ async function chooseInvocationOptions(actor, invocation, {
           ${SKILL_DIFFICULTIES.map((difficulty) => {
             const sign = difficulty.mod >= 0 ? "+" : "";
             const selected = difficulty.key === "average" ? "selected" : "";
-            return `<option value="${difficulty.key}" ${selected}>${difficulty.label} (${sign}${difficulty.mod})</option>`;
+            return `<option value="${difficulty.key}" ${selected}>${escapeHtml(difficulty.label)} (${sign}${difficulty.mod})</option>`;
           }).join("\n")}
         </select>
       </div>

@@ -37,7 +37,7 @@ export function getSpellcastingTalentState(actor) {
  */
 export async function setSpellcastingPrimedState(actor, state) {
   if (!actor || !state?.slug) return;
-  await requestUpdateDocument(actor, {
+  if (!await requestUpdateDocument(actor, {
     [`flags.${FLAG_SCOPE}.${SPELLCASTING_PRIMED_FLAG}`]: {
       slug: String(state.slug),
       expiresAtWorldTime: state.expiresAtWorldTime ?? null,
@@ -45,7 +45,7 @@ export async function setSpellcastingPrimedState(actor, state) {
       options: state.options ?? {},
       primedAt: Date.now()
     }
-  });
+  })) throw new Error("Spellcasting talent state could not be saved.");
 }
 
 /**

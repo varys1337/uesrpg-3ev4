@@ -1,3 +1,4 @@
+import { escapeHtml as _escapeHtml } from '../../../utils/html.js';
 /**
  * Canonical spell options dialog used by core and UI casting flows.
  */
@@ -14,14 +15,7 @@ const LOG = createLogger("UESRPG | Spell options dialog |", {
   debugSettingKey: "spellCastingDebug",
 });
 
-function _escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll("\"", "&quot;")
-    .replaceAll("'", "&#39;");
-}
+
 
 function _getCastSourceResourcePresentation(castContext = null, spell = null) {
   const castSource = castContext?.castSource ?? castContext ?? null;
@@ -166,7 +160,7 @@ export async function showSpellOptionsDialog(actor, spell, castContext = null) {
           ${SKILL_DIFFICULTIES.map(df => {
             const sign = df.mod >= 0 ? "+" : "";
             const sel = df.key === "average" ? "selected" : "";
-            return `<option value="${df.key}" ${sel}>${df.label} (${sign}${df.mod})</option>`;
+            return `<option value="${df.key}" ${sel}>${_escapeHtml(df.label)} (${sign}${df.mod})</option>`;
           }).join("\n")}
         </select>
       </div>

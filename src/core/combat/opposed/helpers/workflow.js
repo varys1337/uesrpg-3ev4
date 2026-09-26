@@ -1,3 +1,13 @@
+import { variantLabel as sharedVariantLabel } from "../../../opposed/shared/card-rendering.js";
+import { _isIsolatedDuelByTokens as isIsolatedDuelByTokens, _resolveItemViaActor } from './docs.js';
+export { isIsolatedDuelByTokens };
+import { _safeGetSetting as safeGetSetting, _opposedFlags as opposedFlags } from './util.js';
+export { safeGetSetting };
+
+export { opposedFlags };
+import { parseRangeTriplet } from '../../../documents/item-utils.js';
+export { parseRangeTriplet };
+import { FLAG_SCOPE } from "../../../system/namespace.js";
 /**
  * src/core/combat/opposed/helpers/workflow.js
  * Utility helper functions for opposed workflow.
@@ -19,17 +29,17 @@ import { t, tf } from "../../../../utils/i18n.js";
 
 import { applySenseLossPenaltyAdjustments } from "../../../traits/awareness-talents.js";
 import { hasTalent } from "../../../traits/talents-api.js";
-import { anyOtherTokensInMeleeOfEither, getMeleeReachMeters } from "../../../traits/combat-proximity.js";
+import { getMeleeReachMeters } from "../../../traits/combat-proximity.js";
 import { canTokenEscapeArea } from "../../../../utils/aoe-utils.js";
 import { getAttackModeFromWeapon, getEffectiveWeaponHands, getTokenDashContext, getWeaponCombatCapabilities } from "../../combat-utils.js";
 import { isActorUndead } from "../../../traits/trait-registry.js";
 import { getWeaponReachBoundsEffective } from "../../../homebrew/reach-length/weapon.js";
-import { normalizeDiceExpression } from "../rolls.js";
-import { doesUserOwnActor } from "../../../../utils/authority-proxy.js";
+
+import { doesUserOwnActor, requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import { gateRangedAttackAmmoAndLoad } from "../damage/ranged-ammo-gate.js";
 import { isDebugEnabled } from "../../../../utils/debug.js";
 import { getActorFromResolvedDocument, resolveUuidSync } from "../../../../utils/uuid-cache.js";
-import { _resolveItemViaActor } from "./docs.js";
+
 import { setOwnedItemQuantityOrDelete } from "../../../items/owned-item-quantity.js";
 import { circumstanceLabel as sharedCircumstanceLabel } from "../../../opposed/circumstance.js";
 export { getRuntimeSystemId as getSystemId } from "../../../system/namespace.js";
@@ -139,15 +149,7 @@ export function weaponHasQuality(weapon, qualityKey, { allowLegacy = true } = {}
 /**
  * Parse range triplet (e.g. "2/3/4" -> {close, effective, long}).
  */
-export function parseRangeTriplet(text) {
-  const raw = String(text ?? "").trim();
-  if (!raw) return null;
-  // Third slot may be "x", "-", "–", or "*" to indicate no long range (long = 0).
-  const m = raw.match(/^(\d+)\s*\/\s*(\d+)\s*\/\s*(\d+|[xX\-\u2013*]+)$/);
-  if (!m) return null;
-  const long = /^\d+$/.test(m[3]) ? Number(m[3]) : 0;
-  return { close: Number(m[1]), effective: Number(m[2]), long };
-}
+
 
 /**
  * Measure distance between two points (grid-aware).
@@ -203,7 +205,7 @@ export async function promptSelectToken({ title, prompt, tokens = [] } = {}) {
   if (choices.length === 1) return choices[0];
 
   const options = choices
-    .map(t => `<option value="${t.id}">${t.name}</option>`)
+    .map(t => `<option value="${foundry.utils.escapeHTML(String(t.id))}">${foundry.utils.escapeHTML(t.name)}</option>`)
     .join("");
   const content = `
     <div style="min-width:360px;">
@@ -455,17 +457,7 @@ export function resolveToken(docOrUuid) {
 /**
  * Check if two tokens are in isolated duel (for Exploit Advantage).
  */
-export function isIsolatedDuelByTokens(tokenA, tokenB) {
-  try {
-    if (!tokenA || !tokenB) return false;
-    if (!globalThis?.canvas?.ready) return false;
-    const reachA = getMeleeReachMeters(tokenA.actor);
-    const reachB = getMeleeReachMeters(tokenB.actor);
-    return !anyOtherTokensInMeleeOfEither(tokenA, tokenB, { reachMetersA: reachA, reachMetersB: reachB });
-  } catch (_e) {
-    return false;
-  }
-}
+
 
 /**
  * Check if actor can use Exploit Advantage talent.
@@ -570,15 +562,7 @@ export function applyAoEEvadeOutcome(data, outcome, defenderEntry = null) {
 /**
  * Get variant label for display.
  */
-export function variantLabel(variant) {
-  switch (variant) {
-    case "allOut": return "All Out";
-    case "precision": return "Precision";
-    case "coup": return "Coup";
-    case "normal":
-    default: return "Attack";
-  }
-}
+export function variantLabel(variant) { return sharedVariantLabel(variant); }
 
 /**
  * Get circumstance label for display.
@@ -760,29 +744,50 @@ export function userHasActorOwnership(user, actor) {
 /**
  * Safely get a game setting (with fallback).
  */
-export function safeGetSetting(namespace, key, fallback = false) {
-  try {
-    const full = `${namespace}.${key}`;
-    if (game?.settings?.settings?.has?.(full) === false) return fallback;
-    if (typeof game?.settings?.get === "function") return game.settings.get(namespace, key);
-  } catch (_e) {
-    // ignore and fall back
-  }
-  return fallback;
-}
+
 
 /**
  * Build opposed workflow flags for chat messages.
  */
-export function opposedFlags(parentMessageId, stage, extra = null) {
-  const base = {
-    parentMessageId,
-    stage
-  };
-  const opposed = (extra && typeof extra === "object") ? foundry.utils.mergeObject(base, extra, { inplace: false }) : base;
-  return {
-    "uesrpg-3ev4": {
-      opposed
+
+
+export function _resolveDefenderWeapon(defender, choice) {
+  try {
+    const choiceUuid = String(choice?.weaponUuid ?? "").trim();
+    if (choiceUuid) {
+      const doc = _resolveItemViaActor(choiceUuid, defender);
+      if (doc?.type === "weapon" && String(doc?.system?.attackMode ?? "melee").toLowerCase() === "melee") return doc;
     }
-  };
+    // Fallback: first equipped melee weapon
+    for (const item of (defender?.items ?? [])) {
+      if (item.type !== "weapon") continue;
+      if (!item.system?.equipped) continue;
+      if (String(item.system?.attackMode ?? "").toLowerCase() === "melee") return item;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
+
+export async function _maybeGrantConcussiveNextBash(attacker, data, advantage) {
+  try {
+    if (!attacker || Number(advantage?.attacker ?? 0) <= 0) return;
+    if (String(data?.context?.attackMode ?? "melee").toLowerCase() !== "melee") return;
+    const weaponUuid = String(data?.context?.weaponUuid ?? "").trim();
+    if (!weaponUuid) return;
+    const weapon = _resolveItemViaActor(weaponUuid, attacker);
+    if (!weapon || weapon.type !== "weapon") return;
+    if (!weaponHasQuality(weapon, "concussive")) return;
+    await requestUpdateDocument(attacker, {
+      [`flags.${FLAG_SCOPE}.combat.concussiveNextBash`]: {
+        bonus: 20,
+        grantedAt: Date.now(),
+        sourceWeaponUuid: weapon.uuid ?? null
+      }
+    });
+  } catch (err) {
+    console.warn("UESRPG | Concussive bonus grant failed", err);
+  }
+}
+

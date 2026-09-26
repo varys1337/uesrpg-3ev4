@@ -22,13 +22,13 @@
  *
  * ## Performance
  *
- * - `_recentPromptCache` is pruned on every realtime scan to prevent memory growth.
+ * - Expiration scanning is owned by the canonical effect expiration service.
  * - Actor/document resolution uses synchronous `fromUuidSync()` since actors and tokens
  *   are always loaded client-side — avoids unnecessary microtask overhead.
  * - The confirm handler performs a single effect-collection pass and merges the duration
  *   refresh with buffer restoration in one iteration.
  *
- * Target: Foundry VTT v13.351
+ * Target: Foundry VTT v14.368+
  */
 
 /**
@@ -56,16 +56,16 @@ import { AttackTracker } from "../combat/attack-tracker.js";
 import { isActorInStartedCombatEncounter } from "../combat/combat-scope.js";
 import { safeDeleteEmbeddedDocuments, safeGetEffect } from "../../utils/ae-helpers.js";
 import { findOriginAEByGroupKey, refreshOriginAEUpkeep, cancelOriginAEUpkeep } from "./effects/origin-effect.js";
-import { buildUpkeepGroupKey, parseUpkeepGroupKey } from "./effects/spell-effect-metadata.js";
+import { parseUpkeepGroupKey } from "./effects/spell-effect-metadata.js";
 import { extendEffectDurationByCanonicalPeriod, SPELL_EFFECT_DURATION_FLAG_KEY } from "./effects/spell-effect-duration.js";
 import { hasTalent } from "../traits/talents-api.js";
 import { resolveActorFromUuidSync, resolveUuidSync } from "../../utils/uuid-cache.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
-import { isPerfEnabled, monoMs, perfRecord } from "../../utils/perf-tracker.js";
-import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../time/combat-boundary-orchestrator.js";
+
+
 import { buildSpellExpirationAnchor, normalizeSpellExpirationAnchor, explainSpellAnchorResolution, resolveCombatantForActor } from "../../utils/document-resolution.js";
 import { getActorCapabilityFlag } from "../active-effects/modifier-evaluator.js";
-import { isMagicDynamicInitiativeEnabled } from "./settings.js";
+
 
 const _FLAG_NS = FLAG_SCOPE;
 const _anchorDebug = createDebugLogger("aeLifecycleDebug", "[UESRPG][Upkeep]");
@@ -73,50 +73,9 @@ const _anchorDebug = createDebugLogger("aeLifecycleDebug", "[UESRPG][Upkeep]");
 /** @type {Set<string>} Serialization locks to prevent concurrent prompts for the same group+boundary. */
 const _promptLocks = new Set();
 
-/** @type {Map<string, {time: number}>} De-duplication cache for realtime prompts. Pruned on each scan. */
-const _recentPromptCache = new Map();
 
-/** @type {boolean} Guard against overlapping realtime scans. */
-let _realtimeScanInFlight = false;
 
-/** @type {Map<string, string>} per-combat dedupe key "{round}:{turn}" for post-commit upkeep cadence. */
-const _lastCombatUpkeepBoundaryKey = new Map();
 
-async function _handleCombatBoundaryUpkeep(payload) {
-  const p = payload ?? {};
-  const combat = p.combat ?? null;
-  if (String(p.source ?? "") !== "combat") return;
-  if (String(combat?.phase ?? "") !== "post") return;
-  if (!game.user?.isGM) return;
-
-  const activeCombat = game.combat ?? null;
-  if (!activeCombat?.id) return;
-  if (combat?.id && String(combat.id) !== String(activeCombat.id)) return;
-  if (!activeCombat.started) return;
-
-  const nextRound = _num(combat?.round, _num(activeCombat.round, _currentRound()));
-  const nextTurn = _num(combat?.turn, _num(activeCombat.turn, _currentTurn()));
-  const combatId = String(activeCombat.id ?? "");
-  const dedupeKey = `${nextRound}:${nextTurn}`;
-  if (_lastCombatUpkeepBoundaryKey.get(combatId) === dedupeKey) return;
-  _lastCombatUpkeepBoundaryKey.set(combatId, dedupeKey);
-
-  const _perf = isPerfEnabled();
-  const _t0 = _perf ? monoMs() : 0;
-  const targetCombatantId = String(activeCombat.combatant?.id ?? activeCombat.combatantId ?? "");
-  await _checkUpkeepCombatTurnStart(nextRound, nextTurn);
-  if (_perf) {
-    perfRecord({
-      event: "dynamicInitiative.upkeepTarget",
-      combatId,
-      round: nextRound,
-      turn: nextTurn,
-      targetCombatantId: targetCombatantId || null,
-      enabled: isMagicDynamicInitiativeEnabled(),
-      durationMs: monoMs() - _t0,
-    });
-  }
-}
 
 // ─── Utility Helpers ─────────────────────────────────────────────────────────
 
@@ -130,10 +89,6 @@ function _currentRound() {
   return MagicTimekeeping.combatRound();
 }
 
-/** @returns {number} Current combat turn index (0 if no combat). */
-function _currentTurn() {
-  return MagicTimekeeping.combatTurn();
-}
 
 /** @returns {number} Current world time in seconds. */
 function _nowWorldTime() {
@@ -163,48 +118,6 @@ function _promptSignature(promptContext) {
   return "";
 }
 
-/**
- * Check if a group+boundary was recently prompted (within one round time).
- * @param {string} groupKey
- * @param {object} promptContext
- * @returns {boolean}
- */
-function _isRecentlyPrompted(groupKey, promptContext) {
-  const signature = _promptSignature(promptContext);
-  if (!groupKey || !signature) return false;
-  const key = `${groupKey}::${signature}`;
-  const entry = _recentPromptCache.get(key);
-  if (!entry) return false;
-  const ttl = Math.max(1, _roundTimeSeconds());
-  if ((_nowWorldTime() - entry.time) <= ttl) return true;
-  _recentPromptCache.delete(key);
-  return false;
-}
-
-/**
- * Mark a group+boundary as recently prompted.
- * @param {string} groupKey
- * @param {object} promptContext
- */
-function _markRecentlyPrompted(groupKey, promptContext) {
-  const signature = _promptSignature(promptContext);
-  if (!groupKey || !signature) return;
-  const key = `${groupKey}::${signature}`;
-  _recentPromptCache.set(key, { time: _nowWorldTime() });
-}
-
-/**
- * Prune stale entries from `_recentPromptCache` to prevent memory growth.
- * Called once per realtime scan cycle.
- */
-function _prunePromptCache() {
-  if (_recentPromptCache.size === 0) return;
-  const now = _nowWorldTime();
-  const ttl = Math.max(1, _roundTimeSeconds()) * 3; // 3× round time safety margin
-  for (const [key, entry] of _recentPromptCache) {
-    if ((now - entry.time) > ttl) _recentPromptCache.delete(key);
-  }
-}
 
 /**
  * Execute a function under a serialization lock for a specific group+boundary.
@@ -296,24 +209,6 @@ async function _safeUpdateEffect(effect, updates) {
   }
 }
 
-/**
- * Build a group key from effect flags.
- * Format: `{casterUuid}::{spellUuid}::{originalCastWorldTime}`
- *
- * @param {object} flags
- * @returns {string|null}
- */
-function _groupKeyFromFlags(flags) {
-  const existing = _str(flags?.upkeepGroupKey);
-  if (existing) return existing;
-  const groupKey = buildUpkeepGroupKey({
-    casterUuid: flags?.casterUuid,
-    casterTokenUuid: flags?.casterTokenUuid,
-    spellUuid: flags?.spellUuid,
-    originalCastWorldTime: flags?.originalCastWorldTime
-  });
-  return groupKey || null;
-}
 
 /**
  * Parse a group key back to its constituent parts.
@@ -370,9 +265,6 @@ function _getNominalDuration(effect, flags = null) {
   };
 }
 
-function _isOriginSpellEffect(effect) {
-  return Boolean(effect?.flags?.[_FLAG_NS]?.isOriginAE);
-}
 
 function _collectRelevantActors() {
   return MagicTimekeeping.relevantActorsArray?.() ?? Array.from(MagicTimekeeping.collectRelevantActors?.() ?? []);
@@ -561,54 +453,6 @@ function _isWithinRealtimeWindow(effect, nowTime) {
   return (nowTime >= (endTime - rt)) && (nowTime < (endTime + rt));
 }
 
-/**
- * Scan all relevant actors for spell effects whose realtime duration is within
- * the prompt window. Returns groups keyed by groupKey.
- *
- * @param {number|null} [nowTimeOverride] — Override world time (for testing).
- * @returns {Promise<{ groups: Map<string, object>, nowTime: number }>}
- */
-async function _collectExpiringGroupsRealtime(nowTimeOverride = null) {
-  const groups = new Map();
-  const nowTime = Number.isFinite(Number(nowTimeOverride)) ? Number(nowTimeOverride) : _nowWorldTime();
-  for (const casterActor of _collectRelevantActors()) {
-    for (const effect of (casterActor.effects ?? [])) {
-      const flags = effect.flags?.[_FLAG_NS];
-      if (!flags?.spellEffect || !flags?.hasUpkeep || !_isOriginSpellEffect(effect)) continue;
-      if (!Boolean(flags?.upkeepAwaiting)) continue;
-
-      const promptContext = _buildPromptContextForEffect(effect, flags, nowTime);
-      if (!promptContext) continue;
-
-      const gk = _groupKeyFromFlags(flags);
-      if (!gk) continue;
-
-      const matches = await _collectCurrentEffectsForGroup(gk);
-      const linkedMatches = matches.filter((m) => !Boolean(m.flags?.isOriginAE));
-      const entry = groups.get(gk) ?? {
-        groupKey: gk,
-        casterUuid: _str(flags.casterUuid),
-        casterTokenUuid: _str(flags.casterTokenUuid),
-        spellUuid: _str(flags.spellUuid),
-        originalCastWorldTime: _num(flags.originalCastWorldTime, 0),
-        spellName: _str(flags.spellName || effect.name),
-        upkeepCosts: new Set(),
-        effectRefs: [],
-        originRef: { actorId: casterActor.id, effectId: effect.id },
-        promptContext
-      };
-
-      entry.upkeepCosts.add(_num(flags.upkeepCost, 0));
-      entry.effectRefs = linkedMatches.map((m) => ({ targetActorId: m.targetActor.id, effectId: m.effect.id }));
-      if (_num(entry.promptContext?.endTime, _num(promptContext.endTime, 0)) > _num(promptContext.endTime, 0)) {
-        entry.promptContext.endTime = _num(promptContext.endTime, 0);
-      }
-      groups.set(gk, entry);
-    }
-  }
-
-  return { groups, nowTime };
-}
 
 function _buildUpkeepGroupFromMatches(groupKey, matches, promptContext, originEffect = null) {
   if (!groupKey || !promptContext) return null;
@@ -640,55 +484,6 @@ function _buildUpkeepGroupFromMatches(groupKey, matches, promptContext, originEf
   };
 }
 
-/**
- * Scan all relevant actors for spell effects whose combat-boundary matches the
- * incoming (nextRound, nextTurn). Returns groups keyed by groupKey.
- *
- * @param {number} nextRound — The incoming combat round.
- * @param {number} nextTurn  — The incoming combat turn.
- * @returns {Promise<{ groups: Map<string, object>, nowTime: number }>}
- */
-async function _collectExpiringGroupsCombatTurnStart(nextRound, nextTurn) {
-  const groups = new Map();
-  const nowTime = _nowWorldTime();
-  const nr = _num(nextRound, _currentRound());
-  const nt = _num(nextTurn, _currentTurn());
-
-  for (const casterActor of _collectRelevantActors()) {
-    for (const effect of (casterActor.effects ?? [])) {
-      const flags = effect.flags?.[_FLAG_NS];
-      if (!flags?.spellEffect || !flags?.hasUpkeep || !_isOriginSpellEffect(effect)) continue;
-      if (!Boolean(flags?.upkeepAwaiting)) continue;
-
-      const promptContext = _buildPromptContextForEffect(effect, flags, nowTime, { nextRound: nr, nextTurn: nt });
-      if (!promptContext) continue;
-
-      const gk = _groupKeyFromFlags(flags);
-      if (!gk) continue;
-
-      const matches = await _collectCurrentEffectsForGroup(gk);
-      const linkedMatches = matches.filter((m) => !Boolean(m.flags?.isOriginAE));
-      const entry = groups.get(gk) ?? {
-        groupKey: gk,
-        casterUuid: _str(flags.casterUuid),
-        casterTokenUuid: _str(flags.casterTokenUuid),
-        spellUuid: _str(flags.spellUuid),
-        originalCastWorldTime: _num(flags.originalCastWorldTime, 0),
-        spellName: _str(flags.spellName || effect.name),
-        upkeepCosts: new Set(),
-        effectRefs: [],
-        originRef: { actorId: casterActor.id, effectId: effect.id },
-        promptContext
-      };
-
-      entry.upkeepCosts.add(_num(flags.upkeepCost, 0));
-      entry.effectRefs = linkedMatches.map((m) => ({ targetActorId: m.targetActor.id, effectId: m.effect.id }));
-      groups.set(gk, entry);
-    }
-  }
-
-  return { groups, nowTime };
-}
 
 /**
  * Stamp prompt-tracking flags onto all effects that belong to the given group
@@ -733,48 +528,6 @@ export function initializeUpkeepSystem() {
   globalThis.__UESRPG_UPKEEP_SYSTEM_HOOKS_INSTALLED__ = true;
 }
 
-/**
- * Entry point for combat-cadence upkeep checks. Called on post-commit
- * uesrpg.combatTimeChanged hook.
- *
- * @param {number} nextRound
- * @param {number} nextTurn
- */
-async function _checkUpkeepCombatTurnStart(nextRound, nextTurn) {
-  const { groups } = await _collectExpiringGroupsCombatTurnStart(nextRound, nextTurn);
-
-  for (const group of groups.values()) {
-    await ensureUpkeepPromptForGroup(group.groupKey, group.promptContext);
-  }
-}
-
-/**
- * Entry point for realtime (out-of-combat) upkeep checks. Called on
- * uesrpg.timeChanged hook. Re-entrant guard prevents overlapping scans.
- *
- * @param {number|null} [nowTimeOverride]
- */
-async function _checkUpkeepRealtime(nowTimeOverride = null) {
-  if (_realtimeScanInFlight) return;
-  _realtimeScanInFlight = true;
-  try {
-    // Prune stale prompt cache entries to prevent unbounded growth
-    _prunePromptCache();
-
-    const { groups } = await _collectExpiringGroupsRealtime(nowTimeOverride);
-
-    for (const group of groups.values()) {
-      if (_isRecentlyPrompted(group.groupKey, group.promptContext)) continue;
-
-      await _withPromptLock(group.groupKey, group.promptContext, async () => {
-        await ensureUpkeepPromptForGroup(group.groupKey, group.promptContext);
-        _markRecentlyPrompted(group.groupKey, group.promptContext);
-      });
-    }
-  } finally {
-    _realtimeScanInFlight = false;
-  }
-}
 
 /**
  * Build a human-readable summary of target names from effectRefs.

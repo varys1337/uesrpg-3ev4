@@ -395,9 +395,6 @@
         "NoClashes": "No clash cards have been created for this encounter yet.",
         "SceneUnits": "Scene Units",
         "TotalWarfareTokens": "Total Warfare Tokens",
-        "Allies": "Allies",
-        "Enemies": "Enemies",
-        "Neutral": "Neutral",
         "Defeated": "Defeated"
       },
       "TravelPlanner": {
@@ -690,10 +687,22 @@
           "IngredientMeta": "{school} · {quality} · S {strength} / D {depth} · ×{quantity}"
         },
         "Modes": {
-          "Potion": { "Label": "Potion", "Description": "Build a potion with up to three unique Potion effects." },
-          "Toxin": { "Label": "Toxin", "Description": "Build a weapon toxin with up to three unique Toxin effects." },
-          "Poison": { "Label": "Poison", "Description": "Create a damaging poison from one Destruction ingredient." },
-          "Gather": { "Label": "Gather", "Description": "Search for ingredients and record a chosen RAW result." }
+          "Potion": {
+            "Label": "Potion",
+            "Description": "Build a potion with up to three unique Potion effects."
+          },
+          "Toxin": {
+            "Label": "Toxin",
+            "Description": "Build a weapon toxin with up to three unique Toxin effects."
+          },
+          "Poison": {
+            "Label": "Poison",
+            "Description": "Create a damaging poison from one Destruction ingredient."
+          },
+          "Gather": {
+            "Label": "Gather",
+            "Description": "Search for ingredients and record a chosen RAW result."
+          }
         },
         "Talents": {
           "MasterAlchemist": "Master Alchemist",
@@ -2969,7 +2978,10 @@
         "Target": "Target",
         "Test": "Test",
         "TN": "TN",
-        "TnBreakdown": "TN breakdown"
+        "TnBreakdown": "TN breakdown",
+        "ApplicationPending": "Applying… If interrupted, use Apply to recover the saved outcome.",
+        "ApplicationPartial": "Partially applied — review remaining effects before retrying.",
+        "ApplicationFailed": "Application failed. Review the target before retrying."
       },
       "Alchemy": {
         "AddSuitableIngredient": "Add a suitable ingredient item to the actor's inventory.",

@@ -160,7 +160,7 @@ async function _handleChatTransitionIntent({ requester, data, expectedRevision }
     if (!isChatMessageUpdateFresh(liveMessage, payload)) {
       return { ok: false, code: AUTHORITY_RESULT_CODES.STALE_REVISION, data: { currentRevision: currentSeq } };
     }
-    await liveMessage.update(payload);
+    if (!await liveMessage.update(payload)) return { ok: false, code: AUTHORITY_RESULT_CODES.FAILED };
     return { ok: true, data: { revision: incomingSeq } };
   } catch (error) {
     console.error("UESRPG | authority-proxy | Chat transition intent failed", error);
@@ -225,8 +225,7 @@ export async function requestUpdateChatMessage(message, payload, { timeout = 5_0
   if (canUserUpdateChatMessage(message, game.user)) {
     if (!isChatMessageUpdateFresh(message, sanitized)) return false;
     try {
-      await message.update(sanitized);
-      return true;
+      return Boolean(await message.update(sanitized));
     } catch (error) {
       console.error("UESRPG | authority-proxy | Direct ChatMessage update failed", { messageId: message.id, error });
       return false;
@@ -281,8 +280,7 @@ export async function requestAtomicUpdateDocument(docOrUuid, mutator) {
     const updateData = await mutator(fresh);
     const cleaned = sanitizeGenericUpdatePayload(fresh, updateData);
     if (!Object.keys(cleaned).length) return false;
-    await fresh.update(cleaned);
-    return true;
+    return Boolean(await fresh.update(cleaned));
   } catch (error) {
     console.error("UESRPG | authority-proxy | Atomic document update failed", { uuid: doc.uuid, error });
     return false;
@@ -312,8 +310,7 @@ export async function requestUpdateDocument(docOrUuid, updateData) {
     return false;
   }
   try {
-    await doc.update(cleaned);
-    return true;
+    return Boolean(await doc.update(cleaned));
   } catch (error) {
     console.error("UESRPG | authority-proxy | Direct document update failed", { uuid: doc.uuid, error });
     return false;

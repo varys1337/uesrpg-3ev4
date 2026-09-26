@@ -1,3 +1,4 @@
+import { escapeHtml as _escapeHtml } from '../../utils/html.js';
 /**
  * @module traits/trait-resistance-ui
  * @description UI helpers for rendering trait resistance option selectors.
@@ -8,14 +9,7 @@
 import { getResistanceBonusOptions } from "./trait-registry.js";
 import { _bool } from "../../utils/coerce.js";
 
-function _escapeHtml(value) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+
 
 export function buildResistanceBonusSection(actor, { selected = [] } = {}) {
   const options = getResistanceBonusOptions(actor);

@@ -11,7 +11,7 @@
  */
 
 import { isActiveGMUser } from "./wound-schema.js";
-import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../time/combat-boundary-orchestrator.js";
+import { registerCombatBoundaryConsumer } from "../time/combat-boundary-orchestrator.js";
 
 let _registered = false;
 
@@ -101,8 +101,5 @@ export function registerWoundCombatTicker({ tickActorEndTurn } = {}) {
     handle: _handleCombatBoundaryWounds
   });
 
-  Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
-    if (noteCombatBoundaryLegacyFallbackSkip("wound-ticker", payload)) return;
-    await _handleCombatBoundaryWounds(payload);
-  });
+  
 }

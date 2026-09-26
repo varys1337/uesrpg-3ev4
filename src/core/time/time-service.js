@@ -10,6 +10,7 @@
  */
 
 import { FoundryCoreProvider } from "./providers/foundry-core-provider.js";
+import { dispatchCombatBoundary } from "./combat-boundary-orchestrator.js";
 import { CalendariaProvider } from "./providers/calendaria-provider.js";
 import { _num } from "../../utils/coerce.js";
 import { isPerfEnabled, monoMs, perfRecord } from "../../utils/perf-tracker.js";
@@ -311,11 +312,12 @@ class TimeServiceImpl {
     return this._publicApi;
   }
 
-  _emit(payload) {
+  async _emit(payload) {
     const p = payload ?? {};
     const _t0 = isPerfEnabled() ? monoMs() : 0;
 
-    // Fire system-level hook first for interop.
+    await dispatchCombatBoundary(p);
+    // Public observation follows the ordered internal consumers.
     safeCallAll("uesrpg.timeChanged", p);
 
     if (isCombatLikeSource(p?.source)) {
@@ -324,7 +326,7 @@ class TimeServiceImpl {
 
     for (const cb of Array.from(this._listeners)) {
       try {
-        void cb(p);
+        Promise.resolve(cb(p)).catch((err) => console.error("UESRPG | time-service | Listener rejected", err));
       } catch (err) {
         console.error("UESRPG | time-service | Listener threw", err);
       }
@@ -376,7 +378,7 @@ class TimeServiceImpl {
     };
 
     this._noteEmit(wt, "worldTime");
-    this._emit(payload);
+    void this._emit(payload).catch((error) => console.error("UESRPG | time dispatch failed", error));
 
     if (_perf) {
       perfRecord({
@@ -408,7 +410,7 @@ class TimeServiceImpl {
     };
 
     this._noteEmit(wt, "calendaria");
-    this._emit(payload);
+    void this._emit(payload).catch((error) => console.error("UESRPG | time dispatch failed", error));
   }
 
   _installCalendariaIngress() {
@@ -472,7 +474,7 @@ class TimeServiceImpl {
     };
 
     // Combat intent should not be deduped against worldTime; it is semantically distinct.
-    this._emit(payload);
+    void this._emit(payload).catch((error) => console.error("UESRPG | time dispatch failed", error));
 
     if (_perf) {
       perfRecord({
@@ -520,7 +522,7 @@ class TimeServiceImpl {
       }
     };
 
-    this._emit(payload);
+    void this._emit(payload).catch((error) => console.error("UESRPG | time dispatch failed", error));
 
     if (_perf) {
       perfRecord({

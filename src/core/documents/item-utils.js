@@ -110,3 +110,31 @@ export function parseRangeTriplet(text) {
   const long = /^\d+$/.test(m[3]) ? Number(m[3]) : 0;
   return { close: Number(m[1]), effective: Number(m[2]), long };
 }
+
+export function _extractFirstNumber(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const m = raw.match(/[-+]?\d+(?:\.\d+)?/);
+  if (!m) return null;
+  const n = Number(m[0]);
+  return Number.isFinite(n) ? n : null;
+}
+
+export function _inferTypedLaneFromText(value) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return null;
+  const map = [
+    ["sunlight", "sunlight"],
+    ["silver", "silver"],
+    ["disease", "disease"],
+    ["poison", "poison"],
+    ["frost", "frost"],
+    ["shock", "shock"],
+    ["fire", "fire"],
+    ["magic", "magic"],
+  ];
+  for (const [needle, out] of map) {
+    if (raw.includes(needle)) return out;
+  }
+  return null;
+}

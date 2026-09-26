@@ -2,6 +2,16 @@
 
 ## v14.2.0
 
+### Pipeline consolidation for Foundry 14.368+
+
+- Routes damage and healing through one application service while preserving physical, spell, alchemy, ongoing-damage, and Warfare calculation policies. Confirms writes before success reporting and records bounded receipts for chat recovery.
+- Unifies opposed-card persistence across combat, magic, skill, and characteristic workflows, reads current state inside the write queue, preserves newer defender commits, and makes retarget resets revision-aware.
+- Replaces feature no-op dispatch and legacy fallback execution with the existing talent and power handlers, shares cost previews with spending, and reports failed or partially completed activations and transfers.
+- Runs internal combat-time consumers in an explicit awaited order, removes parallel legacy listeners and the dormant upkeep scanner, and uses captured boundary data for spell ticks.
+- Moves spell Soul Trap capture after confirmed Actor updates, shares canonical Soul Gem tiers, and checks capture identifiers before creating embedded Items. Existing capture rules remain unchanged.
+- Consolidates verified duplicate mechanics and AppV2 helpers, centralizes public API registration, and escapes generated core-dialog options while preserving macro aliases, sheet geometry, Soul Energy persistence, and Warfare gating.
+- Adds canonical catalog generation, duplicate-pipeline guardrails, incremental unused-code checks, staged local rollback snapshots, an implementation audit, and a live acceptance checklist. This consolidation was checked statically; live Foundry acceptance remains a release requirement.
+
 ### Item data, migrations, and Soul Energy
 
 - Persists Soul Energy configuration changes made from Item and Equipment sheets through the serialized ApplicationV2 form pipeline, canonicalizes `isSoulGem` as Boolean, and recovers configurations whose flag was previously stored as a true-like string or number.

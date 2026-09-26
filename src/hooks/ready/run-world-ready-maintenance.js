@@ -1,5 +1,6 @@
+import { readSettingIfRegistered as readRegisteredSetting } from "../../utils/settings-registration.js";
 import { initSettingsCache } from "../../core/config/settings-cache.js";
-import { AUTOMATION_DEFAULTS } from "../../core/config/automation-policy.js";
+import { AUTOMATION_DEFAULTS, isCombatBoundaryOrchestratorPolicyEnabled, isCompositeBoundaryTickEnabled } from "../../core/config/automation-policy.js";
 import { STARTUP_PENDING_MIGRATION_KEYS } from "../../core/migrations/revisions.js";
 import { getMigrationState, getPendingMigrationKeys } from "../../core/migrations/state.js";
 import { migrateWorldSettingsIfNeeded } from "../../core/migrations/settings.js";
@@ -10,15 +11,7 @@ import { tf } from "../../utils/i18n.js";
 
 let _startupAttackTrackerPolicyLogged = false;
 
-function readSettingIfRegistered(key, fallback = null) {
-  try {
-    const settingKey = `${SYSTEM_ID}.${String(key ?? "").trim()}`;
-    if (game?.settings?.settings?.has?.(settingKey) !== true) return fallback;
-    return game.settings.get(SYSTEM_ID, key);
-  } catch (_e) {
-    return fallback;
-  }
-}
+function readSettingIfRegistered(key, fallback = null) { return readRegisteredSetting(key, fallback); }
 
 function logAttackTrackerPolicyDiagnosticsOnce() {
   if (_startupAttackTrackerPolicyLogged) return;
@@ -35,12 +28,8 @@ function logAttackTrackerPolicyDiagnosticsOnce() {
   const skipAttackTrackerEagerReset = Boolean(
     readSettingIfRegistered("skipAttackTrackerEagerReset", AUTOMATION_DEFAULTS.skipAttackTrackerEagerReset)
   );
-  const useCombatBoundaryOrchestrator = Boolean(
-    readSettingIfRegistered("useCombatBoundaryOrchestrator", AUTOMATION_DEFAULTS.useCombatBoundaryOrchestrator)
-  );
-  const compositeBoundaryTickEnabled = Boolean(
-    readSettingIfRegistered("compositeBoundaryTickEnabled", AUTOMATION_DEFAULTS.compositeBoundaryTickEnabled)
-  );
+  const useCombatBoundaryOrchestrator = isCombatBoundaryOrchestratorPolicyEnabled();
+  const compositeBoundaryTickEnabled = isCompositeBoundaryTickEnabled();
   const deferNonCriticalRoundBoundaryWork = Boolean(
     readSettingIfRegistered("deferNonCriticalRoundBoundaryWork", AUTOMATION_DEFAULTS.deferNonCriticalRoundBoundaryWork)
   );

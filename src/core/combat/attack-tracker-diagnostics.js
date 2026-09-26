@@ -1,6 +1,7 @@
+import { readSettingIfRegistered as readRegisteredSetting } from "../../utils/settings-registration.js";
 import { isDebugEnabled } from "../../utils/debug.js";
 import { SYSTEM_ID } from "../system/namespace.js";
-import { AUTOMATION_DEFAULTS } from "../config/automation-policy.js";
+import { AUTOMATION_DEFAULTS, isCombatBoundaryOrchestratorPolicyEnabled, isCompositeBoundaryTickEnabled } from "../config/automation-policy.js";
 
 const DIAG_PREFIX = "[UESRPG][AttackTracker][Diag]";
 const MAX_RECENT_EVENTS = 20;
@@ -84,15 +85,7 @@ function _consoleLog(kind, payload) {
   }
 }
 
-function _readSettingIfRegistered(key, fallback = null) {
-  try {
-    const settingKey = `${SYSTEM_ID}.${String(key ?? "").trim()}`;
-    if (game?.settings?.settings?.has?.(settingKey) !== true) return fallback;
-    return game.settings.get(SYSTEM_ID, key);
-  } catch (_e) {
-    return fallback;
-  }
-}
+function _readSettingIfRegistered(key, fallback = null) { return readRegisteredSetting(key, fallback); }
 
 function _buildPolicySnapshot() {
   return {
@@ -101,12 +94,8 @@ function _buildPolicySnapshot() {
     skipAttackTrackerEagerReset: Boolean(
       _readSettingIfRegistered("skipAttackTrackerEagerReset", AUTOMATION_DEFAULTS.skipAttackTrackerEagerReset)
     ),
-    useCombatBoundaryOrchestrator: Boolean(
-      _readSettingIfRegistered("useCombatBoundaryOrchestrator", AUTOMATION_DEFAULTS.useCombatBoundaryOrchestrator)
-    ),
-    compositeBoundaryTickEnabled: Boolean(
-      _readSettingIfRegistered("compositeBoundaryTickEnabled", AUTOMATION_DEFAULTS.compositeBoundaryTickEnabled)
-    ),
+    useCombatBoundaryOrchestrator: isCombatBoundaryOrchestratorPolicyEnabled(),
+    compositeBoundaryTickEnabled: isCompositeBoundaryTickEnabled(),
     deferNonCriticalRoundBoundaryWork: Boolean(
       _readSettingIfRegistered("deferNonCriticalRoundBoundaryWork", AUTOMATION_DEFAULTS.deferNonCriticalRoundBoundaryWork)
     ),

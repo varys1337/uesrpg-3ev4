@@ -1,3 +1,6 @@
+import { SOUL_GEM_TIERS } from '../../enchanting/soul-gems.js';
+import { isActiveGMUser } from '../../../utils/users.js';
+import { acquireLock, releaseLock } from '../../../utils/authority-proxy/shared.js';
 /**
  * @module magic/services/soul-trap-service
  *
@@ -13,7 +16,7 @@
  *   - Seen as hostile when cast on unwilling targets, but not an Attack.
  *
  * Implementation:
- *   1. Hooks `preUpdateActor` — detects HP about to drop to 0 (or below).
+ *   1. Records an HP transition in preUpdateActor; processes it only after updateActor.
  *   2. Checks if the dying actor has a "Soul Trap" marker AE (created by the spell).
  *   3. If found: resolves the caster from AE flags, creates a filled soul gem item on the caster.
  *   4. Posts a chat notification.
@@ -21,11 +24,11 @@
  *
  * GM-only, idempotent, permission-safe.
  *
- * Target: Foundry VTT v13.351
+ * Target: Foundry VTT v14.368+
  */
 
 import { createDebugLogger } from "../_primitives.js";
-import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
+import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 
 const _FLAG_NS = FLAG_SCOPE;
@@ -49,23 +52,11 @@ const _debug = createDebugLogger("debugMagicRouting", "[UESRPG][SoulTrap]");
  * @returns {{ size: string, energy: number, soulType: string }}
  */
 function _determineSoulSize(actor) {
-  // PCs and "named" NPCs → Black Soul
-  if (actor.type === "Player Character" || actor.type === "character") {
-    return { size: "Black", energy: 1500, soulType: "black" };
-  }
-
-  const level = Number(
-    actor.system?.level ??
-    actor.system?.cr ??
-    actor.system?.details?.level ??
-    1
-  ) || 1;
-
-  if (level <= 2) return { size: "Petty", energy: 100, soulType: "white" };
-  if (level <= 4) return { size: "Lesser", energy: 250, soulType: "white" };
-  if (level <= 6) return { size: "Common", energy: 500, soulType: "white" };
-  if (level <= 8) return { size: "Greater", energy: 1000, soulType: "white" };
-  return { size: "Grand", energy: 1500, soulType: "white" };
+  const level = Number(actor.system?.level ?? actor.system?.cr ?? actor.system?.details?.level ?? 1) || 1;
+  const key = ['Player Character', 'character'].includes(actor.type) ? 'black'
+    : level <= 2 ? 'petty' : level <= 4 ? 'lesser' : level <= 6 ? 'common' : level <= 8 ? 'greater' : 'grand';
+  const tier = SOUL_GEM_TIERS[key];
+  return { size: tier.label, energy: tier.maxEnergy, soulType: tier.soulType };
 }
 
 /* ── Soul Trap Detection ──────────────────────────────────────────────────── */
@@ -104,13 +95,13 @@ function _findSoulTrapEffect(actor) {
  * @param {{ size: string, energy: number, soulType: string }} soulInfo
  * @returns {Promise<Item|null>}
  */
-async function _createSoulGemItem(casterActor, trappedActor, soulInfo) {
+async function _createSoulGemItem(casterActor, trappedActor, soulInfo, captureId) {
   const itemData = {
     name: `Filled Soul Gem (${soulInfo.size}) — ${trappedActor.name}`,
     type: "item",
     img: "icons/magic/unholy/orb-glowing-purple.webp",
     system: {
-      description: `<p>A <strong>${soulInfo.size} Soul Gem</strong> containing the soul of <strong>${trappedActor.name}</strong>.</p><p>Soul Energy: ${soulInfo.energy}</p>`,
+      description: `<p>A <strong>${soulInfo.size} Soul Gem</strong> containing the soul of <strong>${foundry.utils.escapeHTML(trappedActor.name)}</strong>.</p><p>Soul Energy: ${soulInfo.energy}</p>`,
       quantity: 1,
       weight: 0.5,
       price: soulInfo.energy * 100
@@ -118,6 +109,7 @@ async function _createSoulGemItem(casterActor, trappedActor, soulInfo) {
     flags: {
       [_FLAG_NS]: {
         isSoulGem: true,
+        soulTrapCaptureId: captureId,
         soulSize: soulInfo.size,
         soulEnergy: soulInfo.energy,
         soulType: soulInfo.soulType ?? "white",
@@ -141,123 +133,66 @@ async function _createSoulGemItem(casterActor, trappedActor, soulInfo) {
   }
 }
 
-/* ── Hook Handler ─────────────────────────────────────────────────────────── */
-
-/**
- * Handles `preUpdateActor` hook — detect death (HP → 0) and trigger Soul Trap.
- *
- * In `preUpdateActor`, `actor.system.hp.value` is the OLD value and
- * `changes.system.hp.value` is the NEW value being applied.
- * This lets us reliably detect the alive→dead transition.
- *
- * All mutation work is deferred via fire-and-forget async to avoid
- * blocking the update pipeline.
- *
- * @param {Actor} actor
- * @param {object} changes
- * @param {object} _options
- * @param {string} _userId
- */
-function _onPreUpdateActor(actor, changes, _options, _userId) {
-  // Only GM processes Soul Trap
-  if (!game.user.isGM) return;
-
-  // Check if HP is being changed
-  const newHPRaw = changes?.system?.hp?.value;
-  if (newHPRaw === undefined) return;
-  const newHP = Number(newHPRaw);
-  if (!Number.isFinite(newHP)) return;
-
-  // Only trigger on death (HP drops to 0 or below)
-  if (newHP > 0) return;
-
-  // Ensure the actor was previously alive (old HP > 0)
-  const oldHP = Number(actor.system?.hp?.value ?? 0);
-  if (oldHP <= 0) return;
-
-  // Check for Soul Trap marker AE (actor still has old state in preUpdate)
-  const soulTrapAE = _findSoulTrapEffect(actor);
-  if (!soulTrapAE) return;
-
-  const flags = soulTrapAE.flags?.[_FLAG_NS] ?? {};
-  const casterUuid = flags.casterUuid;
-  if (!casterUuid) {
-    _debug("Soul Trap AE has no casterUuid — skipping");
-    return;
-  }
-
-  _debug(`Death detected: ${actor.name} (HP: ${oldHP} → ${newHP})`);
-
-  // Defer all mutation work to avoid blocking the preUpdate pipeline
-  const actorUuid = actor.uuid;
-  const soulTrapAEId = soulTrapAE.id;
-  const actorName = actor.name;
-
-  setTimeout(async () => {
-    try {
-      // Re-resolve actor (may have been updated by the time this runs)
-      const resolvedActor = await fromUuid(actorUuid);
-      if (!resolvedActor) return;
-
-      // Re-verify HP is actually 0 (the update should be applied by now)
-      if (Number(resolvedActor.system?.hp?.value ?? 1) > 0) return;
-
-      // Re-verify Soul Trap AE still exists (idempotency)
-      const existingAE = resolvedActor.effects?.get(soulTrapAEId);
-      if (!existingAE) return;
-
-      // Resolve caster actor
-      let casterActor;
-      try { casterActor = await fromUuid(casterUuid); } catch (_e) { /* no-op */ }
-      if (!casterActor) {
-        _debug(`Could not resolve caster: ${casterUuid}`);
-        return;
-      }
-
-      _debug("Soul Trap triggered:", { target: actorName, caster: casterActor.name });
-
-      // Determine soul size
-      const soulInfo = _determineSoulSize(resolvedActor);
-
-      // Create soul gem on caster
-      const soulGem = await _createSoulGemItem(casterActor, resolvedActor, soulInfo);
-
-      // Post chat notification
-      try {
-        await ChatMessage.create({
-          content: `<div class="uesrpg">
-            <h3>Soul Trapped!</h3>
-            <p><strong>${actorName}</strong>'s soul has been captured by <strong>${casterActor.name}</strong>'s Soul Trap.</p>
-            <p><strong>Soul Size:</strong> ${soulInfo.size} (Energy: ${soulInfo.energy})</p>
-            ${soulGem ? `<p>A <strong>${soulGem.name}</strong> has been added to ${casterActor.name}'s inventory.</p>` : ""}
-          </div>`,
-          speaker: ChatMessage.getSpeaker({ actor: casterActor }),
-          style: CONST.CHAT_MESSAGE_STYLES.OTHER
-        });
-      } catch (_e) { /* non-blocking */ }
-
-      // Remove the Soul Trap marker AE from the dead actor
-      try {
-        await requestDeleteEmbeddedDocuments(resolvedActor, "ActiveEffect", [soulTrapAEId]);
-      } catch (_e) { /* best-effort cleanup */ }
-    } catch (err) {
-      console.error("[UESRPG][SoulTrap] Deferred soul trap processing error:", err);
-    }
-  }, 100); // Small delay to let the actor update complete
+/** Record the transition in the same update; no effects run before commit.
+ * v14 preUpdateDocument explicitly permits modifying the differential data. */
+function _prepareDeathTransition(actor, changes) {
+  const raw = changes?.system?.hp?.value ?? changes?.['system.hp.value'];
+  if (raw === undefined || !Number.isFinite(Number(raw)) || Number(raw) > 0) return;
+  if (Number(actor.system?.hp?.value ?? 0) <= 0) return;
+  const effect = _findSoulTrapEffect(actor);
+  if (!effect) return;
+  foundry.utils.setProperty(changes, `flags.${_FLAG_NS}.soulTrapDeath`, {
+    id: foundry.utils.randomID(), effectId: effect.id, completed: false,
+  });
 }
 
-/* ── Initialization ───────────────────────────────────────────────────────── */
+async function _captureConfirmedDeath(actor) {
+  if (!isActiveGMUser(game.user)) return;
+  const lockKey = `SoulTrap:${actor.uuid}`;
+  await acquireLock(lockKey);
+  try {
+    const pending = actor.flags?.[_FLAG_NS]?.soulTrapDeath;
+    if (!pending || pending.completed || Number(actor.system?.hp?.value ?? 1) > 0) return;
+    const effect = actor.effects?.get(pending.effectId);
+    if (!effect || effect !== _findSoulTrapEffect(actor)) return;
+    const casterUuid = effect.flags?.[_FLAG_NS]?.casterUuid;
+    const caster = casterUuid ? await fromUuid(casterUuid) : null;
+    if (!caster) return;
+    const captureId = `${actor.uuid}:${pending.id}`;
+    let gem = caster.items?.find((item) => item.flags?.[_FLAG_NS]?.soulTrapCaptureId === captureId);
+    const existing = Boolean(gem);
+    const soul = _determineSoulSize(actor);
+    gem ??= await _createSoulGemItem(caster, actor, soul, captureId);
+    if (!gem) return; // Keep the marker and transition available for GM repair.
+    const recorded = await requestUpdateDocument(actor, {
+      [`flags.${_FLAG_NS}.soulTrapDeath`]: { ...pending, completed: true, gemUuid: gem.uuid },
+    });
+    if (!recorded) {
+      console.warn('UESRPG | Soul Trap gem created; capture receipt could not be finalized. The marker is retained for repair.');
+      return;
+    }
+    await requestDeleteEmbeddedDocuments(actor, 'ActiveEffect', [effect.id]);
+    if (!existing) {
+      const escape = foundry.utils.escapeHTML;
+      await ChatMessage.create({
+        content: `<div class="uesrpg"><h3>Soul Trapped!</h3><p><strong>${escape(actor.name)}</strong>'s soul was captured by <strong>${escape(caster.name)}</strong>.</p><p>Soul Size: ${soul.size} (Energy: ${soul.energy})</p><p>${escape(gem.name)} was added to the caster's inventory.</p></div>`,
+        speaker: ChatMessage.getSpeaker({ actor: caster }), style: CONST.CHAT_MESSAGE_STYLES.OTHER,
+      });
+    }
+  } finally {
+    releaseLock(lockKey);
+  }
+}
 
 let _initialized = false;
-
-/**
- * Register the Soul Trap death hook listener. Call once during system ready.
- * Idempotent — safe to call multiple times.
- */
 export function initializeSoulTrapService() {
   if (_initialized) return;
   _initialized = true;
-
-  Hooks.on("preUpdateActor", _onPreUpdateActor);
-  _debug("Soul Trap death hook registered");
+  Hooks.on('preUpdateActor', _prepareDeathTransition);
+  Hooks.on('updateActor', (actor, changes) => {
+    const transition = foundry.utils.getProperty(changes, `flags.${_FLAG_NS}.soulTrapDeath`);
+    if (!transition || transition.completed) return;
+    void _captureConfirmedDeath(actor).catch((error) => console.error('UESRPG | Confirmed Soul Trap capture failed', error));
+  });
+  _debug('Soul Trap confirmed-update hooks registered');
 }

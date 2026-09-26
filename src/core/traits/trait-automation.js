@@ -1,3 +1,4 @@
+import { getOwnerAndGmRecipientIds as _getOwnerUserIds } from '../../utils/chat-recipients.js';
 /**
  * @module traits/trait-automation
  * @description Trait application automation — disease resistance prompts and
@@ -7,27 +8,12 @@
  */
 
 import { getDiseaseResistancePercent } from "./trait-registry.js";
-import { doesUserOwnActor } from "../../utils/authority-proxy.js";
+
 
 function _norm(str) {
   return String(str ?? "").trim();
 }
 
-function _getOwnerUserIds(actor) {
-  const out = new Set();
-  const users = game.users?.contents ?? [];
-
-  for (const user of users) {
-    if (!user) continue;
-    if (user.isGM) {
-      out.add(user.id);
-      continue;
-    }
-    if (doesUserOwnActor(user, actor)) out.add(user.id);
-  }
-
-  return Array.from(out);
-}
 
 function _escape(str) {
   return foundry.utils.escapeHTML(String(str ?? ""));

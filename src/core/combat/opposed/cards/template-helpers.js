@@ -1,3 +1,4 @@
+import { escapeHtml as _escapeHtml } from '../../../../utils/html.js';
 /**
  * src/core/combat/opposed/cards/template-helpers.js
  * Pure template helper functions for opposed combat card rendering.
@@ -63,14 +64,7 @@ function _buildBreakdownRows(tnObj) {
   }).join("");
 }
 
-function _escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll("\"", "&quot;")
-    .replaceAll("'", "&#39;");
-}
+
 
 function _localizeDamageType(value) {
   const key = String(value ?? "").trim();
@@ -581,8 +575,11 @@ export function _buildDamagePanel(damageData) {
 
   // ── Action: apply button or applied state ──
   let actionSection = "";
+  const applicationStatus = String(damageData.applicationStatus ?? "");
   if (fullyBlocked) {
     actionSection = "";
+  } else if (applicationStatus === "partial") {
+    actionSection = `<div class="dmg-action" role="status">${t("UESRPG.Chat.Common.ApplicationPartial", "Partially applied — review remaining effects before retrying.")}</div>`;
   } else if (damageData.applied) {
     actionSection = `<div class="dmg-action"><span class="damage-applied-label"><i class="fa-solid fa-check" aria-hidden="true"></i> ${tf("UESRPG.Chat.Common.Applied", { label: damageLabel }, `${damageLabel} Applied`)}</span></div>`;
   } else {
@@ -590,9 +587,15 @@ export function _buildDamagePanel(damageData) {
     const btnLabel = tf("UESRPG.Chat.Common.ApplyToTarget", { target: p.targetName ?? t("UESRPG.Chat.Common.Target", "Target") }, `Apply \u2192 ${p.targetName ?? "Target"}`);
     const dataAttrs = Object.entries(p)
       .filter(([k]) => k !== "buttonLabel" && k !== "targetName")
-      .map(([k, v]) => `data-${_camelToKebab(k)}="${String(v ?? "").replace(/"/g, "&quot;")}"`) 
+      .map(([k, v]) => `data-${_camelToKebab(k)}="${_escapeHtml(v)}"`)
       .join(" ");
     actionSection = `<div class="dmg-action"><button type="button" class="${btnClass}" ${dataAttrs}>${btnLabel}</button></div>`;
+    if (applicationStatus === "pending") {
+      actionSection += `<div role="status">${t("UESRPG.Chat.Common.ApplicationPending", "Applying… If interrupted, use Apply to recover the saved outcome.")}</div>`;
+    }
+    if (applicationStatus === "failed") {
+      actionSection += `<div role="status">${t("UESRPG.Chat.Common.ApplicationFailed", "Application failed. Review the target before retrying.")}</div>`;
+    }
   }
 
   return `

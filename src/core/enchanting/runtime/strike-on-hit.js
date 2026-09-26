@@ -27,6 +27,7 @@ import { isActorUndead } from "../../traits/trait-registry.js";
 import { SYSTEM_ID } from "../../constants.js";
 import { buildEffectChangesData } from "../../../utils/compat.js";
 import { buildEffectDuration } from "../../time/effect-duration.js";
+import { calculateResourceAdjustment } from "../../system/resource-updates.js";
 
 // ---------------------------------------------------------------------------
 // Synchronous accumulator helpers
@@ -76,8 +77,9 @@ function _computeDrain(targetActor, fx, targetUpdates) {
       return null;
   }
 
-  targetUpdates[path] = Math.max(0, currentValue - amount);
-  return `${fx.catalog.label}: drained ${amount} from ${targetActor.name}`;
+  const result = calculateResourceAdjustment(currentValue, -amount);
+  targetUpdates[path] = result.value;
+  return `${fx.catalog.label}: drained ${-result.delta} from ${targetActor.name}`;
 }
 
 /**
@@ -97,9 +99,10 @@ function _computeAbsorb(targetActor, fx, hookData, targetUpdates, attackerRef) {
 
   // Drain from target (reads accumulated value if prior effects already modified HP).
   const targetHP = targetUpdates["system.hp.value"] ?? Number(targetActor.system?.hp?.value ?? 0);
-  const actualDrained = Math.min(amount, targetHP);
+  const drained = calculateResourceAdjustment(targetHP, -amount);
+  const actualDrained = -drained.delta;
   if (actualDrained > 0) {
-    targetUpdates["system.hp.value"] = Math.max(0, targetHP - actualDrained);
+    targetUpdates["system.hp.value"] = drained.value;
   }
 
   // Restore to attacker (separate actor — tracked in attackerRef).
@@ -111,7 +114,7 @@ function _computeAbsorb(targetActor, fx, hookData, targetUpdates, attackerRef) {
     }
     const attackerMaxHP = Number(attackerActor.system?.hp?.max ?? 0);
     const attackerHP = attackerRef.updates["system.hp.value"] ?? Number(attackerActor.system?.hp?.value ?? 0);
-    const newHP = Math.min(attackerMaxHP, attackerHP + actualDrained);
+    const newHP = calculateResourceAdjustment(attackerHP, actualDrained, { max: attackerMaxHP }).value;
     if (newHP !== attackerHP) {
       attackerRef.updates["system.hp.value"] = newHP;
     }
@@ -254,6 +257,7 @@ export function initializeStrikeOnHitRuntime() {
     const effectsToCreate = [];
     const attackerRef = { actor: null, updates: {} };
     const chatDescriptions = [];
+    const failures = [];
 
     for (const fx of effects) {
       try {
@@ -283,23 +287,28 @@ export function initializeStrikeOnHitRuntime() {
         if (desc) chatDescriptions.push({ weaponName: fx.weaponName, desc });
       } catch (err) {
         console.error(`UESRPG | Strike enchantment side effect "${fx.key}" failed`, err);
+        failures.push(fx.key);
       }
     }
 
     // Apply all targetActor updates in a single document operation.
+    let targetUpdated = true;
     if (Object.keys(targetUpdates).length > 0) {
       try {
-        await requestUpdateDocument(targetActor, targetUpdates);
+        targetUpdated = await requestUpdateDocument(targetActor, targetUpdates);
       } catch (err) {
+        targetUpdated = false;
         console.error("UESRPG | Strike enchantment batch target update failed", err);
       }
+      if (!targetUpdated) failures.push('Target resource update');
     }
 
     // Apply attacker updates (absorb restore) — separate actor, separate call.
-    if (attackerRef.actor && Object.keys(attackerRef.updates).length > 0) {
+    if (targetUpdated && attackerRef.actor && Object.keys(attackerRef.updates).length > 0) {
       try {
-        await requestUpdateDocument(attackerRef.actor, attackerRef.updates);
+        if (!await requestUpdateDocument(attackerRef.actor, attackerRef.updates)) failures.push('Absorb restoration');
       } catch (err) {
+        failures.push('Absorb restoration');
         console.error("UESRPG | Strike enchantment batch attacker update failed", err);
       }
     }
@@ -307,13 +316,19 @@ export function initializeStrikeOnHitRuntime() {
     // Create all condition AEs in a single embedded document operation.
     if (effectsToCreate.length > 0) {
       try {
-        await requestCreateEmbeddedDocuments(targetActor, "ActiveEffect", effectsToCreate);
+        const created = await requestCreateEmbeddedDocuments(targetActor, "ActiveEffect", effectsToCreate);
+        if (created?.length !== effectsToCreate.length) failures.push('Condition effects');
       } catch (err) {
+        failures.push('Condition effects');
         console.error("UESRPG | Strike enchantment AE creation failed", err);
       }
     }
 
     // Post chat messages after document writes.
+    if (failures.length) {
+      ui.notifications?.warn?.(`Strike enchantment partially applied: ${failures.join(', ')}. Review the actors before retrying.`);
+      return;
+    }
     for (const { weaponName, desc } of chatDescriptions) {
       _postSideEffectChat(targetActor, weaponName, desc);
     }

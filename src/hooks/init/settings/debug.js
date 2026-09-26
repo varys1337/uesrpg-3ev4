@@ -1,4 +1,4 @@
-import { SYSTEM_ID } from "../../../core/system/namespace.js";
+
 import { invalidateCachedSetting } from "../../../core/config/settings-cache.js";
 import { createSystemSettingRegistrar } from "../../../utils/settings-registration.js";
 
@@ -131,10 +131,10 @@ export function registerDebugSettings() {
     type: Boolean,
   });
 
-  // Hidden rollout/performance flags: live runtime branches retained for rollback and validation.
+  // Hidden compatibility keys and independent presentation/performance preferences.
   _reg("compositeBoundaryTickEnabled", {
     name: "Spell Tick: Composite Round-Boundary Dispatch",
-    hint: "When enabled, the spell tick engine collapses the four sequential round-boundary dispatches (turnStart, turnEnd, roundStart, roundEnd) into a single composite pass. Handlers that register fnBoundary receive one call with the full boundary context instead of four separate calls. The OverTime engine uses this to call _ensureIndex() once per boundary instead of four times. Default: true.",
+    hint: "Compatibility setting retained for existing worlds. The canonical pipeline is always active; this stored value no longer selects an alternate implementation.",
     scope: "world",
     config: false,
     default: true,
@@ -214,8 +214,8 @@ export function registerDebugSettings() {
   });
 
   _reg("useCombatBoundaryOrchestrator", {
-    name: "Round Boundary: Use Internal Orchestrator (Optional)",
-    hint: "When enabled, selected internal post-boundary consumers run through one ordered orchestrator lane instead of separate direct uesrpg.combatTimeChanged listeners. Default: true.",
+    name: "Round Boundary: Internal Orchestrator (Compatibility)",
+    hint: "Compatibility setting retained for existing worlds. The canonical pipeline is always active; this stored value no longer selects an alternate implementation.",
     scope: "world",
     config: false,
     default: true,

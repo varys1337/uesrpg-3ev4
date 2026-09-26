@@ -354,6 +354,7 @@ export async function applyHybridDamageToWarfareUnit(targetActor, {
   rawDamage = 0,
   damageType = "physical",
   magicSource = false,
+  _application = null,
 } = {}) {
   if (!requireMassCombatEnabled()) return null;
   const incoming = Math.max(0, Number(rawDamage ?? 0) || 0);
@@ -362,7 +363,7 @@ export async function applyHybridDamageToWarfareUnit(targetActor, {
     ? Math.max(0, Number(targetActor?.system?.gear?.mar ?? 0) || 0)
     : Math.max(0, Number(targetActor?.system?.gear?.ar ?? 0) || 0);
   const resolveLoss = Math.max(0, incoming - mitigation);
-  const result = await applyResolveLoss(targetActor, resolveLoss);
+  const result = await applyResolveLoss(targetActor, resolveLoss, { _application });
   return {
     resolveLoss,
     mitigation,

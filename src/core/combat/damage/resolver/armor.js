@@ -1,3 +1,4 @@
+import { normalizeArmorLocationKey as normalizeLocationKey } from './normalize.js';
 /**
  * src/core/combat/damage/resolver/armor.js
  *
@@ -6,21 +7,7 @@
 import { isShieldItem } from "../../../items/shield-utils.js";
 import { getResolvedArmorValues, isArmorCoveringLocation } from "../../armor-state.js";
 
-function normalizeLocationKey(hitLocation = "Body") {
-  const locationMap = {
-    Head: "Head",
-    Body: "Body",
-    "Right Arm": "RightArm",
-    "Left Arm": "LeftArm",
-    "Right Leg": "RightLeg",
-    "Left Leg": "LeftLeg",
-    RightArm: "RightArm",
-    LeftArm: "LeftArm",
-    RightLeg: "RightLeg",
-    LeftLeg: "LeftLeg",
-  };
-  return locationMap[hitLocation] ?? hitLocation;
-}
+
 
 /**
  * Best-effort reporting helper: list equipped armor items that explicitly cover a location.

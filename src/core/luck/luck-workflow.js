@@ -461,7 +461,7 @@ async function openBurnLuckDialog(actorOrMessage) {
     const available = currentLuck >= opt.cost;
     const disabled = available ? "" : "disabled";
     const contextNote = opt.requiresMessage && !hasMessage ? " (requires a test roll)" : "";
-    return `<option value="${opt.id}" ${disabled}>${opt.label} (Burn ${opt.cost} Luck)${contextNote}</option>`;
+    return `<option value="${opt.id}" ${disabled}>${_esc(opt.label)} (Burn ${opt.cost} Luck)${contextNote}</option>`;
   }).join("");
 
   await customDialog({

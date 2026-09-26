@@ -25,27 +25,18 @@ export { collectItemTokens, itemHasToken } from "./damage/tokens.js";
 export { isItemMagicSource, getDamageReduction } from "./damage/reduction.js";
 export { calculateDamage } from "./damage/calc.js";
 export { 
-  applyDamage, 
   applyForcefulImpact, 
   applyArmorLocationDamage,
-  ensureUnconsciousEffect, 
-  applyHealing 
+  ensureUnconsciousEffect
 } from "./damage/apply.js";
 
-// Global exposure for macros and console (preserve legacy compatibility)
-// This must be re-initialized here since the internal modules don't touch window
-import { DAMAGE_TYPES as DT } from "./damage/types.js";
-import { getDamageReduction as GDR, isItemMagicSource as IIMS } from "./damage/reduction.js";
-import { calculateDamage as CD } from "./damage/calc.js";
-import { applyDamage as AD, applyHealing as AH } from "./damage/apply.js";
+// Stable ESM aliases enter the same service as Actor and chat actions.
+export async function applyDamage(actor, damage, damageType, options = {}) {
+  const { ApplyDamageService } = await import('../../application/combat/apply-damage-service.js');
+  return ApplyDamageService.applySimple(actor, damage, damageType, options);
+}
 
-if (typeof window !== "undefined") {
-  window.Uesrpg3e = window.Uesrpg3e || {};
-  window.Uesrpg3e.damage = {
-    DAMAGE_TYPES: DT,
-    getDamageReduction: GDR,
-    calculateDamage: CD,
-    applyDamage: AD,
-    applyHealing: AH,
-  };
+export async function applyHealing(actor, amount, options = {}) {
+  const { ApplyDamageService } = await import('../../application/combat/apply-damage-service.js');
+  return ApplyDamageService.applyHealing(actor, amount, options);
 }

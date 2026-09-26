@@ -1,4 +1,4 @@
-import { SYSTEM_ID } from "../../../core/system/namespace.js";
+
 import { invalidateCachedSetting } from "../../../core/config/settings-cache.js";
 import { createSystemSettingRegistrar } from "../../../utils/settings-registration.js";
 
@@ -98,10 +98,10 @@ export function registerCombatSettings() {
 
   _reg("damageAftermathBundlingEnabled", {
     name: "Damage: Aftermath Bundling",
-    hint: "Custom automation profile only. When enabled, selected non-critical post-damage aftermath operations in the canonical resolved damage path are staged and committed in one ordered final pass. Rules-critical HP, wound, death, and damage hook writes remain immediate.",
+    hint: "Compatibility setting retained for existing worlds. The canonical pipeline is always active; this stored value no longer selects an alternate implementation.",
     scope: "world",
     config: false,
     type: Boolean,
-    default: false,
+    default: true,
   });
 }

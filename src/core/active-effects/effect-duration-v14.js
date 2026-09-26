@@ -40,7 +40,7 @@ function _clone(value) {
   return globalThis.foundry?.utils?.deepClone ? foundry.utils.deepClone(value) : JSON.parse(JSON.stringify(value ?? null));
 }
 
-function _castLevelFromOptions({ spellOptions = null, scalingChoices = null, castContext = null } = {}) {
+export function resolveEffectCastLevel({ spellOptions = null, scalingChoices = null, castContext = null } = {}) {
   const raw = castContext?.castLevel
     ?? spellOptions?.castLevel
     ?? spellOptions?.level
@@ -89,8 +89,8 @@ export async function resolveSpellDurationSourceV14(spell, casterActor, {
   castContext = null,
   forcedDuration = null
 } = {}) {
-  if (forcedDuration) return { duration: forcedDuration, castLevel: _castLevelFromOptions({ spellOptions, scalingChoices, castContext }) };
-  const castLevel = _castLevelFromOptions({ spellOptions, scalingChoices, castContext });
+  if (forcedDuration) return { duration: forcedDuration, castLevel: resolveEffectCastLevel({ spellOptions, scalingChoices, castContext }) };
+  const castLevel = resolveEffectCastLevel({ spellOptions, scalingChoices, castContext });
   try {
     const { resolveSpellProfile } = await import("../magic/spell-profile.js");
     return {
@@ -113,7 +113,7 @@ export function buildSpellEffectDurationV14(spell, casterActor, {
   resolvedDuration = null,
   defaultExpiry = ROUND_EXPIRY
 } = {}) {
-  const castLevel = _castLevelFromOptions({ spellOptions, scalingChoices, castContext });
+  const castLevel = resolveEffectCastLevel({ spellOptions, scalingChoices, castContext });
   const rawDuration = forcedDuration ?? resolvedDuration ?? spell?.system?.duration ?? null;
 
   let liveDuration = normalizeActiveEffectDurationV14(rawDuration ?? {}, { defaultExpiry });

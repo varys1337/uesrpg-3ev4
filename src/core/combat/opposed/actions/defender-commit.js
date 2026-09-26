@@ -8,15 +8,7 @@ import { getCoreRollMode } from "../../../../utils/chat-roll-mode.js";
 import { _getDefenderOutcome, _setDefenderOutcome, _setDefenderAdvantage, _getDefenderEntries, _isMultiDefender } from "../schema.js";
 import { _getBankCommitState, _allDefendersCommitted, _cleanupAutoRollContext, reconcileBankedAutoRollRequest } from "../banking/state.js";
 import { resolveOutcomeRAW as _resolveOutcomeRAW, computeAdvantageRAW as _computeAdvantageRAW } from "../outcome-resolution.js";
-import {
-  applyAoEEvadeOutcome as _applyAoEEvadeOutcome,
-  getTokenMovementAction as _getTokenMovementAction,
-  getDefenseGatingContext as _getDefenseGatingContext,
-  collectDefenseSensorySituationalMods as _collectDefenseSensorySituationalMods,
-  asNumber as _asNumber,
-  getPreferredWeaponUuid as _getPreferredWeaponUuid,
-  weaponHasQuality as _weaponHasQuality,
-} from "../helpers/workflow.js";
+import { applyAoEEvadeOutcome as _applyAoEEvadeOutcome, _resolveDefenderWeapon, _maybeGrantConcussiveNextBash, getTokenMovementAction as _getTokenMovementAction, getDefenseGatingContext as _getDefenseGatingContext, collectDefenseSensorySituationalMods as _collectDefenseSensorySituationalMods, asNumber as _asNumber } from "../helpers/workflow.js";
 import { _canControlActor, _emitSuppressedSubRollDice, _logDebug } from "../helpers/util.js";
 import { removeCondition } from "../../../conditions/condition-engine.js";
 import { canDefenderRoll, markDefenderIneligibleForHidden, markDefenderNoDefense } from "./eligibility.js";
@@ -34,9 +26,9 @@ import { applyHyperAwarenessToResult } from "../../../traits/awareness-talents.j
 import { shouldDeferEvadeApForStepAside } from "../../../traits/mobility-talents.js";
 import { consumeFreeNextDefenseCommit } from "../../activation-state-flags.js";
 import { canUseWardDefense, getPreferredWardDefenseSpell } from "../../ward-defense.js";
-import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
+
 import { applyLengthPenaltyToTN } from "../../../homebrew/reach-length/weapon.js";
-import { FLAG_SCOPE } from "../../../system/namespace.js";
+
 import { getFlagValueWithFallback } from "../../../system/flags.js";
 import { cloneFlagState } from "../../../../utils/clone.js";
 import { commitLaneToFreshCardState } from "../../../opposed/shared/fresh-commit.js";
@@ -86,47 +78,10 @@ function _applyDefenderLaneToFresh(freshData, data, defenderIndex) {
  * @param {object} choice - Defender commit choice object
  * @returns {Item|null}
  */
-function _resolveDefenderWeapon(defender, choice) {
-  try {
-    const choiceUuid = String(choice?.weaponUuid ?? "").trim();
-    if (choiceUuid) {
-      const doc = _resolveItemViaActor(choiceUuid, defender);
-      if (doc?.type === "weapon" && String(doc?.system?.attackMode ?? "melee").toLowerCase() === "melee") return doc;
-    }
-    // Fallback: first equipped melee weapon
-    for (const item of (defender?.items ?? [])) {
-      if (item.type !== "weapon") continue;
-      if (!item.system?.equipped) continue;
-      if (String(item.system?.attackMode ?? "").toLowerCase() === "melee") return item;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function _maybeGrantConcussiveNextBash(attacker, data, advantage) {
-  try {
-    if (!attacker || Number(advantage?.attacker ?? 0) <= 0) return;
-    if (String(data?.context?.attackMode ?? "melee").toLowerCase() !== "melee") return;
-    const weaponUuid = String(data?.context?.weaponUuid ?? "").trim();
-    if (!weaponUuid) return;
-    const weapon = _resolveItemViaActor(weaponUuid, attacker);
-    if (!weapon || weapon.type !== "weapon") return;
-    if (!_weaponHasQuality(weapon, "concussive")) return;
-    await requestUpdateDocument(attacker, {
-      [`flags.${FLAG_SCOPE}.combat.concussiveNextBash`]: {
-        bonus: 20,
-        grantedAt: Date.now(),
-        sourceWeaponUuid: weapon.uuid ?? null
-      }
-    });
-  } catch (err) {
-    console.warn("UESRPG | Concussive bonus grant failed", err);
-  }
-}
 
 /**
  * Handle defender-commit-nodefense action

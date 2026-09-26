@@ -1,3 +1,4 @@
+import { resolveEffectCastLevel as _castLevelFromOptions, buildSpellEffectDurationV14, normalizeActiveEffectDurationV14, isFiniteDuration, isIndefiniteDuration, extendEffectDurationByCanonicalPeriod, SPELL_EFFECT_DURATION_FLAG_KEY } from '../../active-effects/effect-duration-v14.js';
 /**
  * @module magic/effects/spell-effect-duration
  *
@@ -9,26 +10,11 @@
  * provenance metadata.
  */
 
-import {
-  buildSpellEffectDurationV14,
-  normalizeActiveEffectDurationV14,
-  isFiniteDuration,
-  isIndefiniteDuration,
-  extendEffectDurationByCanonicalPeriod,
-  SPELL_EFFECT_DURATION_FLAG_KEY
-} from "../../active-effects/effect-duration-v14.js";
+
 import { resolveSpellProfile } from "../spell-profile.js";
 import { _num, _str } from "../_primitives.js";
 
-function _castLevelFromOptions({ spellOptions = null, scalingChoices = null, castContext = null } = {}) {
-  const raw = castContext?.castLevel
-    ?? spellOptions?.castLevel
-    ?? spellOptions?.level
-    ?? scalingChoices?.level
-    ?? null;
-  const level = Number(raw);
-  return Number.isFinite(level) && level > 0 ? level : null;
-}
+
 
 function _normalizeUnit(unit) {
   const normalized = _str(unit || "seconds").toLowerCase();

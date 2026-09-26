@@ -1,3 +1,4 @@
+import { escapeHtml as _esc } from '../../utils/html.js';
 import { SYSTEM_ID } from "../constants.js";
 import { requestDeleteEmbeddedDocuments } from "../../utils/authority-proxy.js";
 import { getFlagValueWithFallback, getSystemFlagsWithFallback } from "../system/flags.js";
@@ -15,16 +16,7 @@ export const STAMINA_EFFECT_KEYS = {
   HEROIC_USED: "stamina-heroic-used-this-round",
 };
 
-function _esc(value) {
-  const raw = String(value ?? "");
-  if (foundry?.utils?.escapeHTML) return foundry.utils.escapeHTML(raw);
-  return raw
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+
 
 /**
  * Check if actor has a specific stamina effect active.

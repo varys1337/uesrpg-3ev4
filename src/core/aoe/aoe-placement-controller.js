@@ -299,38 +299,14 @@ function _interactivePlacementLoop(previewTemplate, previewDoc, opts) {
  * @param {*} ev
  * @returns {{x: number, y: number}|null}
  */
-function _getCanvasPosition(ev) {
-  // v13 (PIXI v8): FederatedPointerEvent has getLocalPosition directly on ev
-  if (typeof ev?.getLocalPosition === "function") {
-    const pos = ev.getLocalPosition(canvas.stage);
-    if (Number.isFinite(pos?.x) && Number.isFinite(pos?.y)) return pos;
-  }
-  // Legacy fallback: PIXI v5/v6 ev.data.getLocalPosition
-  const data = ev?.data ?? ev;
-  if (typeof data?.getLocalPosition === "function") {
-    const pos = data.getLocalPosition(canvas.stage);
-    if (Number.isFinite(pos?.x) && Number.isFinite(pos?.y)) return pos;
-  }
-  // Fallback: try globalPosition
-  const gp = ev?.global ?? ev?.data?.global;
-  if (gp && typeof canvas.stage?.toLocal === "function") {
-    const pos = canvas.stage.toLocal(gp);
-    if (Number.isFinite(pos?.x) && Number.isFinite(pos?.y)) return pos;
-  }
-  return null;
-}
+
 
 /**
  * Snap a point to the grid using the template layer's snapping.
  * @param {{x: number, y: number}} pt
  * @returns {{x: number, y: number}}
  */
-function _snapToGrid(pt) {
-  if (canvas.templates && typeof canvas.templates.getSnappedPoint === "function") {
-    return canvas.templates.getSnappedPoint(pt);
-  }
-  return pt;
-}
+
 
 /**
  * Update preview template position and direction in-place (no document update round-trip).
@@ -341,97 +317,10 @@ function _snapToGrid(pt) {
  * @param {number} y
  * @param {number} direction
  */
-function _updatePreviewPosition(previewTemplate, previewDoc, x, y, direction) {
-  try {
-    // Update the underlying document data directly (in-memory only, no persistence)
-    previewDoc.updateSource({ x, y, direction });
-    // Refresh the visual representation
-    previewTemplate.renderFlags?.set?.({ refreshPosition: true, refreshShape: true });
-    // Some Foundry builds need a manual position update on the PIXI object
-    if (Number.isFinite(x) && Number.isFinite(y)) {
-      previewTemplate.position?.set?.(x, y);
-    }
-  } catch (_e) {
-    // Best-effort: some preview states may not support all operations
-  }
-}
 
-/**
- * Measure distance in meters between two canvas points.
- * @param {{x: number, y: number}} a
- * @param {{x: number, y: number}} b
- * @returns {number}
- */
-function _measureDistanceMeters(a, b) {
-  if (!canvas?.grid || !a || !b) return 0;
-  try {
-    if (typeof canvas.grid.measurePath === "function") {
-      const path = canvas.grid.measurePath([a, b], { gridSpaces: true });
-      const d = path?.distance ?? (Array.isArray(path) ? path[0] : null);
-      if (Number.isFinite(d)) return d;
-    }
-  } catch (_e) { /* ignore */ }
-  const pixels = Math.hypot(b.x - a.x, b.y - a.y);
-  const gridSize = Number(canvas?.grid?.size ?? 0) || 0;
-  const gridDistance = Number(canvas?.scene?.grid?.distance ?? 0) || 0;
-  if (gridSize > 0 && gridDistance > 0) return (pixels / gridSize) * gridDistance;
-  return 0;
-}
-
-/**
- * Resolve the effective range origin point based on the aoeOriginMeasurement setting.
- * When "edge" or "match-token" (with tokenRangeMeasurement=edge), we try to find the
- * caster token and return the nearest bounding-box edge point.
- * Falls back to the provided center origin if no token is found.
- *
- * @param {{x: number, y: number}} origin - The center-point origin
- * @returns {{x: number, y: number}}
- */
-function _resolveRangeOrigin(origin) {
-  let useEdge = false;
-  try {
-    const mode = game.settings?.get?.("uesrpg-3ev4", "aoeOriginMeasurement") ?? "center";
-    if (mode === "edge") {
-      useEdge = true;
-    } else if (mode === "match-token") {
-      const tokenMode = game.settings?.get?.("uesrpg-3ev4", "tokenRangeMeasurement") ?? "center";
-      useEdge = (tokenMode === "edge");
-    }
-  } catch (_e) { /* settings not ready, center fallback */ }
-  if (!useEdge) return origin;
-
-  // Find a selected or controlled token whose center matches the origin
-  const tok = (canvas.tokens?.controlled ?? [])
-    .find(t => t.center && Math.abs(t.center.x - origin.x) < 2 && Math.abs(t.center.y - origin.y) < 2);
-  if (!tok) return origin;
-
-  // Return the token's position + dims so the caller can compute nearest edge.
-  // Since the placement controller only has a point target, we shift the origin
-  // to the nearest bounding-box edge toward a hypothetical "outward" direction.
-  // For interactive placement the mouse itself is the target, so we just
-  // return the origin unchanged — the correction happens per-measurement.
-  // Instead, we cache the bounding box so _measureDistanceMeters can use it.
-  return origin;
-}
 
 /**
  * Clean up a preview template from the canvas.
  * @param {MeasuredTemplate|null} previewTemplate
  */
-function _cleanupPreview(previewTemplate) {
-  if (!previewTemplate) return;
-  try {
-    // Remove from parent container
-    if (previewTemplate.parent) {
-      previewTemplate.parent.removeChild(previewTemplate);
-    }
-    // Destroy the PIXI object
-    previewTemplate.destroy({ children: true });
-  } catch (_e) {
-    // Best-effort cleanup
-  }
-  // Clear the preview container if it exists
-  try {
-    canvas.templates?.clearPreviewContainer?.();
-  } catch (_e) { /* ignore */ }
-}
+

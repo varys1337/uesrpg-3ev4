@@ -48,7 +48,7 @@ import { registerSpellTickHandler } from "./spell-tick-engine.js";
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { _num, _numOrNull, _str, createDebugLogger, isDebugEnabled } from "../_primitives.js";
 import { isPerfEnabled, monoMs, perfRecord } from "../../../utils/perf-tracker.js";
-import { applyDamage, applyHealing } from "../../combat/damage/apply.js";
+import { applyDamage, applyHealing } from "../../combat/damage-automation.js";
 import { DAMAGE_TYPES } from "../../combat/damage/types.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { resolveActorFromUuidSync } from "../../../utils/uuid-cache.js";
@@ -637,7 +637,7 @@ async function _onTick(ctx) {
 
 /**
  * Composite boundary tick handler — called once per round-boundary event when
- * `compositeBoundaryTickEnabled` is true.
+ * the canonical composite boundary dispatch runs.
  *
  * Calls `_ensureIndex()` exactly once for all phases and reuses one
  * boundary-level candidate precompute pass across phases. Phase processing

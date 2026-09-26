@@ -1,3 +1,9 @@
+import { normalizeActorFormValue as normalizePcFormValue, buildAllowedChangePatch, buildAllowedSubmitPatch, createFormPathMatcher } from './shared/form-pipeline.js';
+import { buildItemsSignature, buildEffectsSignature, buildWoundsSignature, buildCombatSignature, buildSheetUiSignature } from './shared/sheet-signatures.js';
+import { deleteSheetItem, castSheetInvocation, clearQueuedRenderPartsState, clearSheetFormUpdateState, flushCurrentSheetForm, isSheetPerfTraceEnabled, partRendered, queueRenderParts, queueSheetFormUpdate, renderedPartsSet, localizeSheetChoiceLabels, resolveCarryRatingDisplayLabel, resolveWeaponDistanceHeaderLabel, traceSheetPerf, traceSheetPerfPhase } from './shared/sheet-runtime-helpers.js';
+
+import { openSheetItemQuickMenu, bindItemRowQuickMenus, handleItemRowContextMenu } from "./shared/item-row-quick-menu.js";
+import { editSheetPortrait } from "./shared/file-picker.js";
 /**
  * src/ui/sheets/v2/actor-sheet.js
  *
@@ -14,7 +20,7 @@ import { prepareCharacterItems } from "../sheet-prepare-items.js";
 import { collectSkillAEModifiers } from "../../../core/actors/ae/modifiers.js";
 import { applyCollapsedGroups } from "../shared/helpers/collapsed-group-dom.js";
 import { postItemToChat } from "../shared-handlers.js";
-import { unlinkAllItemsFromContainer, unlinkItemFromContainer } from "../sheet-containers.js";
+
 import { requestUpdateDocument, requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { buildGenericAEData } from "../../../core/active-effects/modifier-evaluator.js";
 import { confirmDialog } from "../../../utils/dialog-v2-helper.js";
@@ -29,7 +35,7 @@ import { buildSheetAttackTrackerContext } from "./shared/attack-tracker-sheet-co
 import { buildCombatTabAttackTrackerView } from "./shared/attack-tracker-view.js";
 import { cancelOriginAEUpkeep } from "../../../core/magic/effects/origin-effect.js";
 import { buildEncumbranceBreakdown } from "../../../core/actors/rules/item-aggregation.js";
-import { getActorSheetRevision } from "../../../core/actors/derived-cache/actor-derived-cache.js";
+
 
 import { onCombatQuickAction } from "../shared/listeners/combat-actions.js";
 import { onCastMagicAction } from "../shared/listeners/magic-cast.js";
@@ -50,10 +56,10 @@ import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "./shar
 import { enableItemRowDragSources } from "./shared/drag-sources.js";
 import { bindListFilters, clearListFilterState } from "./shared/list-filter.js";
 import { applySheetDensityClass } from "./shared/sheet-density.js";
-import { createImageVideoFilePicker } from "./shared/file-picker.js";
+
 import { enableResizeMotionGuard, disableResizeMotionGuard } from "./shared/resize-motion-guard.js";
 import { annotateEncumbranceHighlights, openEncumbranceBreakdownDialog } from "./shared/encumbrance-ui.js";
-import { bindItemRowQuickMenus, openItemRowQuickMenu, handleItemRowContextMenu } from "./shared/item-row-quick-menu.js";
+
 import { registerCombatTrackerSheetRefresh, unregisterCombatTrackerSheetRefresh } from "./shared/combat-tracker-refresh.js";
 import {
   buildWoundsInjuriesPanelContext,
@@ -87,12 +93,7 @@ import {
 import { getCachedSetting } from "../../../core/config/settings-cache.js";
 import { setSystemTooltip } from "../../shared/system-tooltips.js";
 import { SYSTEM_ID, templatePath } from "../../constants.js";
-import {
-  buildEffectsSignature,
-  buildWoundsSignature,
-  buildCombatSignature,
-  buildSheetUiSignature,
-} from "./shared/sheet-signatures.js";
+
 import {
   buildActorSheetActorView,
   buildActorSheetEffects,
@@ -101,33 +102,15 @@ import {
 import { warnIfDuplicateSidebar } from "./shared/render-diagnostics.js";
 import { createPartContextScope, selectDocumentSheetRenderParts } from "./shared/part-context.js";
 import { syncBookmarkTabsActiveClass } from "./shared/bookmark-tabs-position.js";
-import { isEngagementFlankingHomebrewEnabled, isReligionWorshipEnabled } from "../../../core/homebrew/settings.js";
-import {
-  buildAllowedChangePatch,
-  buildAllowedSubmitPatch,
-  createFormPathMatcher,
-} from "./shared/form-pipeline.js";
+import { isEngagementFlankingHomebrewEnabled } from "../../../core/homebrew/settings.js";
+
 import {
   ACTOR_ARMOR_CLASS_LABELS,
   ACTOR_SIZE_LABELS,
   SUPPLY_DICE_LABELS,
   TRAINING_RANK_LABELS,
 } from "../../../core/config/label-catalog.js";
-import {
-  clearQueuedRenderPartsState,
-  clearSheetFormUpdateState,
-  flushCurrentSheetForm,
-  isSheetPerfTraceEnabled,
-  partRendered,
-  queueRenderParts,
-  queueSheetFormUpdate,
-  renderedPartsSet,
-  localizeSheetChoiceLabels,
-  resolveCarryRatingDisplayLabel,
-  resolveWeaponDistanceHeaderLabel,
-  traceSheetPerf,
-  traceSheetPerfPhase,
-} from "./shared/sheet-runtime-helpers.js";
+
 
 const { HandlebarsApplicationMixin } = foundry.applications.api;
 const ActorSheetV2Base = foundry.applications.sheets.ActorSheetV2;
@@ -153,15 +136,6 @@ const ALLOWED_PC_FORM_PATH = createFormPathMatcher({
   ],
 });
 
-function normalizePcFormValue({ path, value, currentValue, rawValue }) {
-  if (path !== MAX_ENGAGEMENT_SCORE_PATH) return value;
-
-  const raw = String(rawValue ?? value ?? "").trim();
-  if (!raw) return null;
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return currentValue;
-  return Math.max(0, Math.round(n));
-}
 
 export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
@@ -176,14 +150,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
   _uesrpgEncumbranceCache = null;
   _uesrpgSheetUiCache = null;
 
-  _buildItemsSignature(actor) {
-    return [
-      actor?.id ?? "",
-      actor?.type ?? "",
-      getActorSheetRevision(actor),
-      isReligionWorshipEnabled() ? "religion:on" : "religion:off",
-    ].join("|");
-  }
+  _buildItemsSignature(actor) { return buildItemsSignature.call(this, actor); }
 
   _renderedPartsSet(options) {
     return renderedPartsSet(options);
@@ -1011,42 +978,14 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
   async _onResistanceRoll(event, target) { return onResistanceRoll.call(this, event, target); }
   async _onCastMagicAction(event, target, preselectedSpell = null) { return onCastMagicAction.call(this, event, target, preselectedSpell); }
   async _onCastEnchantmentAction(event, target) { return onCastEnchantmentAction.call(this, event, target); }
-  async _onCastInvocationAction(event, target) {
-    event?.preventDefault?.();
-    const li = target?.closest?.(".item") ?? event?.currentTarget?.closest?.(".item");
-    const itemId = li?.dataset?.itemId;
-    if (!itemId) return;
-    const invocation = this.document.items.get(itemId);
-    if (!invocation) return;
-    const { castInvocationFromItem } = await import("../../../core/religion/invocation-runtime.js");
-    return castInvocationFromItem({
-      actor: this.document,
-      invocation,
-      token: this.token?.object ?? this.token ?? null,
-      sheet: this,
-    });
-  }
+  async _onCastInvocationAction(event, target) { return castSheetInvocation.call(this, event, target); }
   async _onOpenWorshipManager(event, _target) {
     event?.preventDefault?.();
     const { PietyPointsDialog } = await import("../../apps/piety-points-dialog.js");
     return PietyPointsDialog.show(this.document);
   }
 
-  async _onEditPortrait(event, target) {
-    event?.preventDefault?.();
-    event?.stopPropagation?.();
-    if (!this.isEditable) return;
-
-    const current = String(this.document?.img ?? "");
-    const picker = createImageVideoFilePicker({
-      current,
-      callback: async (path) => {
-        if (!path || path === current) return;
-        await requestUpdateDocument(this.document, { img: path });
-      },
-    });
-    await picker.browse();
-  }
+  async _onEditPortrait(event, target) { return editSheetPortrait.call(this, event, target); }
 
   /* ————— New action-map handlers (extracted from inline closures) ————— */
 
@@ -1087,31 +1026,10 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     if (item?.sheet) item.sheet.render(true);
   }
 
-  async _onItemQuickMenu(event, target) {
-    event?.preventDefault?.();
-    event?.stopPropagation?.();
-    const itemId = String(target?.dataset?.itemId ?? target?.closest?.(".item")?.dataset?.itemId ?? "").trim();
-    if (!itemId) return;
-    const item = this.document.items.get(itemId);
-    if (!item) return;
-    openItemRowQuickMenu(this, item, { anchorEl: target, event });
-  }
+  async _onItemQuickMenu(event, target) { return openSheetItemQuickMenu.call(this, event, target); }
 
   /** Delete inventory item (container-safe unlink + delete) */
-  async _onItemDelete(event, target) {
-    const li = target?.closest?.(".item");
-    const itemId = li?.dataset?.itemId;
-    if (!itemId) return;
-    const itemToDelete = this.document.items.get(itemId)
-      ?? this.document.items.find(i => i?._id == itemId);
-    if (!itemToDelete) return;
-    if (itemToDelete.type === "container") {
-      await unlinkAllItemsFromContainer(this.document, itemToDelete);
-    } else {
-      await unlinkItemFromContainer(this.document, itemToDelete);
-    }
-    await requestDeleteEmbeddedDocuments(this.document, "Item", [itemId]);
-  }
+  async _onItemDelete(event, target) { return deleteSheetItem.call(this, event, target); }
 
   /** Open container sheet from backpack icon */
   _onOpenContainer(event, target) {

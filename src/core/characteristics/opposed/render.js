@@ -1,3 +1,4 @@
+import { renderTargetNumberLine } from "../../opposed/shared/card-rendering.js";
 /**
  * src/core/characteristics/opposed/render.js
  * Card HTML rendering for characteristic opposed workflow
@@ -27,16 +28,7 @@ function _buildBreakdownRows(tnObj) {
 }
 
 function _renderTNLine(tnLabel, tnObj = null) {
-  const rows = _buildBreakdownRows(tnObj);
-  if (!rows) return `<div><b>${t("UESRPG.Chat.Common.TN", "TN")}:</b> ${tnLabel}</div>`;
-  return `
-    <details style="margin:0;">
-      <summary style="display:inline-block; cursor:pointer; user-select:none; white-space:nowrap;">
-        <b>${t("UESRPG.Chat.Common.TN", "TN")}:</b> ${tnLabel} &#9654;
-      </summary>
-      <div style="margin:4px 0 0 0; padding-left:8px; width:100%; box-sizing:border-box; font-size:12px; opacity:0.9;">${rows}</div>
-    </details>
-  `;
+  return renderTargetNumberLine(tnLabel, _buildBreakdownRows(tnObj));
 }
 
 function _extractRollTotal(result) {

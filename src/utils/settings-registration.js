@@ -5,6 +5,15 @@ function hasRegisteredSetting(namespace, key) {
   return Boolean(game.settings?.settings?.has?.(`${namespace}.${key}`));
 }
 
+export function readSettingIfRegistered(key, fallback = null, { namespace = SYSTEM_ID } = {}) {
+  try {
+    if (!hasRegisteredSetting(namespace, String(key ?? "").trim())) return fallback;
+    return game.settings.get(namespace, key);
+  } catch (_error) {
+    return fallback;
+  }
+}
+
 function hasRegisteredMenu(namespace, key) {
   return Boolean(game.settings?.menus?.has?.(`${namespace}.${key}`));
 }

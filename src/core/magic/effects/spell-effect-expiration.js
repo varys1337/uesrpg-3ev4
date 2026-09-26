@@ -14,7 +14,7 @@ import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { safeDeleteEmbeddedDocument, safeGetEffect } from "../../../utils/ae-helpers.js";
 import { _num, createDebugLogger } from "../_primitives.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
-import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../../time/combat-boundary-orchestrator.js";
+import { registerCombatBoundaryConsumer } from "../../time/combat-boundary-orchestrator.js";
 import { findOriginAEByGroupKey, cancelOriginAEUpkeep } from "./origin-effect.js";
 import { isFiniteDuration } from "./spell-effect-duration.js";
 import { resolveUuidSync } from "../../../utils/uuid-cache.js";
@@ -429,10 +429,7 @@ export function initializeSpellEffectExpirationSystem() {
     handle: _handleCombatBoundaryExpiration
   });
 
-  Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
-    if (noteCombatBoundaryLegacyFallbackSkip("spell-effect-expiration", payload)) return;
-    await _handleCombatBoundaryExpiration(payload);
-  });
+  
 
   Hooks.on("createCombat", async (combat) => {
     if (!isActiveGMUser(game.user)) return;

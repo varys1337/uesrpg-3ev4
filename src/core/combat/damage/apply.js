@@ -1,3 +1,4 @@
+import { normalizeArmorLocationKey as _normalizeLocationKey } from './resolver/normalize.js';
 /**
  * Damage & Healing Application
  * 
@@ -18,6 +19,8 @@ import { isShieldItem } from "../../items/shield-utils.js";
 import { getResolvedArmorValues, isArmorCoveringLocation } from "../armor-state.js";
 import {
   applyPostDamageUpdate,
+  calculateHealthDamage,
+  commitHealthUpdate,
   dispatchDamageAppliedHook,
   finalizeDamageTargetState,
   ensureUnconsciousEffect,
@@ -25,6 +28,7 @@ import {
 } from "./post-application.js";
 
 export { ensureUnconsciousEffect };
+import { createDamageAftermathBundle } from "./aftermath-bundle.js";
 
 function _healingDebug(...args) {
   if (!isAnyDebugEnabled(["woundsDebug", "spellCastingDebug"])) return;
@@ -35,21 +39,7 @@ function _healingDebug(...args) {
   }
 }
 
-function _normalizeLocationKey(hitLocation = "Body") {
-  const locationMap = {
-    Head: "Head",
-    Body: "Body",
-    "Right Arm": "RightArm",
-    "Left Arm": "LeftArm",
-    "Right Leg": "RightLeg",
-    "Left Leg": "LeftLeg",
-    RightArm: "RightArm",
-    LeftArm: "LeftArm",
-    RightLeg: "RightLeg",
-    LeftLeg: "LeftLeg",
-  };
-  return locationMap[hitLocation] ?? hitLocation;
-}
+
 
 function _isShieldItem(item) {
   return isShieldItem(item, { allowLegacy: true });
@@ -115,8 +105,7 @@ async function _applyDamagedQualityToItem(item, amount, { destroyWhenDepleted = 
     }
   }
 
-  await requestUpdateDocument(item, { "system.qualitiesStructured": structured });
-  return true;
+  return requestUpdateDocument(item, { "system.qualitiesStructured": structured });
 }
 
 export async function applyArmorLocationDamage(targetActor, hitLocation, damagedValue = 0) {
@@ -190,7 +179,6 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
     // Current implementation: increments the Damaged quality on ONE equipped armor piece covering the location.
     forcefulImpact = false,
     // Advantage: Press Advantage — currently informational only (advantage economy is handled in opposed workflow).
-    pressAdvantage = false,
     // Optional: enable RAW weapon-quality bonuses.
     weapon = null,
     attackerActor = null,
@@ -287,29 +275,7 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
   const currentTempHP = Number(actor.system?.tempHP ?? 0);
   
   // Temp HP absorbs damage first, then regular HP
-  let remainingDamage = finalDamageAdjusted;
-  let newTempHP = currentTempHP;
-  let newHP = currentHP;
-  let tempHPAbsorbed = 0;
-  
-  if (currentTempHP > 0 && remainingDamage > 0) {
-    if (remainingDamage <= currentTempHP) {
-      // Temp HP absorbs all damage
-      newTempHP = currentTempHP - remainingDamage;
-      tempHPAbsorbed = remainingDamage;
-      remainingDamage = 0;
-    } else {
-      // Temp HP absorbs some damage, rest goes to regular HP
-      tempHPAbsorbed = currentTempHP;
-      remainingDamage -= currentTempHP;
-      newTempHP = 0;
-    }
-  }
-  
-  // Apply remaining damage to regular HP
-  if (remainingDamage > 0) {
-    newHP = Math.max(0, currentHP - remainingDamage);
-  }
+  const { newHP, newTempHP, tempHPAbsorbed } = calculateHealthDamage(currentHP, currentTempHP, finalDamageAdjusted);
 
   // Choose update target: unlinked token actor if applicable, else base actor
   const updateTarget = resolveDamageUpdateTarget(actor);
@@ -327,7 +293,10 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
   if (newHP === 0) woundStatus = _isNpcActor(updateTarget) ? "dead" : "unconscious";
   else if (isWounded) woundStatus = "wounded";
 
-  await applyPostDamageUpdate(actor, { newHP, newTempHP });
+  if (!await applyPostDamageUpdate(actor, {
+    newHP, newTempHP, application: options._application,
+    result: { damage: finalDamageAdjusted, oldHP: currentHP, newHP, oldTempHP: currentTempHP, newTempHP, tempHPAbsorbed, woundStatus },
+  })) return null;
 
   // Emit damage-applied hook for downstream automation (wounds, conditions, etc.)
   const damageOrigin = normalizeActiveEffectOrigin(options?.origin)
@@ -353,15 +322,12 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
   });
 
 
+  const aftermathBundle = createDamageAftermathBundle({ applicationId: options.applicationId, targetActor: updateTarget, source });
   if (forcefulImpact && String(damageType ?? "").toLowerCase() === DAMAGE_TYPES.PHYSICAL) {
-    try {
-      await _applyForcefulImpact(updateTarget, hitLocation);
-    } catch (err) {
-      console.warn("UESRPG | Forceful Impact armor update failed", err);
-    }
+    aftermathBundle.stage({ key: "forcefulImpact", label: "Forceful Impact", run: () => _applyForcefulImpact(updateTarget, hitLocation) });
   }
-
-  await finalizeDamageTargetState(updateTarget, { newHP });
+  aftermathBundle.stage({ key: "targetState", label: "Target condition state", run: () => finalizeDamageTargetState(updateTarget, { newHP }) });
+  const aftermathSummary = await aftermathBundle.commit();
 
   // Damage chat message (GM-only, blind by default)
   const gmIds = game.users?.filter(u => u.isGM).map(u => u.id) ?? [];
@@ -600,6 +566,7 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
     tempHPAbsorbed,
     woundStatus,
     prevented,
+    aftermathSummary,
   };
 }
 
@@ -624,18 +591,6 @@ async function _applyForcefulImpact(targetActor, hitLocation) {
   if (!targetActor?.items) return;
 
   // Normalize hitLocation key variants coming from sheets/chat cards.
-  const locationMap = {
-    Head: "Head",
-    Body: "Body",
-    "Right Arm": "RightArm",
-    "Left Arm": "LeftArm",
-    "Right Leg": "RightLeg",
-    "Left Leg": "LeftLeg",
-    RightArm: "RightArm",
-    LeftArm: "LeftArm",
-    RightLeg: "RightLeg",
-    LeftLeg: "LeftLeg",
-  };
   const propertyName = _normalizeLocationKey(hitLocation);
 
   const equippedArmor = targetActor.items?.filter((i) => i.type === "armor" && i.system?.equipped === true) ?? [];
@@ -706,14 +661,13 @@ export async function applyHealing(actor, healing, options = {}) {
   const effectiveHealed = newHP - currentHP;
   const overflow = Math.max(0, totalHealed - effectiveHealed);
 
-  const activeToken = actor.token ?? actor.getActiveTokens?.()[0] ?? null;
-  const isUnlinkedToken = !!(activeToken && actor.prototypeToken && actor.prototypeToken.actorLink === false);
-  const updateTarget = isUnlinkedToken ? activeToken.actor : actor;
+  const updateTarget = resolveDamageUpdateTarget(actor);
 
   // Only update HP when there is an actual HP delta.
-  if (effectiveHealed !== 0) {
-    await requestUpdateDocument(updateTarget, { "system.hp.value": newHP });
-  }
+  if (!await commitHealthUpdate(updateTarget, effectiveHealed !== 0 ? { "system.hp.value": newHP } : {}, {
+    application: options._application,
+    result: { healing: effectiveHealed, oldHP: currentHP, newHP, totalHealed, overflow },
+  })) return null;
 
   const rollHTML = String(options?.rollHTML ?? "");
 
@@ -817,20 +771,19 @@ async function applyTemporaryHP(actor, amount, source = "Spell", options = {}) {
 
   _healingDebug(`UESRPG | applyTemporaryHP: New temp HP: ${newTempHP}, Actual granted: ${actualGranted}`);
 
-  const activeToken = actor.token ?? actor.getActiveTokens?.()[0] ?? null;
-  const isUnlinkedToken = !!(activeToken && actor.prototypeToken && actor.prototypeToken.actorLink === false);
-  const updateTarget = isUnlinkedToken ? activeToken.actor : actor;
+  const updateTarget = resolveDamageUpdateTarget(actor);
 
-  _healingDebug(`UESRPG | applyTemporaryHP: Update target: ${updateTarget?.name}, isUnlinked: ${isUnlinkedToken}`);
+  _healingDebug(`UESRPG | applyTemporaryHP: Update target: ${updateTarget?.name}`);
 
   if (newTempHP !== currentTempHP) {
     try {
       _healingDebug(`UESRPG | applyTemporaryHP: Updating actor with temp HP: ${newTempHP}`);
       // Update both fields for backwards compatibility, but system.tempHP is canonical
-      await requestUpdateDocument(updateTarget, { 
+      const updated = await commitHealthUpdate(updateTarget, {
         "system.tempHP": newTempHP,
         "system.hp.temp": newTempHP 
-      });
+      }, { application: options._application, result: { tempHP: newTempHP, granted: actualGranted, previous: currentTempHP } });
+      if (!updated) return null;
       _healingDebug("UESRPG | applyTemporaryHP: Actor updated successfully");
     } catch (err) {
       console.error("UESRPG | applyTemporaryHP: Actor update FAILED", err);
@@ -838,6 +791,9 @@ async function applyTemporaryHP(actor, amount, source = "Spell", options = {}) {
     }
   } else {
     _healingDebug("UESRPG | applyTemporaryHP: No update needed, temp HP unchanged");
+    if (!await commitHealthUpdate(updateTarget, {}, {
+      application: options._application, result: { tempHP: newTempHP, granted: 0, previous: currentTempHP },
+    })) return null;
   }
 
   const rollHTML = String(options?.rollHTML ?? "");
