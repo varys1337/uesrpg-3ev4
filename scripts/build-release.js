@@ -711,10 +711,10 @@ function validateSourceLayout(manifest, packageJson, packageLock) {
   if (packageLock.version !== packageJson.version || packageLock.packages?.[""]?.version !== packageJson.version) {
     fail(`package-lock.json version does not match package.json version ${packageJson.version}`);
   }
-if (manifest?.compatibility?.minimum !== "14.363"
+if (manifest?.compatibility?.minimum !== "14.367"
     || manifest?.compatibility?.verified !== "14.368"
     || String(manifest?.compatibility?.maximum ?? "") !== "14") {
-  fail("system.json compatibility must remain minimum 14.363, verified 14.368, maximum 14");
+  fail("system.json compatibility must remain minimum 14.367, verified 14.368, maximum 14");
 }
 
   if (manifest.manifest !== RELEASE_MANIFEST_URL) {
