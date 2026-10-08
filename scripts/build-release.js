@@ -921,18 +921,41 @@ function validateDocumentationLinks() {
       if (!target || /^(?:https?:|mailto:|#)/i.test(target)) continue;
       const withoutFragment = target.split("#", 1)[0];
       if (!withoutFragment) continue;
-      const resolved = path.resolve(path.dirname(file), decodeURIComponent(withoutFragment));
+      const documentPath = normalizePackagePath(path.relative(ROOT, file));
+      let localPath;
+      try {
+        localPath = decodeURIComponent(withoutFragment);
+      } catch (_error) {
+        fail(`${documentPath} links to an invalid encoded local path ${target}`);
+        continue;
+      }
+      // Check both path conventions before resolving against the host filesystem.
+      if (path.win32.isAbsolute(localPath) || path.posix.isAbsolute(localPath)
+        || /^[A-Za-z]:|^file:/i.test(localPath) || localPath.includes("\\")) {
+        fail(`${documentPath} links to a non-portable local path ${target}; use a repository-relative link`);
+        continue;
+      }
+      const resolved = path.resolve(path.dirname(file), localPath);
+      const relative = path.relative(ROOT, resolved);
+      if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+        fail(`${documentPath} links outside the repository: ${target}`);
+        continue;
+      }
+      if (SOURCE_EXCLUDES.has(relative.split(path.sep)[0])) {
+        fail(`${documentPath} links to an excluded local artifact ${target}; record its path as plain text`);
+        continue;
+      }
       if (!fs.existsSync(resolved)) {
         // Source links may append :line or :line:column to an existing file.
         const sourceFile = resolved.replace(/:[1-9]\d*(?::[1-9]\d*)?$/, "");
         if (sourceFile === resolved || !fs.existsSync(sourceFile) || !fs.statSync(sourceFile).isFile()) {
-          fail(`${normalizePackagePath(path.relative(ROOT, file))} links to missing local path ${target}`);
+          fail(`${documentPath} links to missing local path ${target}`);
         }
       }
     }
   }
 
-  notes.push(`Validated local links in ${markdownFiles.length} Markdown documentation files.`);
+  notes.push(`Validated portable repository-relative links in ${markdownFiles.length} Markdown documentation files.`);
 }
 
 function validateStylesheetReferences(manifest) {

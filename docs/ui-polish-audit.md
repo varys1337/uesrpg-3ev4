@@ -18,21 +18,23 @@ Evidence below is **source-preview evidence**: workspace HTML/Handlebars markup 
 | ⑧ | Character creation → four-column choices in a narrow dialog | Browser-wide media query leaves four 55.5 px columns in a 280 px window | Dialog-width query gives two 117 px columns; peer heights are 64.5 / 64.5 px and 47 / 47 px in the sample. |
 | ⑨ | Travel planner → short window | Header is 498 px and leaves the active tab body at 0 px in a 380 × 360 px window | Header is bounded and scrollable; body has approximately 87.8 px and its own scroll region. The header retains natural height when space permits. |
 
-![①–④ before/after: choices and footers](C:/dev/uesrpg/uesrpg-3ev4-14.0.0/release/backups/ui-polish-20261008-095209/visuals/01-04-before-after.jpg)
+## Local evidence archive
 
-![⑤ before/after: shared item navigation](C:/dev/uesrpg/uesrpg-3ev4-14.0.0/release/backups/ui-polish-20261008-095209/visuals/05-tabs-before-after.jpg)
+Preview captures, snapshots, and rollback files remain in `release/backups/ui-polish-20261008-095209/` in the original development workspace. These local recovery artifacts are excluded from repository source and release bundles. The paths below identify archived evidence; they are not embedded images or links to files shipped with this report.
 
-![⑥–⑧ before/after: dependent inputs, picker spacing and narrow character choices](C:/dev/uesrpg/uesrpg-3ev4-14.0.0/release/backups/ui-polish-20261008-095209/visuals/06-08-before-after.jpg)
+- Markers 1-4, choices and footers: `visuals/01-04-before-after.jpg`.
+- Marker 5, shared item navigation: `visuals/05-tabs-before-after.jpg`.
+- Markers 6-8, dependent inputs, picker spacing, and narrow character choices: `visuals/06-08-before-after.jpg`.
 
-⑨ — complete short-window source previews, before and after:
+Marker 9, complete short-window source previews:
 
-| Before — body has no usable height | After — header and body can scroll |
+| Before: body has no usable height | After: header and body can scroll |
 | --- | --- |
-| ![⑨ travel before](C:/dev/uesrpg/uesrpg-3ev4-14.0.0/release/backups/ui-polish-20261008-095209/visuals/09-travel-before.jpg) | ![⑨ travel after](C:/dev/uesrpg/uesrpg-3ev4-14.0.0/release/backups/ui-polish-20261008-095209/visuals/09-travel-after.jpg) |
+| `visuals/09-travel-before.jpg` | `visuals/09-travel-after.jpg` |
 
 ## Implementation and review coverage
 
-The three batches are preserved independently under [the backup manifest](C:/dev/uesrpg/uesrpg-3ev4-14.0.0/release/backups/ui-polish-20261008-095209/manifest.json):
+The three batches are preserved independently in the local archive's `manifest.json`:
 
 1. **Choice bars and dependent controls:** extend the existing margin reset to gap-managed containers, stretch character-choice panels, and use a supported CSS subgrid for attack/defense peer bars. The Normal Attack gains the same existing wrapper as its peers. No listeners or functions were introduced.
 2. **Footers:** stretch shared grid rows, remove the resource footer's late nowrap/flex overrides, and resolve the narrow-breakpoint specificity conflict with button-count classes. Existing colors, disabled styling and focus rules remain.
@@ -41,7 +43,7 @@ The three batches are preserved independently under [the backup manifest](C:/dev
 | Surface family | Review performed | Result / limit |
 | --- | --- | --- |
 | Four actor sheets | Player Character, NPC, Group and Warfare Unit PARTS, templates, selectors and representative contexts | Actor navigation and sheet/editor rules receive no production edits. Full live document population and bookmark behavior remain pending. |
-| Sixteen item types | ammunition, armor, shield, combatStyle, container, equipment, item, invocation, magicSkill, power, scroll, skill, spell, talent, trait, weapon; source templates rendered with the shared navigation partial | At 560 px default preview width every primary tab is 32 px high; maximum peer width difference is 0.0078125 px. No horizontal content overflow was measured. [Full source inventory image](C:/dev/uesrpg/uesrpg-3ev4-14.0.0/release/backups/ui-polish-20261008-095209/visuals/all-sixteen-item-sheets.jpg). |
+| Sixteen item types | ammunition, armor, shield, combatStyle, container, equipment, item, invocation, magicSkill, power, scroll, skill, spell, talent, trait, weapon; source templates rendered with the shared navigation partial | At 560 px default preview width every primary tab is 32 px high; maximum peer width difference is 0.0078125 px. No horizontal content overflow was measured. Local inventory capture: `visuals/all-sixteen-item-sheets.jpg`. |
 | Settings | Interface, Combat, Homebrew, Talents, Reach Visualizer, Debug and Migration | Source/selector review and representative contexts. Narrow Interface settings keep the Save action outside the bounded scrolling body. |
 | Character creation and advancement | Wizard, race/birthsign menus, spend-XP and spell-learning menus; casting/choice consumers | Shared choice alignment applies; narrow four-column sample corrected. Selection/grant/purchase flows are unchanged and await live acceptance. |
 | Resource and workflow dialogs | Magicka/Barrier, HP/Temp HP, Stamina, Burn Luck, Piety, condition choices, special actions, standalone/opposed casting | Shared footer/choice rules reviewed. Actual roll execution, refunds, spending and callbacks were not invoked. |
@@ -52,20 +54,20 @@ Manual presentation checks covered default dialog/item widths (440 / 560 px), na
 
 The font stress previews explicitly override the preview's font variables to exercise **Cyrodiil, Magic-Cyr, Dorovar Carolus, Futura Condensed Medium, Kingthings Petrock, Morris Roman Black and Morris Roman Black Alternate**. Choice peers share heights even when text wraps, and all tab peers share widths/heights. This is a CSS stress check; it does not verify the live font-setting reload path.
 
-![Supported-font stress previews](C:/dev/uesrpg/uesrpg-3ev4-14.0.0/release/backups/ui-polish-20261008-095209/visuals/fonts-wrapped-controls.jpg)
+Local supported-font stress capture: `visuals/fonts-wrapped-controls.jpg`.
 
 Single-option casting, two options, optional full-width talent controls, longer refund text, selected/incompatible choices and native keyboard focus were inspected. The source preview shows no size changes caused by selection/focus; the disabled choice retains its geometry and visible dimming. Narrow stacked rows can have different heights according to their own labels; peers within the same row remain equal.
 
-![Dark-theme states and keyboard focus](C:/dev/uesrpg/uesrpg-3ev4-14.0.0/release/backups/ui-polish-20261008-095209/visuals/states-dark-and-focus.jpg)
+Local dark-theme state and keyboard-focus capture: `visuals/states-dark-and-focus.jpg`.
 
-Long-description source previews remain bounded, with scrolling available in short item windows. Native ProseMirror preview/edit/save behavior was not initialized; its existing containment, padding and submit/update code was preserved byte-for-byte. [Density and short-window evidence](C:/dev/uesrpg/uesrpg-3ev4-14.0.0/release/backups/ui-polish-20261008-095209/visuals/density-short-items.jpg).
+Long-description source previews remain bounded, with scrolling available in short item windows. Native ProseMirror preview/edit/save behavior was not initialized; its existing containment, padding and submit/update code was preserved byte-for-byte. Local density and short-window capture: `visuals/density-short-items.jpg`.
 
 ## Files and reversible delivery
 
-- [Shared stylesheet](C:/dev/uesrpg/uesrpg-3ev4-14.0.0/styles/uesrpg.css:10288): choices, footers, primary item tabs and travel header.
-- [Attack markup wrapper](C:/dev/uesrpg/uesrpg-3ev4-14.0.0/src/core/combat/opposed/dialogs/attacker.js:123): two added wrapper lines; names and handlers unchanged.
-- [Workspace patch](C:/dev/uesrpg/uesrpg-3ev4-14.0.0/release/backups/ui-polish-20261008-095209/workspace.patch), per-batch snapshots/diffs, raw measurements, native JPEG captures, and rollback files are kept in the backup directory.
-- [Rollback script](C:/dev/uesrpg/uesrpg-3ev4-14.0.0/release/backups/ui-polish-20261008-095209/rollback.ps1) and [rollback ZIP](C:/dev/uesrpg/uesrpg-3ev4-14.0.0/release/ui-polish-20261008-095209.zip).
+- [Shared stylesheet](../styles/uesrpg.css#L10288): choices, footers, primary item tabs and travel header.
+- [Attack markup wrapper](../src/core/combat/opposed/dialogs/attacker.js#L123): two added wrapper lines; names and handlers unchanged.
+- Local `workspace.patch`, per-batch snapshots/diffs, raw measurements, native JPEG captures, and rollback files are kept in the backup directory.
+- Local `rollback.ps1` is in that directory. The rollback ZIP is `release/ui-polish-20261008-095209.zip` in the original development workspace.
 
 A 1,136-file baseline was hashed before edits. Only the stylesheet and attacker wrapper changed among those files; no baseline files were removed. Schemas, packs, localization, version metadata, all other JavaScript and templates remain identical to that baseline. The new audit report is recorded separately in the rollback manifest. The two installed-system counterparts were re-hashed and remained unchanged.
 
