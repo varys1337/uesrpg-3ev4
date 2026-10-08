@@ -30,7 +30,7 @@ Edit `src/data/spell-effects-catalog.js` and `src/data/strike-enchantments-catal
 
 The 14.2.0 consolidation is a source update. No new installable folder or ZIP was produced during implementation. Review the [consolidation audit](consolidation-audit.md), complete the [live acceptance checklist](consolidation-acceptance.md) in a disposable world, and only then create and deploy release artifacts. Preserve the existing manifest `verified` build until a newer exact build passes runtime acceptance.
 
-The subsequent 14.3.0 combat fluency changes are implemented in source, with the release version still at 14.2.0 pending runtime acceptance. Complete the [combat fluency acceptance and measurement checklist](combat-fluency-14.3.0.md) before raising the version to 14.3.0 and building release artifacts. Use the accepted release version for the tag in the handoff workflow below.
+The subsequent combat fluency changes target the selected 14.3.0 release. The package, lockfile, manifest version, and tag-specific download URL must agree before building. Complete the [combat fluency acceptance and measurement checklist](combat-fluency-14.3.0.md) before production deployment; matching release metadata and successful source validation do not certify live-world behavior.
 
 The broader automation pass is also implemented in source. Complete its [rest, consumption, spell lifecycle, time, state synchronization, and measurement gates](automation-fluency-14.3.0.md) alongside the combat checklist. Review each independent patch and its verified reverse patch before promoting it. Runtime acceptance and live performance measurements remain pending; the source checks do not justify a version bump or a performance claim.
 
@@ -38,7 +38,7 @@ The broader automation pass is also implemented in source. Complete its [rest, c
 
 The source handoff includes `.github`, automation, documentation, development metadata, runtime source, templates, packs, and assets. It excludes local agent configuration, Git metadata, dependencies, generated release folders, backups, ZIP files, and transient compendium locks and logs.
 
-Use a clean checkout of `https://github.com/varys1337/uesrpg-3ev4.git`. A normal merge copy is insufficient because it cannot remove tracked pack files that no longer exist in the source snapshot. Back up the checkout, verify the absolute paths below, and then mirror the snapshot while preserving `.git`:
+Use a clean checkout of `https://github.com/varys1337/uesrpg-3ev4.git`. A normal merge copy is insufficient because it cannot remove tracked runtime modules or pack files that no longer exist in the source snapshot. Back up the checkout, verify the absolute paths below, and then mirror the snapshot while preserving `.git`:
 
 ```powershell
 $sourceSnapshot = (Resolve-Path "C:\path\to\development\dist\github-source").Path
@@ -58,7 +58,7 @@ Get-ChildItem -LiteralPath $sourceSnapshot -Force | Copy-Item -Destination $gith
 git -C $githubCheckout status --short
 ```
 
-Inspect the resulting changes in GitHub Desktop before committing. Commit the source first, then create tag `v14.2.0` on that exact commit. Pushing the tag runs the immutable release workflow, which creates and publishes `system.json` and `uesrpg-3ev4.zip`; do not commit the local `dist` wrapper or upload it as repository source.
+Inspect the resulting changes in GitHub Desktop before committing, including deletions of obsolete source files. Validate the GitHub checkout itself after the handoff. Commit and push the corrected source first, then create and push a new tag matching `package.json` on that exact commit: `v14.3.0` for the current release. A branch push runs source validation; pushing the matching tag runs the immutable release workflow, which creates and publishes `system.json` and `uesrpg-3ev4.zip`. Do not commit the local `dist` wrapper or upload it as repository source. Do not reuse an existing release tag or rerun an old failed commit expecting it to include newer fixes.
 
 ## Local deployment
 
