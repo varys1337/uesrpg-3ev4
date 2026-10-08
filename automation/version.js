@@ -19,7 +19,7 @@ const { getReleaseMetadata } = require("./release-metadata.js");
 const systemFilePath = "./system.json";
 const systemFileEncoding = "utf-8";
 
-// npm provides the target version without the leading "v" (e.g. "1.0.0-RC.85")
+// npm provides numeric SemVer; the Foundry manifest deliberately uses the v-prefixed release tag.
 const rawVersion = env.npm_package_version;
 if (!rawVersion) {
   console.error("ERROR: npm_package_version is not set. Run via `npm version <semver>`.");
@@ -44,11 +44,11 @@ try {
 const manifestUrl = releaseMetadata.manifestUrl;
 const downloadUrl = releaseMetadata.downloadUrl;
 
-systemObj.version = rawVersion;
+systemObj.version = releaseMetadata.tag;
 systemObj.manifest = manifestUrl;
 systemObj.download = downloadUrl;
 
-console.log(`Updating system.json with version '${rawVersion}'`);
+console.log(`Updating system.json with version '${releaseMetadata.tag}'`);
 console.log(`Setting manifest: ${manifestUrl}`);
 console.log(`Setting download: ${downloadUrl}`);
 

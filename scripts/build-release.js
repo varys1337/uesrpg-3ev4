@@ -14,7 +14,7 @@ const ROOT = path.resolve(__dirname, "..");
 const SYSTEM_PREFIX = "systems/uesrpg-3ev4/";
 const RELEASE_FOLDER_NAME = "uesrpg-3ev4";
 const GITHUB_SOURCE_FOLDER_NAME = "github-source";
-const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+const SEMVER_PATTERN = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const RELEASE_DIRECTORIES = Object.freeze(["docs", "fonts", "images", "lang", "packs", "src", "styles", "templates"]);
 const RELEASE_FILES = Object.freeze(["system.json", "template.json"]);
 const OPTIONAL_RELEASE_FILES = Object.freeze(["CHANGELOG.md", "LICENSE.txt", "README.md"]);
@@ -1028,16 +1028,16 @@ function validateSourceLayout(manifest, packageJson, packageLock) {
   if (!manifest || !packageJson || !packageLock) return;
 
   if (manifest.id !== packageJson.name) fail(`Manifest id ${manifest.id} does not match package name ${packageJson.name}`);
-  if (manifest.version !== packageJson.version) fail(`Manifest version ${manifest.version} does not match package version ${packageJson.version}`);
   if (packageLock.name !== packageJson.name || packageLock.packages?.[""]?.name !== packageJson.name) {
     fail(`package-lock.json package name does not match package.json name ${packageJson.name}`);
   }
   if (packageLock.version !== packageJson.version || packageLock.packages?.[""]?.version !== packageJson.version) {
     fail(`package-lock.json version does not match package.json version ${packageJson.version}`);
   }
-  if (!SEMVER_PATTERN.test(String(manifest.version ?? ""))) fail(`Manifest version ${manifest.version} is not plain SemVer`);
+  if (!SEMVER_PATTERN.test(String(manifest.version ?? ""))) fail(`Manifest version ${manifest.version} must be a v-prefixed release tag`);
   try {
     const metadata = getReleaseMetadata(packageJson.version);
+    if (manifest.version !== metadata.tag) fail(`Manifest version ${manifest.version} does not match release tag ${metadata.tag}`);
     if (manifest.manifest !== metadata.manifestUrl) fail(`Manifest URL must be ${metadata.manifestUrl}`);
     if (manifest.download !== metadata.downloadUrl) fail(`Download URL must be ${metadata.downloadUrl}`);
   } catch (error) {
@@ -1202,9 +1202,12 @@ function validateBuiltGithubSourceFolder(destination, sourceFiles, manifest) {
     const stagedManifest = JSON.parse(fs.readFileSync(path.join(destination, "system.json"), "utf8"));
     const stagedPackage = JSON.parse(fs.readFileSync(path.join(destination, "package.json"), "utf8"));
     const stagedLock = JSON.parse(fs.readFileSync(path.join(destination, "package-lock.json"), "utf8"));
-    const versions = [stagedManifest.version, stagedPackage.version, stagedLock.version, stagedLock.packages?.[""]?.version];
-    if (versions.some((version) => version !== manifest?.version)) {
-      fail(`GitHub source version metadata must consistently equal ${manifest?.version}`);
+    const metadata = getReleaseMetadata(stagedPackage.version);
+    const versionsMatch = stagedManifest.version === metadata.tag
+      && stagedPackage.version === stagedLock.version
+      && stagedPackage.version === stagedLock.packages?.[""]?.version;
+    if (!versionsMatch) {
+      fail(`GitHub source requires manifest ${metadata.tag} and consistent npm version ${stagedPackage.version}`);
     }
   } catch (error) {
     fail(`GitHub source version metadata is missing or invalid: ${error.message}`);
@@ -1368,7 +1371,7 @@ function validateArchive(archiveArgument, manifest) {
       fail(`Archived manifest version ${archivedManifest.version} does not match source manifest version ${manifest?.version}`);
     }
     if (!SEMVER_PATTERN.test(String(archivedManifest.version ?? ""))) {
-      fail(`Archived manifest version ${archivedManifest.version} is not plain SemVer`);
+      fail(`Archived manifest version ${archivedManifest.version} must be a v-prefixed release tag`);
     }
   } catch (error) {
     fail(`Archived system.json is missing or invalid: ${error.message}`);

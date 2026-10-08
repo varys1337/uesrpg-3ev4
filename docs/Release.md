@@ -58,7 +58,7 @@ Get-ChildItem -LiteralPath $sourceSnapshot -Force | Copy-Item -Destination $gith
 git -C $githubCheckout status --short
 ```
 
-Inspect the resulting changes in GitHub Desktop before committing, including deletions of obsolete source files. Validate the GitHub checkout itself after the handoff. Commit and push the corrected source first, then create and push a new tag matching `package.json` on that exact commit: `v14.3.0` for the current release. A branch push runs source validation; pushing the matching tag runs the immutable release workflow, which creates and publishes `system.json` and `uesrpg-3ev4.zip`. Do not commit the local `dist` wrapper or upload it as repository source. Do not reuse an existing release tag or rerun an old failed commit expecting it to include newer fixes.
+Inspect the resulting changes in GitHub Desktop before committing, including deletions of obsolete source files. Validate the GitHub checkout itself after the handoff. Commit and push the corrected source first, then create and push a new tag matching `package.json` on that exact commit: `v14.3.1` for the current release. A branch push runs source validation; pushing the matching tag runs the immutable release workflow, which creates and publishes `system.json` and `uesrpg-3ev4.zip`. Do not commit the local `dist` wrapper or upload it as repository source. Do not reuse an existing release tag or rerun an old failed commit expecting it to include newer fixes.
 
 ## Local deployment
 
@@ -71,3 +71,11 @@ npm run verify:deployment -- "C:\path\to\FoundryVTT\Data\systems\uesrpg-3ev4"
 The verification command compares every staged release file by SHA-256 hash. It does not modify either directory.
 
 World-data migrations run only when Foundry loads a world with the updated system. Back up affected worlds before the first runtime launch, and keep the previous system folder until the migration and a smoke test have completed successfully.
+
+## Legacy version-update bridge (v14.3.1)
+
+The published v14.2.1 system manifest uses `v14.2.1` while v14.3.0 uses `14.3.0`. Foundry v14 `isNewerVersion` checks performed against an actual v14 client confirmed that `v14.3.1` compares newer than both older variants, while a numeric-only `14.3.2` does not compare newer than `v14.3.1`. The bridge therefore **retains the leading `v` in the `system.json` version for all subsequent releases**. The npm package and lockfile versions remain numeric, and the Git tag is `v`-prefixed.
+
+For v14.3.1: `system.json` = `v14.3.1`; `package.json` and `package-lock.json` = `14.3.1`; Git tag = `v14.3.1`. The existing release validator enforces these identities, and the npm version lifecycle writes the manifest tag. **Do not revert the manifest to a numeric-only version in a subsequent release** without first establishing a working migration for installed users.
+
+The release remains restricted to Foundry core **14.368 or newer**, as required by its unchanged compatibility metadata. Validate the staged build in a disposable world before promoting the release; version-comparison tests alone do not establish runtime compatibility.
