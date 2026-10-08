@@ -1,94 +1,95 @@
 {{!-- templates/v2/apps/homebrew-settings.hbs --}}
 <section class="uesrpg-settings uesrpg-settings-panel">
-  <fieldset class="uesrpg-settings__section">
-    <legend>{{localize "UESRPG.Apps.HomebrewSettings.Sections.Movement"}}</legend>
+  <div class="uesrpg-settings__body">
+    <fieldset class="uesrpg-settings__section">
+      <legend>{{localize "UESRPG.Apps.HomebrewSettings.Sections.Movement"}}</legend>
 
-    <div class="setting-row setting-row--toggle">
-      <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-homebrew-speed-formula">{{settings.homebrewSpeedFormulaSBAB.name}}</label>
-        <p class="setting-help">{{settings.homebrewSpeedFormulaSBAB.hint}}</p>
+      <div class="setting-row setting-row--toggle">
+        <div class="setting-row__main">
+          <label class="setting-row__label" for="uesrpg-homebrew-speed-formula">{{settings.homebrewSpeedFormulaSBAB.name}}</label>
+          <p id="uesrpg-homebrew-speed-formula-hint" class="setting-help">{{settings.homebrewSpeedFormulaSBAB.hint}}</p>
+        </div>
+        <input id="uesrpg-homebrew-speed-formula" aria-describedby="uesrpg-homebrew-speed-formula-hint" type="checkbox" name="homebrew.speedFormulaSBAB" {{checked settings.homebrewSpeedFormulaSBAB.value}}>
       </div>
-      <input id="uesrpg-homebrew-speed-formula" type="checkbox" name="homebrew.speedFormulaSBAB" {{checked settings.homebrewSpeedFormulaSBAB.value}}>
-    </div>
-  </fieldset>
+    </fieldset>
 
-  <fieldset class="uesrpg-settings__section">
-    <legend>{{localize "UESRPG.Apps.HomebrewSettings.Sections.ReachLength"}}</legend>
+    <fieldset class="uesrpg-settings__section">
+      <legend>{{localize "UESRPG.Apps.HomebrewSettings.Sections.ReachLength"}}</legend>
 
-    <div class="setting-row setting-row--toggle">
-      <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-reach-length-enabled">{{settings.reachLengthEnabled.name}}</label>
-        <p class="setting-help">{{settings.reachLengthEnabled.hint}}</p>
+      <div class="setting-row setting-row--toggle">
+        <div class="setting-row__main">
+          <label class="setting-row__label" for="uesrpg-reach-length-enabled">{{settings.reachLengthEnabled.name}}</label>
+          <p id="uesrpg-reach-length-enabled-hint" class="setting-help">{{settings.reachLengthEnabled.hint}}</p>
+        </div>
+        <input id="uesrpg-reach-length-enabled" aria-describedby="uesrpg-reach-length-enabled-hint" type="checkbox" name="homebrew.reachLength.enabled" {{checked settings.reachLengthEnabled.value}}>
       </div>
-      <input id="uesrpg-reach-length-enabled" type="checkbox" name="homebrew.reachLength.enabled" {{checked settings.reachLengthEnabled.value}}>
-    </div>
 
-    <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-reach-length-model">{{settings.reachLengthModel.name}}</label>
-      <select id="uesrpg-reach-length-model" name="homebrew.reachLength.reachModel" {{#unless settings.reachLengthEnabled.value}}disabled{{/unless}}>
-        {{selectOptions settings.reachLengthModel.choices selected=settings.reachLengthModel.value}}
-      </select>
-      <p class="setting-help">{{settings.reachLengthModel.hint}}</p>
-    </div>
-
-    <div class="setting-row setting-row--toggle">
-      <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-attacker-advantage-only">{{settings.reachLengthAttackerAdvantageOnly.name}}</label>
-        <p class="setting-help">{{settings.reachLengthAttackerAdvantageOnly.hint}}</p>
+      <div class="setting-row setting-row--select">
+        <label class="setting-row__label" for="uesrpg-reach-length-model">{{settings.reachLengthModel.name}}</label>
+        <select id="uesrpg-reach-length-model" aria-describedby="uesrpg-reach-length-model-hint" name="homebrew.reachLength.reachModel" {{#unless settings.reachLengthEnabled.value}}disabled{{/unless}}>
+          {{selectOptions settings.reachLengthModel.choices selected=settings.reachLengthModel.value}}
+        </select>
+        <p id="uesrpg-reach-length-model-hint" class="setting-help">{{settings.reachLengthModel.hint}}</p>
       </div>
-      <input id="uesrpg-attacker-advantage-only" type="checkbox" name="homebrew.reachLength.attackerAdvantageOnly" {{checked settings.reachLengthAttackerAdvantageOnly.value}} {{#unless settings.reachLengthEnabled.value}}disabled{{/unless}}>
-    </div>
 
-    <p class="setting-note">{{localize "UESRPG.Apps.HomebrewSettings.ReachLengthNote"}}</p>
-  </fieldset>
-
-  <fieldset class="uesrpg-settings__section">
-    <legend>{{localize "UESRPG.Apps.HomebrewSettings.Sections.EngagementFlanking"}}</legend>
-
-    <div class="setting-row setting-row--toggle">
-      <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-engagement-flanking-enabled">{{settings.engagementFlankingEnabled.name}}</label>
-        <p class="setting-help">{{settings.engagementFlankingEnabled.hint}}</p>
+      <div class="setting-row setting-row--toggle">
+        <div class="setting-row__main">
+          <label class="setting-row__label" for="uesrpg-attacker-advantage-only">{{settings.reachLengthAttackerAdvantageOnly.name}}</label>
+          <p id="uesrpg-attacker-advantage-only-hint" class="setting-help">{{settings.reachLengthAttackerAdvantageOnly.hint}}</p>
+        </div>
+        <input id="uesrpg-attacker-advantage-only" aria-describedby="uesrpg-attacker-advantage-only-hint" type="checkbox" name="homebrew.reachLength.attackerAdvantageOnly" {{checked settings.reachLengthAttackerAdvantageOnly.value}} {{#unless settings.reachLengthEnabled.value}}disabled{{/unless}}>
       </div>
-      <input id="uesrpg-engagement-flanking-enabled" type="checkbox" name="homebrew.engagementFlanking.enabled" {{checked settings.engagementFlankingEnabled.value}}>
-    </div>
 
-    <div class="setting-row setting-row--toggle">
-      <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-engagement-only-in-combat">{{settings.engagementFlankingOnlyInCombat.name}}</label>
-        <p class="setting-help">{{settings.engagementFlankingOnlyInCombat.hint}}</p>
-        <p class="setting-note"><code>game.combat.started</code></p>
+      <p class="setting-note">{{localize "UESRPG.Apps.HomebrewSettings.ReachLengthNote"}}</p>
+    </fieldset>
+
+    <fieldset class="uesrpg-settings__section">
+      <legend>{{localize "UESRPG.Apps.HomebrewSettings.Sections.EngagementFlanking"}}</legend>
+
+      <div class="setting-row setting-row--toggle">
+        <div class="setting-row__main">
+          <label class="setting-row__label" for="uesrpg-engagement-flanking-enabled">{{settings.engagementFlankingEnabled.name}}</label>
+          <p id="uesrpg-engagement-flanking-enabled-hint" class="setting-help">{{settings.engagementFlankingEnabled.hint}}</p>
+        </div>
+        <input id="uesrpg-engagement-flanking-enabled" aria-describedby="uesrpg-engagement-flanking-enabled-hint" type="checkbox" name="homebrew.engagementFlanking.enabled" {{checked settings.engagementFlankingEnabled.value}}>
       </div>
-      <input id="uesrpg-engagement-only-in-combat" type="checkbox" name="homebrew.engagementFlanking.onlyInCombat" {{checked settings.engagementFlankingOnlyInCombat.value}}>
-    </div>
-  </fieldset>
 
-  <fieldset class="uesrpg-settings__section">
-    <legend>{{localize "UESRPG.Apps.HomebrewSettings.Sections.MassCombat"}}</legend>
-
-    <div class="setting-row setting-row--toggle">
-      <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-mass-combat-enabled">{{settings.massCombatEnabled.name}}</label>
-        <p class="setting-help">{{settings.massCombatEnabled.hint}}</p>
-        <p class="setting-note">{{localize "UESRPG.Apps.HomebrewSettings.MassCombatNote"}}</p>
+      <div class="setting-row setting-row--toggle">
+        <div class="setting-row__main">
+          <label class="setting-row__label" for="uesrpg-engagement-only-in-combat">{{settings.engagementFlankingOnlyInCombat.name}}</label>
+          <p id="uesrpg-engagement-only-in-combat-hint" class="setting-help">{{settings.engagementFlankingOnlyInCombat.hint}}</p>
+        </div>
+        <input id="uesrpg-engagement-only-in-combat" aria-describedby="uesrpg-engagement-only-in-combat-hint" type="checkbox" name="homebrew.engagementFlanking.onlyInCombat" {{checked settings.engagementFlankingOnlyInCombat.value}}>
       </div>
-      <input id="uesrpg-mass-combat-enabled" type="checkbox" name="homebrew.massCombat.enabled" {{checked settings.massCombatEnabled.value}}>
-    </div>
-  </fieldset>
+    </fieldset>
 
-  <fieldset class="uesrpg-settings__section">
-    <legend>{{localize "UESRPG.Apps.HomebrewSettings.Sections.ReligionWorship"}}</legend>
+    <fieldset class="uesrpg-settings__section">
+      <legend>{{localize "UESRPG.Apps.HomebrewSettings.Sections.MassCombat"}}</legend>
 
-    <div class="setting-row setting-row--toggle">
-      <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-religion-worship-enabled">{{settings.religionWorshipEnabled.name}}</label>
-        <p class="setting-help">{{settings.religionWorshipEnabled.hint}}</p>
+      <div class="setting-row setting-row--toggle">
+        <div class="setting-row__main">
+          <label class="setting-row__label" for="uesrpg-mass-combat-enabled">{{settings.massCombatEnabled.name}}</label>
+          <p id="uesrpg-mass-combat-enabled-hint" class="setting-help">{{settings.massCombatEnabled.hint}}</p>
+          <p class="setting-note">{{localize "UESRPG.Apps.HomebrewSettings.MassCombatNote"}}</p>
+        </div>
+        <input id="uesrpg-mass-combat-enabled" aria-describedby="uesrpg-mass-combat-enabled-hint" type="checkbox" name="homebrew.massCombat.enabled" {{checked settings.massCombatEnabled.value}}>
       </div>
-      <input id="uesrpg-religion-worship-enabled" type="checkbox" name="homebrew.religionWorship.enabled" {{checked settings.religionWorshipEnabled.value}}>
-    </div>
-  </fieldset>
+    </fieldset>
+
+    <fieldset class="uesrpg-settings__section">
+      <legend>{{localize "UESRPG.Apps.HomebrewSettings.Sections.ReligionWorship"}}</legend>
+
+      <div class="setting-row setting-row--toggle">
+        <div class="setting-row__main">
+          <label class="setting-row__label" for="uesrpg-religion-worship-enabled">{{settings.religionWorshipEnabled.name}}</label>
+          <p id="uesrpg-religion-worship-enabled-hint" class="setting-help">{{settings.religionWorshipEnabled.hint}}</p>
+        </div>
+        <input id="uesrpg-religion-worship-enabled" aria-describedby="uesrpg-religion-worship-enabled-hint" type="checkbox" name="homebrew.religionWorship.enabled" {{checked settings.religionWorshipEnabled.value}}>
+      </div>
+    </fieldset>
+  </div>
 
   <footer class="uesrpg-settings__footer">
-    <button type="submit" class="save"><i class="fas fa-save"></i> {{localize "UESRPG.UI.Save"}}</button>
+    <button type="submit" class="save"><i class="fas fa-save" aria-hidden="true"></i> {{localize "UESRPG.UI.Save"}}</button>
   </footer>
 </section>

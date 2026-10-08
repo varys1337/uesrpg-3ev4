@@ -1,3 +1,4 @@
+import { emitSuppressedSubRollDice } from "../../../utils/dice-visualization.js";
 /**
  * @module magic/ticks/cloak-tick-handler
  *
@@ -245,7 +246,7 @@ async function _applyCloakToTarget(casterActor, targetActor, spell, config, ctx)
   if (useSpellDamage && isDamaging) {
     try {
       const { applyMagicDamage } = await import("../damage-application.js");
-      const strengthComponents = getSpellStrengthDamageComponents(spell, { actor: casterActor, damageType });
+      const strengthComponents = getSpellStrengthDamageComponents(spell, { actor: casterActor, damageType, validate: true });
       let rollHTML = "";
       let damageComponents = [];
       let damageValue = 0;
@@ -253,6 +254,7 @@ async function _applyCloakToTarget(casterActor, targetActor, spell, config, ctx)
       if (strengthComponents.length) {
         for (const component of strengthComponents) {
           const roll = await new Roll(component.formula).evaluate();
+          void emitSuppressedSubRollDice(roll, { actor: casterActor, messageMode: "public", damageType: component.damageType });
           const amount = Math.max(0, _num(roll.total, 0));
           damageValue += amount;
           rollHTML += await roll.render();
@@ -265,6 +267,7 @@ async function _applyCloakToTarget(casterActor, targetActor, spell, config, ctx)
         }
       } else {
         const damageResult = await rollSpellDamage(spell, { actor: casterActor });
+        void emitSuppressedSubRollDice(damageResult, { actor: casterActor, messageMode: "public", damageType });
         damageValue = _num(damageResult?.total, 0);
         rollHTML = await damageResult.render();
       }

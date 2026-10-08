@@ -1,3 +1,4 @@
+import { renderTNSummary, bindTNEstimates } from "../../../../ui/shared/tn-presentation.js";
 /**
  * src/core/combat/damage/resolver/resolve.js
  *
@@ -35,6 +36,7 @@ import { hasTalent } from "../../../traits/talents-api.js";
 import {
   applyWeaponExpertiseDamageModifiers,
   applyWeaponExpertisePostDamageEffects,
+  hasWeaponExpertisePostDamageEffects,
   getWeaponExpertiseWTDelta,
   isWeaponExpertiseActive
 } from "../../../traits/weapon-expertise/index.js";
@@ -56,9 +58,11 @@ import {
   dispatchDamageAppliedHook,
   dispatchDamageLifecycleHook,
   finalizeDamageTargetState,
+  needsDamageTargetState,
   resolveDamageUpdateTarget
 } from "../post-application.js";
 import { createDamageAftermathBundle } from "../aftermath-bundle.js";
+import { targetStateDocuments } from "../deferred-operations.js";
 
 const PENDING_SNEAK_TTL_MS = 30000;
 const _isNpcActor = (actor) => String(actor?.type ?? "").trim().toLowerCase() === "npc";
@@ -74,8 +78,10 @@ async function _runEntanglingEscapeCheck({ attacker, defender } = {}) {
   const choice = await customDialog({
     layout: "workflow",
     title: "Entangling",
+    render: (_event, dialog) => bindTNEstimates(dialog.element, () => [{ key: "str", result: { finalTN: strTN } }, { key: "agi", result: { finalTN: agiTN } }]),
     content: `
       <div class="uesrpg">
+        ${renderTNSummary([{ key: "str", label: "Strength" }, { key: "agi", label: "Agility" }])}
         <p><b>${foundry.utils.escapeHTML(defender.name ?? "Target")}</b> was hit by an Entangling attack.</p>
         <p>Choose STR or AGI to resist being entangled.</p>
       </div>
@@ -939,16 +945,18 @@ export async function applyDamageResolved(targetActor, payload = {}) {
   })) return null;
 
   // Consumption and secondary effects follow the confirmed HP commit.
-  const aftermathBundle = createDamageAftermathBundle({ applicationId, targetActor: updateTarget, source: ctx.options?.source ?? "Attack" });
+  const aftermathBundle = createDamageAftermathBundle({ applicationId, targetActor: updateTarget, source: ctx.options?.source ?? "Attack", outcomeContext: ctx.options.outcomeContext });
   if (powerAttackEffect) {
     await _stageOrRunAftermath(aftermathBundle, {
       key: "powerAttack", label: "Power Attack consumption",
+      operation: { type: "effect.delete", documentUuids: [powerAttackEffect.uuid] },
       run: () => requestDeleteEmbeddedDocuments(powerAttackEffect.parent, "ActiveEffect", [powerAttackEffect.id]),
     });
   }
   if (pendingHidden) {
     await _stageOrRunAftermath(aftermathBundle, {
       key: "pendingSneak", label: "Sneak Attack consumption",
+      operation: { type: "document.update", documentUuids: [attackerActor.uuid], payload: { [`flags.${_getSystemId()}.combat.-=pendingSneakAttack`]: null } },
       run: () => requestUpdateDocument(attackerActor, { [`flags.${_getSystemId()}.combat.-=pendingSneakAttack`]: null }),
     });
   }
@@ -1029,7 +1037,7 @@ export async function applyDamageResolved(targetActor, payload = {}) {
     origin: damageOrigin,
   }));
 
-  dispatchDamageAppliedHook(updateTarget, {
+  await dispatchDamageAppliedHook(updateTarget, {
     applicationId,
     woundTriggered,
     woundMode: woundEval.mode,
@@ -1047,17 +1055,18 @@ export async function applyDamageResolved(targetActor, payload = {}) {
     strikeEnchantmentSideEffects: strikeEnchantComponents.sideEffects ?? [],
   }, {
     logPrefix: "UESRPG | uesrpgDamageApplied hook failed",
-    logLevel: "warn"
+    logLevel: "warn", aftermathBundle, parentApplication: ctx.options._application,
   });
 
   // Consume strike enchantment charge AFTER damage is applied and hooks have fired.
   await _stageOrRunAftermath(aftermathBundle, {
     key: "strikeChargeConsumption",
     label: "Strike enchantment charge consumption",
+    applicable: () => Boolean(strikeEnchantComponents.chargeConsumptionNeeded && weaponCtx),
+    operation: strikeEnchantComponents.chargeConsumptionNeeded && weaponCtx ? { type: "strike.charge", documentUuids: [weaponCtx.uuid] } : null,
     run: async () => {
-      if (!strikeEnchantComponents.chargeConsumptionNeeded || !weaponCtx) return { skipped: true };
       try {
-        await consumeStrikeCharge(weaponCtx);
+        await consumeStrikeCharge(weaponCtx, { strict: true });
         return { consumed: true };
       } catch (err) {
         console.warn("UESRPG | Strike enchantment charge consume failed", err);
@@ -1067,23 +1076,21 @@ export async function applyDamageResolved(targetActor, payload = {}) {
   });
 
   // Diseased (X): natural weapon damage > 0 triggers Endurance test.
+  const diseasedValue = getActorTraitValue(attackerActor, "diseased", { mode: "sum" });
   await _stageOrRunAftermath(aftermathBundle, {
     key: "diseasedCheckCard",
     label: "Diseased check card",
+    applicable: () => Number(diseasedValue || 0) !== 0 && totalApplied > 0 && _isNaturalWeaponSource(sourceItem)
+      && !hasActorTrait(updateTarget, "diseased") && !isActorUndead(updateTarget),
     run: async () => {
       try {
-        const diseasedValue = getActorTraitValue(attackerActor, "diseased", { mode: "sum" });
-        const hasDiseased = Number(diseasedValue || 0) !== 0;
-        if (hasDiseased && totalApplied > 0 && _isNaturalWeaponSource(sourceItem) && !hasActorTrait(updateTarget, "diseased") && !isActorUndead(updateTarget)) {
-          await postDiseasedCheckCard({
-            attacker: attackerActor,
-            defender: updateTarget,
-            traitValue: Number(diseasedValue || 0),
-            sourceItem
-          });
-          return { posted: true };
-        }
-        return { skipped: true };
+        await postDiseasedCheckCard({
+          attacker: attackerActor,
+          defender: updateTarget,
+          traitValue: Number(diseasedValue || 0),
+          sourceItem
+        });
+        return { posted: true };
       } catch (err) {
         console.warn("UESRPG | Diseased trait automation failed", err);
         return { failed: true };
@@ -1094,12 +1101,9 @@ export async function applyDamageResolved(targetActor, payload = {}) {
   await _stageOrRunAftermath(aftermathBundle, {
     key: "forcefulImpact",
     label: "Forceful Impact armor damage",
+    applicable: () => Boolean(ctx.options?.forcefulImpact && String(ctx.damageType ?? "").toLowerCase() === DAMAGE_TYPES.PHYSICAL)
+      && (results.find(r => r.kind === "primary")?.finalApplied ?? 0) > 0,
     run: async () => {
-      if (!(ctx.options?.forcefulImpact && String(ctx.damageType ?? "").toLowerCase() === DAMAGE_TYPES.PHYSICAL)) {
-        return { skipped: true };
-      }
-      const primaryApplied = results.find(r => r.kind === "primary")?.finalApplied ?? 0;
-      if (primaryApplied <= 0) return { skipped: true };
       try {
         await applyForcefulImpact(updateTarget, hitLocation);
         return { applied: true };
@@ -1114,8 +1118,9 @@ export async function applyDamageResolved(targetActor, payload = {}) {
   await _stageOrRunAftermath(aftermathBundle, {
     key: "weaponExpertisePostDamage",
     label: "Weapon Expertise post-damage effects",
+    applicable: () => hasWeaponExpertisePostDamageEffects({ attacker: attackerActor, target: updateTarget,
+      weapon: weaponCtx, damageContext: talentContext, damageApplied: Math.max(0, totalApplied), woundTriggered }),
     run: async () => {
-      if (!(weaponCtx && attackerActor && updateTarget)) return { skipped: true };
       try {
         const wePostResult = await applyWeaponExpertisePostDamageEffects({
           attacker: attackerActor,
@@ -1143,6 +1148,8 @@ export async function applyDamageResolved(targetActor, payload = {}) {
 
   await _stageOrRunAftermath(aftermathBundle, {
     key: "targetState", label: "Target condition state",
+    applicable: () => needsDamageTargetState(updateTarget, { newHP }),
+    operation: { type: "damage.targetState", documentUuids: targetStateDocuments(updateTarget).map(doc => doc.uuid), payload: { newHP } },
     run: () => finalizeDamageTargetState(updateTarget, { newHP }),
   });
 
@@ -1150,13 +1157,11 @@ export async function applyDamageResolved(targetActor, payload = {}) {
   await _stageOrRunAftermath(aftermathBundle, {
     key: "entanglingEscapeCheck",
     label: "Entangling escape check",
+    applicable: () => Boolean(weaponCtx && itemHasToken(weaponCtx, "entangling")),
     run: async () => {
       try {
-        if (weaponCtx && itemHasToken(weaponCtx, "entangling")) {
-          await _runEntanglingEscapeCheck({ attacker: attackerActor, defender: updateTarget });
-          return { prompted: true };
-        }
-        return { skipped: true };
+        await _runEntanglingEscapeCheck({ attacker: attackerActor, defender: updateTarget });
+        return { prompted: true };
       } catch (err) {
         console.warn("UESRPG | Entangling automation failed", err);
         return { failed: true };
@@ -1166,7 +1171,9 @@ export async function applyDamageResolved(targetActor, payload = {}) {
 
   // Consolidated GM-only damage report
   const gmIds = game.users?.filter(u => u.isGM).map(u => u.id) ?? [];
-  const hpDelta = Math.max(0, currentHP - newHP);
+  const settledHP = Number(updateTarget.system?.hp?.value ?? newHP) || 0;
+  const settledTempHP = Number(updateTarget.system?.tempHP ?? newTempHP) || 0;
+  const hpDelta = Math.max(0, currentHP - settledHP);
 
   const fmt = (n) => {
     const v = Number(n ?? 0) || 0;
@@ -1347,10 +1354,31 @@ export async function applyDamageResolved(targetActor, payload = {}) {
     return segs.join("\n");
   };
 
-  let gmDamageReport = null;
+  const gmDamageReport = _buildGmDamageReportPayload({
+    targetActor: updateTarget,
+    source: ctx.options.source ?? "Attack",
+    hitLocation,
+    totalApplied,
+    newHP: settledHP,
+    maxHP,
+    currentHP,
+    currentTempHP,
+    newTempHP: settledTempHP,
+    tempHPAbsorbed,
+    bufferAbsorbedDetail,
+    traitNotes,
+    woundTriggered,
+    woundThreshold,
+    results,
+    attackerDealtEntries,
+    attackerPenEntries,
+    defenderTakenEntries,
+    defenderMitEntries
+  });
   await _stageOrRunAftermath(aftermathBundle, {
     key: "gmDamageReportChat",
     label: "GM damage report chat",
+    applicable: () => ctx.options?.chatContext?.suppressStandaloneSummary !== true,
     run: async () => {
       const traitNotesHtml = traitNotes.length
         ? `<div class="uesrpg-da-row"><span class="k">Traits</span><span class="v">${traitNotes.join(" | ")}</span></div>`
@@ -1363,65 +1391,41 @@ export async function applyDamageResolved(targetActor, payload = {}) {
       );
       const reductionTotal = results.reduce((sum, result) => sum + Math.max(0, Number(result.reductions?.total ?? 0)), 0);
       const messageContent = `
-        <div class="uesrpg-damage-applied-card">
-          <div class="hdr">
-            <img class="actor-thumb" src="${_actorThumb}" alt="">
-            <div class="hdr-text">
-              <div class="title">${updateTarget.name}</div>
-              <div class="sub">${ctx.options.source ?? "Attack"}${hitLocation ? ` \u00B7 ${hitLocation}` : ""}</div>
+          <div class="uesrpg-damage-applied-card">
+            <div class="hdr">
+              <img class="actor-thumb" src="${_actorThumb}" alt="">
+              <div class="hdr-text">
+                <div class="title">${updateTarget.name}</div>
+                <div class="sub">${ctx.options.source ?? "Attack"}${hitLocation ? ` \u00B7 ${hitLocation}` : ""}</div>
+              </div>
+            </div>
+            <div class="body">
+              <div class="uesrpg-da-row"><span class="k">Applied Damage</span><span class="v final">${Math.max(0, Number(totalApplied || 0))}</span></div>
+              <div class="uesrpg-da-row"><span class="k">Pre-Reduction</span><span class="v">${preReductionTotal}</span></div>
+              <div class="uesrpg-da-row"><span class="k">Reduction</span><span class="v">-${reductionTotal}</span></div>
+              <div class="uesrpg-da-row"><span class="k">HP</span><span class="v">${settledHP} / ${maxHP}${hpDelta ? ` <span class="muted">(\u2212${hpDelta})</span>` : ""}</span></div>
+              ${tempHPAbsorbed > 0 ? `<div class="uesrpg-da-row"><span class="k">Temp HP</span><span class="v">${settledTempHP}${tempHPAbsorbed ? ` <span class="muted">(\u2212${tempHPAbsorbed} absorbed)</span>` : ""}</span></div>` : (currentTempHP > 0 ? `<div class="uesrpg-da-row"><span class="k">Temp HP</span><span class="v">${settledTempHP}</span></div>` : "")}
+              ${bufferAbsorbedDetail.map(b => `<div class="uesrpg-da-row"><span class="k">${b.pool.charAt(0).toUpperCase() + b.pool.slice(1)} Buffer</span><span class="v">${b.remaining} <span class="muted">(\u2212${b.absorbed} absorbed)</span></span></div>`).join("")}
+              ${traitNotesHtml}
+              ${woundTriggered ? `<div class="status wounded">\u26A0 WOUNDED <span class="muted">(WT ${woundThreshold})</span></div>` : ""}
+              ${settledHP === 0 ? `<div class="status unconscious">\u{1F480} ${_isNpcActor(updateTarget) ? "DEAD" : "UNCONSCIOUS"}</div>` : ""}
+              <details>
+                <summary>Damage Breakdown</summary>
+                <div style="font-size:12px; opacity:0.95;">${renderDamageSegments()}</div>
+              </details>
             </div>
           </div>
-          <div class="body">
-            <div class="uesrpg-da-row"><span class="k">Applied Damage</span><span class="v final">${Math.max(0, Number(totalApplied || 0))}</span></div>
-            <div class="uesrpg-da-row"><span class="k">Pre-Reduction</span><span class="v">${preReductionTotal}</span></div>
-            <div class="uesrpg-da-row"><span class="k">Reduction</span><span class="v">-${reductionTotal}</span></div>
-            <div class="uesrpg-da-row"><span class="k">HP</span><span class="v">${newHP} / ${maxHP}${hpDelta ? ` <span class="muted">(\u2212${hpDelta})</span>` : ""}</span></div>
-            ${tempHPAbsorbed > 0 ? `<div class="uesrpg-da-row"><span class="k">Temp HP</span><span class="v">${newTempHP}${tempHPAbsorbed ? ` <span class="muted">(\u2212${tempHPAbsorbed} absorbed)</span>` : ""}</span></div>` : (currentTempHP > 0 ? `<div class="uesrpg-da-row"><span class="k">Temp HP</span><span class="v">${newTempHP}</span></div>` : "")}
-            ${bufferAbsorbedDetail.map(b => `<div class="uesrpg-da-row"><span class="k">${b.pool.charAt(0).toUpperCase() + b.pool.slice(1)} Buffer</span><span class="v">${b.remaining} <span class="muted">(\u2212${b.absorbed} absorbed)</span></span></div>`).join("")}
-            ${traitNotesHtml}
-            ${woundTriggered ? `<div class="status wounded">\u26A0 WOUNDED <span class="muted">(WT ${woundThreshold})</span></div>` : ""}
-            ${newHP === 0 ? `<div class="status unconscious">\u{1F480} ${_isNpcActor(updateTarget) ? "DEAD" : "UNCONSCIOUS"}</div>` : ""}
-            <details>
-              <summary>Damage Breakdown</summary>
-              <div style="font-size:12px; opacity:0.95;">${renderDamageSegments()}</div>
-            </details>
-          </div>
-        </div>
       `;
-      gmDamageReport = _buildGmDamageReportPayload({
-        targetActor: updateTarget,
-        source: ctx.options.source ?? "Attack",
-        hitLocation,
-        totalApplied,
-        newHP,
-        maxHP,
-        currentHP,
-        currentTempHP,
-        newTempHP,
-        tempHPAbsorbed,
-        bufferAbsorbedDetail,
-        traitNotes,
-        woundTriggered,
-        woundThreshold,
-        results,
-        attackerDealtEntries,
-        attackerPenEntries,
-        defenderTakenEntries,
-        defenderMitEntries
+      const createdSummary = await ChatMessage.create({
+        user: game.user.id,
+        speaker: ChatMessage.getSpeaker({ actor: updateTarget }),
+        content: messageContent,
+        style: CONST.CHAT_MESSAGE_STYLES.OTHER,
+        whisper: gmIds,
+        blind: true,
       });
-
-      const suppressStandaloneSummary = ctx.options?.chatContext?.suppressStandaloneSummary === true;
-      if (!suppressStandaloneSummary) {
-        await ChatMessage.create({
-          user: game.user.id,
-          speaker: ChatMessage.getSpeaker({ actor: updateTarget }),
-          content: messageContent,
-          style: CONST.CHAT_MESSAGE_STYLES.OTHER,
-          whisper: gmIds,
-          blind: true,
-        });
-      }
-      return { posted: !suppressStandaloneSummary, suppressed: suppressStandaloneSummary };
+      if (!createdSummary) throw new Error("Damage summary creation was not confirmed.");
+      return { posted: true };
     }
   });
 
@@ -1429,6 +1433,8 @@ export async function applyDamageResolved(targetActor, payload = {}) {
 
   const result = {
     aftermathSummary,
+    settledHP,
+    settledTempHP,
     actor: updateTarget,
     damage: Math.max(0, Number(totalApplied || 0)),
     components: results,

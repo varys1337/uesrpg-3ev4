@@ -203,7 +203,6 @@ export class WarfareEncounterAppV2 extends HandlebarsApplicationMixin(Applicatio
     const scene = this._scene;
     if (!scene) return;
     await startWarfareEncounter(scene);
-    await this.render();
   }
 
   async _onAdvanceEncounter(event) {
@@ -212,7 +211,6 @@ export class WarfareEncounterAppV2 extends HandlebarsApplicationMixin(Applicatio
     const scene = this._scene;
     if (!scene) return;
     await advanceWarfareEncounter(scene);
-    await this.render();
   }
 
   async _onPassStrategic(event) {
@@ -221,7 +219,6 @@ export class WarfareEncounterAppV2 extends HandlebarsApplicationMixin(Applicatio
     const scene = this._scene;
     if (!scene) return;
     await passWarfareEncounterStrategic(scene);
-    await this.render();
   }
 
   async _onEndEncounter(event) {
@@ -230,7 +227,6 @@ export class WarfareEncounterAppV2 extends HandlebarsApplicationMixin(Applicatio
     const scene = this._scene;
     if (!scene) return;
     await endWarfareEncounter(scene);
-    await this.render();
   }
 }
 

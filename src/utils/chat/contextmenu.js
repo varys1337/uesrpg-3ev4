@@ -8,7 +8,7 @@
 export function getMessageIdFromContextLi(li) {
   if (!li) return null;
 
-  const el = li instanceof HTMLElement ? li : li?.[0];
+  const el = li?.nodeType === 1 ? li : li?.[0];
   if (el?.dataset?.messageId) return String(el.dataset.messageId);
 
   if (el?.getAttribute) {

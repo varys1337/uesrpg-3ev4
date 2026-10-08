@@ -3,11 +3,14 @@ const BUFFER_SIZE = 500;
 const _buf = new Array(BUFFER_SIZE).fill(null);
 let _head = 0;
 let _total = 0;
+let _sequence = 0;
 
 export function recordPerfEntry(record) {
-  _buf[_head % BUFFER_SIZE] = Object.assign({}, record, { _wallMs: Date.now() });
+  const entry = Object.assign({}, record, { _wallMs: Date.now(), _sequence: ++_sequence });
+  _buf[_head % BUFFER_SIZE] = entry;
   _head++;
   _total++;
+  return entry;
 }
 
 export function readPerfEntries() {
@@ -21,14 +24,29 @@ export function readPerfEntries() {
   return out;
 }
 
+/** Export promptly in bounded batches; the cursor also identifies overwritten records. */
+export function exportPerfEntries({ after = 0, limit = 100 } = {}) {
+  const cursor = Math.max(0, Number(after) || 0);
+  const size = Math.max(1, Math.min(Math.floor(Number(limit) || 100), 200));
+  const records = readPerfEntries();
+  const pending = records.filter(entry => entry._sequence > cursor);
+  const batch = pending.slice(0, size);
+  return {
+    records: batch,
+    nextCursor: batch.at(-1)?._sequence ?? cursor,
+    hasMore: pending.length > batch.length,
+    overwritten: records.length > 0 && (cursor > 0 ? records[0]._sequence > cursor + 1 : _total > BUFFER_SIZE),
+  };
+}
+
 export function resetPerfEntries() {
   _buf.fill(null);
   _head = 0;
   _total = 0;
 }
 
-export function summarizePerfEntries(records) {
-  const src = records ?? readPerfEntries();
+export function summarizePerfEntries(records, { kind = null } = {}) {
+  const src = (records ?? readPerfEntries()).filter(entry => !kind || entry?.kind === kind);
 
   const byEvent = new Map();
   for (const r of src) {
@@ -40,15 +58,16 @@ export function summarizePerfEntries(records) {
       arr = [];
       byEvent.set(ev, arr);
     }
-    arr.push(dur);
+    arr.push({ durationMs: dur, record: r });
   }
 
   const result = {};
-  for (const [ev, durations] of byEvent) {
+  for (const [ev, entries] of byEvent) {
+    const durations = entries.map(entry => entry.durationMs);
     const sorted = durations.slice().sort((a, b) => a - b);
     const count = sorted.length;
     const sum = sorted.reduce((a, b) => a + b, 0);
-    const p95Idx = Math.min(Math.floor(count * 0.95), count - 1);
+    const p95Idx = Math.max(0, Math.ceil(count * 0.95) - 1);
     const middle = Math.floor(count / 2);
     const median = count % 2
       ? sorted[middle]
@@ -61,6 +80,10 @@ export function summarizePerfEntries(records) {
       p95: +(count > 0 ? sorted[p95Idx] : 0).toFixed(3),
       max: +(sorted[count - 1] ?? 0).toFixed(3),
     };
+    for (const key of ["writeCount", "writeAttemptCount", "renderCount", "refreshCount", "requestedCount", "coalescedCount", "skippedCount", "confirmedChangeCount", "confirmedNoopCount"]) {
+      const values = entries.map(entry => entry.record[key]).filter(value => value != null && Number.isFinite(Number(value)));
+      if (values.length) result[ev][key] = values.reduce((sum, value) => sum + Number(value), 0);
+    }
   }
   return result;
 }
@@ -102,6 +125,7 @@ export function summarizeRenderImpact(records, windowMs = 500) {
     }
     rows.push({
       event,
+      attribution: "time-window-correlation",
       docType: entry?.docType ?? null,
       embeddedName: entry?.embeddedName ?? null,
       renderCount,
@@ -116,9 +140,12 @@ export function getPerfHelpText(systemId) {
   return (
     "[UESRPG][TimePref] Perf API reference:\n\n" +
     "  game.uesrpg.perf.enabled()           — true when recording is on\n" +
+    "  game.uesrpg.perf.exportBatch({after: 0, limit: 100}) — records, nextCursor, overwritten\n" +
     "  game.uesrpg.perf.reset()             — clear the ring buffer\n" +
     "  game.uesrpg.perf.records()           — dump raw event records (array)\n" +
-    "  game.uesrpg.perf.summarize()         — mean/max/p95 per event (console.table)\n" +
+    "  game.uesrpg.perf.console(false)      — record without console logging overhead\n" +
+    "  game.uesrpg.perf.summarize(undefined, {kind: 'healing'}) — healing median/p95\n" +
+    "  game.uesrpg.perf.summarize()         — median/mean/max/p95 per event\n" +
     "  game.uesrpg.perf.runBenchmark(n=5)   — N Next Turn advances + summary\n\n" +
     `Enable:   game.settings.set('${systemId}', 'timePerformanceDebug', true)\n` +
     `Disable:  game.settings.set('${systemId}', 'timePerformanceDebug', false)\n\n` +
@@ -129,5 +156,13 @@ export function getPerfHelpText(systemId) {
     "  turnTicker.endTurnTick / turnTicker.expireEffects / turnTicker.regenPrompts / turnTicker.silencedCheck / turnTicker.round\n" +
     "  combat.startCombat / combat.nextRound / combat.resetAllAP\n" +
     "  authorityProxy.updateDocument / authorityProxy.deleteEmbedded"
+    + "\n  damage.health.commit / healing.visibleHP / damage.aftermath.operation / damage.application"
+    + "\n  healing.mechanics.settled / magic.application.context / magic.application.absorption / chat.card.persist"
+    + "\n  authority.intent.write / authority.intent.query / authority.intent.command"
+    + "\n  outcome.application / outcome.healthCommit / outcome.stage / outcome.stage.skipped"
+    + "\n  outcome.receipt.persist / outcome.snapshotBefore / outcome.snapshotAfter"
+    + "\n  outcome.chat.refreshRequested / outcome.chat.refreshSkipped / outcome.chat.refresh / outcome.chat.render"
+    + "\nPer-event summaries include recorded write, skip, and refresh totals; do not sum overlapping stage/helper counters."
+    + "\nRender impact is time-window correlation, not causal attribution. Visible HP measures open Actor-sheet inputs."
   );
 }

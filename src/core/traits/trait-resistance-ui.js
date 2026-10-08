@@ -3,11 +3,12 @@ import { escapeHtml as _escapeHtml } from '../../utils/html.js';
  * @module traits/trait-resistance-ui
  * @description UI helpers for rendering trait resistance option selectors.
  *
- * Target: Foundry VTT v13.351
+ * Target: Foundry VTT v14.368+
  */
 
 import { getResistanceBonusOptions } from "./trait-registry.js";
 import { _bool } from "../../utils/coerce.js";
+import { systemTooltipAttributes } from "../../ui/shared/system-tooltips.js";
 
 
 
@@ -16,6 +17,7 @@ export function buildResistanceBonusSection(actor, { selected = [] } = {}) {
   if (!options.length) return { html: "", options: [] };
 
   const selectedSet = new Set((selected ?? []).map(s => String(s || "").toLowerCase()));
+  const explanation = "RAW: +10 per Resistance (X) when resisting non-damaging effects of that type.";
   const rows = options.map((opt) => {
     const rawKey = String(opt.key ?? "").toLowerCase();
     const key = _escapeHtml(rawKey);
@@ -23,19 +25,18 @@ export function buildResistanceBonusSection(actor, { selected = [] } = {}) {
     const label = _escapeHtml(String(opt.label ?? opt.key ?? "Resistance"));
     const bonus = Number(opt.bonus ?? (Number(opt.value || 0) * 10)) || 0;
     return `
-      <label style="display:flex; gap:8px; align-items:center;">
-        <input type="checkbox" name="resistanceBonus" value="${key}" ${checked} />
-        <span>${label} (+${bonus})</span>
+      <label class="uesrpg-inline-check uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: explanation })}>
+        <input type="checkbox" name="resistanceBonus" value="${key}" ${checked} aria-description="${_escapeHtml(explanation)}" />
+        <span class="uesrpg-adv-choice__label">${label} (+${bonus})</span>
       </label>`;
   }).join("");
 
   const html = `
-    <div class="form-group" style="margin-top:10px;">
+    <div class="form-group uesrpg-resistance-options">
       <label><b>Resistance Bonus</b></label>
-      <div style="display:flex; flex-direction:column; gap:4px; margin-top:4px;">
+      <div class="uesrpg-resistance-options__choices">
         ${rows}
       </div>
-      <p style="opacity:0.8; font-size:12px; margin-top:6px;">RAW: +10 per Resistance (X) when resisting non-damaging effects of that type.</p>
     </div>`;
 
   return { html, options };

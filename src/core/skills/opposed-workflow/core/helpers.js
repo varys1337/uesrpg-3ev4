@@ -8,7 +8,6 @@ import { normalizeTalentKey, hasTalent } from "../../../traits/talents-api.js";
 import { applySenseLossPenaltyAdjustments } from "../../../traits/awareness-talents.js";
 import { hasCondition } from "../../../conditions/condition-engine.js";
 import { isActorInStartedCombatEncounter } from "../../../combat/combat-scope.js";
-import { _esc } from "./util.js";
 import { _resolveActor } from "./docs.js";
 
 export function _buildSensorySituationalMods(decl, actor = null, { skillName = null } = {}) {
@@ -151,27 +150,9 @@ export async function _executeSpecialActionIfWinner(data) {
 
   if (winner === "attacker") {
     try {
-      const { executeSpecialAction } = await import("../../../combat/special-actions-helper.js");
-
-      const result = await executeSpecialAction({
-        specialActionId,
-        actor: attackerActor,
-        target: defenderActor,
-        isAutoWin: false,
-        opposedResult: {
-          winner: "attacker",
-          degrees: data.outcome?.degrees ?? 0
-        }
-      });
-
-      if (result.success) {
-        await ChatMessage.create({
-          user: game.user.id,
-          speaker: ChatMessage.getSpeaker({ actor: attackerActor }),
-          content: `<div class="uesrpg-special-action-outcome"><b>Special Action:</b><p>${_esc(result.message)}</p></div>`,
-          style: CONST.CHAT_MESSAGE_STYLES.OTHER
-        });
-      }
+      const { postSpecialActionOutcome } = await import("../../../combat/special-actions-helper.js");
+      await postSpecialActionOutcome({ specialActionId, actor: attackerActor, target: defenderActor,
+        isAutoWin: false, opposedResult: { winner: "attacker", degrees: data.outcome?.degrees ?? 0 } });
     } catch (err) {
       console.error("UESRPG | Failed to execute Special Action automation", err);
     }

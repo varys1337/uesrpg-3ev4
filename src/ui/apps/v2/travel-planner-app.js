@@ -1,6 +1,7 @@
 ﻿const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
 import { customDialog, confirmDialog } from "../../../utils/dialog-v2-helper.js";
+import { isDamageReceiptOnlyUpdate } from "../../../core/combat/damage/receipt-metadata.js";
 import { getCoreRollMode } from "../../../utils/chat-roll-mode.js";
 import {
   getTravelPlannerState,
@@ -550,7 +551,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       void this.#mutateState((next) => {
         next.session.navigateLostPenaltyActive = Boolean(value);
         return next;
-      }, { parts: ["header", "body"] });
+      }, { parts: ["header", "body"] }).catch(() => ui.notifications.error(t("UESRPG.Notifications.TravelPlanner.ActionFailed")));
       return;
     }
 
@@ -559,7 +560,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       void this.#mutateState((next) => {
         next.travel.resources[field] = Math.max(0, Number(value || 0));
         return next;
-      });
+      }).catch(() => ui.notifications.error(t("UESRPG.Notifications.TravelPlanner.ActionFailed")));
       return;
     }
 
@@ -568,7 +569,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       void this.#mutateState((next) => {
         next.travel.shortfalls[field] = Boolean(value);
         return next;
-      });
+      }).catch(() => ui.notifications.error(t("UESRPG.Notifications.TravelPlanner.ActionFailed")));
       return;
     }
 
@@ -1058,7 +1059,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     if (!ok) return;
     const group = await this.#resolveGroup();
     if (!group?.isOwner) return;
-    await resetTravelPlannerState(group, { keepTables: true });
+    await resetTravelPlannerState(group, { keepTables: true, strict: true });
     await queueRenderParts(this, ["header", "tabs", "body"]);
   }
 
@@ -1437,11 +1438,13 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     }
     const members = await this.#resolveGroupMembers(group);
     const lines = [];
+    const results = [];
     for (const member of members) {
       if (!member?.actor) continue;
       const result = restType === "long"
         ? await applyLongRest(member.actor)
         : await applyShortRest(member.actor);
+      results.push(result);
       if (result?.line) lines.push(result.line);
     }
     if (!lines.length) {
@@ -1459,7 +1462,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       ? t("UESRPG.Chat.Resources.LongRest", "Long Rest (8 hours)")
       : t("UESRPG.Chat.Resources.ShortRest", "Short Rest (1 hour)");
     const content = buildRestChatContent(heading, lines);
-    await requestUpdateDocument(group, {
+    const restRecorded = await requestUpdateDocument(group, {
       [`system.lastRest.${restType === "long" ? "long" : "short"}`]: game.time.worldTime,
     });
     await ChatMessage.create({
@@ -1470,6 +1473,10 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       style: CONST.CHAT_MESSAGE_STYLES.OTHER,
     });
     await queueRenderParts(this, ["header", "body"]);
+    if (!restRecorded || results.some(result => result.execution?.status !== "completed") || timeForward.partial) {
+      ui.notifications.warn(t("UESRPG.Notifications.Rest.Partial"));
+      return;
+    }
     if (restType === "long") {
       if (!timeForward.applied && timeForward.reason && timeForward.reason.includes("did not change")) {
         ui.notifications.warn(tf("UESRPG.Notifications.TravelPlanner.LongRestCompletedReason", { reason: timeForward.reason }));
@@ -1579,6 +1586,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
   #registerDocumentHooks() {
     if (this._ownedHooks.length) return;
     const onActorChange = (actor, changes = {}) => {
+      if (isDamageReceiptOnlyUpdate(changes)) return;
       const uuid = String(actor?.uuid ?? "");
       if (uuid === String(this._groupUuid ?? "")) {
         if (this._pendingGroupMutations > 0) return;
@@ -1609,7 +1617,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     let next;
     this._pendingGroupMutations += 1;
     try {
-      next = await updateTravelPlannerState(group, mutator);
+      next = await updateTravelPlannerState(group, mutator, { strict: true });
     } finally {
       this._pendingGroupMutations = Math.max(0, this._pendingGroupMutations - 1);
     }

@@ -1,5 +1,5 @@
 import { SYSTEM_ID } from "../../constants.js";
-import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
+import { requestAtomicUpdateDocument } from "../../../utils/authority-proxy.js";
 import { synchronizeBattlefieldStateForScene } from "../battlefield/state.js";
 import { isMassCombatEnabled } from "../../homebrew/settings.js";
 
@@ -248,24 +248,26 @@ export function getSceneWarfareEncounterState(scene) {
   return migrated;
 }
 
-export async function updateSceneWarfareEncounterState(scene, updater) {
+export async function updateSceneWarfareEncounterState(scene, updater, { strict = false } = {}) {
   if (!isMassCombatEnabled()) return null;
   if (!scene) throw new Error("A Scene is required for warfare encounter updates.");
-  const current = getSceneWarfareEncounterState(scene);
-  const next = typeof updater === "function"
-    ? updater(_clone(current))
-    : foundry.utils.mergeObject(current, _clone(updater ?? {}), {
-      inplace: false,
-      insertKeys: true,
-      insertValues: true,
-      overwrite: true,
-    });
-  const migrated = migrateWarfareEncounterState(next);
-  migrated.battlefield = synchronizeBattlefieldStateForScene(scene, migrated);
-  await requestUpdateDocument(scene, {
-    [getWarfareEncounterFlagPath()]: migrated,
-  });
-  return migrated;
+  let calculated = false;
+  let changed = false;
+  let calculationError = null;
+  const confirmed = await requestAtomicUpdateDocument(scene, async fresh => {
+    try {
+      const current = getSceneWarfareEncounterState(fresh);
+      const next = typeof updater === "function" ? await updater(_clone(current))
+        : foundry.utils.mergeObject(current, _clone(updater ?? {}), { inplace: false, overwrite: true, insertKeys: true, insertValues: true });
+      const migrated = migrateWarfareEncounterState(next);
+      migrated.battlefield = synchronizeBattlefieldStateForScene(fresh, migrated);
+      changed = JSON.stringify(foundry.utils.getProperty(fresh, getWarfareEncounterFlagPath())) !== JSON.stringify(migrated);
+      calculated = true;
+      return changed ? { [getWarfareEncounterFlagPath()]: migrated } : {};
+    } catch (error) { calculationError = error; throw error; }
+  }, { perfKind: "warfare" });
+  if (strict && !confirmed && (!calculated || changed)) throw calculationError ?? new Error("Warfare state was not saved.");
+  return getSceneWarfareEncounterState((scene.uuid ? await fromUuid(scene.uuid) : null) ?? scene);
 }
 
 export function getEncounterSceneForActor(actor) {

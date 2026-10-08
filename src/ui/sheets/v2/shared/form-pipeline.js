@@ -194,3 +194,19 @@ export function normalizeActorFormValue({ path, value, currentValue, rawValue })
   if (!Number.isFinite(n)) return currentValue;
   return Math.max(0, Math.round(n));
 }
+
+/** Compare tracker inputs with the values rendered in this form, not live counters. */
+export function getChangedTrackerFormValues(form, flatData, paths) {
+  const changes = {};
+  for (const path of paths) {
+    if (!Object.hasOwn(flatData, path)) continue;
+    const input = form?.elements?.namedItem?.(path);
+    // Full sheet submission requires the rendered control as its intent baseline.
+    if (!input || typeof input.defaultValue !== "string") continue;
+    const value = Number(flatData[path]);
+    const rendered = Number(input.defaultValue);
+    if (!Number.isFinite(value) || value === rendered) continue;
+    changes[path] = value;
+  }
+  return changes;
+}

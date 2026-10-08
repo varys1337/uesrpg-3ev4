@@ -1,3 +1,5 @@
+import { createDamageAftermathBundle } from "../../core/combat/damage/aftermath-bundle.js";
+import { measurePerfStage } from "../../utils/perf-tracker.js";
 import { hasTalent } from "../../core/traits/talents-api.js";
 import { clearRacialTalentUsageOnRest } from "../../core/traits/racial-talents.js";
 import { _num } from "../../utils/coerce.js";
@@ -41,7 +43,7 @@ const _hpHealSkipNotify = new Map();
 function _notifyHpHealingSkipped(actor) {
   try {
     if (!ui?.notifications?.warn) return;
-    const key = String(actor?.id ?? actor?._id ?? "");
+    const key = String(actor?.uuid ?? actor?.id ?? "");
     const now = Date.now();
     const last = _hpHealSkipNotify.get(key) ?? 0;
     // Avoid rapid duplicate toasts (e.g., group rest runs).
@@ -204,13 +206,19 @@ async function _applyRitualBlessingRefresh(actor) {
 
   const sourceRef = _getRitualBlessingSource(chosen);
   const itemData = await _loadBirthsignGrantCreateData(sourceRef);
-  if (!itemData) return { changed: false, chosen: currentName };
+  if (!itemData) throw new Error("The selected Ritual blessing could not be loaded.");
 
-  const idsToDelete = existingBlessings.map((item) => String(item?.id ?? "")).filter(Boolean);
-  if (idsToDelete.length) {
-    await requestDeleteEmbeddedDocuments(actor, "Item", idsToDelete);
+  delete itemData._id;
+  const created = await requestCreateEmbeddedDocuments(actor, "Item", [itemData]);
+  const replacement = created?.[0];
+  if (!replacement?.id) throw new Error("Ritual blessing creation was not confirmed; the previous blessing was retained.");
+  const idsToDelete = existingBlessings.map(item => item.id).filter(id => actor.items?.get?.(id));
+  if (idsToDelete.length && !await requestDeleteEmbeddedDocuments(actor, "Item", idsToDelete)) {
+    const cleaned = await requestDeleteEmbeddedDocuments(actor, "Item", [replacement.id]);
+    throw new Error(cleaned
+      ? "Previous Ritual blessing removal failed; the new blessing was removed. Check the remaining blessings."
+      : "Ritual blessing replacement is partial: removal and rollback were not confirmed. Check for duplicate blessings.");
   }
-  await requestCreateEmbeddedDocuments(actor, "Item", [itemData]);
 
   return { changed: true, chosen };
 }
@@ -295,9 +303,9 @@ async function _promptLongRestInvocationPreparation(actor) {
       content: `<div style="display:flex; flex-direction:column; gap:8px;">
         <p style="margin:0;">Preparation limit: <b>${prepLimit}</b></p>
         <div style="max-height:420px; overflow:auto;">${rows.map((row) => `
-          <label style="display:flex; gap:8px; align-items:flex-start; padding:4px 0;">
+          <label class="uesrpg-adv-choice uesrpg-choice-bar">
             <input type="checkbox" name="invocationId" value="${row.id}" ${row.prepared ? "checked" : ""} />
-            <span><b>${foundry.utils.escapeHTML(row.label)}</b> (${foundry.utils.escapeHTML(row.groupLabel)}, Circle ${row.circle}, ${row.pietyCost} PP)</span>
+            <span class="uesrpg-adv-choice__label"><b>${foundry.utils.escapeHTML(row.label)}</b> (${foundry.utils.escapeHTML(row.groupLabel)}, Circle ${row.circle}, ${row.pietyCost} PP)</span>
           </label>
         `).join("")}</div>
       </div>`,
@@ -321,21 +329,58 @@ async function _promptLongRestInvocationPreparation(actor) {
       continue;
     }
 
-    await setPreparedInvocations(actor, domainKey, picked);
+    await setPreparedInvocations(actor, domainKey, picked, { strict: true });
     updatedDomains.push(domainEntry.label);
   }
 
   return { updatedDomains };
 }
 
-export async function applyShortRest(actor, opts = {}) {
+const _pendingRests = new Map();
+
+function _runRest(actor, type, opts, run) {
+  const key = actor?.uuid;
+  if (!key) return run(actor, opts);
+  // A pending rest on this client is joined; a later deliberate rest remains available.
+  if (_pendingRests.has(key)) return _pendingRests.get(key);
+  const operationId = foundry.utils.randomID();
+  const pending = measurePerfStage("rest", "settlement", { actorUuid: key, restType: type, operationId },
+    () => run(actor, { ...opts, operationId })).finally(() => _pendingRests.delete(key));
+  _pendingRests.set(key, pending);
+  return pending;
+}
+
+export function applyShortRest(actor, opts = {}) {
+  return _runRest(actor, "short", opts, _applyShortRest);
+}
+
+export function applyLongRest(actor, opts = {}) {
+  return _runRest(actor, "long", opts, _applyLongRest);
+}
+
+function _restResult(actor, meta, confirmed, summary = null) {
+  const settled = meta.calculated && (!meta.hasUpdates || confirmed);
+  const failures = summary?.failed ?? [];
+  const status = !settled ? "failed" : failures.length ? "partial" : "completed";
+  let line = settled ? meta.line : `<li><b>${foundry.utils.escapeHTML(actor?.name ?? "Actor")}</b>: Rest recovery was not confirmed; follow-ups were skipped.</li>`;
+  if (failures.length) line = _appendRestLineNote(line, `Partial completion: ${failures.map(entry => `${entry.label}: ${entry.error}`).join("; ")}`);
+  return {
+    line, updatesApplied: Boolean(settled && confirmed && meta.hasUpdates),
+    recovery: settled ? (meta.recovered ? "confirmed" : "none") : "failed",
+    hpHealed: settled ? meta.hpHealed : 0,
+    execution: { status, committed: Boolean(confirmed), operationId: meta.operationId },
+    aftermathSummary: summary,
+  };
+}
+
+async function _applyShortRest(actor, opts = {}) {
   if (!actor) return { line: "", updatesApplied: false };
 
   // ── Phase 1: async operations that do NOT need current resource values ──────
   // Run these before re-reading the actor, so the re-read is as fresh as possible
   // at write time. The only state needed at this stage is talent presence (stable).
 
-  const actorName = actor.name;
+  const actorName = foundry.utils.escapeHTML(actor.name);
   const actorUuid = actor.uuid;
   const stuntedMagicka = hasStuntedMagicka(actor);
   const fastingFactor = actorHasActiveFasting(actor) ? 0.5 : 1;
@@ -375,9 +420,10 @@ export async function applyShortRest(actor, opts = {}) {
   // Side-effects (writing to `meta`) inside the mutator are safe because the
   // mutator is called exactly once per invocation.
 
-  const meta = { hpHealed: 0, line: `<li><b>${actorName}</b>: `, hasUpdates: false, hadUntreatedWounds: false };
+  const meta = { hpHealed: 0, line: `<li><b>${actorName}</b>: `, hasUpdates: false, hadUntreatedWounds: false, calculated: false, recovered: false, operationId: opts.operationId };
 
-  await requestAtomicUpdateDocument(actorUuid, (freshActor) => {
+  const confirmed = await requestAtomicUpdateDocument(actorUuid, (freshActor) => {
+    meta.calculated = true;
     const resourceRecovery = _resolveResourceRecoveryProfile(freshActor);
     const fatigueBonus = _num(freshActor.system?.fatigue?.bonus ?? 0);
     const currentSP = _num(freshActor.system?.stamina?.value ?? 0);
@@ -416,7 +462,7 @@ export async function applyShortRest(actor, opts = {}) {
     } else if (mpRecover > 0 && currentMP < maxMP) {
       const newMP = Math.min(currentMP + mpRecover, maxMP);
       updateData["system.magicka.value"] = newMP;
-      meta.line += ` (+${mpRecover} MP)`;
+      meta.line += ` (+${newMP - currentMP} MP)`;
     }
 
     // Rapid Recovery HP heal applied to fresh current HP.
@@ -425,40 +471,40 @@ export async function applyShortRest(actor, opts = {}) {
       meta.hpHealed = Math.min(hpRecovered, maxHP - currentHP);
       const newHP = Math.min(maxHP, currentHP + hpRecovered);
       updateData["system.hp.value"] = newHP;
-      meta.line += ` (+${hpRecovered} HP)`;
+      meta.line += ` (+${meta.hpHealed} HP)`;
     }
 
+    for (const [key, value] of Object.entries(updateData)) {
+      if (value === foundry.utils.getProperty(freshActor, key)) delete updateData[key];
+    }
+    meta.recovered = Object.entries(updateData).some(([key, value]) => key.startsWith("system.") && value !== foundry.utils.getProperty(freshActor, key));
     meta.hasUpdates = Object.keys(updateData).length > 0;
     return meta.hasUpdates ? updateData : null;
-  });
+  }, { perfKind: "rest", operationId: opts.operationId });
 
   if (useMeditation) meta.line += " (Meditation)";
   if (fastingFactor < 1) meta.line += " (Fasting halved recovery)";
   meta.line += "</li>";
 
-  if (meta.hpHealed > 0) {
-    try {
-      const applyNatural = game?.uesrpg?.wounds?.applyNaturalHealingToWounds;
-      if (typeof applyNatural === "function") {
-        await applyNatural(actor, meta.hpHealed, { source: "shortRest" });
-      }
-    } catch (_e) {
-      // Non-blocking.
-    }
-  }
-  try { await clearRacialTalentUsageOnRest(actor, { restType: "short" }); } catch (_e) { /* ignore */ }
-
-  return { line: meta.line, updatesApplied: meta.hasUpdates };
+  if (!meta.calculated || (meta.hasUpdates && !confirmed)) return _restResult(actor, meta, confirmed);
+  const aftermath = createDamageAftermathBundle({ targetActor: actor, applicationId: opts.operationId, source: "Short Rest", kind: "rest" });
+  if (meta.hpHealed > 0) aftermath.stage({ key: "naturalHealing", label: "Natural wound healing", run: async () => {
+    const applyNatural = game?.uesrpg?.wounds?.applyNaturalHealingToWounds;
+    if (typeof applyNatural !== "function") throw new Error("Wound automation is unavailable.");
+    return applyNatural(actor, meta.hpHealed, { source: "shortRest", strict: true });
+  } });
+  aftermath.stage({ key: "racialUsage", label: "Racial usage reset", run: () => clearRacialTalentUsageOnRest(actor, { restType: "short", strict: true }) });
+  return _restResult(actor, meta, confirmed, await aftermath.commit());
 }
 
-export async function applyLongRest(actor, opts = {}) {
+async function _applyLongRest(actor, opts = {}) {
   if (!actor) return { line: "", updatesApplied: false };
 
   // ── Phase 1: resolve stable derived values and async side-reads ─────────
   // These are characteristics and talent checks that do not change mid-rest.
   // Run them before re-reading, so the re-read is as fresh as possible at write time.
 
-  const actorName = actor.name;
+  const actorName = foundry.utils.escapeHTML(actor.name);
   const actorUuid = actor.uuid;
   // END bonus is stable over the course of a rest (no equipment swaps expected mid-rest).
   const endBonus = Math.floor(_num(actor.system?.characteristics?.end?.total ?? 0) / 10);
@@ -470,9 +516,10 @@ export async function applyLongRest(actor, opts = {}) {
   // lock before calling this mutator, ensuring current resource values are the
   // latest server state.
 
-  const meta = { hpHealed: 0, line: "", hasUpdates: false, untreatedWoundsNoHeal: false };
+  const meta = { hpHealed: 0, line: "", hasUpdates: false, untreatedWoundsNoHeal: false, calculated: false, recovered: false, operationId: opts.operationId };
 
-  await requestAtomicUpdateDocument(actorUuid, (freshActor) => {
+  const confirmed = await requestAtomicUpdateDocument(actorUuid, (freshActor) => {
+    meta.calculated = true;
     const fatigueBonus = _num(freshActor.system?.fatigue?.bonus ?? 0);
     const currentHP = _num(freshActor.system?.hp?.value ?? 0);
     const maxHP = _num(freshActor.system?.hp?.max ?? 0);
@@ -531,50 +578,40 @@ export async function applyLongRest(actor, opts = {}) {
     if (!recoveryParts.length) recoveryParts.push("No recovery needed");
 
     meta.line = `<li><b>${actorName}</b>: ${recoveryParts.join("; ")}</li>`;
+    for (const [key, value] of Object.entries(updateData)) {
+      if (value === foundry.utils.getProperty(freshActor, key)) delete updateData[key];
+    }
+    meta.recovered = Object.entries(updateData).some(([key, value]) => key.startsWith("system.") && value !== foundry.utils.getProperty(freshActor, key));
     meta.hasUpdates = Object.keys(updateData).length > 0;
     return meta.hasUpdates ? updateData : null;
-  });
+  }, { perfKind: "rest", operationId: opts.operationId });
 
-  if (meta.hpHealed > 0) {
-    try {
-      const applyNatural = game?.uesrpg?.wounds?.applyNaturalHealingToWounds;
-      if (typeof applyNatural === "function") {
-        await applyNatural(actor, meta.hpHealed, { source: "longRest" });
-      }
-    } catch (_e) {
-      // Non-blocking.
-    }
-  }
-  try {
-    const ritualRefresh = await _applyRitualBlessingRefresh(actor);
-    if (ritualRefresh?.changed && ritualRefresh?.chosen) {
-      meta.line = _appendRestLineNote(meta.line, `Ritual blessing: ${ritualRefresh.chosen}`);
-    }
-  } catch (_e) {
-    // Non-blocking.
-  }
-  try {
+  if (!meta.calculated || (meta.hasUpdates && !confirmed)) return _restResult(actor, meta, confirmed);
+  const aftermath = createDamageAftermathBundle({ targetActor: actor, applicationId: opts.operationId, source: "Long Rest", kind: "rest" });
+  if (meta.hpHealed > 0) aftermath.stage({ key: "naturalHealing", label: "Natural wound healing", run: async () => {
+    const applyNatural = game?.uesrpg?.wounds?.applyNaturalHealingToWounds;
+    if (typeof applyNatural !== "function") throw new Error("Wound automation is unavailable.");
+    return applyNatural(actor, meta.hpHealed, { source: "longRest", strict: true });
+  } });
+  aftermath.stage({ key: "blessing", label: "Ritual blessing", run: async () => {
+    const result = await _applyRitualBlessingRefresh(actor);
+    if (result?.changed && result.chosen) meta.line = _appendRestLineNote(meta.line, `Ritual blessing: ${result.chosen}`);
+    return result;
+  } });
+  aftermath.stage({ key: "woundReconciliation", label: "Wound reconciliation", run: async () => {
     const reconcile = game?.uesrpg?.wounds?.reconcileWoundState;
-    if (typeof reconcile === "function") {
-      await reconcile(actor, { reason: "longRest", emitLog: false });
-    }
-  } catch (_e) {
-    // Non-blocking.
-  }
-  try {
-    if (opts?.allowPrompt !== false) {
-      const preparation = await _promptLongRestInvocationPreparation(actor);
-      if (Array.isArray(preparation?.updatedDomains) && preparation.updatedDomains.length) {
-        meta.line = _appendRestLineNote(meta.line, `Invocations prepared for ${preparation.updatedDomains.join(", ")}`);
-      }
-    }
-  } catch (_e) {
-    // Non-blocking.
-  }
-  try { await clearRacialTalentUsageOnRest(actor, { restType: "long" }); } catch (_e) { /* ignore */ }
-
+    if (typeof reconcile !== "function") throw new Error("Wound automation is unavailable.");
+    return reconcile(actor, { reason: "longRest", strict: true });
+  } });
+  if (opts?.allowPrompt !== false) aftermath.stage({ key: "invocations", label: "Invocation preparation", run: async () => {
+    const result = await _promptLongRestInvocationPreparation(actor);
+    if (result?.updatedDomains?.length) meta.line = _appendRestLineNote(meta.line, `Invocations prepared for ${result.updatedDomains.join(", ")}`);
+    return result;
+  } });
+  aftermath.stage({ key: "racialUsage", label: "Racial usage reset", run: () => clearRacialTalentUsageOnRest(actor, { restType: "long", strict: true }) });
+  const summary = await aftermath.commit();
   if (meta.untreatedWoundsNoHeal) _notifyHpHealingSkipped(actor);
   if (fastingFactor < 1) meta.line = _appendRestLineNote(meta.line, "Fasting halved HP/SP/MP recovery");
 
-  return { line: meta.line, updatesApplied: meta.hasUpdates };
+  return _restResult(actor, meta, confirmed, summary);
 }

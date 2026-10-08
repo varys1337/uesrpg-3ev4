@@ -1,4 +1,5 @@
 import { editSheetPortrait } from "./shared/file-picker.js";
+import { isDamageReceiptOnlyUpdate } from "../../../core/combat/damage/receipt-metadata.js";
 /**
  * src/ui/sheets/v2/group-sheet.js
  *
@@ -36,7 +37,7 @@ import { applySheetDensityClass } from "./shared/sheet-density.js";
 import { buildItemDragPayload } from "../../../utils/drag-payload.js";
 import { handleExternalItemDrop, inferDroppedItemType } from "../../../utils/drop-item-create-data.js";
 import { dndDebug, dndWarnFailure, makeDndTraceId } from "../../../utils/dnd-debugger.js";
-import { syncBookmarkTabsActiveClass } from "./shared/bookmark-tabs-position.js";
+import { handleActionTabsKeydown, syncBookmarkTabsActiveClass } from "./shared/bookmark-tabs-position.js";
 import { pickCanvasLocation } from "../../../utils/canvas-location-picker.js";
 import { openArmyCampaignApp } from "../../apps/v2/army-campaign-app.js";
 import { setOwnedItemEquipped, setOwnedItemQuantityOrDelete } from "../../../core/items/owned-item-quantity.js";
@@ -367,16 +368,23 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
   static PARTS = {
     sidebar: {
       template: "systems/uesrpg-3ev4/templates/v2/sheets/group/sidebar.hbs",
+      scrollable: [".group-skill-debrief__list"],
     },
     body: {
       template: "systems/uesrpg-3ev4/templates/v2/sheets/group/body.hbs",
-      scrollable: [""],
+      scrollable: [
+        '.tab[data-group="primary"]',
+        ".group-description-body .editor-content",
+        ".group-notes-body .editor-content",
+      ],
     },
     bookmarkTabs: {
       template: "systems/uesrpg-3ev4/templates/partials/sheets/bookmark-tabs.hbs",
+      scrollable: [""],
     },
     limited: {
       template: "systems/uesrpg-3ev4/templates/v2/sheets/group/limited.hbs",
+      scrollable: [".sheet-body"],
     },
   };
 
@@ -500,7 +508,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
         document: actor,
         items: actor.items.map(i => {
           const obj = i.toObject();
-          obj.system = i.system;
+          obj.system = { ...(i.system ?? {}) };
           return obj;
         }),
       };
@@ -599,6 +607,11 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     try {
       super._attachPartListeners(partId, htmlElement, options);
 
+      if (partId === "bookmarkTabs" && !htmlElement.dataset.groupKeyboardBound) {
+        htmlElement.dataset.groupKeyboardBound = "true";
+        htmlElement.addEventListener("keydown", (event) => handleActionTabsKeydown(this, event));
+      }
+
       if (partId === "body") {
         bindListFilters(this, htmlElement);
         bindItemDescriptionTooltips(this, htmlElement);
@@ -656,7 +669,8 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
   #registerMemberUpdateHooks() {
     if (this.#memberUpdateHooks.length) return;
 
-    const onActorChange = (actor) => {
+    const onActorChange = (actor, changed) => {
+      if (isDamageReceiptOnlyUpdate(changed)) return;
       if (this.#isLinkedMemberActor(actor)) this.#queueMemberRefresh();
     };
     const onItemChange = (item) => {
@@ -1039,9 +1053,11 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     }
 
     const lines = [];
+    const results = [];
     for (const member of visibleMembers) {
-      const { line } = await applyShortRest(member.actor);
-      if (line) lines.push(line);
+      const result = await applyShortRest(member.actor);
+      results.push(result);
+      if (result.line) lines.push(result.line);
     }
 
     const timeForward = await forwardTimeForGroupRest({
@@ -1051,7 +1067,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     });
 
     const content = buildRestChatContent("Short Rest (1 hour)", lines);
-    await requestUpdateDocument(this.document, {
+    const restRecorded = await requestUpdateDocument(this.document, {
       "system.lastRest.short": game.time.worldTime,
     });
     await ChatMessage.create({
@@ -1061,7 +1077,10 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       whisper: this.#getGMUserIds(),
       style: CONST.CHAT_MESSAGE_STYLES.OTHER,
     });
-    await this.render(false);
+    if (!restRecorded || results.some(result => result.execution?.status !== "completed") || timeForward.partial) {
+      ui.notifications.warn(t("UESRPG.Notifications.Rest.Partial"));
+      return;
+    }
     if (!timeForward.applied && timeForward.reason && timeForward.reason.includes("did not change")) {
       ui.notifications.warn(tf("UESRPG.Notifications.Group.ShortRestCompletedReason", { reason: timeForward.reason }));
     } else if (timeForward.applied) {
@@ -1084,9 +1103,11 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     }
 
     const lines = [];
+    const results = [];
     for (const member of visibleMembers) {
-      const { line } = await applyLongRest(member.actor);
-      if (line) lines.push(line);
+      const result = await applyLongRest(member.actor);
+      results.push(result);
+      if (result.line) lines.push(result.line);
     }
 
     const timeForward = await forwardTimeForGroupRest({
@@ -1096,7 +1117,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     });
 
     const content = buildRestChatContent("Long Rest (8 hours)", lines);
-    await requestUpdateDocument(this.document, {
+    const restRecorded = await requestUpdateDocument(this.document, {
       "system.lastRest.long": game.time.worldTime,
     });
     await ChatMessage.create({
@@ -1106,7 +1127,10 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       whisper: this.#getGMUserIds(),
       style: CONST.CHAT_MESSAGE_STYLES.OTHER,
     });
-    await this.render(false);
+    if (!restRecorded || results.some(result => result.execution?.status !== "completed") || timeForward.partial) {
+      ui.notifications.warn(t("UESRPG.Notifications.Rest.Partial"));
+      return;
+    }
     if (!timeForward.applied && timeForward.reason && timeForward.reason.includes("did not change")) {
       ui.notifications.warn(tf("UESRPG.Notifications.Group.LongRestCompletedReason", { reason: timeForward.reason }));
     } else if (timeForward.applied && timeForward.mode === "sunrise") {
@@ -1208,6 +1232,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     event?.preventDefault?.();
     event?.stopPropagation?.();
     const type = await customDialog({
+      classes: ["uesrpg-inventory-dialog"],
       layout: "choices",
       title: t("UESRPG.Dialogs.GroupSheet.CreateItemTitle"),
       content: `<p>${t("UESRPG.Dialogs.GroupSheet.SelectItemType")}</p>`,
@@ -1246,12 +1271,13 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     if (!this.document?.isOwner) return;
 
     await customDialog({
+      classes: ["uesrpg-inventory-dialog"],
       layout: "workflow",
       title: t("UESRPG.Sheets.Equipment.AddSubtract"),
-      content: `<div class="dialogForm">
-        <div class="form-group">
+      content: `<div class="uesrpg-inventory-dialog-body">
+        <div class="uesrpg-inventory-dialog-field">
           <label><i class="fas fa-coins"></i> <b>${t("UESRPG.Sheets.Equipment.Wealth")}</b></label>
-          <input name="wealthDelta" placeholder="ex. -20, +10" value="0" type="text" style="text-align:center;width:50%;">
+          <input name="wealthDelta" placeholder="ex. -20, +10" value="0" type="text">
         </div>
       </div>`,
       buttons: {
@@ -1312,6 +1338,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       .replace(/'/g, "&#039;");
 
     const confirmed = await confirmDialog({
+      classes: ["uesrpg-inventory-dialog"],
       title: t("UESRPG.Dialogs.GroupSheet.DeleteItemTitle"),
       content: `<p>${tf("UESRPG.Dialogs.GroupSheet.DeleteItemContent", { item: escaped })}</p>`,
     });

@@ -1,3 +1,4 @@
+import { computeEnchantTestTN } from "./tests.js";
 import { SYSTEM_ID } from "../constants.js";
 import { t, tf } from "../../utils/i18n.js";
 import { promptCraftingSkillRollDeclaration } from "../skills/crafting-roll-dialog.js";
@@ -179,15 +180,6 @@ function canResolve(message, actor) {
   return authorId === String(game.user?.id ?? "") && actor?.isOwner === true;
 }
 
-function emitRolls(buildResult, mode) {
-  const rolls = mode === "cast"
-    ? (buildResult?.spellResults ?? []).flatMap((entry) => [entry.testResult?.rollObject, entry.salvageResult?.rollObject])
-    : [buildResult?.testResult?.rollObject, buildResult?.salvageResult?.rollObject];
-  for (const roll of rolls.filter(Boolean)) {
-    if (game.dice3d?.showForRoll) Promise.resolve(game.dice3d.showForRoll(roll)).catch(() => {});
-  }
-}
-
 async function consumeFailedAttempt(actor, soulGemItem, buildResult) {
   if (buildResult.gemPreserved) {
     return result(true, "complete", "", { gemConsumed: false });
@@ -198,7 +190,7 @@ async function consumeFailedAttempt(actor, soulGemItem, buildResult) {
     : result(false, "gem-consume", t("UESRPG.Apps.EnchantingWorkshop.Errors.GemConsumptionRejected", "The soul gem could not be consumed."));
 }
 
-async function postResult(actor, targetItem, request, buildResult, operation) {
+async function postResult(actor, targetItem, request, buildResult, operation, message) {
   const content = await renderEnchantmentResultCard({
     actorImg: actor.img,
     actorName: actor.name,
@@ -213,12 +205,18 @@ async function postResult(actor, targetItem, request, buildResult, operation) {
   const rolls = request.mode === "cast"
     ? (buildResult?.spellResults ?? []).flatMap((entry) => [entry.testResult?.rollObject, entry.salvageResult?.rollObject]).filter(Boolean)
     : [buildResult?.testResult?.rollObject, buildResult?.salvageResult?.rollObject].filter(Boolean);
+  for (const roll of rolls) {
+    if (roll.data) roll.data.actorId = actor.id;
+  }
+  // A standard roll message uses DSN's automatic path exactly once.
   return ChatMessage.create({
-    user: game.user.id,
+    user: message?.author?.id ?? game.user.id,
     speaker: ChatMessage.getSpeaker({ actor }),
     content,
     style: CONST.CHAT_MESSAGE_STYLES.OTHER,
     rolls,
+    whisper: message?.whisper ?? [],
+    blind: Boolean(message?.blind),
   });
 }
 
@@ -244,7 +242,14 @@ export async function resolvePendingEnchantment(message, options = {}) {
   if (!buildResult) {
     const skill = getEnchantSkill(actor);
     if (!skill) return result(false, "validation", t("UESRPG.Apps.EnchantingWorkshop.Errors.EnchantSkillMissing", "This actor has no Enchant skill Item."));
+    const tests = request.mode === "cast" ? livePreview.spellResults : [{ label: skill.name, penalty: livePreview.penalty }];
+    const estimateTests = tests.map((test, index) => ({
+      key: `enchant-${index}`, label: test.label ?? test.spellName ?? skill.name,
+      resolve: (tn) => ({ ...computeEnchantTestTN(actor, test.penalty, { baseTarget: tn.finalTN }),
+        breakdown: [...(tn.breakdown ?? []), { label: "Enchantment penalty", value: test.penalty }] }),
+    }));
     const declaration = options.declaration ?? await promptCraftingSkillRollDeclaration(actor, skill, {
+      estimateTests,
       title: tf("UESRPG.Apps.EnchantingWorkshop.RollDialog.EnchantTitle", { skill: skill.name }, `${skill.name} - Enchant Roll Options`),
     });
     if (!declaration?.tn) return result(false, "cancelled", "");
@@ -252,7 +257,6 @@ export async function resolvePendingEnchantment(message, options = {}) {
       testBaseTN: Number(declaration.tn.finalTN ?? 0),
     });
     if (!buildResult?.valid) return result(false, "validation", (buildResult?.errors ?? []).join("\n"));
-    emitRolls(buildResult, request.mode);
     const stored = cloneSerializable(buildResult);
     const storedOk = await updateWorkflowMessage(message, {
       resolving: true,
@@ -306,7 +310,7 @@ export async function resolvePendingEnchantment(message, options = {}) {
       gemConsumed: operation.gemConsumed,
     });
   }
-  await postResult(actor, operation.targetItem ?? resources.targetItem, request, buildResult, operation);
+  await postResult(actor, operation.targetItem ?? resources.targetItem, request, buildResult, operation, message);
   return operation;
 }
 

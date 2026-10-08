@@ -85,3 +85,25 @@ export function buildWarfareDisciplineTN(actor, {
     breakdown,
   };
 }
+
+export function buildWarfareClashTN(actor, {
+  modifier = 0,
+  joinFray = false,
+  charged = false,
+  incomingChargeSide = "none",
+  opponentContactSide = "front",
+  opponentHolding = false,
+} = {}) {
+  const extraBreakdown = [];
+  const traditionKey = String(actor?.system?._derived?.traditionKey ?? "").toLowerCase();
+  if (opponentHolding) extraBreakdown.push({ label: "Opponent Holding", value: -20 });
+  if (opponentContactSide === "flank") extraBreakdown.push({ label: "Flanked", value: -20 });
+  if (incomingChargeSide === "rear") extraBreakdown.push({ label: "Charged in the Rear", value: -10 });
+  if (traditionKey === "orc-strongholds" && incomingChargeSide !== "none") extraBreakdown.push({ label: "Relentless Endurance", value: 10 });
+  if (traditionKey === "hammerfell" && charged) extraBreakdown.push({ label: "Warrior Wave", value: 10 });
+  return buildWarfareDisciplineTN(actor, {
+    manualModifier: modifier,
+    joinFray,
+    extraBreakdown,
+  });
+}

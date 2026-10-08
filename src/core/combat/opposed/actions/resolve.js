@@ -1,3 +1,4 @@
+import { resolveMagicCastContext } from "../../../magic/opposed/cast-context.js";
 import { executeAdvantageSpecialActions } from "../special-actions-automation.js";
 
 import { pushAdvantageMarker as _pushAdvantageMarker, _getDefenderOutcome, _getDefenderAdvantage, _getDefenderResolutionState, _getDefenderDamage, _setDefenderDamage } from '../schema.js';
@@ -10,6 +11,7 @@ import { _resolveActorViaToken, _resolveItemViaActor } from "../helpers/docs.js"
 import { _canControlActor } from "../helpers/util.js";
 
 import { applyOverextendEffect as _applyOverextendEffect, applyOverwhelmEffect as _applyOverwhelmEffect } from "../effects.js";
+import { isAdvantageSelectionValid } from "../dialogs/advantage-options.js";
 import { promptDefenderAdvantage as _promptDefenderAdvantage } from "../dialogs/defender.js";
 
 import { listEquippedShields as _listEquippedShields } from "../helpers/utility.js";
@@ -31,7 +33,7 @@ import {
   _buildDisplayDamageComponents,
   _emitInlineDamageRollMessage,
 } from "./damage.js";
-import { getWardBlockRating, getActiveWardSpell } from "../../ward-defense.js";
+import { getActiveWardSpell } from "../../ward-defense.js";
 
 
 function _resolveAttackerDeclaredWeapon(attacker, data) {
@@ -139,6 +141,11 @@ export async function handleDefenderAdvantage(ctx) {
 
   // If the dialog was closed, do not mark as spent.
   if (!choice) return;
+
+  if (!isAdvantageSelectionValid(choice, advCount, { role: "defender" })) {
+    ui.notifications.warn("Invalid Advantage selection for this outcome. Resolve the choices again.");
+    return;
+  }
 
   resolutionState.advantageSpent.defender = true;
   resolutionState.advantageResolution.defender = { 
@@ -306,6 +313,10 @@ export async function handleBlockResolve(ctx) {
     return;
   }
 
+  if (!isAdvantageSelectionValid(selection, 0)) {
+    ui.notifications.warn("Invalid Advantage selection for this outcome. Resolve the choices again.");
+    return;
+  }
   if (shareDamage && !sharedSelection) {
     data.context = data.context ?? {};
     data.context.sharedDamageSelection = foundry.utils.deepClone(selection);
@@ -547,7 +558,9 @@ export async function handleWardResolve(ctx) {
     ui.notifications.warn("No active Ward spell found on the defender.");
     return;
   }
-  const wardBR = getWardBlockRating(defender);
+  data.defender.wardCastContext = await resolveMagicCastContext({ castContext: data.defender.wardCastContext }, wardSpell, { actor: defender, message, user: game.users.get(data.defender?.banked?.committedBy) ?? game.user });
+  await _updateCard(message, data);
+  const wardBR = Math.max(0, Number(data.defender.wardCastContext.spellStrengthValue));
   const wardName = wardSpell.name ?? "Ward";
 
   const isAoECheck = Boolean(data?.context?.aoe?.isAoE || data?.context?.isAoE);
@@ -605,6 +618,10 @@ export async function handleWardResolve(ctx) {
     return;
   }
 
+  if (!isAdvantageSelectionValid(selection, 0)) {
+    ui.notifications.warn("Invalid Advantage selection for this outcome. Resolve the choices again.");
+    return;
+  }
   if (shareDamage && !sharedSelection) {
     data.context = data.context ?? {};
     data.context.sharedDamageSelection = foundry.utils.deepClone(selection);

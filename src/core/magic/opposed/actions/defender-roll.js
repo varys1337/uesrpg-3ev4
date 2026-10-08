@@ -1,3 +1,5 @@
+import { getDefenderCommitAvailability } from "../../../opposed/shared/defense-availability.js";
+import { prepareSpellStrengthForUse } from "../spell-helpers.js";
 /**
  * src/core/magic/opposed/actions/defender-roll.js
  *
@@ -122,13 +124,15 @@ export async function handleDefenderRoll(ctx, action) {
     return data;
   }
 
-  const apCost = Number(defender?.apCost ?? 1) || 1;
+  const defenseTypeForGate = action === "defender-roll-block" ? "block" : action === "defender-roll-ward" ? "ward" : "evade";
+  const gate = getDefenderCommitAvailability({ data, defenderData: defender, defenderActor, messageId: message.id, mode: "magic", defenseType: defenseTypeForGate });
+  const apCost = gate.apCost;
   const currentAP = Number(defenderActor?.system?.action_points?.value ?? 0) || 0;
   const defenderInStartedCombat = isActorInStartedCombatEncounter(defenderActor, {
     tokenUuid: defender?.tokenUuid ?? null,
     combatantId: defender?.combatantId ?? null
   });
-  if (defenderInStartedCombat && currentAP < apCost) {
+  if (gate.insufficientAP) {
     ui.notifications.info("No Action Points available for defense; resolving as No Defense.");
     defender.noDefense = true;
     defender.defenseType = "-";
@@ -181,19 +185,7 @@ export async function handleDefenderRoll(ctx, action) {
     defender.wardMpRemaining = Number(wardSpend?.remaining ?? defenderActor?.system?.magicka?.value ?? 0) || 0;
   }
 
-  const tnObj = (defenseType === "block" || defenseType === "ward") ? computeBlockTNWithBreakdown(defenderActor) : computeEvadeTNWithBreakdown(defenderActor);
-  const manualMod = Number(defender?.declared?.manualMod ?? 0) || 0;
-  const circumstanceMod = Number(defender?.declared?.circumstanceMod ?? 0) || 0;
-  if (manualMod) {
-    tnObj.breakdown = Array.isArray(tnObj.breakdown) ? tnObj.breakdown : [];
-    tnObj.breakdown.push({ label: "Manual Modifier", value: manualMod });
-  }
-  if (circumstanceMod) {
-    tnObj.breakdown = Array.isArray(tnObj.breakdown) ? tnObj.breakdown : [];
-    tnObj.breakdown.push({ label: "Circumstance Modifier", value: circumstanceMod });
-  }
-  tnObj.modifiers = tnObj.breakdown;
-  tnObj.finalTN = Math.max(0, Number(tnObj.finalTN ?? 0) + manualMod + circumstanceMod);
+  const tnObj = computeMagicDefenseTN(defenderActor, defenseType, defender?.declared);
   const defenseTN = Number(tnObj.finalTN ?? 0) || 0;
 
   const result = await doTestRoll(defenderActor, {
@@ -274,6 +266,11 @@ export async function handleDefenderCharacteristicTest(ctx) {
     // Fall through — executeCharacteristicDefense will use "end" as default
   }
 
+  if (String(spellConfig?.modifierMode ?? "spellStrength") !== "formula") {
+    await prepareSpellStrengthForUse({ data, attacker, spell, targetActor: defenderActor, message });
+    await ctx._updateCard(message, data);
+  }
+
   // Execute the characteristic defense test WITHOUT posting to chat (handled by opposed card)
   const defResult = await executeCharacteristicDefense(defenderActor, spell, {
     caster: attacker,
@@ -313,4 +310,22 @@ export async function handleDefenderCharacteristicTest(ctx) {
 
   await workflow._resolveOutcome(message, data, attacker, defenderActor, { defenderIndex, batchedUpdate, spell });
   return data;
+}
+
+/** Same two-stage clamp and modifiers as the magic defense roll. */
+export function computeMagicDefenseTN(actor, defenseType, declaration = {}) {
+  const tnObj = (defenseType === "block" || defenseType === "ward") ? computeBlockTNWithBreakdown(actor) : computeEvadeTNWithBreakdown(actor);
+  const manualMod = Number(declaration.manualMod ?? 0) || 0;
+  const circumstanceMod = Number(declaration.circumstanceMod ?? 0) || 0;
+  if (manualMod) {
+    tnObj.breakdown = Array.isArray(tnObj.breakdown) ? tnObj.breakdown : [];
+    tnObj.breakdown.push({ label: "Manual Modifier", value: manualMod });
+  }
+  if (circumstanceMod) {
+    tnObj.breakdown = Array.isArray(tnObj.breakdown) ? tnObj.breakdown : [];
+    tnObj.breakdown.push({ label: "Circumstance Modifier", value: circumstanceMod });
+  }
+  tnObj.modifiers = tnObj.breakdown;
+  tnObj.finalTN = Math.max(0, Number(tnObj.finalTN ?? 0) + manualMod + circumstanceMod);
+  return tnObj;
 }

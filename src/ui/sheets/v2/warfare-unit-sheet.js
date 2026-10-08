@@ -1,3 +1,5 @@
+import { isDamageReceiptOnlyUpdate } from "../../../core/combat/damage/receipt-metadata.js";
+
 /**
  * src/ui/sheets/v2/warfare-unit-sheet.js
  *
@@ -671,7 +673,8 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
   async _onFirstRender(context, options) {
     await super._onFirstRender(context, options);
     if (this._uesrpgCommanderHookId != null) return;
-    this._uesrpgCommanderHookId = Hooks.on("updateActor", (updatedActor) => {
+    this._uesrpgCommanderHookId = Hooks.on("updateActor", (updatedActor, changed) => {
+      if (isDamageReceiptOnlyUpdate(changed)) return;
       const commanderUuid = String(this.document?.system?.commander?.uuid ?? "");
       if (!commanderUuid || updatedActor?.uuid !== commanderUuid) return;
       this._uesrpgCommanderCache = null;

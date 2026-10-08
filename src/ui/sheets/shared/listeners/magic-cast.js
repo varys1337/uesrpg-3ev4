@@ -28,6 +28,7 @@ import {
 } from "../../../../core/enchanting/runtime/cast-enchantment-sources.js";
 import { t, tf } from "../../../../utils/i18n.js";
 import { CastSpellService } from "../../../../application/magic/cast-spell-service.js";
+import { systemTooltipAttributes } from "../../../shared/system-tooltips.js";
 import { isHiddenStoredEnchantmentSpell } from "../../../../core/enchanting/stored-spell-doc.js";
 
 const _SCHOOL_LABELS = Object.freeze({
@@ -234,33 +235,27 @@ function _groupSourcesBySchool(sources) {
 }
 
 function _buildCastMagicSourcePickerContent(groups) {
+  const controlIdPrefix = `uesrpg-cast-source-${foundry.utils.randomID()}`;
   const cards = groups.map((group, idx) => {
-    const selected = idx === 0 ? "checked" : "";
-    const disabled = idx === 0 ? "" : "disabled";
+    const help = `${group.sources.length} ${t(group.sources.length === 1 ? "UESRPG.Dialogs.CastMagic.SourceOne" : "UESRPG.Dialogs.CastMagic.Sources")}`;
+    const schoolId = `${controlIdPrefix}-${idx}`;
     const options = group.sources.map((source) =>
       `<option value="${_escapeHtml(source.value)}"${source.disabled ? " disabled" : ""}>${_escapeHtml(source.optionLabel)}</option>`
     ).join("");
-    return `
-      <label class="uesrpg-adv-choice uesrpg-cast-source-school">
-        <input type="radio" name="sourceSchool" value="${_escapeHtml(group.key)}" ${selected} />
-        <span class="uesrpg-adv-choice__label">
-          <span class="uesrpg-adv-choice__title">${_escapeHtml(group.label)}</span>
-          <span class="uesrpg-adv-choice__desc">${group.sources.length} ${group.sources.length === 1 ? "source" : "sources"}</span>
-          <span class="uesrpg-adv-inline uesrpg-cast-source-select ${idx === 0 ? "" : "disabled"}">
-            <select name="source-${_escapeHtml(group.key)}" ${disabled}>${options}</select>
-          </span>
-        </span>
-      </label>
-    `;
-  }).join("");
-
-  return `
-    <div class="uesrpg-cast-magic-form uesrpg-adv-dialog uesrpg-adv-dialog--magic-source">
-      <div class="uesrpg-dialog-section-header">${_escapeHtml(t("UESRPG.Dialogs.CastMagic.SelectSource"))}</div>
-      <div class="uesrpg-adv-grid uesrpg-cast-source-grid">
-        ${cards}
+    return `<div class="uesrpg-adv-choice uesrpg-choice-bar uesrpg-cast-source-school" ${systemTooltipAttributes({ text: help })}>
+      <input type="radio" id="${schoolId}" name="sourceSchool" value="${_escapeHtml(group.key)}" ${idx === 0 ? "checked" : ""} />
+      <div class="uesrpg-adv-choice__label">
+        <label class="uesrpg-adv-choice__title" for="${schoolId}">${_escapeHtml(group.label)}</label>
+        <div class="uesrpg-cast-source-select ${idx === 0 ? "" : "disabled"}" ${idx === 0 ? "" : "hidden"}>
+          <select name="source-${_escapeHtml(group.key)}" aria-label="${_escapeHtml(t("UESRPG.Dialogs.CastMagic.SelectSource"))}: ${_escapeHtml(group.label)}" ${idx === 0 ? "" : "disabled"}>${options}</select>
+        </div>
       </div>
     </div>`;
+  }).join("");
+  return `<div class="uesrpg-cast-magic-form uesrpg-adv-dialog uesrpg-adv-dialog--choice-bars uesrpg-adv-dialog--magic-source">
+    <div class="uesrpg-dialog-section-header">${_escapeHtml(t("UESRPG.Dialogs.CastMagic.SelectSource"))}</div>
+    <div class="uesrpg-adv-grid uesrpg-cast-source-grid">${cards}</div>
+  </div>`;
 }
 
 async function _promptCastMagicSource({ castActionType, sources }) {
@@ -298,7 +293,9 @@ async function _promptCastMagicSource({ castActionType, sources }) {
         for (const select of form.querySelectorAll(".uesrpg-cast-source-select select")) {
           const isActive = select.getAttribute("name") === `source-${activeKey}`;
           select.disabled = !isActive;
-          select.closest(".uesrpg-cast-source-select")?.classList.toggle("disabled", !isActive);
+          const field = select.closest(".uesrpg-cast-source-select");
+          field?.classList.toggle("disabled", !isActive);
+          if (field) field.hidden = !isActive;
         }
       };
 

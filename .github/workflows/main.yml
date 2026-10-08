@@ -9,12 +9,12 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref_name }}
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   build_release_assets:
-    name: Validate and publish immutable release
+    name: Validate and publish immutable release assets
     runs-on: ubuntu-latest
 
     steps:
@@ -26,92 +26,72 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
           cache: npm
 
-      - name: Validate release identity and channel
+      - name: Validate tag, commit, and release identity
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          expected_tag="$(node -p "require('./automation/release-metadata.js').getReleaseTag(require('./package.json').version)")"
+          expected_tag="v$(node -p "require('./package.json').version")"
           if [[ "$GITHUB_REF_TYPE" != "tag" || "$GITHUB_REF_NAME" != "$expected_tag" ]]; then
             echo "Release workflow requires tag $expected_tag; received $GITHUB_REF_TYPE $GITHUB_REF_NAME." >&2
             exit 1
           fi
-
-          tag_commit="$(git rev-parse "${GITHUB_REF_NAME}^{commit}")"
-          head_commit="$(git rev-parse HEAD)"
-          if [[ "$tag_commit" != "$head_commit" || "$head_commit" != "$GITHUB_SHA" ]]; then
-            echo "Tag $GITHUB_REF_NAME, checkout HEAD, and workflow SHA must identify the same commit." >&2
+          if [[ "$(git rev-list -n 1 "$GITHUB_REF_NAME")" != "$GITHUB_SHA" || "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]]; then
+            echo "The checked-out commit and pushed tag do not both resolve to $GITHUB_SHA." >&2
             exit 1
           fi
-
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release $GITHUB_REF_NAME already exists; published releases must never be replaced." >&2
+            echo "Release $GITHUB_REF_NAME already exists and will not be modified." >&2
             exit 1
           fi
-
-          latest_tag="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name')"
-          npm run build:release -- --previous-release "$latest_tag"
-          echo "LATEST_RELEASE_TAG=$latest_tag" >> "$GITHUB_ENV"
 
       - name: Install development dependencies
         run: npm ci
 
-      - name: Validate JavaScript syntax
-        shell: bash
-        run: find src automation scripts -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+      - name: Validate source and dependencies
+        run: |
+          npm run syntax:check
+          npm run lint
+          npm audit --audit-level=high
+          npm run schema:check
+          npm run validate
 
       - name: Build validated release folder
         run: npm run build:folder
 
-      - name: Build root-layout system ZIP
+      - name: Build and validate release archive
         shell: bash
         run: |
           rm -f uesrpg-3ev4.zip
           (cd dist/uesrpg-3ev4 && zip -r ../../uesrpg-3ev4.zip .)
+          npm run build:release -- --archive uesrpg-3ev4.zip
 
-      - name: Validate release archive
-        run: npm run build:release -- --archive uesrpg-3ev4.zip --previous-release "$LATEST_RELEASE_TAG"
-
-      - name: Create draft release with assets
+      - name: Create, verify, and publish draft release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          gh release create "$GITHUB_REF_NAME" system.json uesrpg-3ev4.zip \
+          created_draft=0
+          cleanup_failed_draft() {
+            if [[ "$created_draft" == "1" ]] && [[ "$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" --jq .draft 2>/dev/null)" == "true" ]]; then
+              gh release delete "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --yes
+            fi
+          }
+          trap cleanup_failed_draft ERR
+
+          gh release create "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
-            --draft \
-            --verify-tag \
+            --target "$GITHUB_SHA" \
             --title "$GITHUB_REF_NAME" \
-            --generate-notes
-          echo "RELEASE_DRAFT_CREATED=true" >> "$GITHUB_ENV"
-
-      - name: Verify draft asset integrity
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node automation/verify-github-release.js --stage draft --tag "$GITHUB_REF_NAME" --archive uesrpg-3ev4.zip
-
-      - name: Publish as the latest stable release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest --verify-tag
-
-      - name: Verify public Foundry update endpoints
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node automation/verify-github-release.js --stage published --tag "$GITHUB_REF_NAME" --archive uesrpg-3ev4.zip
-
-      - name: Remove an unpublished failed draft
-        if: ${{ failure() && env.RELEASE_DRAFT_CREATED == 'true' }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          draft_id="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
-            --jq ".[] | select(.tag_name == \"$GITHUB_REF_NAME\" and .draft == true) | .id" \
-            | head -n 1)"
-          if [[ -n "$draft_id" ]]; then
-            gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/$draft_id"
-          fi
+            --generate-notes \
+            --draft \
+            system.json \
+            uesrpg-3ev4.zip
+          created_draft=1
+          node automation/verify-github-release.js --draft
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          node automation/verify-github-release.js --published
+          trap - ERR

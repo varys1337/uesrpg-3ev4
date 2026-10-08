@@ -1,3 +1,5 @@
+import { renderTNSummary, bindTNEstimates } from "../../../ui/shared/tn-presentation.js";
+import { emitSuppressedSubRollDice } from "../../../utils/dice-visualization.js";
 /**
  * src/core/mass-warfare/clash/discipline-roll.js
  *
@@ -9,7 +11,7 @@
  *    winner determined by success + DoS comparison.
  *
  * Lucky/Unlucky crit flags are suppressed — warfare units have no character crits.
- * DSN (Dice So Nice) animation plays simultaneously for all rolls before the card posts.
+ * DSN (Dice So Nice) animation runs alongside card completion.
  */
 
 import { customDialog } from "../../../utils/dialog-v2-helper.js";
@@ -34,7 +36,7 @@ export async function rollDisciplineForUnit(actor) {
 
   const baseTn = buildWarfareDisciplineTN(actor).baseTN;
 
-  const choices = await _showDisciplineDialog(actor.name, baseTn);
+  const choices = await _showDisciplineDialog(actor, baseTn);
   if (!choices) return; // cancelled
 
   const { mode, modifier } = choices;
@@ -49,19 +51,19 @@ export async function rollDisciplineForUnit(actor) {
 
 // ── Roll execution ─────────────────────────────────────────────────────────────
 
-async function _runOpposedRoll(actor, selfTn, modifier) {
+function _getDisciplineOpponent(actor) {
   const targets = [...(game.user.targets ?? [])];
-  if (targets.length !== 1) {
-    ui.notifications.warn("Select exactly one target Warfare Unit token for an opposed Discipline roll.");
-    return;
-  }
+  if (targets.length !== 1) return { reason: "Select exactly one target Warfare Unit token for an opposed Discipline roll." };
   const targetActor = targets[0].actor;
-  if (!targetActor || targetActor.type !== "Warfare Unit") {
-    ui.notifications.warn("The targeted token must be a Warfare Unit.");
-    return;
-  }
-  if (targetActor.id === actor.id) {
-    ui.notifications.warn("Cannot roll opposed against itself.");
+  if (!targetActor || targetActor.type !== "Warfare Unit") return { reason: "The targeted token must be a Warfare Unit." };
+  if (targetActor.id === actor.id) return { reason: "Cannot roll opposed against itself." };
+  return { actor: targetActor };
+}
+
+async function _runOpposedRoll(actor, selfTn, modifier) {
+  const { actor: targetActor, reason } = _getDisciplineOpponent(actor);
+  if (!targetActor) {
+    ui.notifications.warn(reason);
     return;
   }
 
@@ -73,13 +75,8 @@ async function _runOpposedRoll(actor, selfTn, modifier) {
     doTestRoll(targetActor, { target: targetTn.finalTN, allowLucky: false, allowUnlucky: false }),
   ]);
 
-  // DSN — simultaneous animation
-  if (game.dice3d) {
-    await Promise.all(
-      [selfResult.roll, targetResult.roll].filter(Boolean)
-        .map(r => game.dice3d.showForRoll(r, game.user, true).catch(() => {}))
-    );
-  }
+  void emitSuppressedSubRollDice(selfResult.roll, { actor, messageMode: "public" });
+  void emitSuppressedSubRollDice(targetResult.roll, { actor: targetActor, messageMode: "public" });
 
   const content = _renderOpposedCard(
     actor, selfResult, selfTn, modifier,
@@ -94,9 +91,7 @@ async function _runOpposedRoll(actor, selfTn, modifier) {
 async function _runUnopposedRoll(actor, selfTn, modifier) {
   const result = await doTestRoll(actor, { target: selfTn.finalTN, allowLucky: false, allowUnlucky: false });
 
-  if (game.dice3d) {
-    await game.dice3d.showForRoll(result.roll, game.user, true).catch(() => {});
-  }
+  void emitSuppressedSubRollDice(result.roll, { actor, messageMode: "public" });
 
   const content = _renderUnopposedCard(actor, result, selfTn, modifier);
   await ChatMessage.create({
@@ -125,11 +120,23 @@ function _buildDisciplineDialogContent(baseTn) {
     </div>`;
 }
 
-async function _showDisciplineDialog(unitName, baseTn) {
+async function _showDisciplineDialog(actor, baseTn) {
   return customDialog({
     layout: "workflow",
-    title: `${unitName} — Discipline Test`,
-    content: _buildDisciplineDialogContent(baseTn),
+    title: `${actor.name} — Discipline Test`,
+    content: renderTNSummary([{ key: "test", label: actor.name }, { key: "opponent", label: "Opposing unit" }]) + _buildDisciplineDialogContent(baseTn),
+    render: (_event, dialog) => bindTNEstimates(dialog.element, () => {
+      const root = dialog.element;
+      const opposed = root.querySelector('[name="mode"]')?.value === "opposed";
+      const opponentRow = root.querySelector('[data-tn-label-for="opponent"]')?.parentElement;
+      if (opponentRow) opponentRow.hidden = !opposed;
+      const tests = [{ key: "test", result: buildWarfareDisciplineTN(actor, { manualModifier: Number(root.querySelector('[name="modifier"]')?.value ?? 0) }) }];
+      if (opposed) {
+        const target = _getDisciplineOpponent(actor);
+        tests.push({ key: "opponent", label: target.actor?.name ?? "Opposing unit", result: target.actor ? buildWarfareDisciplineTN(target.actor) : null, reason: target.reason });
+      }
+      return tests;
+    }),
     buttons: {
       roll: {
         label: "Roll",
@@ -181,7 +188,7 @@ function _unitBlock(actor, result, tn, modifier) {
     <div style="font-weight:700; margin-bottom:3px;">⚔️ ${name}</div>
     <div style="opacity:0.7; font-size:12px;">TN: ${tnNote}</div>
     <div><b>Roll:</b> ${total} — <span style="color:${color}; font-weight:600;">${_esc(label)}</span></div>
-    ${breakdownRows ? `<details style="margin-top:4px;"><summary style="cursor:pointer; user-select:none; white-space:nowrap;">TN breakdown</summary><div style="margin-top:4px; font-size:12px; opacity:0.9;">${breakdownRows}</div></details>` : ""}
+    ${breakdownRows ? `<details style="margin-top:4px;"><summary style="cursor:var(--uesrpg-cursor-pointer, pointer); user-select:none; white-space:nowrap;">TN breakdown</summary><div style="margin-top:4px; font-size:12px; opacity:0.9;">${breakdownRows}</div></details>` : ""}
   </div>`;
 }
 

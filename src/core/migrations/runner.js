@@ -1,7 +1,7 @@
 import { SYSTEM_ID } from "../constants.js";
 import { migrateActiveEffectsIfNeeded } from "./active-effects.js";
 import { migrateActorsIfNeeded, migrateNpcThreatTemplateKeysIfNeeded, migrateNpcThreatTemplateOptionsIfNeeded, migrateWarfareUnitNeutralLanesIfNeeded } from "./actors.js";
-import { migrateItemsIfNeeded, migrateNpcArmorCoverageDefaultsIfNeeded } from "./items.js";
+import { migrateItemsIfNeeded, migrateItemSheetCompatibilityIfNeeded, migrateNpcArmorCoverageDefaultsIfNeeded } from "./items.js";
 import { migrateCombatLegacyIfNeeded } from "./combat-legacy.js";
 import { migrateWarfareFlagDocumentsIfNeeded } from "./warfare-flags.js";
 import { migrateAoeRegionLinksIfNeeded } from "./aoe-region-links.js";
@@ -44,6 +44,8 @@ export async function runSystemMigrations({
       await migrateWorldSettingsIfNeeded();
       await migrateActiveEffectsIfNeeded();
       await migrateSystemTemplateDirectivesIfNeeded();
+      // Repair known Item shapes before older passes validate complete models.
+      await migrateItemSheetCompatibilityIfNeeded();
       await migrateActorsIfNeeded();
       await migrateItemsIfNeeded();
       await migrateNpcArmorCoverageDefaultsIfNeeded();

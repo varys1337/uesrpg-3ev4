@@ -78,6 +78,22 @@ export async function handleAttackerRoll(ctx, action) {
     selectedCharacteristicKey: defaultCharacteristic
   });
 
+  const computeDeclaredTN = (declaration) => {
+    const decl = { ...declaration, ...normalizeSkillRollOptions(declaration, defaults) };
+    return resolveSelectionAndComputeTN({
+      side: "attacker",
+      actor: attacker,
+      opponentActor: defender,
+      decl,
+      defaultCharacteristic,
+      data,
+      resMods: buildResistanceBonusMods(decl?.resistanceSelected ?? []),
+      includeInvisibleTrackingPenalty: true,
+      includeHistskin: true,
+      includeResModsForCombatStyle: true
+    });
+  };
+
   let decl = null;
   const quick = _isQuickShiftRequested(event);
 
@@ -90,6 +106,11 @@ export async function handleAttackerRoll(ctx, action) {
     } else {
       decl = await _skillRollDialog({
         title: "Opposed Skill Test — Attacker",
+        resolveEstimate: (declaration) => {
+          if (!_isSpecialActionSelectionLegal(declaration, specialLegality)) return { reason: "Select a legal test for this Special Action." };
+          const computed = computeDeclaredTN(declaration);
+          return { result: computed.tn, label: computed.skillLabel, reason: computed.error ? "Select an available test." : null };
+        },
         actor: attacker,
         showSkillSelect: (!data.attacker.skillUuid || Boolean(specialLegality)),
         skills,
@@ -127,19 +148,7 @@ export async function handleAttackerRoll(ctx, action) {
     return;
   }
 
-  const resMods = buildResistanceBonusMods(decl?.resistanceSelected ?? []);
-  const computed = resolveSelectionAndComputeTN({
-    side: "attacker",
-    actor: attacker,
-    opponentActor: defender,
-    decl,
-    defaultCharacteristic,
-    data,
-    resMods,
-    includeInvisibleTrackingPenalty: true,
-    includeHistskin: true,
-    includeResModsForCombatStyle: true
-  });
+  const computed = computeDeclaredTN(decl);
   if (computed.error) {
     ui.notifications.warn("Selected actor skill or combat style could not be found.");
     return;
@@ -213,7 +222,7 @@ export async function handleAttackerRoll(ctx, action) {
   }
 
   skillRollDebug("opposed attacker result", { rollTotal: res.rollTotal, target: res.target, isSuccess: res.isSuccess, degree: res.degree, critS: res.isCriticalSuccess, critF: res.isCriticalFailure });
-  _emitSuppressedSubRollDice(res.roll, { rollMode });
+  _emitSuppressedSubRollDice(res.roll, { rollMode, actor: attacker, message, user: game.user });
   if (skillItem) {
     await consumePhysicalExertionForSkill(attacker, skillItem, {
       selectedCharacteristicKey: decl.selectedCharacteristicKey ?? defaultCharacteristic

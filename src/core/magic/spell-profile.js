@@ -81,7 +81,7 @@ import { _bool } from "../../utils/coerce.js";
  */
 function _resolveDuration(spell, options = {}) {
   // Check scaling entry first if level is specified
-  const scaling = getSpellScalingEntry(spell, options.level ?? null);
+  const scaling = getSpellScalingEntry(spell, options.level ?? null, options._scalingLevels);
   const scaledDuration = scaling?.duration;
   
   // Use scaled duration if available and valid, otherwise use base duration
@@ -107,10 +107,10 @@ function _resolveDuration(spell, options = {}) {
  * @param {Item} spell
  * @returns {{isAttack: boolean, isDamaging: boolean, isHealing: boolean, isDirect: boolean, isInstant: boolean, hasUpkeep: boolean, hasOverload: boolean, hasReinforce: boolean}}
  */
-function _resolveClassification(spell) {
+function _resolveClassification(spell, options = {}) {
   const isAttack = _bool(spell?.system?.isAttackSpell);
   const isDamaging = _bool(spell?.system?.isDamagingSpell);
-  const isHealing = _isHealingSpell(spell);
+  const isHealing = _isHealingSpell(spell, options._scalingLevels);
   const isDirect = _bool(spell?.system?.isDirect);
   const isInstant = _bool(spell?.system?.isInstant);
   const hasUpkeep = _bool(spell?.system?.hasUpkeep);
@@ -177,9 +177,9 @@ function _resolveCostProfile(actor, spell, options = {}) {
  * @returns {{formula: string, type: string, isHealing: boolean, overloadBonusFormula: string, criticalBehavior: string}}
  */
 function _resolveDamageProfile(spell, actor, options = {}) {
-  const formula = getSpellDamageFormula(spell, options.level ?? null, { actor });
-  const type = getSpellDamageType(spell, options.level ?? null);
-  const isHealing = _isHealingSpell(spell);
+  const formula = getSpellDamageFormula(spell, options.level ?? null, { actor, _scalingLevels: options._scalingLevels });
+  const type = getSpellDamageType(spell, options.level ?? null, options._scalingLevels);
+  const isHealing = _isHealingSpell(spell, options._scalingLevels);
   
   const overloadBonusFormula = _str(spell?.system?.overloadBonusDamage);
   
@@ -259,12 +259,12 @@ function _resolveAoEProfile(spell) {
  * @param {Item} spell
  * @returns {{school: string, form: string, type: string, level: number}}
  */
-function _resolveMetadata(spell) {
+function _resolveMetadata(spell, options = {}) {
   return {
     school: _str(spell?.system?.school),
     form: _str(spell?.system?.form),
     type: _str(spell?.system?.spellType),
-    level: getSpellLevel(spell)
+    level: getSpellLevel(spell, options._scalingLevels)
   };
 }
 
@@ -275,9 +275,9 @@ function _resolveMetadata(spell) {
  * @returns {{levels: Array, currentLevel: object|null, hasScaling: boolean}}
  */
 function _resolveScaling(spell, options = {}) {
-  const levels = getSpellScalingLevels(spell);
+  const levels = options._scalingLevels ?? getSpellScalingLevels(spell);
   const hasScaling = Array.isArray(levels) && levels.length > 0;
-  const currentLevel = getSpellScalingEntry(spell, options.level ?? null);
+  const currentLevel = getSpellScalingEntry(spell, options.level ?? null, options._scalingLevels);
   
   return {
     levels,
@@ -315,8 +315,10 @@ export function resolveSpellProfile(spell, actor, options = {}) {
     throw new Error("resolveSpellProfile requires both spell and actor");
   }
   
-  const metadata = _resolveMetadata(spell);
-  const classification = _resolveClassification(spell);
+  // Reuse only this calculation's normalized rows; never cache Actor-dependent results.
+  options = { ...options, _scalingLevels: getSpellScalingLevels(spell) };
+  const metadata = _resolveMetadata(spell, options);
+  const classification = _resolveClassification(spell, options);
   const cost = _resolveCostProfile(actor, spell, options);
   const damage = _resolveDamageProfile(spell, actor, options);
   const duration = _resolveDuration(spell, options);

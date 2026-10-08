@@ -6,7 +6,7 @@
 
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { getSpellCost, getSpellScalingEntry } from "../magicka-utils.js";
-import { resolveNumericSpellStrength } from "../opposed/cast-context.js";
+import { resolveNumericSpellStrength, resolveMagicCastContext } from "../opposed/cast-context.js";
 import { evaluateNumericExpression } from "../../../utils/numeric-expression.js";
 import { requestAtomicUpdateDocument } from "../../../utils/authority-proxy.js";
 import { adjustCurrentResource } from "../../system/resource-updates.js";
@@ -253,6 +253,16 @@ function _getOperation(spell, payload = {}) {
     ?? _normalizeRecipeOperation(spell, payload);
 }
 
+/** Use the same canonical operation resolution as application, including legacy rules. */
+export function hasSpellResourceRestoration(spell, payload = {}) {
+  return Boolean(_getOperation(spell, payload));
+}
+
+export function getSpellResourceRestorationRecipient({ caster, target, spell, payload = {} }) {
+  const operation = _getOperation(spell, payload);
+  return operation ? (operation.target === "self" ? caster : target) : null;
+}
+
 function _readNumber(doc, path, fallback = 0) {
   const value = foundry.utils.getProperty(doc, path);
   const n = Number(value);
@@ -296,30 +306,38 @@ async function _removeFatigueOrRestoreStamina(actor, operation, spell, caster, p
   return _restoreResource(actor, "stamina", amount, lines);
 }
 
-async function _postReport({ caster, spell, lines }) {
+async function _postReport({ caster, spell, lines, strict = false }) {
   if (!Array.isArray(lines) || !lines.length) return;
 
   const escapedLines = lines.map((line) => `<li>${_escapeHtml(line)}</li>`).join("");
   try {
-    await ChatMessage.create({
+    const message = await ChatMessage.create({
       speaker: ChatMessage.getSpeaker({ actor: caster ?? null }),
       content: `<div class="uesrpg"><p><strong>${_escapeHtml(spell?.name ?? "Spell")} resource restoration</strong></p><ul>${escapedLines}</ul></div>`,
       style: CONST.CHAT_MESSAGE_STYLES.OTHER
     });
+    if (strict && !message) throw new Error("Resource restoration report was not created.");
   } catch (err) {
+    if (strict) throw err;
     console.warn("UESRPG | resource-restoration-service | Failed to post restoration report", err);
   }
 }
 
-export async function applySpellResourceRestoration({ caster, target, spell, payload = {}, message = null } = {}) {
+export async function applySpellResourceRestoration({ caster, target, spell, payload = {}, message = null, strict = false } = {}) {
   if (!spell) return false;
 
   const operation = _getOperation(spell, payload);
   if (!operation) return false;
 
   const actor = operation.target === "self" ? caster : target;
-  if (!actor) return false;
+  if (!actor) {
+    if (strict) throw new Error("The resource restoration recipient is unavailable.");
+    return false;
+  }
 
+  payload = { ...payload, castContext: await resolveMagicCastContext({
+    castContext: payload.castContext, spellOptions: payload.spellOptions, scalingChoices: payload.scalingChoices,
+  }, spell, { actor: caster, message }) };
   const lines = [];
   let applied = false;
 
@@ -336,7 +354,7 @@ export async function applySpellResourceRestoration({ caster, target, spell, pay
   }
 
   if (applied && operation.chat !== false) {
-    await _postReport({ caster, spell, lines, message });
+    await _postReport({ caster, spell, lines, message, strict });
   }
   return applied;
 }

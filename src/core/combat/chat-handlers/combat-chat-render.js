@@ -2,7 +2,7 @@
  * src/core/combat/chat-handlers/combat-chat-render.js
  *
  * renderChatMessageHTML hook body — DOM augmentation, permission gating,
- * talent reroll / Imperial Luck injection, action card init, and scroll-to-bottom.
+ * talent reroll / Imperial Luck injection, action card init, and disclosure anchoring.
  */
 
 import { canUserRollActor } from "../../../utils/permissions.js";
@@ -22,6 +22,71 @@ import { getSkillOpposedState, getCharOpposedState } from "./combat-chat-opposed
 import { markSystemTooltipScope, setSystemTooltip } from "../../../ui/shared/system-tooltips.js";
 
 const _FLAG_NS = FLAG_SCOPE;
+
+const _disclosureBoundRoots = new WeakSet();
+const _disclosureSelector = "details.uesrpg-chat-details, details.dmg-details";
+
+function _findDisclosureScroller(summary) {
+  const view = summary.ownerDocument.defaultView;
+  for (let element = summary.parentElement; element; element = element.parentElement) {
+    if (element.clientHeight && /^(auto|scroll)$/.test(view.getComputedStyle(element).overflowY)) return element;
+  }
+  return null;
+}
+
+/** Keep a user-activated disclosure heading anchored without changing Foundry's new-message scrolling. */
+function _bindDisclosureScrollAnchors(root) {
+  if (_disclosureBoundRoots.has(root) || !root.querySelector(_disclosureSelector)) return;
+  _disclosureBoundRoots.add(root);
+  const view = root.ownerDocument.defaultView;
+  let pending = null;
+  const remember = event => {
+    if (event.defaultPrevented || !(event.target instanceof Element)) return;
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    const summary = event.target.closest("summary");
+    const details = summary?.parentElement;
+    if (!details?.matches(_disclosureSelector) || !root.contains(details)) return;
+    if (event.target.closest("a, button, input, select, textarea")) return;
+    const scroller = _findDisclosureScroller(summary);
+    if (!scroller) return;
+    pending?.cancel();
+    const controller = new view.AbortController();
+    const anchor = {
+      summary, details, scroller, open: details.open,
+      offset: summary.getBoundingClientRect().top - scroller.getBoundingClientRect().top,
+      cancel() {
+        controller.abort();
+        if (pending === anchor) pending = null;
+      }
+    };
+    pending = anchor;
+    const options = { capture: true, passive: true, signal: controller.signal };
+    for (const name of ["wheel", "touchmove", "pointerdown"]) scroller.addEventListener(name, anchor.cancel, options);
+    scroller.addEventListener("keydown", nextEvent => {
+      if (nextEvent === event) return;
+      if (["PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown", " "].includes(nextEvent.key)) anchor.cancel();
+    }, options);
+    const restore = final => {
+      if (pending !== anchor) return;
+      if (anchor.details.open === anchor.open || !root.isConnected || !anchor.summary.isConnected || !anchor.scroller.isConnected || !root.contains(anchor.summary)) {
+        anchor.cancel();
+        return;
+      }
+      const offset = anchor.summary.getBoundingClientRect().top - anchor.scroller.getBoundingClientRect().top;
+      const max = Math.max(0, anchor.scroller.scrollHeight - anchor.scroller.clientHeight);
+      const top = Math.min(max, Math.max(0, anchor.scroller.scrollTop + offset - anchor.offset));
+      if (Math.abs(top - anchor.scroller.scrollTop) > 0.5) anchor.scroller.scrollTop = top;
+      if (final) anchor.cancel();
+    };
+    view.requestAnimationFrame(() => {
+      restore(false);
+      view.requestAnimationFrame(() => restore(true));
+    });
+  };
+  // Native summary pointer, Enter, and Space activation all dispatch click before changing open.
+  // Read open on the next frame: the asynchronously coalesced toggle event can arrive later.
+  root.addEventListener("click", remember, true);
+}
 
 const _CHAT_SURFACE_SELECTOR = [
   ".message-content > .uesrpg",
@@ -545,19 +610,5 @@ export function augmentChatMessageHTML(message, root) {
   // Imperial racial talent: Imperial Luck (Chapter 4) spend LP for extra DoS on successful tests.
   _injectImperialLuckDoSButton(message, root);
 
-  // Scroll chat to bottom when the last message renders (new card or card update).
-  // Uses requestAnimationFrame so scrollHeight reflects the final post-render layout.
-  const _lastMsg = game.messages?.contents?.at(-1);
-  if (_lastMsg && message.id === _lastMsg.id) {
-    requestAnimationFrame(() => ui.chat?.scrollBottom?.());
-  }
-
-  // Scroll to bottom when a <details> TN breakdown is expanded on the last message.
-  if (_lastMsg && message.id === _lastMsg.id) {
-    root.querySelectorAll("details").forEach((el) => {
-      el.addEventListener("toggle", () => {
-        if (el.open) requestAnimationFrame(() => ui.chat?.scrollBottom?.());
-      });
-    });
-  }
+  _bindDisclosureScrollAnchors(root);
 }

@@ -1,13 +1,27 @@
 {
   "name": "uesrpg-3ev4",
-  "version": "14.2.1",
+  "version": "14.2.0",
   "private": true,
+  "engines": {
+    "node": ">=24 <25"
+  },
   "scripts": {
+    "lint": "eslint src scripts automation eslint.config.mjs",
+    "syntax:check": "node scripts/javascript-syntax.js",
+    "schema:check": "node scripts/generate-schema-defaults.js",
+    "schema:generate": "node scripts/generate-schema-defaults.js --write",
+    "data:check": "node scripts/generate-data-catalogs.js",
+    "data:sync": "node scripts/generate-data-catalogs.js --write",
+    "validate": "node scripts/build-release.js",
     "build:folder": "node scripts/build-release.js --build-folder",
+    "build:github-source": "node scripts/build-release.js --build-github-source",
     "build:release": "node scripts/build-release.js",
+    "verify:deployment": "node scripts/verify-deployment.js",
     "version": "node automation/version.js"
   },
   "devDependencies": {
-    "sass": "^1.93.2"
+    "eslint": "10.10.0",
+    "espree": "11.2.0",
+    "globals": "17.12.0"
   }
 }

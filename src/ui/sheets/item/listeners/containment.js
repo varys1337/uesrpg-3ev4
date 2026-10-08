@@ -863,7 +863,7 @@ export async function createContainerListDialog(sheetLike, bagListItems, tooLarg
       <td class="uesrpg-container-picker__cell">${qty}</td>
       <td class="uesrpg-container-picker__cell">${enc}</td>
       <td class="uesrpg-container-picker__cell">
-        <input type="checkbox" class="itemSelect container-select" data-item-id="${bagItem.id}" ${isInThisContainer ? "checked" : ""}>
+        <label class="uesrpg-adv-choice uesrpg-choice-bar"><input type="checkbox" class="itemSelect container-select" data-item-id="${bagItem.id}" ${isInThisContainer ? "checked" : ""}><span class="uesrpg-adv-choice__label">Select</span></label>
       </td>
     </tr>`;
   });

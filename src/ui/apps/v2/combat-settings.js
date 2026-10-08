@@ -6,11 +6,13 @@
  */
 
 import { getSettingPresentation, t } from "../../../utils/i18n.js";
+import { getOutcomeApplicationMode } from "../../../core/config/outcome-application-policy.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 const NAMESPACE = SYSTEM_ID;
 const COMBAT_SETTINGS_KEYS = Object.freeze([
   "enableActionEconomyUI",
+  "combatOutcomeApplicationMode",
   "actionPointAutomation",
   "tokenRangeMeasurement",
   "aoeContainmentMode",
@@ -33,17 +35,19 @@ export class CombatSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV
       submitOnChange: false,
     },
     window: {
+      resizable: true,
       title: "UESRPG - Combat",
     },
     position: {
       width: 520,
     },
-    classes: ["uesrpg"],
+    classes: ["standard-form", "uesrpg-settings-app"],
   };
 
   static PARTS = {
     form: {
       template: templatePath("v2/apps/combat-settings.hbs"),
+      scrollable: [".uesrpg-settings__body"],
     },
   };
 
@@ -55,7 +59,8 @@ export class CombatSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV
     const settings = {};
     for (const key of COMBAT_SETTINGS_KEYS) {
       const presentation = _getRegisteredSettingPresentation(NAMESPACE, key);
-      if (presentation) settings[key] = presentation;
+      if (presentation) settings[key] = key === "combatOutcomeApplicationMode"
+        ? { ...presentation, value: getOutcomeApplicationMode() } : presentation;
     }
     return {
       settings,
@@ -66,6 +71,10 @@ export class CombatSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV
     const data = formData.object;
     const toBool = (v) => Boolean(v);
     if ("enableActionEconomyUI" in data) await game.settings.set(NAMESPACE, "enableActionEconomyUI", toBool(data.enableActionEconomyUI));
+    if ("combatOutcomeApplicationMode" in data) {
+      const mode = ["gm", "owners", "automatic"].includes(data.combatOutcomeApplicationMode) ? data.combatOutcomeApplicationMode : "gm";
+      await game.settings.set(NAMESPACE, "combatOutcomeApplicationMode", mode);
+    }
     if ("actionPointAutomation" in data) await game.settings.set(NAMESPACE, "actionPointAutomation", data.actionPointAutomation);
     if ("tokenRangeMeasurement" in data) await game.settings.set(NAMESPACE, "tokenRangeMeasurement", data.tokenRangeMeasurement);
     if ("aoeContainmentMode" in data) await game.settings.set(NAMESPACE, "aoeContainmentMode", data.aoeContainmentMode);

@@ -1,3 +1,4 @@
+import { renderTNSummary, bindTNEstimates } from "../../ui/shared/tn-presentation.js";
 import { escapeHtml } from "../../utils/html.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
 import { doTestRoll, formatResultSummary } from "../../utils/degree-roll-helper.js";
@@ -63,6 +64,7 @@ async function chooseStoreDomain(actor, invocation) {
 }
 
 async function chooseInvocationOptions(actor, invocation, {
+  ritualItem,
   storeDomainKey,
   tnDomainKey,
   baseTN,
@@ -70,12 +72,22 @@ async function chooseInvocationOptions(actor, invocation, {
   circlePenalty,
   shrineBonus,
 } = {}) {
+  const readDeclaration = (root) => {
+    return {
+      aspectMatch: root?.querySelector('input[name="aspectMatch"]')?.checked === true,
+      difficultyKey: String(root?.querySelector('select[name="difficultyKey"]')?.value ?? "average"),
+      circumstanceMod: normalizeCircumstanceMod(root?.querySelector('select[name="circumstanceMod"]')?.value ?? 0, 0),
+      manualModifier: asNumber(root?.querySelector('input[name="manualModifier"]')?.value ?? 0, 0),
+    };
+  };
+
   const aspects = Array.isArray(invocation?.system?.aspects) ? invocation.system.aspects : [];
   return customDialog({
     layout: "workflow",
     title: "Invocation Options",
+    render: (_event, dialog) => bindTNEstimates(dialog.element, () => computeInvocationTN(actor, ritualItem, readDeclaration(dialog.element), { circlePenalty, shrineBonus })),
     content: `<div class="uesrpg-spell-options">
-      <h3>${escapeHtml(getLocalizedInvocationName(invocation) || invocation?.name || "Invocation")}</h3>
+      ${renderTNSummary(getLocalizedInvocationName(invocation) || invocation?.name || "Invocation")}
       <div class="form-group">
         <label>PP Cost: <b>${pietyCost}</b></label>
       </div>
@@ -112,24 +124,16 @@ async function chooseInvocationOptions(actor, invocation, {
       </div>
       ${aspects.length ? `
       <div class="form-group" style="margin-top:8px;">
-        <label style="display:flex; align-items:center; gap:8px;">
+        <label class="uesrpg-adv-choice uesrpg-choice-bar">
           <input type="checkbox" name="aspectMatch" />
-          <span><b>Aspect Match</b> (+10) [${escapeHtml(aspects.join(", "))}]</span>
+          <span class="uesrpg-adv-choice__label"><b>Aspect Match</b> (+10) [${escapeHtml(aspects.join(", "))}]</span>
         </label>
       </div>` : ""}
     </div>`,
     buttons: {
       cast: {
         label: "Cast",
-        callback: (html) => {
-          const root = html instanceof HTMLElement ? html : html?.[0];
-          return {
-            aspectMatch: root?.querySelector('input[name="aspectMatch"]')?.checked === true,
-            difficultyKey: String(root?.querySelector('select[name="difficultyKey"]')?.value ?? "average"),
-            circumstanceMod: normalizeCircumstanceMod(root?.querySelector('select[name="circumstanceMod"]')?.value ?? 0, 0),
-            manualModifier: asNumber(root?.querySelector('input[name="manualModifier"]')?.value ?? 0, 0),
-          };
-        },
+        callback: (html) => readDeclaration(html instanceof HTMLElement ? html : html?.[0]),
       },
       cancel: { label: "Cancel", callback: () => null },
     },
@@ -211,8 +215,8 @@ function buildInvocationFlavor({
       ${declaredParts.length ? `<div style="margin-top:2px; font-size:12px; opacity:0.85;"><b>Options:</b> ${declaredParts.join("; ")}</div>` : ""}
       <div style="margin-top:4px;">${degreeLine}</div>
       ${potencyValue ? `<div style="margin-top:4px;"><b>Potency:</b> ${potencyValue}</div>` : ""}
-      <details style="margin-top:6px;"><summary style="cursor:pointer; user-select:none;">TN breakdown</summary><div style="margin-top:4px; font-size:12px; opacity:0.9;">${breakdownRows}</div></details>
-      ${effectText ? `<details style="margin-top:6px;"><summary style="cursor:pointer; user-select:none;">Effect</summary><div style="margin-top:4px; font-size:12px; opacity:0.95;">${formatTextBlock(effectText)}</div></details>` : ""}
+      <details style="margin-top:6px;"><summary style="cursor:var(--uesrpg-cursor-pointer, pointer); user-select:none;">TN breakdown</summary><div style="margin-top:4px; font-size:12px; opacity:0.9;">${breakdownRows}</div></details>
+      ${effectText ? `<details style="margin-top:6px;"><summary style="cursor:var(--uesrpg-cursor-pointer, pointer); user-select:none;">Effect</summary><div style="margin-top:4px; font-size:12px; opacity:0.95;">${formatTextBlock(effectText)}</div></details>` : ""}
       <div class="tag-container">${tags.join("")}</div>
     </div>`;
 }
@@ -245,6 +249,7 @@ export async function castInvocationFromItem({ actor, invocation, token = null }
     const shrineBonus = hasShrineWarden(actor) && isActorInsideMatchingConsecratedRegion(actor, storeDomainKey) ? 20 : 0;
     const baseTN = asNumber(ritualItem?.system?.value, 0);
     const options = await chooseInvocationOptions(actor, invocation, {
+      ritualItem,
       storeDomainKey,
       tnDomainKey,
       baseTN,
@@ -255,25 +260,7 @@ export async function castInvocationFromItem({ actor, invocation, token = null }
     if (!options) return null;
 
     const aspectBonus = options.aspectMatch ? 10 : 0;
-    const situationalMods = [];
-    if (circlePenalty) situationalMods.push({ label: "Circle Penalty", value: circlePenalty, source: "invocationCircle" });
-    if (shrineBonus) situationalMods.push({ label: "Shrine Warden", value: shrineBonus, source: "shrineWarden" });
-    if (aspectBonus) situationalMods.push({ label: "Aspect Match", value: aspectBonus, source: "invocationAspect" });
-    if (options.circumstanceMod) {
-      situationalMods.push({
-        label: `Circumstance: ${circumstanceLabel(options.circumstanceMod)}`,
-        value: options.circumstanceMod,
-        source: "circumstance",
-      });
-    }
-
-    const tn = computeSkillTN({
-      actor,
-      skillItem: ritualItem,
-      difficultyKey: options.difficultyKey,
-      manualMod: options.manualModifier,
-      situationalMods,
-    });
+    const tn = computeInvocationTN(actor, ritualItem, options, { circlePenalty, shrineBonus });
     const rollResult = await doTestRoll(actor, {
       target: tn.finalTN,
       allowLucky: true,
@@ -287,7 +274,9 @@ export async function castInvocationFromItem({ actor, invocation, token = null }
         : Math.max(0, asNumber(rollResult?.degree, 0)))
       : 0;
 
-    await updateWorshipDomain(actor, storeDomainKey, (current) => ({
+    await updateWorshipDomain(actor, storeDomainKey, (current) => {
+      if (current?.penance?.blocked || asNumber(current?.piety?.value, 0) < pietyCost) throw new Error("Invocation cost is no longer available. No invocation effects were applied.");
+      return ({
       ...current,
       piety: {
         ...(current?.piety ?? {}),
@@ -311,7 +300,8 @@ export async function castInvocationFromItem({ actor, invocation, token = null }
           aspectMatch: options.aspectMatch === true,
         },
       ].slice(-50),
-    }));
+    });
+    }, { strict: true });
 
     const flavor = buildInvocationFlavor({
       invocation,
@@ -357,4 +347,27 @@ export async function castInvocationFromItem({ actor, invocation, token = null }
     ui.notifications?.warn?.(error?.message ?? "Invocation casting failed.");
     return null;
   }
+}
+
+function computeInvocationTN(actor, ritualItem, options, { circlePenalty, shrineBonus }) {
+    const aspectBonus = options.aspectMatch ? 10 : 0;
+    const situationalMods = [];
+    if (circlePenalty) situationalMods.push({ label: "Circle Penalty", value: circlePenalty, source: "invocationCircle" });
+    if (shrineBonus) situationalMods.push({ label: "Shrine Warden", value: shrineBonus, source: "shrineWarden" });
+    if (aspectBonus) situationalMods.push({ label: "Aspect Match", value: aspectBonus, source: "invocationAspect" });
+    if (options.circumstanceMod) {
+      situationalMods.push({
+        label: `Circumstance: ${circumstanceLabel(options.circumstanceMod)}`,
+        value: options.circumstanceMod,
+        source: "circumstance",
+      });
+    }
+
+    return computeSkillTN({
+      actor,
+      skillItem: ritualItem,
+      difficultyKey: options.difficultyKey,
+      manualMod: options.manualModifier,
+      situationalMods,
+    });
 }

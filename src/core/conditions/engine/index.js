@@ -1,3 +1,4 @@
+import { renderTNSummary, bindTNEstimates } from "../../../ui/shared/tn-presentation.js";
 /**
  * src/core/conditions/condition-engine.js
  *
@@ -726,10 +727,16 @@ export async function attemptExtinguishBurning(actor) {
   const burningX = Math.max(0, _toNumber(getConditionValue(actor, "burning") ?? 0, 0));
   if (burningX <= 0) return { ok: false, reason: t("UESRPG.Conditions.burning.NotActive", "Not burning") };
 
+  const computeExtinguishTN = (charKey) => {
+    const base = _getCharacteristicTotal(actor, charKey);
+    const modifier = 20 - (Math.max(0, burningX - 1) * 10);
+    return { finalTN: base + modifier, breakdown: [{ key: "base", label: charKey === "str" ? t("UESRPG.UI.Strength", "Strength") : t("UESRPG.UI.Agility", "Agility"), value: base }, { label: "Extinguish Burning", value: modifier }] };
+  };
   const chooseAgi = await customDialog({
     layout: "workflow",
     title: t("UESRPG.Dialogs.ExtinguishBurning.Title", "Put Out Fire"),
-    content: `<p>${t("UESRPG.Dialogs.ExtinguishBurning.Content", "Choose Strength or Agility for the extinguish test.")}</p>`,
+    render: (_event, dialog) => bindTNEstimates(dialog.element, () => ["str", "agi"].map(key => ({ key, result: computeExtinguishTN(key) }))),
+    content: `${renderTNSummary([{ key: "str", label: t("UESRPG.UI.Strength", "Strength") }, { key: "agi", label: t("UESRPG.UI.Agility", "Agility") }])}<p>${t("UESRPG.Dialogs.ExtinguishBurning.Content", "Choose Strength or Agility for the extinguish test.")}</p>`,
     buttons: {
       strength: { label: t("UESRPG.UI.Strength", "Strength"), callback: () => false },
       agility: { label: t("UESRPG.UI.Agility", "Agility"), callback: () => true }
@@ -738,9 +745,7 @@ export async function attemptExtinguishBurning(actor) {
   });
 
   const charKey = chooseAgi === true ? "agi" : "str";
-  const base = _getCharacteristicTotal(actor, charKey);
-  const modifier = 20 - (Math.max(0, burningX - 1) * 10);
-  const tn = base + modifier;
+  const tn = computeExtinguishTN(charKey).finalTN;
 
   const result = await doTestRoll(actor, {
     target: tn,
@@ -775,11 +780,10 @@ export async function attemptExtinguishBurning(actor) {
 /**
  * Silenced realization check (start of round).
  */
-export async function runSilencedRealizationCheck(actor, { combat = game.combat } = {}) {
+export async function runSilencedRealizationCheck(actor, { combat = game.combat, round = Number(combat?.round ?? 0), strict = false } = {}) {
   if (!actor || !combat?.id || !combat?.started) return null;
   if (!hasCondition(actor, "silenced")) return null;
 
-  const round = Number(combat.round ?? 0) || 0;
   const roundKey = `${combat.id}:${round}`;
   const prev = actor.getFlag(FLAG_SCOPE, SILENCED_REALIZATION_FLAG) ?? null;
   if (prev && typeof prev === "object" && String(prev.roundKey ?? "") === roundKey) return prev;
@@ -810,9 +814,10 @@ export async function runSilencedRealizationCheck(actor, { combat = game.combat 
     checkedAt: Date.now()
   };
 
-  await requestUpdateDocument(actor, {
+  const updated = await requestUpdateDocument(actor, {
     [`flags.${FLAG_SCOPE}.${SILENCED_REALIZATION_FLAG}`]: payload
-  });
+  }, { render: false });
+  if (strict && !updated) throw new Error("Silenced realization was not confirmed.");
 
   return payload;
 }
@@ -1228,31 +1233,33 @@ export function getConditionValue(actor, key) {
 /**
  * Called by the turn ticker at end-of-turn for the actor who just acted.
  */
-export async function tickConditionsEndTurn(actor) {
+export async function tickConditionsEndTurn(actor, { strict = false } = {}) {
   if (!actor) return;
-  await _tickBleeding(actor);
-  await _tickBurning(actor);
+  await _tickBleeding(actor, { strict });
+  await _tickBurning(actor, { strict });
 }
 
-async function _tickBleeding(actor) {
+async function _tickBleeding(actor, { strict }) {
   const effect = _findConditionEffect(actor, "bleeding");
   if (!effect) return;
 
   const c = _getConditionData(effect) ?? {};
   const x = Math.max(0, _toNumber(c.value, 0));
   if (x <= 0) {
-    await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [effect.id]);
+    const deleted = await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [effect.id]);
+    if (strict && !deleted) throw new Error("Condition tick deletion was not confirmed.");
     return;
   }
 
   const delay = Math.max(0, _toNumber(c.delay, 0));
   if (delay > 0) {
-    await requestUpdateDocument(effect, { [`${FLAG_PATH}.condition.delay`]: delay - 1 });
+    const updated = await requestUpdateDocument(effect, { [`${FLAG_PATH}.condition.delay`]: delay - 1 });
+    if (strict && !updated) throw new Error("Condition tick delay was not confirmed.");
     return;
   }
 
   // Bypass AR/resistance: ignoreReduction=true.
-  await applyDamage(actor, x, DAMAGE_TYPES.PHYSICAL, {
+  const damage = await applyDamage(actor, x, DAMAGE_TYPES.PHYSICAL, {
     ignoreReduction: true,
     source: _numericConditionName("bleeding", x),
     hitLocation: "Body",
@@ -1260,33 +1267,38 @@ async function _tickBleeding(actor) {
     suppressWoundCheck: true
   });
 
+  if (strict && (!damage || damage.execution?.status === "partial")) throw new Error("Condition damage was not fully confirmed.");
+
   const next = x - 1;
   if (next <= 0) {
-    await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [effect.id]);
+    const deleted = await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [effect.id]);
+    if (strict && !deleted) throw new Error("Condition tick deletion was not confirmed.");
     return;
   }
 
-  await requestUpdateDocument(effect, {
+  const updated = await requestUpdateDocument(effect, {
     name: _numericConditionName("bleeding", next),
     [`${FLAG_PATH}.condition.value`]: next,
     ...buildEffectChangesUpdate(_mkBleedingWTChanges(next))
   });
+  if (strict && !updated) throw new Error("Condition tick update was not confirmed.");
 }
 
-async function _tickBurning(actor) {
+async function _tickBurning(actor, { strict }) {
   const effect = _findConditionEffect(actor, "burning");
   if (!effect) return;
 
   const c = _getConditionData(effect) ?? {};
   const x = Math.max(0, _toNumber(c.value, 0));
   if (x <= 0) {
-    await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [effect.id]);
+    const deleted = await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [effect.id]);
+    if (strict && !deleted) throw new Error("Condition tick deletion was not confirmed.");
     return;
   }
 
   const loc = String(c.hitLocation || "Body");
 
-  await applyDamage(actor, x, DAMAGE_TYPES.FIRE, {
+  const damage = await applyDamage(actor, x, DAMAGE_TYPES.FIRE, {
     ignoreReduction: false,
     source: _numericConditionName("burning", x),
     hitLocation: loc,
@@ -1294,54 +1306,65 @@ async function _tickBurning(actor) {
     suppressWoundCheck: true
   });
 
+  if (strict && (!damage || damage.execution?.status === "partial")) throw new Error("Condition damage was not fully confirmed.");
+
   const next = x + 1;
-  await requestUpdateDocument(effect, {
+  const updated = await requestUpdateDocument(effect, {
     name: _numericConditionName("burning", next),
     [`${FLAG_PATH}.condition.value`]: next
   });
+  if (strict && !updated) throw new Error("Condition tick update was not confirmed.");
 }
 
 /**
  * Healing interaction (Chapter 5):
  * - If the character regains HP from any source, subtract total HP regained (including overheal) from Bleeding X.
- *
- * Stage-06: also registers AE lifecycle invalidation hooks for the condition index cache.
  */
+export async function applyHealingToBleeding(actor, data, { strict = false } = {}) {
+  try {
+    if (!actor) return;
+    const totalHealed = Math.max(0, _toNumber((data?.totalHealed ?? data?.amountApplied ?? data?.amountHealed ?? data?.amount ?? 0), 0));
+    if (totalHealed <= 0) return;
+
+    const effect = _findConditionEffect(actor, "bleeding");
+    if (!effect) return;
+
+    const c = _getConditionData(effect) ?? {};
+    const x = Math.max(0, _toNumber(c.value, 0));
+    if (x <= 0) {
+      const deleted = await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [effect.id]);
+      if (strict && !deleted) throw new Error("Bleeding removal was not confirmed.");
+      return;
+    }
+
+    const next = x - totalHealed;
+    if (next <= 0) {
+      const deleted = await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [effect.id]);
+      if (strict && !deleted) throw new Error("Bleeding removal was not confirmed.");
+      return;
+    }
+
+    const updated = await requestUpdateDocument(effect, {
+      name: _numericConditionName("bleeding", next),
+      [`${FLAG_PATH}.condition.value`]: next,
+      ...buildEffectChangesUpdate(_mkBleedingWTChanges(next))
+    });
+    if (strict && !updated) throw new Error("Bleeding reduction was not confirmed.");
+  } catch (err) {
+    if (strict) throw err;
+    console.warn("UESRPG | Bleeding healing adjustment failed", err);
+  }
+}
+
+/** Register compatibility notifications and per-Actor condition-index invalidation once. */
 export function registerConditionHooks() {
   if (_conditionHooksRegistered) return;
   _conditionHooksRegistered = true;
 
-  // Healing hook: reduce Bleeding X by total HP regained.
+  // Compatibility notification; canonical healing awaits this work directly.
   Hooks.on("uesrpgHealingApplied", async (actor, data) => {
-    try {
-      if (!actor) return;
-      const totalHealed = Math.max(0, _toNumber((data?.totalHealed ?? data?.amountApplied ?? data?.amountHealed ?? data?.amount ?? 0), 0));
-      if (totalHealed <= 0) return;
-
-      const effect = _findConditionEffect(actor, "bleeding");
-      if (!effect) return;
-
-      const c = _getConditionData(effect) ?? {};
-      const x = Math.max(0, _toNumber(c.value, 0));
-      if (x <= 0) {
-        await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [effect.id]);
-        return;
-      }
-
-      const next = x - totalHealed;
-      if (next <= 0) {
-        await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [effect.id]);
-        return;
-      }
-
-      await requestUpdateDocument(effect, {
-        name: _numericConditionName("bleeding", next),
-        [`${FLAG_PATH}.condition.value`]: next,
-        ...buildEffectChangesUpdate(_mkBleedingWTChanges(next))
-      });
-    } catch (err) {
-      console.warn("UESRPG | Bleeding healing adjustment failed", err);
-    }
+    if (data?.coreAftermathHandled) return;
+    await applyHealingToBleeding(actor, data);
   });
 
   // Stage-06: invalidate per-actor condition index cache on AE lifecycle events.

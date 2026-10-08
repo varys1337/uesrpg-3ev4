@@ -75,8 +75,11 @@ function _normalizeMagickaSpend(magickaSpend, fallbackConsumed = 0) {
 function _normalizeCastContext(castContext, spellLevel) {
   const baseLevel = _positiveInt(castContext?.baseLevel, spellLevel) ?? spellLevel;
   const castLevel = _positiveInt(castContext?.castLevel, baseLevel) ?? baseLevel;
-  const spellStrengthValue = _positiveInt(castContext?.spellStrengthValue, null);
+  const rawStrength = castContext?.spellStrengthValue;
+  const spellStrengthValue = rawStrength != null && Number.isFinite(Number(rawStrength))
+    ? Math.max(0, Math.floor(Number(rawStrength))) : null;
   return {
+    ..._clone(castContext),
     baseLevel,
     castLevel,
     hasHigherCastLevel: Boolean(castContext?.hasHigherCastLevel ?? (castLevel > baseLevel)),

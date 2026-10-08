@@ -56,6 +56,7 @@ import { AttackTracker } from "../combat/attack-tracker.js";
 import { isActorInStartedCombatEncounter } from "../combat/combat-scope.js";
 import { safeDeleteEmbeddedDocuments, safeGetEffect } from "../../utils/ae-helpers.js";
 import { findOriginAEByGroupKey, refreshOriginAEUpkeep, cancelOriginAEUpkeep } from "./effects/origin-effect.js";
+import { settlePendingBufferCleanup } from "../../hooks/init/features/register-buffer-cleanup.js";
 import { parseUpkeepGroupKey } from "./effects/spell-effect-metadata.js";
 import { extendEffectDurationByCanonicalPeriod, SPELL_EFFECT_DURATION_FLAG_KEY } from "./effects/spell-effect-duration.js";
 import { hasTalent } from "../traits/talents-api.js";
@@ -717,38 +718,38 @@ function _renderResolvedUpkeepPrompt(data, { action = "confirm", summary = "" } 
   </div>`;
 }
 
-async function _markUpkeepMessageResolved(message, { action = "confirm", summary = "" } = {}) {
+async function _markUpkeepMessageResolved(message, { action = "confirm", summary = "", completion = null, strict = false } = {}) {
   if (!message?.id) return false;
   const state = message.flags?.[_FLAG_NS]?.upkeepGroup ?? {};
   if (state.resolved === true) return false;
 
-  await requestUpdateChatMessage(message, {
+  const confirmed = await requestUpdateChatMessage(message, {
     content: _renderResolvedUpkeepPrompt(state, { action, summary }),
     [`flags.${_FLAG_NS}.upkeepGroup.resolving`]: false,
     [`flags.${_FLAG_NS}.upkeepGroup.resolved`]: true,
     [`flags.${_FLAG_NS}.upkeepGroup.resolvedAction`]: String(action),
-    [`flags.${_FLAG_NS}.upkeepGroup.resolvedAt`]: Date.now()
+    [`flags.${_FLAG_NS}.upkeepGroup.resolvedAt`]: Date.now(),
+    ...(completion ? { [`flags.${_FLAG_NS}.upkeepGroup.completion`]: completion } : {})
   });
-  return true;
+  if (strict && !confirmed) throw new Error("Upkeep completion was not confirmed. Do not repeat its committed changes.");
+  return confirmed;
 }
 
 async function _markUpkeepMessageResolving(message, action) {
   if (!message?.id) return false;
   const state = message.flags?.[_FLAG_NS]?.upkeepGroup ?? {};
   if (state.resolved === true || state.resolving === true) return false;
-  await requestUpdateChatMessage(message, {
+  return requestUpdateChatMessage(message, {
     [`flags.${_FLAG_NS}.upkeepGroup.resolving`]: true,
     [`flags.${_FLAG_NS}.upkeepGroup.resolvedAction`]: String(action)
-  });
-  return true;
+  }, { render: false });
 }
 
 async function _clearUpkeepMessageResolving(message) {
   if (!message?.id) return false;
-  await requestUpdateChatMessage(message, {
+  return requestUpdateChatMessage(message, {
     [`flags.${_FLAG_NS}.upkeepGroup.resolving`]: false
-  });
-  return true;
+  }, { render: false });
 }
 
 function _clearSuppressionFlags(updateTarget, updates) {
@@ -875,6 +876,7 @@ export async function handleUpkeepGroupConfirm(message) {
   const matches = await _collectCurrentEffectsForGroup(data.groupKey);
   if (!matches.length) {
     await _markUpkeepMessageResolved(message, {
+    strict: true,
       action: "cancel",
       summary: "Nothing remained to upkeep."
     });
@@ -944,7 +946,7 @@ export async function handleUpkeepGroupConfirm(message) {
     if (!enchantedItem) {
       ui.notifications?.warn?.("Upkeep failed: enchanted item no longer exists. Spell ends.");
       await _clearUpkeepMessageResolving(message);
-      if (originAE) await cancelOriginAEUpkeep(originAE);
+      if (originAE) await cancelOriginAEUpkeep(originAE, { strict: true });
       return;
     }
 
@@ -960,7 +962,7 @@ export async function handleUpkeepGroupConfirm(message) {
     if (poolValue < upkeepCost) {
       ui.notifications?.warn?.(`Upkeep failed: not enough Soul Energy (${poolValue}/${upkeepCost}). Spell ends.`);
       await _clearUpkeepMessageResolving(message);
-      if (originAE) await cancelOriginAEUpkeep(originAE);
+      if (originAE) await cancelOriginAEUpkeep(originAE, { strict: true });
       return;
     }
 
@@ -984,7 +986,7 @@ export async function handleUpkeepGroupConfirm(message) {
       console.error("UESRPG | upkeep-workflow | Failed to deduct Soul Energy upkeep", err);
       ui.notifications?.warn?.("Upkeep failed to spend Soul Energy. Spell ends.");
       await _clearUpkeepMessageResolving(message);
-      if (originAE) await cancelOriginAEUpkeep(originAE);
+      if (originAE) await cancelOriginAEUpkeep(originAE, { strict: true });
       return;
     }
   } else if (isEnchantmentOrigin && enchantmentCostMode === "none") {
@@ -1236,6 +1238,7 @@ export async function handleUpkeepGroupConfirm(message) {
   }
 
   await _markUpkeepMessageResolved(message, {
+    strict: true,
     action: "confirm",
     summary: `${data.spellName} was refreshed.`
   });
@@ -1255,59 +1258,67 @@ export async function handleUpkeepGroupCancel(message) {
   const matches = await _collectCurrentEffectsForGroup(data.groupKey);
   if (!matches.length) {
     await _markUpkeepMessageResolved(message, {
+    strict: true,
       action: "cancel",
       summary: "The spell had already ended."
     });
     return;
   }
   if (!(await _markUpkeepMessageResolving(message, "cancel"))) return;
-  const linkedMatches = matches.filter((m) => !Boolean(m.flags?.isOriginAE));
+  const failures = [];
+  const originAE = findOriginAEByGroupKey(data.groupKey);
+  if (!originAE) {
+    const linkedMatches = matches.filter((m) => !Boolean(m.flags?.isOriginAE));
 
-  const byActor = new Map();
-  for (const m of linkedMatches) {
-    const actor = m.targetActor;
-    if (!actor) continue;
-    const eid = m.effect?.id;
-    if (!eid) continue;
-    const arr = byActor.get(actor) ?? [];
-    arr.push(eid);
-    byActor.set(actor, arr);
-  }
+    const byActor = new Map();
+    for (const m of linkedMatches) {
+      const actor = m.targetActor;
+      if (!actor) continue;
+      const eid = m.effect?.id;
+      if (!eid) continue;
+      const arr = byActor.get(actor) ?? [];
+      arr.push(eid);
+      byActor.set(actor, arr);
+    }
 
-  for (const [actor, ids] of byActor.entries()) {
-    const liveIds = ids.filter(id => _getActorEffect(actor, id));
-    if (!liveIds.length) continue;
+    for (const [actor, ids] of byActor.entries()) {
+      const liveIds = ids.filter(id => _getActorEffect(actor, id));
+      if (!liveIds.length) continue;
 
-    // Skip individual flag-clears — the effects are about to be deleted.
-    const deleted = game.user?.isGM
-      ? (await actor.deleteEmbeddedDocuments("ActiveEffect", liveIds, { uesrpgExpirationSweep: true }), true)
-      : await safeDeleteEmbeddedDocuments(actor, "ActiveEffect", liveIds, {
-          context: "UESRPG | upkeep-workflow",
-          logUnexpected: true,
-          deleteOptions: { uesrpgExpirationSweep: true }
+      // Skip individual flag-clears — the effects are about to be deleted.
+      const deleted = game.user?.isGM
+        ? (await actor.deleteEmbeddedDocuments("ActiveEffect", liveIds, { uesrpgExpirationSweep: true }), true)
+        : await safeDeleteEmbeddedDocuments(actor, "ActiveEffect", liveIds, {
+            context: "UESRPG | upkeep-workflow",
+            logUnexpected: true,
+            deleteOptions: { uesrpgExpirationSweep: true }
+          });
+      if (!deleted && liveIds.some((id) => _getActorEffect(actor, id))) {
+        failures.push({ actorUuid: actor?.uuid, message: "Upkeep effect deletion was not confirmed." });
+        console.error("UESRPG | upkeep-workflow | Failed to delete upkeep effects", {
+          actor: actor?.uuid ?? null,
+          ids: liveIds
         });
-    if (!deleted && liveIds.some((id) => _getActorEffect(actor, id))) {
-      console.error("UESRPG | upkeep-workflow | Failed to delete upkeep effects", {
-        actor: actor?.uuid ?? null,
-        ids: liveIds
-      });
+      }
     }
+
   }
 
-  // Cancel the Origin AE on the caster so the cascade teardown fires.
   try {
-    const originAE = findOriginAEByGroupKey(data.groupKey);
-    if (originAE) {
-      await cancelOriginAEUpkeep(originAE);
-    }
-  } catch (err) {
-    console.warn("UESRPG | upkeep-workflow | Failed to cancel Origin AE on upkeep decline", err);
+    if (originAE) await cancelOriginAEUpkeep(originAE, { strict: true });
+    await settlePendingBufferCleanup();
+  } catch (error) {
+    failures.push({ message: String(error.message ?? error) });
+    console.warn("UESRPG | Upkeep cancellation partially completed", error);
   }
-
+  const summary = failures.length
+    ? `${data.spellName} only partially ended. Review the surviving entities before repeating the action.`
+    : `${data.spellName} ended.`;
   await _markUpkeepMessageResolved(message, {
-    action: "cancel",
-    summary: `${data.spellName} ended.`
+    strict: true, action: "cancel", summary,
+    completion: { status: failures.length ? "partial" : "completed", failed: failures },
   });
-
-  ui.notifications?.info?.(`${data.spellName} ended.`);
+  if (failures.length) ui.notifications?.warn?.(summary);
+  else ui.notifications?.info?.(summary);
+  return { execution: { status: failures.length ? "partial" : "completed" }, failed: failures };
 }

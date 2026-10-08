@@ -13,7 +13,7 @@ import { hasTalent } from "../../traits/talents-api.js";
 import { hasCondition } from "../../conditions/condition-engine.js";
 
 import { getContextAttackMode } from "./helpers/workflow.js";
-import { _resolveDoc } from "./helpers/docs.js";
+import { _resolveDoc, _resolveToken, _isIsolatedDuelByTokens } from "./helpers/docs.js";
 import { _getSystemId, _findEnabledEffectByUesrpgKey } from "./helpers/util.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { getFlagValueWithFallback, getSystemFlagsWithFallback } from "../../system/flags.js";
@@ -103,7 +103,7 @@ export function isAdvantageEffectExpired(effect, { worldTime = null, combat = nu
   return isEffectExpiredByWorldTime(effect, wt);
 }
 
-export async function expireAdvantageEffects({ worldTime = null, combat = null } = {}) {
+export async function expireAdvantageEffects({ worldTime = null, combat = null, strict = false } = {}) {
   if (!isActiveGMUser(game.user)) return;
 
   const wt = Number(worldTime ?? TimeService.getWorldTimeSeconds?.() ?? game.time?.worldTime ?? 0) || 0;
@@ -125,8 +125,10 @@ export async function expireAdvantageEffects({ worldTime = null, combat = null }
     if (!existingIds.length) continue;
 
     try {
-      await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", existingIds);
+      const confirmed = await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", existingIds);
+      if (strict && !confirmed && existingIds.some(id => actor.effects.has(id))) throw new Error("Advantage effect deletion was not confirmed.");
     } catch (err) {
+      if (strict) throw err;
       const msg = String(err?.message ?? err ?? "");
       if (!msg.includes("does not exist")) {
         console.warn("UESRPG | Advantage expiry failed", { actor: actor?.uuid, err });
@@ -139,7 +141,7 @@ async function _handleCombatBoundaryOpposedEffects(payload) {
   if (!isActiveGMUser(game.user)) return;
   if (payload?.source !== "combat") return;
   if (payload?.combat?.phase && payload.combat.phase !== "post") return;
-  await expireAdvantageEffects({ worldTime: payload?.worldTime ?? null, combat: game?.combat ?? null });
+  await expireAdvantageEffects({ worldTime: payload?.worldTime ?? null, combat: game?.combat ?? null, strict: true });
 }
 
 export function registerAdvantageExpirationHooks() {
@@ -149,12 +151,12 @@ export function registerAdvantageExpirationHooks() {
   if (globalThis.__UESRPG_ADVANTAGE_EXPIRY_HOOKS__) return;
   globalThis.__UESRPG_ADVANTAGE_EXPIRY_HOOKS__ = true;
 
-  Hooks.on("uesrpg.timeChanged", async (payload) => {
+  TimeService.registerOwnedWorldTimeStage({ id: "advantage-cleanup", order: 450, handle: async (payload) => {
     if (!isActiveGMUser(game.user)) return;
     const source = String(payload?.source ?? "");
     if (source !== "worldTime" && source !== "calendaria") return;
-    await expireAdvantageEffects({ worldTime: payload?.worldTime ?? null, combat: game?.combat ?? null });
-  });
+    await expireAdvantageEffects({ worldTime: payload?.worldTime ?? null, combat: game?.combat ?? null, strict: true });
+  } });
 
   registerCombatBoundaryConsumer({
     id: "combat-opposed-effects",
@@ -272,17 +274,11 @@ async function _canUseExploitAdvantage(actor, { actorTokenUuid = null, opponentT
   if (!actorTokenUuid || !opponentTokenUuid) return false;
 
   // Check if tokens are in an isolated duel (1-on-1 with no other combatants within reach)
-  const actorToken = _resolveDoc(actorTokenUuid);
-  const opponentToken = _resolveDoc(opponentTokenUuid);
+  const actorToken = _resolveToken(actorTokenUuid);
+  const opponentToken = _resolveToken(opponentTokenUuid);
   if (!actorToken || !opponentToken) return false;
 
-  // Import needed function from combat-proximity if available
-  try {
-    const { isIsolatedDuelByTokens } = await import("../../traits/combat-proximity.js");
-    return isIsolatedDuelByTokens(actorToken, opponentToken) ?? false;
-  } catch (_e) {
-    return false;
-  }
+  return _isIsolatedDuelByTokens(actorToken, opponentToken);
 }
 
 export async function applyPressAdvantageEffect(attacker, defender, { attackerTokenUuid = null, defenderTokenUuid = null, doubleEffect = false } = {}) {

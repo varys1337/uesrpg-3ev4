@@ -37,8 +37,9 @@ function _normalizeDropDataShape(raw) {
   data.actorId = _pickFirstNonEmpty(data.actorId, data.parentId);
   data.actorUuid = _pickFirstNonEmpty(data.actorUuid, data.parentUuid);
 
-  if (!data.type) {
-    const uuid = String(data.uuid ?? "");
+  const uuid = String(data.uuid ?? "");
+  if (uuid.includes(".ActiveEffect.") || uuid.startsWith("ActiveEffect.")) data.type = "ActiveEffect";
+  else if (!data.type) {
     if (uuid.includes(".Item.") || uuid.startsWith("Item.")) data.type = "Item";
     else if (uuid.includes(".Actor.") || uuid.startsWith("Actor.")) data.type = "Actor";
   }
@@ -126,7 +127,7 @@ export function readDropData(event, options = {}) {
     _cleanDropReadStreak = Math.min(_cleanDropReadStreak + 1, CACHE_COOL_STREAK + 4);
   }
 
-  const shouldAttemptCache = !isLikelyClean && _isCacheFallbackEnabled();
+  const shouldAttemptCache = (!normalized.type || normalized.type === "Item") && !isLikelyClean && _isCacheFallbackEnabled();
   if (shouldAttemptCache) {
     if (_cleanDropReadStreak >= CACHE_COOL_STREAK) {
       dndDebug("drop.read.cacheSkippedAfterCleanStreak", {

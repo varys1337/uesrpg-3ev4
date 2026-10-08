@@ -46,17 +46,19 @@ export class ReachVisualizerSettingsAppV2 extends HandlebarsApplicationMixin(App
       submitOnChange: false,
     },
     window: {
+      resizable: true,
       title: "Configure Visualiser",
     },
     position: {
       width: 560,
     },
-    classes: ["uesrpg", "reach-visualizer-settings"],
+    classes: ["standard-form", "uesrpg-settings-app", "reach-visualizer-settings"],
   };
 
   static PARTS = {
     form: {
       template: templatePath("v2/apps/reach-visualizer-settings.hbs"),
+      scrollable: [".uesrpg-settings__body"],
     },
   };
 

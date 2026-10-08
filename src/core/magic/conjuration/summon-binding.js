@@ -42,7 +42,7 @@ const _debug = createDebugLogger("debugMagicRouting", "[UESRPG][SummonBinding]")
  * @param {Item} spell
  * @returns {Promise<ActiveEffect|null>}
  */
-async function _applyRestrainedPenalty(tokenDoc, originAE, spell) {
+async function _applyRestrainedPenalty(tokenDoc, originAE, spell, { strict = false } = {}) {
   // Check if the spell was Restrained
   const isRestrained = Boolean(
     spell.system?.isRestrained ||
@@ -91,11 +91,13 @@ async function _applyRestrainedPenalty(tokenDoc, originAE, spell) {
   try {
     const results = await requestCreateEmbeddedDocuments(creatureActor, "ActiveEffect", [effectData]);
     const created = Array.isArray(results) ? results[0] : (results ?? null);
+    if (strict && !created) throw new Error("Restrained summon penalty was not confirmed.");
     if (created) {
       _debug(`Applied Restrained -1 AP to ${creatureActor.name}`);
     }
     return created;
   } catch (err) {
+    if (strict) throw err;
     console.error("[UESRPG][SummonBinding] Failed to apply Restrained penalty", err);
     return null;
   }
@@ -111,8 +113,8 @@ async function _applyRestrainedPenalty(tokenDoc, originAE, spell) {
  * @param {Item} spell
  * @returns {Promise<void>}
  */
-async function _postBindingPrompt(casterActor, summonActor, spell) {
-  const spellStr = Number(spell.system?.spell_str ?? 0) || 0;
+async function _postBindingPrompt(casterActor, summonActor, spell, originAE, { strict = false } = {}) {
+  const spellStr = Number(originAE?.flags?.[_FLAG_NS]?.spellStrengthValue ?? originAE?.flags?.[_FLAG_NS]?.castContext?.spellStrengthValue ?? spell.system?.spell_str ?? 0) || 0;
   const creatureWP = Number(summonActor.system?.characteristics?.wp ?? summonActor.system?.professions?.magic ?? 0) || 0;
 
   try {
@@ -132,7 +134,7 @@ async function _postBindingPrompt(casterActor, summonActor, spell) {
       style: CONST.CHAT_MESSAGE_STYLES.OTHER,
       whisper: game.users?.filter(u => u.isGM)?.map(u => u.id) ?? []
     });
-  } catch (_e) { /* non-blocking */ }
+  } catch (_e) { if (strict) throw _e; }
 }
 
 /* ── Hook Handler ─────────────────────────────────────────────────────────── */
@@ -144,7 +146,7 @@ async function _postBindingPrompt(casterActor, summonActor, spell) {
  * @param {object} payload - { casterActor, originAE, summonActor, tokenDoc, spellUuid, spellName }
  * @returns {Promise<void>}
  */
-async function _onSummonSpawned(payload) {
+export async function applySummonBinding(payload, { strict = false } = {}) {
   const { casterActor, originAE, summonActor, tokenDoc } = payload;
   if (!casterActor || !originAE || !tokenDoc) return;
 
@@ -159,6 +161,7 @@ async function _onSummonSpawned(payload) {
   }
 
   if (!spell) {
+    if (strict) throw new Error("The summon spell is unavailable for binding.");
     _debug("Could not resolve spell for binding — skipping");
     return;
   }
@@ -170,14 +173,14 @@ async function _onSummonSpawned(payload) {
   });
 
   // 1. Apply Mindlock AE on caster (via shared helper)
-  await applyMindlockEffects({ caster: casterActor, spell, originAE });
+  await applyMindlockEffects({ caster: casterActor, spell, originAE, strict });
 
   // 2. Apply Restrained AP penalty on creature (if applicable)
-  await _applyRestrainedPenalty(tokenDoc, originAE, spell);
+  await _applyRestrainedPenalty(tokenDoc, originAE, spell, { strict });
 
   // 3. Post binding prompt to GM chat
   if (summonActor) {
-    await _postBindingPrompt(casterActor, summonActor, spell);
+    await _postBindingPrompt(casterActor, summonActor, spell, originAE, { strict });
   }
 }
 
@@ -193,6 +196,9 @@ export function initializeSummonBinding() {
   if (_initialized) return;
   _initialized = true;
 
-  Hooks.on("uesrpg.spell.summonSpawned", _onSummonSpawned);
+  Hooks.on("uesrpg.spell.summonSpawned", payload => {
+    if (payload?.handledDomains?.includes("summonBinding")) return;
+    void applySummonBinding(payload).catch(error => console.error("UESRPG | Summon binding failed", error));
+  });
   _debug("Summon binding hook registered");
 }

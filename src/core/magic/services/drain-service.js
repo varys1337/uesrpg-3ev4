@@ -18,13 +18,13 @@
  *      update and strip any max-reducing AEs that were incorrectly created.
  *   3. For characteristic/skill drains, do nothing — existing AE pipeline handles them.
  *
- * Target: Foundry VTT v13.351
+ * Target: Foundry VTT v14.368+
  */
 
 import { adjustCurrentResource } from "../../system/resource-updates.js";
 import { _num, _str, createDebugLogger } from "../_primitives.js";
 import { getEffectChanges } from "../../../utils/compat.js";
-import { resolveSpellStrengthFormulaForActor } from "../magicka-utils.js";
+import { resolveMagicCastContext } from "../opposed/cast-context.js";
 
 
 const _debug = createDebugLogger("debugMagicRouting", "[UESRPG][DrainService]");
@@ -75,22 +75,11 @@ export async function drainHealth(targetActor, amount, opts = {}) {
  * @param {Actor|null} [caster]
  * @returns {Promise<number>}
  */
-async function _resolveDrainAmount(spell, caster = null) {
-  const formula = _str(resolveSpellStrengthFormulaForActor(spell, null, caster ?? spell?.actor ?? null));
-  if (!formula) return 0;
-
-  // Try as simple number first
-  const simple = Number(formula);
-  if (Number.isFinite(simple) && simple > 0) return Math.floor(simple);
-
-  // Try as dice formula
-  try {
-    const roll = new Roll(formula);
-    await roll.evaluate();
-    return Math.max(0, Math.floor(roll.total));
-  } catch (_e) {
-    return 0;
-  }
+async function _resolveDrainAmount(spell, caster = null, payload = {}) {
+  const context = await resolveMagicCastContext({ castContext: payload.castContext }, spell, {
+    actor: caster, message: payload.message, parentMessageId: payload.parentMessageId,
+  });
+  return Math.max(0, Math.floor(context.spellStrengthValue));
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -106,7 +95,7 @@ async function _resolveDrainAmount(spell, caster = null) {
  * @param {string} drainType - "magicka" or "health"
  * @returns {Promise<void>}
  */
-async function _stripMaxReducingEffects(targetActor, effects, drainType) {
+async function _stripMaxReducingEffects(targetActor, effects, drainType, { strict = false } = {}) {
   if (!Array.isArray(effects) || !effects.length) return;
 
   const keysToStrip = drainType === "magicka"
@@ -129,9 +118,10 @@ async function _stripMaxReducingEffects(targetActor, effects, drainType) {
   if (idsToRemove.length) {
     const { requestDeleteEmbeddedDocuments } = await import("../../../utils/authority-proxy.js");
     try {
-      await requestDeleteEmbeddedDocuments(targetActor, "ActiveEffect", idsToRemove);
+      if (!await requestDeleteEmbeddedDocuments(targetActor, "ActiveEffect", idsToRemove)) throw new Error("Drain effect cleanup was not confirmed.");
       _debug("Stripped max-reducing AEs for", drainType, "drain:", idsToRemove);
     } catch (err) {
+      if (strict) throw err;
       console.warn("[UESRPG][DrainService] Failed to strip max-reducing AEs", err);
     }
   }
@@ -144,7 +134,7 @@ async function _stripMaxReducingEffects(targetActor, effects, drainType) {
  * @param {object} payload - { caster, target, spell, effects, originEffect }
  * @returns {Promise<void>}
  */
-async function _onEffectApplied(payload) {
+export async function applyDrainConsequences(payload, { strict = false, hit = false } = {}) {
   const { caster, target, spell, effects } = payload;
   if (!caster || !target || !spell) return;
 
@@ -152,7 +142,10 @@ async function _onEffectApplied(payload) {
   if (!drainConfig?.enabled) return;
 
   // Only GM processes drain (document mutation requires authority)
-  if (!game.user.isGM) return;
+  if (!game.user.isGM) {
+    if (strict) throw new Error("GM authority is required for drain consequences.");
+    return;
+  }
 
   const drainType = _str(drainConfig.type).toLowerCase();
   if (!drainType || drainType === "none") return;
@@ -163,7 +156,8 @@ async function _onEffectApplied(payload) {
     return;
   }
 
-  const drainAmount = await _resolveDrainAmount(spell, caster);
+  if (hit && ((spell.effects ?? []).some(effect => !effect.disabled) || payload.effectsApplied)) return;
+  const drainAmount = await _resolveDrainAmount(spell, caster, payload);
   if (drainAmount <= 0) {
     _debug("Drain amount is 0 — skipping");
     return;
@@ -177,7 +171,7 @@ async function _onEffectApplied(payload) {
   });
 
   // Strip any max-reducing AEs (the standard pipeline may have created them)
-  await _stripMaxReducingEffects(target, effects, drainType);
+  await _stripMaxReducingEffects(target, effects, drainType, { strict });
 
   // Apply direct current-value drain
   let result = null;
@@ -197,6 +191,7 @@ async function _onEffectApplied(payload) {
     });
   }
 
+  if (strict && (!result || result.execution?.status === "partial")) throw new Error("Resource drain was not fully confirmed.");
   // Chat notification
   if (result) {
     const poolLabel = drainType === "magicka" ? "Magicka" : "Health";
@@ -213,7 +208,7 @@ async function _onEffectApplied(payload) {
         speaker: ChatMessage.getSpeaker({ actor: caster }),
         style: CONST.CHAT_MESSAGE_STYLES.OTHER
       });
-    } catch (_e) { /* non-blocking */ }
+    } catch (_e) { if (strict) throw _e; }
   }
 }
 
@@ -223,58 +218,14 @@ async function _onEffectApplied(payload) {
  * @param {object} payload - { caster, target, spell, hitLocation, defenseType }
  * @returns {Promise<void>}
  */
-async function _onSpellHitTarget(payload) {
-  const { caster, target, spell } = payload;
-  if (!caster || !target || !spell) return;
+function _onEffectApplied(payload) {
+  if (payload?.handledDomains?.includes("drain")) return;
+  void applyDrainConsequences(payload).catch(error => console.error("UESRPG | Drain consequence failed", error));
+}
 
-  const drainConfig = spell.system?.engine?.drain;
-  if (!drainConfig?.enabled) return;
-
-  // Only GM processes
-  if (!game.user.isGM) return;
-
-  const drainType = _str(drainConfig.type).toLowerCase();
-  if (drainType !== "magicka" && drainType !== "health") return;
-
-  // If the spell has enabled AEs, effectApplied will handle it
-  const hasEnabledEffects = (spell.effects ?? []).some(e => !e.disabled);
-  if (hasEnabledEffects) return;
-
-  const drainAmount = await _resolveDrainAmount(spell, caster);
-  if (drainAmount <= 0) return;
-
-  _debug("Drain (via spellHitTarget):", {
-    spell: spell.name,
-    target: target.name,
-    drainType,
-    drainAmount
-  });
-
-  const transferToCaster = Boolean(drainConfig.transferToCaster);
-  let result = null;
-
-  if (drainType === "magicka") {
-    result = await drainMagicka(target, drainAmount, { caster, spell, transferToCaster });
-  } else if (drainType === "health") {
-    result = await drainHealth(target, drainAmount, { caster, spell, transferToCaster });
-  }
-
-  if (result) {
-    const poolLabel = drainType === "magicka" ? "Magicka" : "Health";
-    const transferText = transferToCaster
-      ? ` <strong>${caster.name}</strong> absorbs ${result.drained} ${poolLabel}.`
-      : "";
-
-    try {
-      await ChatMessage.create({
-        content: `<div class="uesrpg"><h3>${spell.name}</h3>
-          <p><strong>${target.name}</strong> loses <strong>${result.drained} ${poolLabel}</strong>
-          (remaining: ${drainType === "magicka" ? result.remainingMP : result.remainingHP}).${transferText}</p></div>`,
-        speaker: ChatMessage.getSpeaker({ actor: caster }),
-        style: CONST.CHAT_MESSAGE_STYLES.OTHER
-      });
-    } catch (_e) { /* non-blocking */ }
-  }
+function _onSpellHitTarget(payload) {
+  if (payload?.handledDomains?.includes("drain")) return;
+  void applyDrainConsequences(payload, { hit: true }).catch(error => console.error("UESRPG | Drain hit failed", error));
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

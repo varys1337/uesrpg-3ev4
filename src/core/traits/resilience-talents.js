@@ -1,3 +1,4 @@
+import { renderTNSummary, bindTNEstimates } from "../../ui/shared/tn-presentation.js";
 /**
  * @module traits/resilience-talents
  * @description Automation helpers for Resilience talents (Chapter 4):
@@ -71,7 +72,8 @@ export async function applyIronWillReroll({ actor, chaKey, result, tn, isResista
     wants = await customDialog({
       layout: "workflow",
       title: "Iron Will",
-      content: `<p><b>${actorName}</b> failed a Willpower resistance test. Use <b>Iron Will</b> to reroll (once per test)?</p>`,
+      render: (_event, dialog) => bindTNEstimates(dialog.element, () => tn),
+      content: `${renderTNSummary("Willpower")}<p><b>${actorName}</b> failed a Willpower resistance test. Use <b>Iron Will</b> to reroll (once per test)?</p>`,
       buttons: {
         reroll: { label: "Reroll", callback: () => true },
         keep: { label: "Keep Failure", callback: () => false }

@@ -1,3 +1,4 @@
+import { renderTNSummary, bindTNEstimates } from "../../ui/shared/tn-presentation.js";
 /**
  * @module magic/backfire
  *
@@ -174,13 +175,14 @@ export async function triggerBackfire(actor, spell) {
   
   // Talent (Chapter 4): Control — may test Willpower to negate a backfire.
   if (actorHasTalent(actor, "Control")) {
+    const wpTN = Number(actor?.system?.characteristics?.wp?.total ?? 0) || 0;
     const doAttempt = await confirmDialog({
       title: "Magical Backfire — Control",
-      content: `<p>${actor.name} has <b>Control</b>. Attempt a Willpower test to negate the backfire?</p>`,
+      render: (_event, dialog) => bindTNEstimates(dialog.element, () => ({ finalTN: wpTN })),
+      content: `${renderTNSummary("Willpower")}<p>${actor.name} has <b>Control</b>. Attempt a Willpower test to negate the backfire?</p>`,
     });
 
     if (doAttempt) {
-      const wpTN = Number(actor?.system?.characteristics?.wp?.total ?? 0) || 0;
       const res = await doTestRoll(actor, {
         target: wpTN,
         allowLucky: true,

@@ -3,6 +3,7 @@
 *.zip
 dist/
 node_modules/
+release/backups/
 
 # OS noise
 .DS_Store

@@ -1,3 +1,4 @@
+import { prepareSpellStrengthForUse } from "../opposed/spell-helpers.js";
 /**
  * @module magic/effects/origin-effect
  *
@@ -18,7 +19,7 @@
  *  - Linked cleanup must stay idempotent and tolerate already-missing docs.
  */
 
-import { requestUpdateDocument, requestCreateEmbeddedDocuments } from "../../../utils/authority-proxy.js";
+import { requestUpdateDocument, requestCreateEmbeddedDocuments, requestAtomicUpdateDocument } from "../../../utils/authority-proxy.js";
 import { _num, _str, createDebugLogger } from "../_primitives.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { buildSpellExpirationAnchor } from "../../../utils/document-resolution.js";
@@ -36,7 +37,54 @@ import {
 } from "./spell-effect-duration.js";
 import { getSpellCost, getSpellLevel } from "../magicka-utils.js";
 
+import { isActiveGMUser } from "../../../utils/users.js";
+import { AUTHORITY_RESULT_CODES, registerAuthorityIntentCommand, registerAuthorityIntentService, requestAuthorityIntent } from "../../../utils/authority-intents.js";
+import { reconcileSpellBuffers } from "../../../hooks/init/features/register-buffer-cleanup.js";
+import { MagicTimekeeping } from "../timekeeping-helper.js";
+import { measurePerfStage } from "../../../utils/perf-tracker.js";
+import { createChatOutcome } from "../../config/outcome-application-policy.js";
+import { persistChatOutcomes } from "../../../application/combat/chat-outcome-application-service.js";
+import { escapeHtml } from "../../../utils/html.js";
+import { captureItemOutcomeContext, restoreOutcomeItem } from "../../../utils/item-outcome-snapshot.js";
+
 const _FLAG_NS = FLAG_SCOPE;
+const _teardowns = new Map();
+const _cancellations = new Map();
+const _hookTeardownFailures = [];
+
+export async function executeChatOutcome(outcome, context) {
+  const casterActor = resolveUuidSync(outcome.sourceActorUuid);
+  const originEffect = resolveUuidSync(outcome.payload.originEffectUuid);
+  if (!casterActor || originEffect?.parent?.uuid !== casterActor.uuid) {
+    throw Object.assign(new Error("The stored spell origin is no longer available."), { committed: false });
+  }
+  const spell = restoreOutcomeItem(outcome.payload.spellSnapshot, outcome.payload.spellSnapshotContext);
+  const { settleSpellOwnedStages } = await import("../spell-runtime.js");
+  return context.stage("originConsequences", () => settleSpellOwnedStages({ casterActor, spell, originEffect,
+    targetActors: outcome.payload.targetUuids.map(uuid => resolveUuidSync(uuid)), options: outcome.payload.options,
+  }, { kind: "origin", claimKey: `origin:${outcome.id}` }), {
+    documents: [casterActor, originEffect, ...outcome.payload.targetUuids.map(uuid => resolveUuidSync(uuid))], requiresGM: true,
+  });
+}
+
+async function queueOriginConsequences(casterActor, spell, originEffect, options) {
+  const mode = String(spell.system?.engine?.conjure?.mode ?? "none");
+  const bound = ["weapon", "armor"].includes(spell.flags?.[_FLAG_NS]?.conjureType);
+  if (!["item", "creature"].includes(mode) && !bound) return { operationCount: 0, failed: [], handledDomains: [] };
+  const { resolveConjureTargets, prepareConjurationOptions } = await import("../conjuration/conjuration-runtime.js");
+  const targets = mode === "item" ? resolveConjureTargets(casterActor, originEffect) : [casterActor];
+  const storedOptions = { ...options };
+  delete storedOptions.message;
+  const preparedOptions = { ...storedOptions, ...await prepareConjurationOptions(casterActor, spell, originEffect) };
+  const recipients = bound ? [casterActor] : targets;
+  const entries = recipients.map(target => createChatOutcome({ adapter: "magic.origin", kind: "effect",
+    sourceActorUuid: casterActor.uuid, targetUuid: target.uuid, label: spell.name,
+    payload: { originEffectUuid: originEffect.uuid, spellSnapshot: spell.toObject(), spellSnapshotContext: captureItemOutcomeContext(spell), options: preparedOptions,
+      targetUuids: (bound ? targets : [target]).map(actor => actor.uuid) } }));
+  await persistChatOutcomes({ actor: casterActor, entries,
+    content: `<div class="uesrpg"><b>${escapeHtml(spell.name)}</b></div>` });
+  return { operationCount: 0, committed: [], failed: [], pending: true, handledDomains: ["conjuration", "boundItem"] };
+}
 
 /**
  * Debug logger for origin effect lifecycle.
@@ -101,6 +149,16 @@ export function spellRequiresOriginAE(spell) {
 export async function createOriginAE(casterActor, spell, options = {}) {
   if (!casterActor || !spell) return null;
   if (!spellRequiresOriginAE(spell)) return null;
+
+  const conjureMode = String(spell.system?.engine?.conjure?.mode ?? "none");
+  const legacyConjure = spell.flags?.[_FLAG_NS]?.conjureType;
+  if (["item", "summon", "creature"].includes(conjureMode) || ["weapon", "armor"].includes(legacyConjure)) {
+    const strengthData = { attacker: { castContext: options.castContext, spellOptions: options.spellOptions,
+      scalingChoices: options.scalingChoices, result: { isCriticalSuccess: Boolean(options.isCritical) } } };
+    options = { ...options, castContext: await prepareSpellStrengthForUse({
+      data: strengthData, attacker: casterActor, spell, message: options.message,
+    }) };
+  }
 
   const castWorldTime = _num(options.castWorldTime, _num(game.time?.worldTime, 0));
   const expirationAnchor = buildSpellExpirationAnchor({
@@ -204,25 +262,31 @@ export async function createOriginAE(casterActor, spell, options = {}) {
   try {
     const results = await requestCreateEmbeddedDocuments(casterActor, "ActiveEffect", [effectData]);
     const created = Array.isArray(results) ? results[0] : (results ?? null);
+    if (options.strict && !created) throw new Error("Origin effect creation was not confirmed.");
 
     if (created) {
       _originDebug("Origin AE created successfully", { id: created.id, uuid: created.uuid });
 
-      // Emit hook
-      try {
-        Hooks.callAll("uesrpg.spell.originCreated", {
-          casterActor,
-          spell,
-          originEffect: created,
-          options
-        });
-      } catch (_e) { /* no-op */ }
+      let completion;
+      try { completion = await queueOriginConsequences(casterActor, spell, created, options); }
+      catch (error) { completion = { operationCount: 0, committed: [], handledDomains: ["conjuration", "boundItem"], failed: [{ key: "settlement", error: String(error.message ?? error) }] }; }
+      Hooks.callAll("uesrpg.spell.originCreated", { casterActor, spell, originEffect: created, options,
+        handledDomains: completion.handledDomains, completion });
+      if (completion.failed.length) {
+        const error = new Error("Origin creation committed but its owned consequences only partially completed.");
+        error.committed = true;
+        error.originEffect = created;
+        error.aftermathSummary = completion;
+        if (options.strict) throw error;
+        ui.notifications?.warn?.(error.message);
+      }
     }
 
     return created;
   } catch (err) {
     console.error("UESRPG | origin-effect | Failed to create Origin AE", err);
-    return null;
+    if (options.strict) throw err;
+    return err.originEffect ?? null;
   }
 }
 
@@ -239,35 +303,23 @@ export async function createOriginAE(casterActor, spell, options = {}) {
  * @param {string} [link.label] - Human-readable label
  * @returns {Promise<boolean>} Success
  */
-export async function registerLinkedEntity(originEffect, link) {
+export async function registerLinkedEntity(originEffect, link, { strict = false } = {}) {
   if (!originEffect || !link?.uuid || !link?.type) return false;
 
   const flags = originEffect.flags?.[_FLAG_NS];
   if (!flags?.isOriginAE) return false;
 
-  const existing = Array.isArray(flags.linkedEntities) ? [...flags.linkedEntities] : [];
-  // Prevent duplicate registration
-  if (existing.some(e => e.uuid === link.uuid)) return true;
-
-  existing.push({
-    type: _str(link.type),
-    uuid: _str(link.uuid),
-    actorUuid: _str(link.actorUuid),
-    label: _str(link.label),
-    registeredAt: Date.now()
-  });
-
-  _originDebug("Registering linked entity", { originId: originEffect.id, link });
-
-  try {
-    await _updateOriginEffect(originEffect, {
-      [`flags.${_FLAG_NS}.linkedEntities`]: existing
-    });
-    return true;
-  } catch (err) {
-    console.error("UESRPG | origin-effect | Failed to register linked entity", err);
-    return false;
-  }
+  let needed = false;
+  let calculated = false;
+  const updated = await requestAtomicUpdateDocument(originEffect, fresh => {
+    calculated = true;
+    const existing = Array.isArray(fresh.flags?.[_FLAG_NS]?.linkedEntities) ? [...fresh.flags[_FLAG_NS].linkedEntities] : [];
+    needed = !existing.some(entry => entry.uuid === link.uuid);
+    if (!needed) return {};
+    existing.push({ type: _str(link.type), uuid: _str(link.uuid), actorUuid: _str(link.actorUuid), label: _str(link.label), registeredAt: Date.now() });
+    return { [`flags.${_FLAG_NS}.linkedEntities`]: existing };
+  }, { render: false, perfKind: "spellLifecycle" });
+  return strict ? Boolean(updated || (calculated && !needed)) : true;
 }
 
 /**
@@ -279,15 +331,16 @@ export async function registerLinkedEntity(originEffect, link) {
  * @param {Actor} targetActor - The target actor
  * @returns {Promise<void>}
  */
-export async function registerTargetAEs(originEffect, targetEffects, targetActor) {
+export async function registerTargetAEs(originEffect, targetEffects, targetActor, { strict = false } = {}) {
   if (!originEffect || !targetEffects?.length) return;
   for (const te of targetEffects) {
-    await registerLinkedEntity(originEffect, {
+    const registered = await registerLinkedEntity(originEffect, {
       type: "targetAE",
       uuid: te.uuid ?? `${targetActor.uuid}.ActiveEffect.${te.id}`,
       actorUuid: targetActor.uuid,
       label: `${te.name} on ${targetActor.name}`
-    });
+    }, { strict });
+    if (strict && !registered) throw new Error("Spell effect origin registration was not confirmed.");
   }
 }
 
@@ -302,98 +355,80 @@ export async function registerTargetAEs(originEffect, targetEffects, targetActor
  * @param {boolean} [options.silent] - Suppress notifications
  * @returns {Promise<{deletedCount: number, errors: string[]}>}
  */
-export async function teardownOriginAE(originEffect, options = {}) {
-  const flags = originEffect?.flags?.[_FLAG_NS];
-  if (!flags?.isOriginAE) return { deletedCount: 0, errors: [] };
+export function teardownOriginAE(originEffect, options = {}) {
+  if (!originEffect?.flags?.[_FLAG_NS]?.isOriginAE) return Promise.resolve({ deletedCount: 0, errors: [] });
+  const key = originEffect.uuid;
+  if (_teardowns.has(key)) return _teardowns.get(key);
+  const promise = measurePerfStage("spellLifecycle", "teardown", { originUuid: key }, () => _teardownOriginAE(originEffect, options))
+    .finally(() => _teardowns.delete(key));
+  _teardowns.set(key, promise);
+  return promise;
+}
 
-  const linked = Array.isArray(flags.linkedEntities) ? flags.linkedEntities : [];
-  const spellName = _str(flags.spellName || originEffect.name);
-  const casterUuid = _str(flags.casterUuid);
+/** Join cleanup initiated by native deletion hooks during an expiry sweep. */
+export async function settlePendingOriginTeardowns() {
+  while (_teardowns.size) await Promise.all(Array.from(_teardowns.values()));
+  const errors = _hookTeardownFailures.splice(0);
+  if (errors.length) throw new Error(errors.join("; "));
+}
 
-  _originDebug("Tearing down Origin AE", {
-    originId: originEffect.id,
-    spellName,
-    linkedCount: linked.length
-  });
-
-  let deletedCount = 0;
+async function _teardownOriginAE(originEffect, options) {
+  const flags = originEffect.flags[_FLAG_NS];
   const errors = [];
-
-  for (const link of linked) {
-    try {
-      const result = await _deleteLinkedEntity(link);
-      if (result) deletedCount++;
-    } catch (err) {
-      const msg = `Failed to delete linked ${link.type} ${link.uuid}: ${err.message}`;
-      errors.push(msg);
-      _originDebug("Teardown error:", msg);
+  let deletedCount = 0;
+  const links = new Map();
+  for (const link of [...(flags.linkedEntities ?? []), ...getLinkedAreaEntities(originEffect)]) {
+    if (link?.uuid) links.set(link.uuid, link);
+  }
+  for (const actor of MagicTimekeeping.collectRelevantActors()) {
+    for (const effect of (actor.effects ?? [])) {
+      const f = effect.flags?.[_FLAG_NS];
+      if (!f?.spellEffect || f.isOriginAE) continue;
+      if (f.originAEUuid ? f.originAEUuid !== originEffect.uuid :
+        (_str(f.spellUuid) !== _str(flags.spellUuid) || _str(f.casterUuid) !== _str(flags.casterUuid) ||
+          (_num(flags.originalCastWorldTime, 0) > 0 && _num(f.originalCastWorldTime, 0) !== _num(flags.originalCastWorldTime, 0)))) continue;
+      links.set(effect.uuid, { type: "targetAE", uuid: effect.uuid });
     }
   }
-
-  for (const areaLink of getLinkedAreaEntities(originEffect)) {
-    if (linked.includes(areaLink)) continue;
+  const buffers = new Map();
+  for (const link of links.values()) {
+    const doc = resolveUuidSync(link.uuid);
+    const f = doc?.flags?.[_FLAG_NS];
+    if (f?.bufferApplied && doc.parent?.documentName === "Actor") {
+      const entry = buffers.get(doc.parent.uuid) ?? { actor: doc.parent, types: new Set() };
+      entry.types.add(f.bufferType);
+      buffers.set(doc.parent.uuid, entry);
+    }
     try {
-      const result = await _deleteLinkedEntity(areaLink);
-      if (result) deletedCount++;
-    } catch (err) {
-      errors.push(`Failed to delete linked ${areaLink.type} ${areaLink.uuid}: ${err.message}`);
+      const present = Boolean(doc);
+      if (!await _deleteLinkedEntity(link)) throw new Error("Deletion was not confirmed.");
+      if (present) deletedCount++;
+    } catch (error) { errors.push(`Linked ${link.type} ${link.uuid}: ${error.message}`); }
+  }
+  for (const { actor, types } of buffers.values()) {
+    try { await reconcileSpellBuffers(actor, types, { strict: true }); }
+    catch (error) { errors.push(error.message); }
+  }
+  const source = flags.castSource;
+  if (source?.type === "enchantment") {
+    const item = resolveUuidSync(_str(source.enchantedItemUuid));
+    const lane = _str(source.sourceLane || "workshop").toLowerCase();
+    const path = lane === "extension" ? "itemSpellcasting.activeUpkeepSlotId" : "enchanting.cast.activeUpkeepSpellId";
+    if (item?.documentName === "Item") {
+      let needed = false;
+      let calculated = false;
+      const ok = await requestAtomicUpdateDocument(item, fresh => {
+        calculated = true;
+        needed = _str(foundry.utils.getProperty(fresh.flags?.[_FLAG_NS], path)) === _str(source.enchantSpellSlotId);
+        return needed ? { [`flags.${_FLAG_NS}.${path}`]: null } : {};
+      }, { render: false, perfKind: "spellLifecycle" });
+      if (!ok && (!calculated || needed)) errors.push("Enchantment upkeep pointer cleanup was not confirmed.");
     }
   }
-
-  // Also clean up any target AEs that reference this origin but weren't in the linked list
-  // (belt-and-suspenders approach for robustness)
-  try {
-    const orphanCount = await _cleanOrphanTargetAEs(originEffect);
-    deletedCount += orphanCount;
-  } catch (err) {
-    errors.push(`Orphan cleanup failed: ${err.message}`);
-  }
-
-  // Emit hook
-  try {
-    Hooks.callAll("uesrpg.spell.ended", {
-      spellUuid: _str(flags.spellUuid),
-      spellName,
-      casterUuid,
-      originEffectId: originEffect.id,
-      deletedCount,
-      errors
-    });
-  } catch (_e) { /* no-op */ }
-
-  // Enchantment upkeep pointer cleanup:
-  // clear activeUpkeepSpellId only if this origin AE belongs to that exact slot.
-  const castSource = flags?.castSource;
-  if (castSource?.type === "enchantment") {
-    try {
-      const itemUuid = _str(castSource.enchantedItemUuid);
-      const slotId = _str(castSource.enchantSpellSlotId);
-      const sourceLane = _str(castSource.sourceLane || "workshop").toLowerCase();
-      if (itemUuid && slotId) {
-        const itemDoc = resolveUuidSync(itemUuid);
-        const item = itemDoc?.documentName === "Item" ? itemDoc : null;
-        const current = sourceLane === "extension"
-          ? _str(item?.flags?.[_FLAG_NS]?.itemSpellcasting?.activeUpkeepSlotId)
-          : _str(item?.flags?.[_FLAG_NS]?.enchanting?.cast?.activeUpkeepSpellId);
-        if (item && current === slotId) {
-          const upkeepPath = sourceLane === "extension"
-            ? `flags.${_FLAG_NS}.itemSpellcasting.activeUpkeepSlotId`
-            : `flags.${_FLAG_NS}.enchanting.cast.activeUpkeepSpellId`;
-          await requestUpdateDocument(item, { [upkeepPath]: null });
-        }
-      }
-    } catch (_err) {
-      console.warn("UESRPG | origin-effect | Failed to clear cast enchantment upkeep pointer", _err);
-    }
-  }
-
-  if (false && !options.silent && deletedCount > 0) {
-    try {
-      ui.notifications.info(`${spellName} ended — ${deletedCount} linked effect${deletedCount > 1 ? "s" : ""} removed.`);
-    } catch (_e) { /* no-op */ }
-  }
-
-  _originDebug("Teardown complete", { deletedCount, errors: errors.length });
+  Hooks.callAll("uesrpg.spell.ended", { spellUuid: _str(flags.spellUuid), spellName: _str(flags.spellName || originEffect.name),
+    casterUuid: _str(flags.casterUuid), originEffectId: originEffect.id, deletedCount, errors,
+    completion: { status: errors.length ? "partial" : "completed" } });
+  if (errors.length && !options.silent) ui.notifications?.warn?.("Spell ended with unresolved linked cleanup.");
   return { deletedCount, errors };
 }
 
@@ -443,7 +478,7 @@ export function findOriginAEByEnchantmentSlot(casterActor, { itemUuid = "", slot
   return null;
 }
 
-export async function replaceEnchantmentUpkeepOrigin(casterActor, { item, sourceLane = "workshop", slotId = "", excludeOriginUuid = "" } = {}) {
+export async function replaceEnchantmentUpkeepOrigin(casterActor, { item, sourceLane = "workshop", slotId = "", excludeOriginUuid = "", strict = false } = {}) {
   if (!casterActor || !item || !slotId) return false;
   const lane = _str(sourceLane || "workshop").toLowerCase();
   const upkeepPath = lane === "extension"
@@ -457,11 +492,11 @@ export async function replaceEnchantmentUpkeepOrigin(casterActor, { item, source
     if (_str(castSource.enchantSpellSlotId) !== _str(slotId)) continue;
     if (_str(castSource.sourceLane || "workshop").toLowerCase() !== lane) continue;
     if (excluded && (_str(effect.uuid) === excluded || _str(effect.id) === excluded)) continue;
-    await cancelOriginAEUpkeep(effect);
+    if (!await cancelOriginAEUpkeep(effect, { strict })) return false;
   }
-
-  await requestUpdateDocument(item, { [upkeepPath]: slotId });
-  return true;
+  const confirmed = await requestUpdateDocument(item, { [upkeepPath]: slotId }, { render: false });
+  if (strict && !confirmed) throw new Error("Enchantment upkeep pointer was not confirmed.");
+  return confirmed;
 }
 
 /**
@@ -549,7 +584,7 @@ export async function refreshOriginAEUpkeep(originEffect, opts = {}) {
   });
 
   try {
-    await _updateOriginEffect(originEffect, updates);
+    if (!await _updateOriginEffect(originEffect, updates, { strict: true })) return false;
 
     Hooks.callAll("uesrpg.spell.upkeepRefreshed", {
       originEffect,
@@ -575,30 +610,35 @@ export async function refreshOriginAEUpkeep(originEffect, opts = {}) {
  * @param {ActiveEffect} originEffect - The Origin AE
  * @returns {Promise<boolean>} Success
  */
-export async function cancelOriginAEUpkeep(originEffect) {
-  const flags = originEffect?.flags?.[_FLAG_NS];
-  if (!flags?.isOriginAE) return false;
-
-  _originDebug("Cancelling Origin AE upkeep (triggering teardown)", {
-    originId: originEffect.id,
-    spellName: _str(flags.spellName)
-  });
-
-  try {
+export function cancelOriginAEUpkeep(originEffect, { strict = false } = {}) {
+  const complete = pending => strict ? pending.then(ok => {
+    if (!ok) throw new Error("Spell cancellation did not completely settle. Review the surviving entities before repeating the action.");
+    return true;
+  }) : pending;
+  if (!originEffect?.flags?.[_FLAG_NS]?.isOriginAE) return complete(Promise.resolve(false));
+  const key = originEffect.uuid;
+  if (_cancellations.has(key)) return complete(_cancellations.get(key));
+  const promise = (async () => {
+    if (!isActiveGMUser(game.user)) {
+      const result = await requestAuthorityIntent("spell.cancelOrigin", { originUuid: key, casterUuid: originEffect.parent?.uuid }, { timeout: 60_000 });
+      return result?.ok === true;
+    }
     const parent = originEffect.parent;
     if (!parent) return false;
-    const existing = parent.effects?.get?.(originEffect.id);
-    if (!existing) return false;
-
-    return await safeDeleteEmbeddedDocument(parent, "ActiveEffect", originEffect.id, {
-      context: "UESRPG | origin-effect | cancel upkeep",
-      deleteOptions: { uesrpgExpirationSweep: true }
-    });
-  } catch (err) {
-    if (isMissingDocError(err)) return false;
-    console.error("UESRPG | origin-effect | Failed to cancel upkeep", err);
-    return false;
-  }
+    const live = parent.effects?.get?.(originEffect.id);
+    if (live) {
+      const deleted = await safeDeleteEmbeddedDocument(parent, "ActiveEffect", live.id, {
+        context: "UESRPG | cancel spell origin",
+        deleteOptions: { uesrpgExpirationSweep: true, uesrpgOwnedTeardown: true }
+      });
+      if (!deleted && parent.effects?.has?.(live.id)) return false;
+    }
+    const result = await teardownOriginAE(live ?? originEffect);
+    return result.errors.length === 0;
+  })().catch(error => { console.error("UESRPG | Origin cancellation failed", error); return false; })
+    .finally(() => _cancellations.delete(key));
+  _cancellations.set(key, promise);
+  return complete(promise);
 }
 
 /**
@@ -744,12 +784,15 @@ function _buildCasterBuffData(targetEffect, spell, casterActor) {
  * Handle `uesrpg.spell.effectApplied` — if the spell is Absorb [Char],
  * create a mirrored buff on the caster and link it to the Origin AE.
  */
-async function _onPairedEffectApplied(payload) {
+export async function applyPairedCasterEffects(payload, { strict = false } = {}) {
   const { caster, target, spell, effects, originEffect } = payload;
 
   if (!_isAbsorbCharSpell(spell)) return;
   if (!caster || !target || !effects?.length) return;
-  if (!game.user.isGM) return;
+  if (!game.user.isGM) {
+    if (strict) throw new Error("GM authority is required for paired caster effects.");
+    return;
+  }
 
   _originDebug(`Absorb paired AE trigger: ${spell.name}`, {
     caster: caster.name,
@@ -766,6 +809,7 @@ async function _onPairedEffectApplied(payload) {
       const created = Array.isArray(results) ? results[0] : (results ?? null);
 
       if (!created) {
+        if (strict) throw new Error("Caster buff creation was not confirmed.");
         _originDebug("Failed to create caster buff AE (null result)");
         continue;
       }
@@ -779,10 +823,11 @@ async function _onPairedEffectApplied(payload) {
           uuid: created.uuid ?? `${caster.uuid}.ActiveEffect.${created.id}`,
           actorUuid: caster.uuid,
           label: `${created.name} on ${caster.name}`
-        });
+        }, { strict });
         _originDebug("Registered caster buff with Origin AE", { originId: origin.id });
       }
     } catch (err) {
+      if (strict) throw err;
       console.error("[UESRPG][PairedAE] Failed to create caster buff", err);
     }
   }
@@ -800,11 +845,26 @@ let _hooksInstalled = false;
 export function initializeOriginAELifecycle() {
   if (_hooksInstalled) return;
   _hooksInstalled = true;
-
+  registerAuthorityIntentService();
+  registerAuthorityIntentCommand("spell.cancelOrigin", async ({ requester, data }) => {
+    if (Object.keys(data ?? {}).some(key => !["originUuid", "casterUuid"].includes(key))) return { ok: false, code: AUTHORITY_RESULT_CODES.INVALID_REQUEST };
+    const caster = await fromUuid(_str(data?.casterUuid));
+    if (caster?.documentName !== "Actor" || (!requester.isGM && !caster.testUserPermission(requester, CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER))) return { ok: false, code: AUTHORITY_RESULT_CODES.UNAUTHORIZED };
+    const prefix = `${caster.uuid}.ActiveEffect.`;
+    if (!_str(data.originUuid).startsWith(prefix) || _str(data.originUuid).slice(prefix.length).includes(".")) return { ok: false, code: AUTHORITY_RESULT_CODES.INVALID_REQUEST };
+    const origin = await fromUuid(data.originUuid);
+    if (!origin) {
+      const pending = _teardowns.get(data.originUuid);
+      const settled = pending ? await pending : null;
+      return { ok: !settled?.errors?.length };
+    }
+    if (!origin.flags?.[_FLAG_NS]?.isOriginAE || origin.parent?.uuid !== caster.uuid) return { ok: false, code: AUTHORITY_RESULT_CODES.INVALID_REQUEST };
+    return { ok: await cancelOriginAEUpkeep(origin) };
+  });
   // When any ActiveEffect is deleted, check if it's an Origin AE and tear down linked entities
   Hooks.on("deleteActiveEffect", async (effect, options, userId) => {
     // Only the GM processes teardowns to avoid race conditions
-    if (!game.user?.isGM) return;
+    if (!isActiveGMUser(game.user) || options?.uesrpgOwnedTeardown) return;
 
     const flags = effect?.flags?.[_FLAG_NS];
     if (!flags?.isOriginAE) return;
@@ -814,11 +874,18 @@ export function initializeOriginAELifecycle() {
       spellName: flags.spellName
     });
 
-    await teardownOriginAE(effect, { silent: false });
+    const settled = await teardownOriginAE(effect, { silent: false });
+    if (settled.errors.length) {
+      _hookTeardownFailures.push(...settled.errors);
+      if (_hookTeardownFailures.length > 100) _hookTeardownFailures.splice(0, _hookTeardownFailures.length - 100);
+    }
   });
 
   // Paired AE hook for Absorb [Characteristic] spells
-  Hooks.on("uesrpg.spell.effectApplied", _onPairedEffectApplied);
+  Hooks.on("uesrpg.spell.effectApplied", payload => {
+    if (payload?.handledDomains?.includes("paired")) return;
+    void applyPairedCasterEffects(payload).catch(error => console.error("UESRPG | Paired effect failed", error));
+  });
 
   _originDebug("Origin AE lifecycle hooks installed (incl. paired AE)");
 }
@@ -836,7 +903,7 @@ async function _deleteLinkedEntity(link) {
   try {
     const resolver = createUuidResolver();
     const doc = resolver.resolveSync(link.uuid);
-    if (!doc) return false; // Already deleted
+    if (!doc) return true; // Confirmed absence is idempotent success
 
     switch (link.type) {
       case "targetAE": {
@@ -844,10 +911,10 @@ async function _deleteLinkedEntity(link) {
         if (!parent) return false;
         // Verify the effect still exists on the parent
         const existing = parent.effects?.get?.(doc.id);
-        if (!existing) return false;
+        if (!existing) return true;
         return await safeDeleteEmbeddedDocument(parent, "ActiveEffect", doc.id, {
           context: "UESRPG | origin-effect | delete linked targetAE",
-          deleteOptions: { uesrpgExpirationSweep: true }
+          deleteOptions: { uesrpgExpirationSweep: true, uesrpgBufferCleanupHandled: true }
         });
       }
       case "template": {
@@ -890,10 +957,10 @@ async function _deleteLinkedEntity(link) {
         const buffParent = doc.parent;
         if (!buffParent) return false;
         const existingBuff = buffParent.effects?.get?.(doc.id);
-        if (!existingBuff) return false;
+        if (!existingBuff) return true;
         return await safeDeleteEmbeddedDocument(buffParent, "ActiveEffect", doc.id, {
           context: "UESRPG | origin-effect | delete linked casterBuff",
-          deleteOptions: { uesrpgExpirationSweep: true }
+          deleteOptions: { uesrpgExpirationSweep: true, uesrpgBufferCleanupHandled: true }
         });
       }
       case "boundItem": {
@@ -901,7 +968,7 @@ async function _deleteLinkedEntity(link) {
         const itemParent = doc.parent;
         if (!itemParent) return false;
         const existingItem = itemParent.items?.get?.(doc.id);
-        if (!existingItem) return false;
+        if (!existingItem) return true;
         return await safeDeleteEmbeddedDocument(itemParent, "Item", doc.id, {
           context: "UESRPG | origin-effect | delete linked boundItem"
         });
@@ -910,84 +977,9 @@ async function _deleteLinkedEntity(link) {
         return false;
     }
   } catch (err) {
-    if (isMissingDocError(err)) return false;
+    if (isMissingDocError(err) && !resolveUuidSync(link.uuid)) return true;
     throw err;
   }
-}
-
-/**
- * Clean up orphan target AEs that reference the origin but weren't in the linked list.
- * Scans both world actors AND synthetic (unlinked) token actors to ensure
- * effects on canvas tokens are properly cleaned up.
- *
- * @param {ActiveEffect} originEffect
- * @returns {Promise<number>} Number of orphans deleted
- */
-async function _cleanOrphanTargetAEs(originEffect) {
-  const flags = originEffect?.flags?.[_FLAG_NS];
-  if (!flags) return 0;
-
-  const spellUuid = _str(flags.spellUuid);
-  const castTime = _num(flags.originalCastWorldTime, 0);
-  const casterUuid = _str(flags.casterUuid);
-  if (!spellUuid || !casterUuid) return 0;
-
-  let count = 0;
-
-  // Collect all actors to scan: world actors + synthetic token actors
-  /** @type {Actor[]} */
-  const actorsToScan = [...(game.actors?.contents ?? [])];
-
-  // Add synthetic (unlinked) token actors — these have their own effect deltas
-  // and are NOT covered by the world actor scan.
-  if (canvas?.tokens?.placeables) {
-    const worldActorIds = new Set(actorsToScan.map(a => a.id));
-    for (const token of canvas.tokens.placeables) {
-      const actor = token.actor;
-      if (!actor) continue;
-      // Linked tokens share the world actor (already in the list).
-      // Unlinked (synthetic) tokens have separate actors.
-      if (token.document?.actorLink) continue;
-      // Deduplicate: synthetic actors share .id with their base actor,
-      // but have unique .uuid. We check by uuid to avoid re-scanning.
-      if (!actorsToScan.some(a => a.uuid === actor.uuid)) {
-        actorsToScan.push(actor);
-      }
-    }
-  }
-
-  for (const actor of actorsToScan) {
-    const toDelete = [];
-    for (const ef of (actor.effects ?? [])) {
-      const f = ef.flags?.[_FLAG_NS];
-      if (!f?.spellEffect) continue;
-      if (f.isOriginAE) continue; // Skip other origin AEs
-      if (_str(f.spellUuid) !== spellUuid) continue;
-      if (_str(f.casterUuid) !== casterUuid) continue;
-      if (castTime > 0 && _num(f.originalCastWorldTime, 0) !== castTime) continue;
-      toDelete.push(ef.id);
-    }
-    if (toDelete.length) {
-      try {
-        let deleted = 0;
-        for (const effectId of toDelete) {
-          const ok = await safeDeleteEmbeddedDocument(actor, "ActiveEffect", effectId, {
-            context: "UESRPG | origin-effect | orphan target cleanup",
-            logUnexpected: false,
-            deleteOptions: { uesrpgExpirationSweep: true }
-          });
-          if (ok) deleted += 1;
-        }
-        count += deleted;
-      } catch (err) {
-        if (!isMissingDocError(err)) {
-          console.warn("UESRPG | origin-effect | Orphan cleanup failed", { actor: actor?.uuid, err });
-        }
-      }
-    }
-  }
-
-  return count;
 }
 
 /**
@@ -996,7 +988,7 @@ async function _cleanOrphanTargetAEs(originEffect) {
  * @param {object} updates
  * @returns {Promise<boolean>}
  */
-async function _updateOriginEffect(effect, updates) {
+async function _updateOriginEffect(effect, updates, { strict = false } = {}) {
   if (!effect || !updates) return false;
   try {
     const parent = effect.parent;
@@ -1004,8 +996,8 @@ async function _updateOriginEffect(effect, updates) {
     const existing = parent.effects?.get?.(effect.id);
     if (!existing) return false;
 
-    await requestUpdateDocument(existing, updates);
-    return true;
+    const updated = await requestUpdateDocument(existing, updates);
+    return strict ? updated === true : true;
   } catch (err) {
     if (isMissingDocError(err)) return false;
     console.error("UESRPG | origin-effect | Failed to update Origin AE", err);

@@ -1,0 +1,8 @@
+<button type="button"
+  class="uesrpg-skill-roll-icon {{#if rollTargetClass}}{{rollTargetClass}}{{else}}{{#if professionKey}}profession-roll-target{{else}}skill-roll-target{{/if}}{{/if}} uesrpg-semantic-control uesrpg-plain-control"
+  data-action="{{action}}"
+  {{#if professionKey}}data-profession-key="{{professionKey}}"{{/if}}
+  data-tooltip-text="{{#if rollLabel}}{{rollLabel}}{{else}}{{localize "UESRPG.UI.Roll"}}{{/if}}: {{#if label}}{{label}}{{else}}{{fallbackLabel}}{{/if}}{{#if detail}} ({{detail}}){{/if}}"
+  aria-label="{{#if rollLabel}}{{rollLabel}}{{else}}{{localize "UESRPG.UI.Roll"}}{{/if}}: {{#if label}}{{label}}{{else}}{{fallbackLabel}}{{/if}}{{#if detail}} ({{detail}}){{/if}}">
+  <img class="item-img" src="{{img}}" alt="" aria-hidden="true" />
+</button>

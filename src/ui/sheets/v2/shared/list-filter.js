@@ -1,3 +1,7 @@
+// Actions such as enchanted-item casting also carry data-item-id; only actual
+// inventory/list rows participate in search, never their nested controls.
+const FILTER_ROW_SELECTOR = ".item[data-item-id], .spell-row[data-item-id], [data-list-filter-row]";
+
 function normalizeFilterText(value) {
   return String(value ?? "")
     .normalize("NFD")
@@ -13,7 +17,7 @@ function getFilterState(app) {
 
 function applyListFilter(scopeRoot, query) {
   const normalizedQuery = normalizeFilterText(query);
-  const rows = Array.from(scopeRoot.querySelectorAll("[data-item-id], [data-list-filter-row]"));
+  const rows = Array.from(scopeRoot.querySelectorAll(FILTER_ROW_SELECTOR));
   let visibleRows = 0;
 
   for (const row of rows) {
@@ -25,10 +29,11 @@ function applyListFilter(scopeRoot, query) {
     if (matches) visibleRows += 1;
   }
 
-  for (const group of scopeRoot.querySelectorAll(".spell-school-section, table")) {
-    const groupedRows = Array.from(group.querySelectorAll("[data-item-id], [data-list-filter-row]"));
-    if (!groupedRows.length) continue;
-    group.classList.toggle("uesrpg-list-filter-empty-group", Boolean(normalizedQuery) && groupedRows.every((row) => row.hidden));
+  for (const group of scopeRoot.querySelectorAll("[data-list-filter-group], .spell-school-section, table")) {
+    if (group.matches("table") && group.closest("[data-list-filter-group]")) continue;
+    const groupedRows = Array.from(group.querySelectorAll(FILTER_ROW_SELECTOR));
+    group.classList.toggle("uesrpg-list-filter-empty-group", Boolean(normalizedQuery)
+      && groupedRows.length > 0 && groupedRows.every((row) => row.hidden));
   }
 
   const empty = scopeRoot.querySelector("[data-list-filter-empty]");

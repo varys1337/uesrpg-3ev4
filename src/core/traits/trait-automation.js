@@ -8,6 +8,7 @@ import { getOwnerAndGmRecipientIds as _getOwnerUserIds } from '../../utils/chat-
  */
 
 import { getDiseaseResistancePercent } from "./trait-registry.js";
+import { resolveActorFromUuidSync } from "../../utils/uuid-cache.js";
 
 
 function _norm(str) {
@@ -62,20 +63,25 @@ export function renderDiseasedCheckCard({ actor, sourceLabel = "Disease", traitV
   `;
 }
 
-export function renderRegenerationPromptCard({ actor, value = 0, round = null, result = null } = {}) {
-  const roundLabel = Number.isFinite(Number(round)) ? `Round ${Number(round)}` : "Start of Round";
-  const isResolved = !!result;
-  let resultHtml = "";
-  if (isResolved) {
+function renderRegenerationResult(result) {
+  if (result) {
     const passed = result?.passed === true;
     const healed = Math.max(0, Number(result?.healed ?? 0) || 0);
+    const outcome = !passed ? "Failed - no healing" : result?.applicationPending
+      ? `Success - ${healed} HP healing resolved` : `Success - healed ${healed} HP`;
     const lines = [
-      `<div><b>Outcome:</b> ${passed ? `Success - healed ${healed} HP` : "Failed - no healing"}</div>`,
+      `<div><b>Outcome:</b> ${outcome}</div>`,
     ];
     if (Number.isFinite(Number(result?.tn))) lines.push(`<div><b>Endurance TN:</b> ${Number(result.tn)}</div>`);
     if (Number.isFinite(Number(result?.roll))) lines.push(`<div><b>Roll:</b> ${Number(result.roll)}</div>`);
-    resultHtml = `<div class="uesrpg-regeneration-result" style="margin-top:8px; padding-top:8px; border-top:1px solid rgba(0,0,0,0.12);">${lines.join("")}</div>`;
+    return `<div class="uesrpg-regeneration-result" style="margin-top:8px; padding-top:8px; border-top:1px solid rgba(0,0,0,0.12);">${lines.join("")}</div>`;
   }
+  return "";
+}
+
+export function renderRegenerationPromptCard({ actor, value = 0, round = null, result = null } = {}) {
+  const roundLabel = Number.isFinite(Number(round)) ? `Round ${Number(round)}` : "Start of Round";
+  const isResolved = !!result;
 
   return `
     <div class="uesrpg-regeneration-card">
@@ -88,7 +94,7 @@ export function renderRegenerationPromptCard({ actor, value = 0, round = null, r
           Roll Endurance (Regeneration)
         </button>
       </div>` : ""}
-      ${resultHtml}
+      ${renderRegenerationResult(result)}
     </div>
   `;
 }
@@ -133,48 +139,49 @@ export async function postDiseasedCheckCard({ attacker, defender, traitValue = 0
  * @param {{ round?: number|null }} [options]
  * @returns {Promise<ChatMessage|null>}
  */
-export async function postRegenPromptBatch(entries, { round = null } = {}) {
-  if (!entries?.length) return null;
-
+export function renderRegenerationPromptBatch({ entries = [], round = null } = {}) {
   const roundLabel = Number.isFinite(Number(round)) ? `Round ${Number(round)}` : "Start of Round";
-
-  // Collect union of all owner user IDs across all affected actors.
-  const whisperSet = new Set();
-  for (const { actor } of entries) {
-    for (const id of _getOwnerUserIds(actor)) whisperSet.add(id);
-  }
-
-  const rows = entries.map(({ actor, traitValue }) => {
-    const value = Math.max(0, Number(traitValue ?? 0) || 0);
-    const name = foundry.utils.escapeHTML(String(actor?.name ?? "Actor"));
-    return `<div class="uesrpg-regeneration-actor" style="display:flex;align-items:center;gap:8px;margin-top:4px;">
-      <span style="flex:1;"><b>${name}</b> — Regeneration (${value})</span>
+  const rows = entries.map(entry => {
+    const value = Math.max(0, Number(entry.value ?? 0) || 0);
+    const actor = resolveActorFromUuidSync(entry.actorUuid);
+    const name = _escape(actor?.name ?? entry.name ?? "Actor");
+    return `<div class="uesrpg-regeneration-actor" style="margin-top:4px;">
+      <div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;">
+      <span style="flex:1;min-width:0;overflow-wrap:anywhere;"><b>${name}</b> - Regeneration (${value})</span>
+      ${!entry.result && actor ? `
       <button type="button" data-ues-regeneration-action="roll"
-        data-actor-uuid="${actor.uuid}"
+        data-actor-uuid="${_escape(entry.actorUuid)}"
         data-regen-value="${value}"
         style="flex:0 0 auto;">
         Roll Endurance
-      </button>
+      </button>` : ""}</div>
+      ${renderRegenerationResult(entry.result)}
     </div>`;
   }).join("\n");
-
-  const content = `<div class="uesrpg-regeneration-card">
-    <h3>Regeneration — ${roundLabel}</h3>
+  return `<div class="uesrpg-regeneration-card">
+    <h3>Regeneration - ${roundLabel}</h3>
     ${rows}
   </div>`;
+}
+
+export async function postRegenPromptBatch(entries, { round = null } = {}) {
+  if (!entries?.length) return null;
+  const whisperSet = new Set();
+  for (const { actor } of entries) for (const id of _getOwnerUserIds(actor)) whisperSet.add(id);
+  const state = {
+    entries: entries.map(e => ({ actorUuid: e.actor.uuid, name: e.actor.name, value: Number(e.traitValue ?? 0) })),
+    round: Number.isFinite(Number(round)) ? Number(round) : null,
+    createdAt: Date.now(),
+  };
 
   return ChatMessage.create({
     user: game.user.id,
-    content,
+    content: renderRegenerationPromptBatch(state),
     whisper: Array.from(whisperSet),
     style: CONST.CHAT_MESSAGE_STYLES.OTHER,
     flags: {
       "uesrpg-3ev4": {
-        regenerationPromptBatch: {
-          entries: entries.map(e => ({ actorUuid: e.actor.uuid, value: Number(e.traitValue ?? 0) })),
-          round: Number.isFinite(Number(round)) ? Number(round) : null,
-          createdAt: Date.now()
-        }
+        regenerationPromptBatch: state,
       }
     }
   });

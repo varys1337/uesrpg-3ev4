@@ -31,10 +31,13 @@ export function createDamageAftermathBundle({
   targetActor = null,
   source = "Attack",
   debug = null,
+  kind = "damage",
+  outcomeContext = null,
 } = {}) {
   const operations = [];
   const committed = [];
   const failed = [];
+  const pending = [];
   const completedKeys = new Set();
   const base = {
     applicationId,
@@ -45,12 +48,14 @@ export function createDamageAftermathBundle({
   _debug(debug, "created", base);
 
   return {
-    stage({ key, label, run } = {}) {
+    stage({ key, label, run, operation = null, applicable = null } = {}) {
       if (typeof run !== "function") return false;
       const op = {
         key: String(key ?? `operation-${operations.length + 1}`),
         label: String(label ?? key ?? "Aftermath Operation"),
         run,
+        operation,
+        applicable,
       };
       operations.push(op);
       _debug(debug, "staged", { ...base, key: op.key, label: op.label, operationCount: operations.length });
@@ -68,8 +73,12 @@ export function createDamageAftermathBundle({
         completedKeys.add(op.key);
         const opStarted = perf ? monoMs() : 0;
         try {
-          const result = await op.run();
-          if (result?.failed === true || result === false) throw new Error(`${op.label} was not applied.`);
+          const result = outcomeContext ? await outcomeContext.stage(`aftermath:${applicationId}:${kind}:${op.key}`, op.run, {
+            documents: op.operation?.documentUuids?.map(uuid => fromUuidSync(uuid)) ?? [targetActor],
+            requiresGM: op.operation?.requiresGM === true,
+            applicable: op.applicable,
+          }) : op.applicable && !await op.applicable() ? { skipped: true } : await op.run();
+          if (result?.failed === true || result === false || result?.ok === false || ["partial", "failed"].includes(result?.execution?.status)) throw new Error(`${op.label} was not completely applied.`);
           const record = {
             key: op.key,
             label: op.label,
@@ -79,6 +88,10 @@ export function createDamageAftermathBundle({
           committed.push(record);
           _debug(debug, "committed", { ...base, ...record });
         } catch (err) {
+          if (err.pendingGM && op.operation) {
+            pending.push({ key: op.key, stageKey: `aftermath:${applicationId}:${kind}:${op.key}`, operation: op.operation });
+            continue;
+          }
           const record = {
             key: op.key,
             label: op.label,
@@ -88,6 +101,13 @@ export function createDamageAftermathBundle({
           failed.push(record);
           console.warn(`UESRPG | Damage aftermath operation failed: ${op.label}`, err);
           _debug(debug, "failed", { ...base, ...record });
+        } finally {
+          if (perf) perfRecord({
+            event: "damage.aftermath.operation", kind, applicationId,
+            actorUuid: targetActor?.uuid ?? null, operation: op.key,
+            failed: failed.some(entry => entry.key === op.key),
+            writeCount: op.key === "chatSummary" ? 1 : 0, durationMs: monoMs() - opStarted,
+          });
         }
       }
 
@@ -95,6 +115,7 @@ export function createDamageAftermathBundle({
       if (perf) {
         perfRecord({
           event: "damage.aftermath.commit",
+          kind,
           applicationId,
           actorUuid: targetActor?.uuid ?? null,
           operationCount: operations.length,
@@ -113,6 +134,7 @@ export function createDamageAftermathBundle({
         operationCount: operations.length,
         committed: committed.map((op) => ({ ...op })),
         failed: failed.map((op) => ({ ...op })),
+        pending: pending.map(op => ({ ...op })),
       };
     },
   };

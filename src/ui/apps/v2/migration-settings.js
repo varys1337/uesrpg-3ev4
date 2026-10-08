@@ -39,13 +39,14 @@ export class MigrationSettingsAppV2 extends HandlebarsApplicationMixin(Applicati
     id: "uesrpg-migration-settings",
     tag: "section",
     window: {
+      resizable: true,
       title: "UESRPG - Migration",
     },
     position: {
       width: 560,
       height: 700,
     },
-    classes: ["uesrpg"],
+    classes: ["standard-form", "uesrpg-settings-app"],
     actions: {
       runMigrations: MigrationSettingsAppV2.prototype._onRunMigrations,
     },
@@ -54,7 +55,7 @@ export class MigrationSettingsAppV2 extends HandlebarsApplicationMixin(Applicati
   static PARTS = {
     form: {
       template: templatePath("v2/apps/migration-settings.hbs"),
-      scrollable: [".uesrpg-migration-status-list"],
+      scrollable: [".uesrpg-settings__body"],
     },
   };
 

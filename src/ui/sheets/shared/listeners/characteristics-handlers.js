@@ -1,3 +1,4 @@
+import { renderTNSummary, bindTNEstimates } from "../../../shared/tn-presentation.js";
 /**
  * Characteristic management handlers.
  * Handles characteristic setting, rolling, and lucky/unlucky number configuration.
@@ -309,14 +310,14 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
       <table class="uesrpg-cg-dialog__table">
         <tr><th>STR</th><th>END</th><th>AGI</th><th>INT</th><th>WP</th><th>PRC</th><th>PRS</th><th>LCK</th></tr>
         <tr>
-          <td><input type="checkbox" id="strFav" ${current?.str?.favored ? "checked" : ""}></td>
-          <td><input type="checkbox" id="endFav" ${current?.end?.favored ? "checked" : ""}></td>
-          <td><input type="checkbox" id="agiFav" ${current?.agi?.favored ? "checked" : ""}></td>
-          <td><input type="checkbox" id="intFav" ${current?.int?.favored ? "checked" : ""}></td>
-          <td><input type="checkbox" id="wpFav" ${current?.wp?.favored ? "checked" : ""}></td>
-          <td><input type="checkbox" id="prcFav" ${current?.prc?.favored ? "checked" : ""}></td>
-          <td><input type="checkbox" id="prsFav" ${current?.prs?.favored ? "checked" : ""}></td>
-          <td><input type="checkbox" id="lckFav" ${current?.lck?.favored ? "checked" : ""}></td>
+          <td><label class="uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: "Favored characteristic: STR" })}><input type="checkbox" id="strFav" ${current?.str?.favored ? "checked" : ""}><span class="uesrpg-adv-choice__label">STR</span></label></td>
+          <td><label class="uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: "Favored characteristic: END" })}><input type="checkbox" id="endFav" ${current?.end?.favored ? "checked" : ""}><span class="uesrpg-adv-choice__label">END</span></label></td>
+          <td><label class="uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: "Favored characteristic: AGI" })}><input type="checkbox" id="agiFav" ${current?.agi?.favored ? "checked" : ""}><span class="uesrpg-adv-choice__label">AGI</span></label></td>
+          <td><label class="uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: "Favored characteristic: INT" })}><input type="checkbox" id="intFav" ${current?.int?.favored ? "checked" : ""}><span class="uesrpg-adv-choice__label">INT</span></label></td>
+          <td><label class="uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: "Favored characteristic: WP" })}><input type="checkbox" id="wpFav" ${current?.wp?.favored ? "checked" : ""}><span class="uesrpg-adv-choice__label">WP</span></label></td>
+          <td><label class="uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: "Favored characteristic: PRC" })}><input type="checkbox" id="prcFav" ${current?.prc?.favored ? "checked" : ""}><span class="uesrpg-adv-choice__label">PRC</span></label></td>
+          <td><label class="uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: "Favored characteristic: PRS" })}><input type="checkbox" id="prsFav" ${current?.prs?.favored ? "checked" : ""}><span class="uesrpg-adv-choice__label">PRS</span></label></td>
+          <td><label class="uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: "Favored characteristic: LCK" })}><input type="checkbox" id="lckFav" ${current?.lck?.favored ? "checked" : ""}><span class="uesrpg-adv-choice__label">LCK</span></label></td>
         </tr>
       </table>
     </div>`,
@@ -580,14 +581,32 @@ export const onClickCharacteristic = asyncGuardSheet(async function onClickChara
   const showIronWill = chaKey === "wp" && hasTalent(this.actor, "ironwill");
   const ironWillRow = showIronWill ? `
       <div class="form-group" style="margin-top:8px;">
-        <label style="display:flex; align-items:center; gap:8px;">
+        <label class="uesrpg-adv-choice uesrpg-choice-bar">
           <input type="checkbox" name="isResistanceTest" />
-          <span><b>Resistance Test</b> (Iron Will — reroll on failure)</span>
+          <span class="uesrpg-adv-choice__label"><b>Resistance Test</b> (Iron Will — reroll on failure)</span>
         </label>
       </div>` : "";
 
+  const readDeclaration = (root) => {
+    const difficultyKey = root?.querySelector('select[name="difficultyKey"]')?.value ?? "average";
+    const rawManual = root?.querySelector('input[name="manualMod"]')?.value ?? "0";
+    const manualMod = Number.parseInt(String(rawManual), 10) || 0;
+    const isResistanceTest = Boolean(root?.querySelector('input[name="isResistanceTest"]')?.checked);
+    const selectedRes = readResistanceBonusSelections(root, resistanceSection.options);
+    return { difficultyKey, manualMod, isResistanceTest, resistanceSelected: selectedRes };
+  };
+
+  const computeDeclaredTN = (decl) => computeSkillTN({
+    actor: this.actor,
+    skillItem: chaItem,
+    difficultyKey: decl.difficultyKey,
+    manualMod: decl.manualMod,
+    situationalMods: buildResistanceBonusMods(decl.resistanceSelected ?? [])
+  });
+
   const dialogContent = `
     <div class="uesrpg-skill-roll">
+    ${renderTNSummary(chaLabel)}
       <div class="form-group">
         <label><b>Difficulty</b></label>
         <select name="difficultyKey" style="width:100%;">${difficultyOptions}</select>
@@ -606,18 +625,11 @@ export const onClickCharacteristic = asyncGuardSheet(async function onClickChara
       layout: "workflow",
       title: `${chaLabel} — Roll Options`,
       content: dialogContent,
+      render: (_event, dialog) => bindTNEstimates(dialog.element, () => computeDeclaredTN(readDeclaration(dialog.element))),
       buttons: {
         ok: {
           label: "Roll",
-          callback: (html) => {
-            const root = html instanceof HTMLElement ? html : html?.[0];
-            const difficultyKey = root?.querySelector('select[name="difficultyKey"]')?.value ?? "average";
-            const rawManual = root?.querySelector('input[name="manualMod"]')?.value ?? "0";
-            const manualMod = Number.parseInt(String(rawManual), 10) || 0;
-            const isResistanceTest = Boolean(root?.querySelector('input[name="isResistanceTest"]')?.checked);
-            const selectedRes = readResistanceBonusSelections(root, resistanceSection.options);
-            return { difficultyKey, manualMod, isResistanceTest, resistanceSelected: selectedRes };
-          }
+          callback: (html) => readDeclaration(html instanceof HTMLElement ? html : html?.[0])
         },
         cancel: { label: "Cancel", callback: () => null }
       },
@@ -632,15 +644,8 @@ export const onClickCharacteristic = asyncGuardSheet(async function onClickChara
 
   const resMods = buildResistanceBonusMods(decl.resistanceSelected ?? []);
   const resBonus = resMods.reduce((sum, m) => sum + Number(m.value ?? 0), 0);
-  const situationalMods = [...resMods];
 
-  const tn = computeSkillTN({
-    actor: this.actor,
-    skillItem: chaItem,
-    difficultyKey: decl.difficultyKey,
-    manualMod: decl.manualMod,
-    situationalMods
-  });
+  const tn = computeDeclaredTN(decl);
 
   // Build tags
   const tags = [];
@@ -701,7 +706,7 @@ export const onClickCharacteristic = asyncGuardSheet(async function onClickChara
       <div><b>Target Number:</b> ${tn.finalTN}</div>
       ${declaredParts.length ? `<div style="margin-top:2px; font-size:12px; opacity:0.85;"><b>Options:</b> ${declaredParts.join("; ")}</div>` : ""}
       <div style="margin-top:4px;">${degreeLine}</div>
-      <details style="margin-top:6px;"><summary style="cursor:pointer; user-select:none;">TN breakdown</summary><div style="margin-top:4px; font-size:12px; opacity:0.9;">${breakdownRows}</div></details>
+      <details style="margin-top:6px;"><summary style="cursor:var(--uesrpg-cursor-pointer, pointer); user-select:none;">TN breakdown</summary><div style="margin-top:4px; font-size:12px; opacity:0.9;">${breakdownRows}</div></details>
       <div class="tag-container">${tags.join("")}</div>
     </div>`;
 

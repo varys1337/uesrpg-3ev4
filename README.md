@@ -8,8 +8,28 @@
 > Some visual UI elements and presentation assets were assembled from licensed or stock source materials and manually edited by the author. Where AI-assisted visual processing was used, it was limited to post-processing and editing human-made source assets rather than generating standalone artwork.
 
 # UESRPG 3e v4 - Automation and QoL 
-This system is a fork of the original uesrpg d100 system created by DogBoneZone at https://gitlab.com/DogBoneZone/uesrpg-3e and the earlier compatibility fork at https://github.com/jamesjtb/uesrpg-3ev4.  This specific fork has advanced combat automation, active effects implementation and other up to date features of the current Foundry VTT iteration.  A system and a few compendiums used to play the UESRPG game. Special thanks to 2Minute Tabletop and to drhodesw for the tokens and help creating the compendiums.
+This system is a fork of the original uesrpg d100 system created by DogBoneZone at https://gitlab.com/DogBoneZone/uesrpg-3e and the earlier compatibility fork at https://github.com/jamesjtb/uesrpg-3ev4. This fork targets Foundry VTT v14.368 and later v14 builds only. The manifest retains its existing verified build of v14.368; source changes require the live acceptance checks in [the consolidation checklist](docs/consolidation-acceptance.md) before deployment.
+
+This specific fork has advanced combat automation, active effects implementation and other up to date features of the current Foundry VTT iteration. 
+
+A system and a few compendiums used to play the UESRPG game. Special thanks to 2Minute Tabletop and to drhodesw for the tokens and help creating the compendiums.
 
 Express permission to use the artwork and tokens included in the compendiums of this system was given by 2MinuteTabletop and the copyright holder.
 
 You can find the lively UESRPG Discord Community here: https://discord.gg/KAkXdf9
+
+Documentation:
+
+- [Localization guide](docs/Localization.md)
+- [Release and deployment guide](docs/Release.md)
+- [Consolidation implementation audit](docs/consolidation-audit.md)
+- [Live Foundry acceptance checklist](docs/consolidation-acceptance.md)
+- [Compact chat composer preference](docs/chat-composer.md)
+
+## Ready release folder
+
+Run `build-release-folder.cmd` on Windows, or run `npm run build:folder` from a terminal.
+
+The command validates the source and creates a ready-to-install Foundry system at `dist/uesrpg-3ev4`. The folder contains only runtime files required by the system; development dependencies, automation, repository metadata, and transient compendium lock/log files are excluded.
+
+Use Node.js 24 for local validation and release builds. Run `npm ci`, `npm run lint`, and `npm run build:release` before publishing.

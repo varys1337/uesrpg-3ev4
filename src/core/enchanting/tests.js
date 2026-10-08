@@ -10,7 +10,7 @@
  *  - Result includes binding strength (DoS on success, or Enchant rank via Procedural Enchanting)
  *  - Salvage Energy sub-roll on failure
  *
- * Target: Foundry VTT v13.351
+ * Target: Foundry VTT v14.368+
  */
 
 import { doTestRoll } from "../../utils/degree-roll-helper.js";
@@ -37,8 +37,7 @@ import { hasTalent } from "../traits/talents-api.js";
  * @property {number} enchantRankAlternative - Enchant rank (for Procedural Enchanting choice)
  */
 export async function executeEnchantTest(actor, penalty, { effectiveEnchantRank = 0, baseTarget = null } = {}) {
-  const baseTN = Number.isFinite(Number(baseTarget)) ? Number(baseTarget) : getEnchantTN(actor);
-  const finalTN = Math.max(1, baseTN + Number(penalty ?? 0));
+  const { finalTN } = computeEnchantTestTN(actor, penalty, { baseTarget });
 
   const result = await doTestRoll(actor, {
     target: finalTN,
@@ -111,4 +110,10 @@ export async function executeSalvageEnergyRoll(actor, baseTN) {
     rollObject: result.roll ?? null,
     degrees: result.degree ?? 1,
   };
+}
+
+/** Pure counterpart used by the crafting declaration summary. */
+export function computeEnchantTestTN(actor, penalty, { baseTarget = null } = {}) {
+  const baseTN = Number.isFinite(Number(baseTarget)) ? Number(baseTarget) : getEnchantTN(actor);
+  return { finalTN: Math.max(1, baseTN + Number(penalty ?? 0)), breakdown: [{ key: "base", label: "Enchant", value: baseTN }, { label: "Enchantment penalty", value: Number(penalty ?? 0) }] };
 }

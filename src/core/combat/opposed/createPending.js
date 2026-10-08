@@ -3,7 +3,7 @@
  * Create pending opposed workflow
  */
 
-import { safeUpdateChatMessage } from "../../../utils/chat-message-socket.js";
+import { updateCard } from "./cards/updater.js";
 import { _resolveDoc, _resolveActor, _resolveToken, _resolveItemViaActor } from "./helpers/docs.js";
 import { getPreferredWeaponUuid as _getPreferredWeaponUuid, inferAttackModeFromPreferredWeapon as _inferAttackModeFromPreferredWeapon } from "./helpers/workflow.js";
 import { _renderCard } from "./render.js";
@@ -225,7 +225,7 @@ export async function createPending(cfg = {}) {
       flags: { "uesrpg-3ev4": { opposed: data } }
     });
 
-    await safeUpdateChatMessage(message, { content: _renderCard(data, message.id) });
+    await updateCard(message, liveState => liveState, _renderCard, { renderIfUnchanged: true });
 
     _logDebug("createPending", {
       messageId: message.id,

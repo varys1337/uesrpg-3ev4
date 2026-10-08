@@ -10,10 +10,11 @@
 
 import { hasTalent, normalizeTalentKey, resolveTalentSlug } from "./talents-api.js";
 import { hasCondition } from "../conditions/condition-engine.js";
-import { createOrUpdateStatusEffect } from "../active-effects/status-effect.js";
+import { queueStatusEffect } from "../system/activation/feature-effects.js";
 import { buildEffectDuration } from "../time/effect-duration.js";
-import { applyHealing } from "../combat/damage-automation.js";
-import { requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../../utils/authority-proxy.js";
+import { queueHealingOutcome, persistChatOutcomes } from "../../application/combat/chat-outcome-application-service.js";
+import { createChatOutcome } from "../config/outcome-application-policy.js";
+import { requestAtomicUpdateDocument, requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../../utils/authority-proxy.js";
 import { ensureWoundedPassiveEffect } from "../wounds/engine/apply.js";
 import { _num } from "./_primitives.js";
 import { getFlagValueWithFallback } from "../system/flags.js";
@@ -129,31 +130,25 @@ async function _markUsed(actor, key, { period } = {}) {
   await _setUsageState(actor, next);
 }
 
-export async function clearRacialTalentUsageOnRest(actor, { restType } = {}) {
+export async function clearRacialTalentUsageOnRest(actor, { restType, strict = false } = {}) {
   if (!actor) return;
   const type = String(restType ?? "").trim().toLowerCase();
   if (type !== "short" && type !== "long") return;
-
-  const usage = _getUsageState(actor);
-  if (!usage || typeof usage !== "object") return;
-
-  const next = { ...usage };
-
-  // Short Rest: clears short-rest racial talent usage.
-  if (type === "short") {
-    for (const [k, v] of Object.entries(next)) {
-      if (v?.period === "shortRest") delete next[k];
+  let calculated = false;
+  let changed = false;
+  const confirmed = await requestAtomicUpdateDocument(actor, fresh => {
+    calculated = true;
+    const patch = {};
+    for (const [key, value] of Object.entries(_getUsageState(fresh))) {
+      if (value?.period !== "shortRest" && !(type === "long" && value?.period === "longRest")) continue;
+      patch[`flags.${SYSTEM_SCOPE}.${FLAG_RACIAL_USAGE}.-=${key}`] = null;
     }
-  }
-
-  // Long Rest: clears both longRest and shortRest usage.
-  if (type === "long") {
-    for (const [k, v] of Object.entries(next)) {
-      if (v?.period === "longRest" || v?.period === "shortRest") delete next[k];
-    }
-  }
-
-  await _setUsageState(actor, next);
+    changed = Object.keys(patch).length > 0;
+    return changed ? patch : null;
+  }, { render: false, perfKind: "rest" });
+  const ok = calculated && (!changed || confirmed);
+  if (strict && !ok) throw new Error("Racial usage reset was not confirmed.");
+  return { ok, changed: changed && confirmed };
 }
 
 export function applyRacialTalentDerivedBonuses({ actor, actorSystemData, agg } = {}) {
@@ -208,7 +203,7 @@ export async function handleRacialTalentActivation({ actor, item, itemKey } = {}
 
   if (k === "dragonskin") {
     const duration = buildEffectDuration({ actor, rounds: 1, seconds: 6, preferCombat: true });
-    await createOrUpdateStatusEffect(actor, {
+    await queueStatusEffect(actor, {
       name: "Dragonskin",
       img: item.img,
       duration,
@@ -222,14 +217,14 @@ export async function handleRacialTalentActivation({ actor, item, itemKey } = {}
 
   if (k === "histskin") {
     const eb = _getEnduranceBonus(actor);
-    if (eb > 0) await applyHealing(actor, eb, { source: "Histskin" });
+    if (eb > 0) await queueHealingOutcome(actor, eb, { source: "Histskin" });
     await _markUsed(actor, "histskin", { period: "shortRest" });
     return true;
   }
 
   if (k === "malacathsfury") {
     const eb = _getEnduranceBonus(actor);
-    if (eb > 0) await applyHealing(actor, eb, { source: "Malacath's Fury" });
+    if (eb > 0) await queueHealingOutcome(actor, eb, { source: "Malacath's Fury" });
 
     const delta = Math.max(0, Math.floor(eb / 2));
     const duration = buildEffectDuration({ actor, rounds: 10, seconds: 60, preferCombat: true });
@@ -240,7 +235,7 @@ export async function handleRacialTalentActivation({ actor, item, itemKey } = {}
       changes.push(buildEffectChange({ key: "system.modifiers.resistance.magicR", type: "add", value: String(delta), priority: 20 }));
     }
 
-    await createOrUpdateStatusEffect(actor, {
+    await queueStatusEffect(actor, {
       name: "Malacath's Fury",
       img: item.img,
       duration,
@@ -269,7 +264,7 @@ export async function handleRacialPowerActivation({ actor, item, itemKey } = {})
 
     if (inCombat) {
       const duration = buildEffectDuration({ actor, preferCombat: true });
-      await createOrUpdateStatusEffect(actor, {
+      await queueStatusEffect(actor, {
         name: "Adrenaline Rush",
         img: item.img,
         duration,
@@ -280,20 +275,16 @@ export async function handleRacialPowerActivation({ actor, item, itemKey } = {})
         changes: [
           buildEffectChange({ key: "system.modifiers.stamina.value", type: "add", value: "2", priority: 20 })
         ]
-      });
-
-      // If the actor is currently wounded, remove any existing passive penalty effect immediately.
-      try { await ensureWoundedPassiveEffect(actor); } catch (_e) { /* ignore */ }
+      }, { afterWoundSuppression: true });
     } else {
       // Encounter durations are combat-anchored; outside combat we cannot expire this automatically.
-      const current = _num(actor.system?.stamina?.value ?? 0, 0);
-      const max = _num(actor.system?.stamina?.max ?? 0, 0);
-      const next = Math.min(max, current + 2);
-      await requestUpdateDocument(actor, { "system.stamina.value": next });
-      ui.notifications?.info?.(`${actor.name}: Adrenaline Burst applied outside combat (temporary SP expiry must be handled manually).`);
+      await persistChatOutcomes({ actor, content: "<div class=\"uesrpg\"><b>Adrenaline Burst</b></div>",
+        entries: [createChatOutcome({ adapter: "resource.delta", kind: "effect", sourceActorUuid: actor.uuid,
+          targetUuid: actor.uuid, label: "Adrenaline Burst: Stamina", payload: { resource: "stamina", amount: 2 } })] });
+      ui.notifications?.info?.(`${actor.name}: Adrenaline Burst resolved outside combat (temporary SP expiry must be handled manually).`);
     }
 
-    await applyHealing(actor, 5, { source: "Adrenaline Burst" });
+    await queueHealingOutcome(actor, 5, { source: "Adrenaline Burst" });
     return true;
   }
 

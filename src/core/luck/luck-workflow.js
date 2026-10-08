@@ -1,3 +1,4 @@
+import { renderTNSummary, bindTNEstimates } from "../../ui/shared/tn-presentation.js";
 /**
  * src/core/luck/luck-workflow.js
  *
@@ -284,7 +285,8 @@ async function spendLPReroll(message) {
 
   const confirmed = await confirmDialog({
     title: "Spend Luck Point - Reroll",
-    content: `<div class="uesrpg"><p>Spend <b>1 LP</b> to reroll <b>${_esc(side.label)}</b>?</p><p>Current LP: <b>${currentLp}</b></p></div>`,
+    render: (_event, dialog) => bindTNEstimates(dialog.element, () => ({ finalTN: target })),
+    content: `<div class="uesrpg">${renderTNSummary(side.label)}<p>Spend <b>1 LP</b> to reroll <b>${_esc(side.label)}</b>?</p><p>Current LP: <b>${currentLp}</b></p></div>`,
     yesLabel: "Reroll (1 LP)",
     noLabel: "Cancel",
     yesIcon: "fas fa-dice-d20",

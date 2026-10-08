@@ -1,162 +1,82 @@
 "use strict";
 
-const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const {
-  RELEASE_ARCHIVE_NAME,
-  RELEASE_REPOSITORY,
-  getReleaseMetadata,
-} = require("./release-metadata.js");
+const crypto = require("node:crypto");
+const { getReleaseMetadata } = require("./release-metadata.js");
 
 const ROOT = path.resolve(__dirname, "..");
-const RETRY_DELAYS_MS = Object.freeze([0, 1_000, 2_000, 4_000, 8_000, 15_000]);
 
-function readArgument(argv, option, fallback = null) {
-  const index = argv.indexOf(option);
-  if (index < 0) return fallback;
-  const value = argv[index + 1];
-  if (!value || value.startsWith("--")) throw new Error(`${option} requires a value.`);
-  return value;
+function sha256(buffer) {
+  return crypto.createHash("sha256").update(buffer).digest("hex");
 }
 
-function assert(condition, message) {
-  if (!condition) throw new Error(message);
-}
-
-function readJson(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, "utf8"));
-}
-
-function sha256(filePath) {
-  return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
-}
-
-function equalJson(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-
-function requestHeaders({ authenticated = true } = {}) {
-  const headers = {
-    Accept: "application/vnd.github+json",
-    "User-Agent": "uesrpg-release-verifier",
-    "X-GitHub-Api-Version": "2022-11-28",
-  };
-  const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
-  if (authenticated && token) headers.Authorization = `Bearer ${token}`;
-  return headers;
-}
-
-async function fetchResponse(url, { method = "GET", authenticated = true } = {}) {
-  const response = await fetch(url, {
-    method,
-    headers: requestHeaders({ authenticated }),
-    cache: "no-store",
-    redirect: "follow",
-  });
-  if (!response.ok) throw new Error(`${method} ${url} returned HTTP ${response.status}.`);
-  return response;
-}
-
-async function fetchJson(url, options) {
-  return (await fetchResponse(url, options)).json();
-}
-
-async function retry(label, operation) {
-  let lastError;
-  for (const delayMs of RETRY_DELAYS_MS) {
-    if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
-    try {
-      return await operation();
-    } catch (error) {
-      lastError = error;
-      console.warn(`UESRPG | ${label} not ready: ${error.message}`);
-    }
+async function getBuffer(url, token = "") {
+  let lastStatus = 0;
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    const response = await fetch(url, {
+      headers: token ? { Authorization: `Bearer ${token}`, Accept: "application/octet-stream" } : {},
+      redirect: "follow",
+    });
+    lastStatus = response.status;
+    if (response.ok) return Buffer.from(await response.arrayBuffer());
+    if (attempt < 5) await new Promise((resolve) => setTimeout(resolve, 2000));
   }
-  throw new Error(`${label} failed after ${RETRY_DELAYS_MS.length} attempts: ${lastError?.message}`);
-}
-
-async function fetchDraftRelease(tag) {
-  const releases = await fetchJson(
-    `https://api.github.com/repos/${RELEASE_REPOSITORY}/releases?per_page=100`,
-  );
-  const release = releases.find((candidate) => candidate.tag_name === tag && candidate.draft === true);
-  if (!release) throw new Error(`Draft release ${tag} was not found in the authenticated release listing.`);
-  return release;
-}
-
-function validateReleaseMetadata(release, expected, assets, stage) {
-  assert(release.tag_name === expected.tag, `GitHub release tag ${release.tag_name} does not match ${expected.tag}.`);
-  assert(release.prerelease === false, `${expected.tag} must not be a prerelease.`);
-  assert(release.draft === (stage === "draft"), `${expected.tag} has an unexpected draft state.`);
-  if (stage === "draft") assert(release.immutable === false, `Draft ${expected.tag} must remain mutable until published.`);
-  else assert(release.immutable === true, `Published release ${expected.tag} is not immutable.`);
-
-  const remoteAssets = new Map((release.assets ?? []).map((asset) => [asset.name, asset]));
-  const expectedNames = assets.map((asset) => asset.name).sort();
-  const remoteNames = [...remoteAssets.keys()].sort();
-  assert(equalJson(remoteNames, expectedNames),
-    `${expected.tag} assets differ (expected ${expectedNames.join(", ")}; received ${remoteNames.join(", ") || "none"}).`);
-
-  for (const expectedAsset of assets) {
-    const asset = remoteAssets.get(expectedAsset.name);
-    assert(asset.state === "uploaded", `${expectedAsset.name} is not fully uploaded.`);
-    assert(asset.size === expectedAsset.size,
-      `${expectedAsset.name} size ${asset.size} does not match local size ${expectedAsset.size}.`);
-    assert(asset.digest === `sha256:${expectedAsset.digest}`,
-      `${expectedAsset.name} digest ${asset.digest} does not match local sha256:${expectedAsset.digest}.`);
-  }
-}
-
-async function validatePublishedEndpoints(expected, sourceManifest) {
-  const cacheBuster = `verify=${Date.now()}`;
-  const remoteManifest = await fetchJson(`${expected.manifestUrl}?${cacheBuster}`, { authenticated: false });
-  for (const field of ["id", "version", "manifest", "download", "compatibility"]) {
-    assert(equalJson(remoteManifest[field], sourceManifest[field]),
-      `Published manifest ${field} does not match the validated source manifest.`);
-  }
-  assert(remoteManifest.version === expected.systemVersion,
-    `Published manifest version ${remoteManifest.version} does not match ${expected.systemVersion}.`);
-  assert(remoteManifest.manifest === expected.manifestUrl, "Published manifest does not retain the stable update URL.");
-  assert(remoteManifest.download === expected.downloadUrl, "Published manifest does not use the version-specific ZIP URL.");
-  await fetchResponse(`${expected.downloadUrl}?${cacheBuster}`, { method: "HEAD", authenticated: false });
+  throw new Error(`${url} returned HTTP ${lastStatus}`);
 }
 
 async function main() {
-  const argv = process.argv.slice(2);
-  const stage = readArgument(argv, "--stage");
-  assert(stage === "draft" || stage === "published", "--stage must be either draft or published.");
+  const phase = process.argv.includes("--published") ? "published" : "draft";
+  const packageJson = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
+  const metadata = getReleaseMetadata(packageJson.version);
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) throw new Error("GITHUB_TOKEN is required");
 
-  const packageJson = readJson(path.join(ROOT, "package.json"));
-  const sourceManifest = readJson(path.join(ROOT, "system.json"));
-  const expected = getReleaseMetadata(packageJson.version);
-  const requestedTag = readArgument(argv, "--tag", expected.tag);
-  assert(requestedTag === expected.tag, `Requested tag ${requestedTag} does not match ${expected.tag}.`);
-
-  const manifestPath = path.resolve(ROOT, readArgument(argv, "--manifest", "system.json"));
-  const archivePath = path.resolve(ROOT, readArgument(argv, "--archive", RELEASE_ARCHIVE_NAME));
-  const assets = [manifestPath, archivePath].map((filePath) => {
-    assert(fs.existsSync(filePath), `Release asset is missing: ${filePath}`);
-    return {
-      name: path.basename(filePath),
-      size: fs.statSync(filePath).size,
-      digest: sha256(filePath),
-    };
+  const apiResponse = await fetch(`https://api.github.com/repos/${metadata.repository}/releases/tags/${metadata.tag}`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
   });
-
-  const release = await retry(`GitHub ${stage} release verification`, () => {
-    if (stage === "draft") return fetchDraftRelease(expected.tag);
-    return fetchJson(`https://api.github.com/repos/${RELEASE_REPOSITORY}/releases/tags/${expected.tag}`);
-  });
-  validateReleaseMetadata(release, expected, assets, stage);
-
-  if (stage === "published") {
-    await retry("public Foundry update endpoint verification", () => validatePublishedEndpoints(expected, sourceManifest));
+  if (!apiResponse.ok) throw new Error(`GitHub release API returned HTTP ${apiResponse.status}`);
+  const release = await apiResponse.json();
+  if ((phase === "draft") !== (release.draft === true)) throw new Error(`Release draft state does not match ${phase} verification`);
+  if (release.tag_name !== metadata.tag) throw new Error(`Unexpected release tag ${release.tag_name}`);
+  if (process.env.GITHUB_SHA && release.target_commitish !== process.env.GITHUB_SHA) {
+    throw new Error(`Release target ${release.target_commitish} does not match ${process.env.GITHUB_SHA}`);
   }
-  console.log(`UESRPG | Verified ${stage} GitHub release ${expected.tag}.`);
+
+  const expectedFiles = [metadata.manifestName, metadata.archiveName];
+  const assetNames = (release.assets ?? []).map((asset) => asset.name).sort();
+  if (JSON.stringify(assetNames) !== JSON.stringify([...expectedFiles].sort())) {
+    throw new Error(`Unexpected release assets: ${assetNames.join(", ")}`);
+  }
+
+  for (const filename of expectedFiles) {
+    const local = fs.readFileSync(path.join(ROOT, filename));
+    const asset = release.assets.find((entry) => entry.name === filename);
+    if (asset.size !== local.length) throw new Error(`${filename} size differs from the local artifact`);
+    const remote = await getBuffer(asset.url, token);
+    if (sha256(remote) !== sha256(local)) throw new Error(`${filename} SHA-256 differs from the local artifact`);
+    if (asset.digest && asset.digest !== `sha256:${sha256(local)}`) throw new Error(`${filename} API digest is incorrect`);
+  }
+
+  if (phase === "published") {
+    const latestResponse = await fetch(`https://api.github.com/repos/${metadata.repository}/releases/latest`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
+    });
+    if (!latestResponse.ok) throw new Error(`GitHub latest release API returned HTTP ${latestResponse.status}`);
+    const latest = await latestResponse.json();
+    if (latest.id !== release.id) throw new Error(`${metadata.tag} is not the repository's latest release`);
+    const publicManifest = await getBuffer(metadata.manifestUrl);
+    const localManifest = fs.readFileSync(path.join(ROOT, metadata.manifestName));
+    if (sha256(publicManifest) !== sha256(localManifest)) throw new Error("Public manifest endpoint differs from the release artifact");
+    const publicArchive = await getBuffer(metadata.downloadUrl);
+    const localArchive = fs.readFileSync(path.join(ROOT, metadata.archiveName));
+    if (sha256(publicArchive) !== sha256(localArchive)) throw new Error("Public archive endpoint differs from the release artifact");
+  }
+
+  console.log(`UESRPG | Verified ${metadata.tag} ${phase} release assets and SHA-256 digests.`);
 }
 
 main().catch((error) => {
-  console.error(`UESRPG | GitHub release verification failed: ${error.message}`);
+  console.error(error);
   process.exitCode = 1;
 });

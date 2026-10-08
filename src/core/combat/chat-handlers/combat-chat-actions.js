@@ -8,10 +8,14 @@
 import { canUserRollActor } from "../../../utils/permissions.js";
 import { resolveShockTestFromChat } from "../../wounds/wound-engine.js";
 import { resolveDeathTestFromChat } from "../../wounds/death-tests.js";
-import { requestUpdateChatMessage } from "../../../utils/authority-proxy.js";
+import { requestUpdateChatMessage, doesUserOwnActor, canUserUpdateChatMessage } from "../../../utils/authority-proxy.js";
+import { AUTHORITY_RESULT_CODES, registerAuthorityIntentCommand, requestAuthorityIntent } from "../../../utils/authority-intents.js";
+import { acquireLock, releaseLock } from "../../../utils/authority-proxy/shared.js";
+import { getActiveGMUser } from "../../../utils/users.js";
 import { getDiseaseResistancePercent, isActorImmuneToDamageType } from "../../traits/trait-registry.js";
-import { applyHealing } from "../damage-automation.js";
-import { renderDiseasedCheckCard, renderRegenerationPromptCard } from "../../traits/trait-automation.js";
+import { createChatOutcome } from "../../config/outcome-application-policy.js";
+import { ChatOutcomeApplicationService } from "../../../application/combat/chat-outcome-application-service.js";
+import { renderDiseasedCheckCard, renderRegenerationPromptCard, renderRegenerationPromptBatch } from "../../traits/trait-automation.js";
 import { resolveActorFromUuidSync, resolveUuidSync } from "../../../utils/uuid-cache.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { registerDelegatedChatLogClickHandler } from "./actions/handle-click.js";
@@ -20,10 +24,18 @@ import { isApplyHealingButton } from "./cards/damage-card.js";
 import { getMessageIdFromContextLi } from "../../../utils/chat/contextmenu.js";
 import { resolveActor, onApplyDamage, onApplyHealing } from "./combat-chat-apply.js";
 import { onOpposedAction, onSkillOpposedAction, onCharOpposedAction, onMagicOpposedAction } from "./combat-chat-opposed.js";
+import { asyncGuard } from "../../../utils/async-guard.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
 let _delegatedChatClickRegistered = false;
+let _regenerationAuthorityRegistered = false;
+const _guardedApplyDamage = asyncGuard(onApplyDamage, {
+  onError: () => ui.notifications?.error?.("Damage application failed. Review the target before retrying."),
+});
+const _guardedApplyHealing = asyncGuard(onApplyHealing, {
+  onError: () => ui.notifications?.error?.("Healing application failed. Review the target before retrying."),
+});
 
 // ── Private action handlers ───────────────────────────────────────────────────
 
@@ -180,67 +192,54 @@ async function _onDiseaseAction(event, message) {
   });
 }
 
+async function resolveRegenerationOutcome({ requester, data }) {
+  const message = game.messages.get(String(data?.messageId ?? ""));
+  if (!message || !canUserUpdateChatMessage(message, game.user)) return { ok: false, code: AUTHORITY_RESULT_CODES.NO_ACTIVE_GM };
+  const lockKey = `ChatMessage:${message.id}`;
+  await acquireLock(lockKey);
+  try {
+    const live = game.messages.get(message.id);
+    const batch = foundry.utils.deepClone(live.flags?.[_FLAG_NS]?.regenerationPromptBatch);
+    const single = foundry.utils.deepClone(live.flags?.[_FLAG_NS]?.regenerationPrompt);
+    const state = batch?.entries?.find(entry => entry.actorUuid === data.targetUuid)
+      ?? (single?.actorUuid === data.targetUuid ? single : null);
+    const actor = resolveActorFromUuidSync(state?.actorUuid);
+    if (!actor || !doesUserOwnActor(requester, actor)) return { ok: false, code: AUTHORITY_RESULT_CODES.UNAUTHORIZED };
+    if (state.result || state.resolved) return { ok: true };
+    const value = Math.max(0, Number(state.value ?? 0) || 0);
+    if (!value) return { ok: false, code: AUTHORITY_RESULT_CODES.INVALID_REQUEST };
+    const tn = Number(actor.system?.characteristics?.end?.total ?? 0)
+      + Number(actor.system?.woundPenalty ?? 0) + Number(actor.system?.fatigue?.penalty ?? 0)
+      + Number(actor.system?.carry_rating?.penalty ?? 0);
+    const roll = await new Roll("1d100").evaluate();
+    const passed = Number(roll.total) <= tn;
+    const outcomes = foundry.utils.deepClone(live.flags?.[_FLAG_NS]?.chatOutcomes?.entries ?? []);
+    if (passed) outcomes.push(createChatOutcome({ adapter: "healing", kind: "healing",
+      sourceActorUuid: actor.uuid, targetUuid: actor.uuid, label: "Regeneration",
+      payload: { amount: value, source: "Regeneration" } }));
+    state.resolved = true;
+    state.resolvedAt = Date.now();
+    state.result = { passed, tn, roll: Number(roll.total), healed: passed ? value : 0, applicationPending: passed };
+    const key = batch ? "regenerationPromptBatch" : "regenerationPrompt";
+    const saved = batch ?? state;
+    const content = batch ? renderRegenerationPromptBatch(batch)
+      : renderRegenerationPromptCard({ actor, value, round: state.round, result: state.result });
+    const updated = await requestUpdateChatMessage(live, { content,
+      [`flags.${_FLAG_NS}.${key}`]: saved, [`flags.${_FLAG_NS}.chatOutcomes`]: { version: 1, entries: outcomes } });
+    return { ok: Boolean(updated), code: updated ? null : AUTHORITY_RESULT_CODES.FAILED };
+  } finally { releaseLock(lockKey); }
+}
+
 async function _onRegenerationAction(event, message) {
   event.preventDefault();
-  const el = event.currentTarget;
-  const action = el?.dataset?.uesRegenerationAction;
-  if (action !== "roll") return;
-
-  const state = message?.flags?.["uesrpg-3ev4"]?.regenerationPrompt ?? {};
-  if (state?.resolved) return;
-
-  const actorUuid = el?.dataset?.actorUuid ?? state?.actorUuid;
-  const actor = actorUuid ? resolveActor(message, actorUuid) : null;
-  if (!actor) {
-    ui.notifications?.warn?.("Regeneration: actor not found.");
-    return;
-  }
-
-  if (!canUserRollActor(game.user, actor)) {
-    ui.notifications?.warn?.("You do not have permission to roll for this actor.");
-    return;
-  }
-
-  const value = Number(el?.dataset?.regenValue ?? state?.value ?? 0) || 0;
-  if (value <= 0) return;
-
-  const endTotal = Number(actor.system?.characteristics?.end?.total ?? 0);
-  const woundPenalty = Number(actor.system?.woundPenalty ?? 0);
-  const fatiguePenalty = Number(actor.system?.fatigue?.penalty ?? 0);
-  const carryPenalty = Number(actor.system?.carry_rating?.penalty ?? 0);
-  const tn = endTotal + woundPenalty + fatiguePenalty + carryPenalty;
-
-  const roll = new Roll("1d100");
-  await roll.evaluate();
-  const passed = Number(roll.total ?? 0) <= tn;
-  let healed = 0;
-
-  if (passed) {
-    const healResult = await applyHealing(actor, value, { source: "Regeneration", skipChatMessage: true });
-    healed = Math.max(0, Number(healResult?.healing ?? 0) || 0);
-  }
-
-  await requestUpdateChatMessage(message, {
-    content: renderRegenerationPromptCard({
-      actor,
-      value,
-      round: state?.round ?? null,
-      result: {
-        passed,
-        tn,
-        roll: Number(roll.total ?? 0),
-        healed,
-      }
-    }),
-    [`flags.${_FLAG_NS}.regenerationPrompt.resolved`]: true,
-    [`flags.${_FLAG_NS}.regenerationPrompt.resolvedAt`]: Date.now(),
-    [`flags.${_FLAG_NS}.regenerationPrompt.result`]: {
-      passed,
-      tn,
-      roll: Number(roll.total ?? 0),
-      healed,
-    },
-  });
+  if (event.currentTarget?.dataset?.uesRegenerationAction !== "roll") return;
+  const targetUuid = event.currentTarget.dataset.actorUuid;
+  const data = { messageId: message.id, targetUuid };
+  const gm = getActiveGMUser();
+  const result = gm?.id === game.user.id || (!gm && canUserUpdateChatMessage(message, game.user))
+    ? await resolveRegenerationOutcome({ requester: game.user, data })
+    : await requestAuthorityIntent("combat.resolveRegeneration", data, { timeout: 60_000 });
+  if (!result?.ok) ui.notifications?.warn?.("Regeneration could not be resolved. An authorized card writer is required.");
 }
 
 async function _onAlchemyAction(event, message) {
@@ -384,8 +383,15 @@ async function _onUpkeepAction(event, message) {
 
 export function registerCombatChatClickHandler() {
   if (_delegatedChatClickRegistered) return;
+  if (!_regenerationAuthorityRegistered) {
+    if (!registerAuthorityIntentCommand("combat.resolveRegeneration", resolveRegenerationOutcome)) {
+      throw new Error("UESRPG | Regeneration resolution command registration failed.");
+    }
+    _regenerationAuthorityRegistered = true;
+  }
   try {
     const SELECTOR = [
+      "[data-ues-chat-outcome]",
       ".apply-damage-btn",
       ".apply-healing-btn",
       "[data-ues-opposed-action]",
@@ -416,37 +422,49 @@ export function registerCombatChatClickHandler() {
         chatLog.dataset.uesrpgDelegatedClick = "1";
       },
       resolveMessageFromButton: (btn) => {
-        const li = btn.closest("li.chat-message, .chat-message, .message, [data-message-id]");
-        const messageId = getMessageIdFromContextLi(li);
-        return messageId ? game.messages?.get?.(messageId) : null;
+        // Core's enclosing message is authoritative; an inner card can still
+        // contain the empty id from its initial creation or a stale stored id.
+        const enclosing = btn.closest("li.chat-message, .chat-message, .message[data-message-id]");
+        const messageId = getMessageIdFromContextLi(enclosing)
+          ?? getMessageIdFromContextLi(btn.closest("[data-message-id]"));
+        const message = messageId ? game.messages?.get?.(messageId) : null;
+        if (!message) {
+          console.error("UESRPG | Chat action could not resolve its message", { messageId });
+          ui.notifications?.warn?.("Could not find this chat message. Reopen chat and try again.");
+        }
+        return message;
       },
       dispatch: async (delegatedEv, btn, message) => {
         try {
-          if (isApplyDamageButton(btn)) return onApplyDamage(delegatedEv, message);
-          if (isApplyHealingButton(btn)) return onApplyHealing(delegatedEv, message);
-          if (btn.hasAttribute("data-ues-opposed-action")) return onOpposedAction(delegatedEv, message);
-          if (btn.hasAttribute("data-ues-skill-opposed-action")) return onSkillOpposedAction(delegatedEv, message);
-          if (btn.hasAttribute("data-ues-char-opposed-action")) return onCharOpposedAction(delegatedEv, message);
+          if (btn.hasAttribute("data-ues-chat-outcome")) {
+            delegatedEv.preventDefault();
+            return await ChatOutcomeApplicationService.apply(message, { outcomeId: btn.dataset.uesChatOutcome });
+          }
+          if (isApplyDamageButton(btn)) return await _guardedApplyDamage(delegatedEv, message);
+          if (isApplyHealingButton(btn)) return await _guardedApplyHealing(delegatedEv, message);
+          if (btn.hasAttribute("data-ues-opposed-action")) return await onOpposedAction(delegatedEv, message);
+          if (btn.hasAttribute("data-ues-skill-opposed-action")) return await onSkillOpposedAction(delegatedEv, message);
+          if (btn.hasAttribute("data-ues-char-opposed-action")) return await onCharOpposedAction(delegatedEv, message);
           if (btn.hasAttribute("data-ues-magic-opposed-action")) {
             delegatedEv.stopImmediatePropagation?.();
-            return onMagicOpposedAction(delegatedEv, message);
+            return await onMagicOpposedAction(delegatedEv, message);
           }
-          if (btn.hasAttribute("data-ues-shock-action")) return _onShockAction(delegatedEv, message);
-          if (btn.hasAttribute("data-ues-death-action")) return _onDeathAction(delegatedEv, message);
-          if (btn.hasAttribute("data-ues-disease-action")) return _onDiseaseAction(delegatedEv, message);
-          if (btn.hasAttribute("data-ues-regeneration-action")) return _onRegenerationAction(delegatedEv, message);
-          if (btn.hasAttribute("data-ues-upkeep-action")) return _onUpkeepAction(delegatedEv, message);
-          if (btn.hasAttribute("data-ues-alchemy-poison-action")) return _onAlchemyPoisonAction(delegatedEv, message);
-          if (btn.hasAttribute("data-ues-alchemy-toxin-action")) return _onAlchemyToxinAction(delegatedEv, message);
+          if (btn.hasAttribute("data-ues-shock-action")) return await _onShockAction(delegatedEv, message);
+          if (btn.hasAttribute("data-ues-death-action")) return await _onDeathAction(delegatedEv, message);
+          if (btn.hasAttribute("data-ues-disease-action")) return await _onDiseaseAction(delegatedEv, message);
+          if (btn.hasAttribute("data-ues-regeneration-action")) return await _onRegenerationAction(delegatedEv, message);
+          if (btn.hasAttribute("data-ues-upkeep-action")) return await _onUpkeepAction(delegatedEv, message);
+          if (btn.hasAttribute("data-ues-alchemy-poison-action")) return await _onAlchemyPoisonAction(delegatedEv, message);
+          if (btn.hasAttribute("data-ues-alchemy-toxin-action")) return await _onAlchemyToxinAction(delegatedEv, message);
           if (btn.matches("[data-action='alchemyRoll'], [data-action='alchemyDrink'], [data-action='alchemyApplyToWeapon'], [data-action='alchemyApplyToTarget']")) {
-            return _onAlchemyAction(delegatedEv, message);
+            return await _onAlchemyAction(delegatedEv, message);
           }
-          if (btn.matches("[data-action='enchantingRoll']")) return _onEnchantingAction(delegatedEv, message);
+          if (btn.matches("[data-action='enchantingRoll']")) return await _onEnchantingAction(delegatedEv, message);
           if (btn.hasAttribute("data-ues-special-action")) {
             delegatedEv.preventDefault?.();
             const action = btn.dataset.uesSpecialAction;
             const { handleSpecialActionCardAction } = await import("../special-actions-helper.js");
-            return handleSpecialActionCardAction(message, action);
+            return await handleSpecialActionCardAction(message, action);
           }
           if (btn.hasAttribute("data-ues-action-card-toggle")) {
             delegatedEv.preventDefault?.();
@@ -463,6 +481,7 @@ export function registerCombatChatClickHandler() {
           }
         } catch (err) {
           console.error("UESRPG | Delegated chat handler failed", err);
+          ui.notifications?.error?.("Chat action failed. Check the console for details before retrying.");
         }
       },
     });

@@ -27,6 +27,6 @@ export const AdvanceCampaignTurnService = {
         consumesAction: false,
       }));
       return next;
-    });
+    }, { strict: true });
   },
 };

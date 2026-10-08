@@ -43,6 +43,79 @@ function _buildCastEnchantmentChargeDisplay(item, slot) {
   return `${value}/${max}`;
 }
 
+function _prepareItemPresentation(sheetData) {
+  const actorDoc = sheetData?.document ?? null;
+  const religionEnabled = isReligionWorshipEnabled();
+  for (const item of sheetData.items ?? []) {
+    item.img = item.img || CONST.DEFAULT_TOKEN;
+    item.system = item.system ?? {};
+    const liveItem = actorDoc?.items?.get?.(item._id ?? item.id) ?? item;
+    const castSlots = getCastEnchantmentSlots(liveItem);
+    const castableSlots = castSlots.filter((slot) =>
+      Boolean(resolveStoredEnchantmentSpellSync(liveItem, slot) || slot?.snapshot)
+      && canAffordCastEnchantmentSlot(liveItem, slot)
+    );
+    item.system.uiHasCastEnchantment = castSlots.length > 0;
+    item.system.uiCanCastEnchantment = castableSlots.length > 0;
+    item.system.uiCastEnchantmentCharge = castSlots.length
+      ? _buildCastEnchantmentChargeDisplay(liveItem, castSlots[0]) : "";
+    if (item.type === "weapon") item.system.resolvedDistanceDisplay = _resolveWeaponDistanceDisplay(item.system);
+    if (item.type === "spell" && religionEnabled && isDomainSpellItem(item)) {
+      item.system.domainSpell = true;
+      item.system.domainKey = item.flags?.["uesrpg-3ev4"]?.religion?.domainKey ?? "";
+    }
+    if (item.type === "skill") {
+      item._isProfession = Boolean(item.system?.isProfession);
+      item._professionField = item.system?.field ?? "";
+    }
+  }
+}
+
+function _prepareWeaponAmmoPresentation(sheetData) {
+  const weapon = sheetData.actor.weapon;
+  for (const weaponItem of [...weapon.equipped, ...weapon.unequipped]) {
+    if (!getWeaponCombatCapabilities(weaponItem).usesAmmo) continue;
+    const ammoSource = sheetData?.document ?? sheetData?.actorDocument ?? { items: sheetData.items ?? [] };
+    const ammoControl = buildWeaponAmmoControlState(ammoSource, weaponItem);
+    weaponItem.system.inlineAmmoLabel = ammoControl.currentAmmoLabel;
+    weaponItem.system.inlineAmmoOptions = ammoControl.options;
+  }
+}
+
+// The cache contains category order and Item identities, never prepared Item data.
+function _captureItemGrouping(value) {
+  if (Array.isArray(value)) return value.map(_captureItemGrouping);
+  const id = value?._id ?? value?.id;
+  if (id) return String(id);
+  if (!value || typeof value !== "object" || value.system) return null;
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, _captureItemGrouping(entry)]));
+}
+
+/** Restore grouping against fresh sheet views, then recompute presentation from current documents. */
+export function restoreCharacterItemGrouping(sheetData, grouping, options = {}) {
+  if (!Array.isArray(grouping?.itemIds) || !grouping.groups) return false;
+  const itemById = new Map((sheetData.items ?? []).map(item => [String(item._id ?? item.id), item]));
+  if (itemById.size !== grouping.itemIds.length || grouping.itemIds.some(id => !itemById.has(id))) return false;
+  let missing = false;
+  const restore = (value) => {
+    if (value === null) { missing = true; return null; }
+    if (typeof value === "string") {
+      const item = itemById.get(value);
+      if (!item) missing = true;
+      return item;
+    }
+    if (Array.isArray(value)) return value.map(restore);
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, restore(entry)]));
+  };
+  const { spellsBySchool, ...groups } = restore(grouping.groups);
+  if (missing) return false;
+  Object.assign(sheetData.actor, groups);
+  sheetData.actor.ui = { ...(sheetData.actor.ui ?? {}), spellsBySchool };
+  _prepareItemPresentation(sheetData);
+  _prepareCharacterGroupedPresentation(sheetData, options);
+  return true;
+}
+
 /**
  * Categorize Actor-owned Items into sheet-ready buckets.
  *
@@ -118,24 +191,10 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
   const skill = includeSkills ? [] : null;
   const magicSkill = includeMagicSkills ? [] : null;
 
+  _prepareItemPresentation(sheetData);
 
   // Iterate through items, allocating to containers
   for (const i of sheetData.items ?? []) {
-    // Ensure rendering has an image fallback (safe: sheet-only object)
-    i.img = i.img || CONST.DEFAULT_TOKEN;
-    i.system = i.system ?? {};
-    const liveItem = actorDoc?.items?.get?.(i._id ?? i.id) ?? i;
-    const castSlots = getCastEnchantmentSlots(liveItem);
-    const castableSlots = castSlots.filter((slot) =>
-      Boolean(resolveStoredEnchantmentSpellSync(liveItem, slot) || slot?.snapshot)
-      && canAffordCastEnchantmentSlot(liveItem, slot)
-    );
-    i.system.uiHasCastEnchantment = castSlots.length > 0;
-    i.system.uiCanCastEnchantment = castableSlots.length > 0;
-    i.system.uiCastEnchantmentCharge = castSlots.length
-      ? _buildCastEnchantmentChargeDisplay(liveItem, castSlots[0])
-      : "";
-
     // If an item is inside a container, hide it from the main inventory lists.
     // Contained items remain owned by the Actor and are surfaced through the container sheet UI.
     if (shouldHideFromMainInventory(i, { actor: actorDoc, items: sheetData.items ?? [] })) {
@@ -160,7 +219,6 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
     if (i.type === "equipment" || i.type === "item" || i.type === "scroll") {
       i.system?.equipped ? gear.equipped.push(i) : gear.unequipped.push(i);
     } else if (i.type === "weapon") {
-      i.system.resolvedDistanceDisplay = _resolveWeaponDistanceDisplay(i.system);
       i.system?.equipped ? weapon.equipped.push(i) : weapon.unequipped.push(i);
     } else if (i.type === "armor") {
       if (isShieldItem(i, { allowLegacy: true })) {
@@ -179,17 +237,11 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
     } else if (i.type === "combatStyle") {
       combatStyle.push(i);
     } else if (i.type === "spell") {
-      if (religionEnabled && isDomainSpellItem(i)) {
-        i.system.domainSpell = true;
-        i.system.domainKey = i.flags?.["uesrpg-3ev4"]?.religion?.domainKey ?? "";
-      }
       spell.push(i);
     } else if (includeSkills && i.type === "skill") {
       // Annotate profession metadata (non-persistent, sheet-only).
       // Only the explicit system.isProfession flag governs profession classification;
       // bracket notation in the name must not affect skill visibility.
-      i._isProfession = Boolean(i.system?.isProfession);
-      i._professionField = i.system?.field ?? "";
       skill.push(i);
     } else if (i.type === "magicSkill") {
       if (religionEnabled && isRitualDomainItem(i)) {
@@ -266,14 +318,6 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
     }
   }
 
-  for (const weaponItem of [...weapon.equipped, ...weapon.unequipped]) {
-    if (!getWeaponCombatCapabilities(weaponItem).usesAmmo) continue;
-    const ammoSource = sheetData?.document ?? sheetData?.actorDocument ?? { items: sheetData.items ?? [] };
-    const ammoControl = buildWeaponAmmoControlState(ammoSource, weaponItem);
-    weaponItem.system.inlineAmmoLabel = ammoControl.currentAmmoLabel;
-    weaponItem.system.inlineAmmoOptions = ammoControl.options;
-  }
-
   // Group spells by school
   for (const s of spell) {
     const school = String(s?.system?.school ?? "").toLowerCase().trim() || "unknown";
@@ -293,6 +337,30 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
       return 0;
     });
   }
+
+  const groups = {
+    gear, weapon, armor, shield, power, trait, talent, combatStyle, spell,
+    ammunition, container, ritualDomain: ritualDomain ?? [], invocation: invocation ?? [],
+    ...(includeSkills ? { skill: skill.filter(i => !i._isProfession), professionSkill: skill.filter(i => i._isProfession) } : {}),
+    ...(includeMagicSkills ? { magicSkill } : {}),
+  };
+  Object.assign(actorData, groups);
+  actorData.ui = { ...(actorData.ui ?? {}), spellsBySchool };
+  const grouping = {
+    itemIds: (sheetData.items ?? []).map(item => String(item._id ?? item.id)),
+    groups: _captureItemGrouping({ ...groups, spellsBySchool }),
+  };
+  _prepareCharacterGroupedPresentation(sheetData, { includeMagicSkills });
+  return grouping;
+}
+
+function _prepareCharacterGroupedPresentation(sheetData, { includeMagicSkills = false } = {}) {
+  const actorData = sheetData.actor;
+  const actorDoc = sheetData?.document ?? null;
+  const religionEnabled = isReligionWorshipEnabled();
+  const { magicSkill, ritualDomain, invocation, trait } = actorData;
+  const spellsBySchool = actorData.ui.spellsBySchool;
+  _prepareWeaponAmmoPresentation(sheetData);
 
   // Convert spellsBySchool object to array for proper Handlebars iteration
   const isNpc = actorData?.type === "NPC";
@@ -324,29 +392,8 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
     }
   }
 
-  // Assign
-  actorData.gear = gear;
-  actorData.weapon = weapon;
-  actorData.armor = armor;
-  actorData.shield = shield;
-  actorData.power = power;
-  actorData.trait = trait;
-  actorData.talent = talent;
-  actorData.combatStyle = combatStyle;
-  actorData.spell = spell;
-  // Store spellsBySchool in ui namespace to avoid conflicts with Foundry's mergeObject
-  actorData.ui = actorData.ui || {};
-  actorData.ui.spellsBySchool = spellsBySchool;
   actorData.ui.traitStackingById = _buildTraitStackingInfo(trait);
   actorData.spellSchools = spellSchools; // Array format for template iteration
-  actorData.ammunition = ammunition;
-  actorData.container = container;
-
-  if (includeSkills) {
-    actorData.skill = skill.filter(i => !i._isProfession);
-    actorData.professionSkill = skill.filter(i => i._isProfession);
-  }
-  if (includeMagicSkills) actorData.magicSkill = magicSkill;
 
   if (religionEnabled) {
     const worshipData = getWorshipSystemData(actorDoc ?? actorData);

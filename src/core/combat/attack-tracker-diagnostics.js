@@ -146,6 +146,7 @@ export function createAttackTraceId(prefix = "attack") {
 }
 
 export function recordAttackTrackerDiagnostic(entry = {}) {
+  if (!isDebugEnabled("effectsProxyDebug")) return null;
   const normalized = {
     timestamp: Date.now(),
     eventType: _normalizeString(entry?.eventType) ?? "attack-tracker",
@@ -191,11 +192,7 @@ export function recordAttackTrackerDiagnostic(entry = {}) {
 
   _recentEvents.unshift(normalized);
   if (_recentEvents.length > MAX_RECENT_EVENTS) _recentEvents.length = MAX_RECENT_EVENTS;
-  _consoleLog("event", normalized);
-  _consoleLog("row", _buildConsoleRow(normalized));
-  if (_hasActorMismatch(normalized)) {
-    _consoleLog("mismatch", _buildConsoleRow(normalized));
-  }
+  _consoleLog(_hasActorMismatch(normalized) ? "mismatch" : "event", _buildConsoleRow(normalized));
   return normalized;
 }
 

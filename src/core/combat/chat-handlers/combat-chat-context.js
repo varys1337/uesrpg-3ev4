@@ -10,11 +10,15 @@ import { getMessageIdFromContextLi } from "../../../utils/chat/contextmenu.js";
 import { t } from "../../../utils/i18n.js";
 
 const CHAT_CONTEXT_ACTION_CLASS = "uesrpg-chat-context-action";
+const CHAT_CONTEXT_SCOPE_CLASS = "uesrpg-chat-context-scope";
+const CHAT_CONTEXT_MENU_CLASS = "uesrpg-chat-context-menu";
+const CHAT_CONTEXT_VIEWPORT_MARGIN = 8;
 const CHAT_ROLL_CONTEXT_SOURCE = "Chat Roll";
 
 let _chatContextHandlersRegistered = false;
 let _ctxMenuDebugHelperRegistered = false;
 let _uesrpgChatLogClass = null;
+let _uesrpgChatContextMenuClass = null;
 
 function _ctxMenuDebugEnabled() {
   const runtimeToggle = Boolean(globalThis?.__UESRPG_CTX_MENU_DEBUG__ === true);
@@ -203,10 +207,133 @@ export function buildUESRPGChatContextOptions(baseOptions = []) {
   return options;
 }
 
+function _isChatContextTarget(target) {
+  if (target?.nodeType !== 1) return false;
+  const message = target.closest(".chat-message[data-message-id], .message[data-message-id]");
+  return Boolean(message?.closest(`.${CHAT_CONTEXT_SCOPE_CLASS}`));
+}
+
+function _markChatContextMenu(menu, target) {
+  menu?.classList?.toggle(CHAT_CONTEXT_MENU_CLASS, _isChatContextTarget(target));
+}
+
+function _prepareChatContextEntries(menu) {
+  for (const entry of menu.querySelectorAll("li.context-item")) {
+    if (!entry.hasAttribute("tabindex")) entry.tabIndex = 0;
+  }
+}
+
+/** Extend the configured helper once; non-chat menus retain the parent behavior. */
+function _registerChatContextMenuClass() {
+  if (_uesrpgChatContextMenuClass && CONFIG?.ux?.ContextMenu === _uesrpgChatContextMenuClass) return;
+
+  const BaseContextMenu = foundry?.applications?.ux?.ContextMenu?.implementation ?? CONFIG?.ux?.ContextMenu;
+  if (typeof BaseContextMenu !== "function") {
+    throw new Error("UESRPG | CONFIG.ux.ContextMenu does not provide a ContextMenu class");
+  }
+
+  class UESRPGChatContextMenu extends BaseContextMenu {
+    async render(target, options = {}) {
+      if (!_isChatContextTarget(target)) return super.render(target, options);
+      // A cold first opening must be measured with the same font as later openings.
+      const ownerDocument = target.ownerDocument;
+      const bodyStyle = ownerDocument.defaultView?.getComputedStyle(ownerDocument.body);
+      const fontFamily = bodyStyle?.getPropertyValue("--uesrpg-font-family").trim() || "Cyrodiil";
+      const iconFamily = bodyStyle?.getPropertyValue("--fa-family-classic").trim();
+      const font = `13px ${fontFamily}`;
+      try {
+        if (ownerDocument.fonts) {
+          const loads = [ownerDocument.fonts.load(font)];
+          // Font Awesome's icon range excludes the default space used by FontFaceSet.load.
+          if (iconFamily) loads.push(ownerDocument.fonts.load(`900 12px ${iconFamily}`, "\uf007"));
+          await Promise.all(loads);
+          await ownerDocument.fonts.ready;
+        }
+      } catch (_error) {
+        // Failed fonts retain the stylesheet's fallback; opening remains usable.
+      }
+      return super.render(target, { ...options, animate: false });
+    }
+
+    close(options = {}) {
+      const isChatMenu = this.element?.classList?.contains(CHAT_CONTEXT_MENU_CLASS);
+      return super.close(isChatMenu ? { ...options, animate: false } : options);
+    }
+
+    async _preRenderEntries(options = {}) {
+      _markChatContextMenu(this.element, this.target ?? options.event?.target);
+      return super._preRenderEntries(options);
+    }
+
+    async _onRenderEntries(menu, options = {}) {
+      await super._onRenderEntries(menu, options);
+      if (!this.element?.classList?.contains(CHAT_CONTEXT_MENU_CLASS)) return;
+      _prepareChatContextEntries(menu);
+    }
+
+    activateListeners(menu, options = {}) {
+      super.activateListeners(menu, options);
+      if (!menu.classList.contains(CHAT_CONTEXT_MENU_CLASS)) return;
+      _prepareChatContextEntries(menu);
+      menu.addEventListener("keydown", (event) => {
+        if (event.defaultPrevented || event.isComposing) return;
+        const entry = event.target?.closest?.("li.context-item");
+        if (!entry || !menu.contains(entry)) return;
+        const entries = [...menu.querySelectorAll("li.context-item")].filter((item) => (
+          item.checkVisibility() && item.getAttribute("aria-disabled") !== "true"
+        ));
+        const index = entries.indexOf(entry);
+        if (index < 0 || !["ArrowUp", "ArrowDown", "Home", "End", "Enter", " ", "Escape"].includes(event.key)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.key === "Escape") {
+          void this.close();
+        } else if (event.key === "Enter" || event.key === " ") {
+          if (!event.repeat) entry.click();
+        } else {
+          const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? entries.length - 1
+            : (index + (event.key === "ArrowUp" ? -1 : 1) + entries.length) % entries.length;
+          entries[nextIndex]?.focus();
+        }
+      });
+    }
+
+    _setPosition(menu, target, options = {}) {
+      // Stamp the root before the parent injects and measures it, including public render calls.
+      _markChatContextMenu(menu, target);
+      return super._setPosition(menu, target, options);
+    }
+
+    _setFixedPosition(menu, target, options = {}) {
+      _markChatContextMenu(menu, target);
+      const result = super._setFixedPosition(menu, target, options);
+      if (!_isChatContextTarget(target) || !menu.isConnected) return result;
+
+      // Retain the parent's direction and anchor, with a small viewport inset for the frame.
+      const { clientWidth, clientHeight } = menu.ownerDocument.documentElement;
+      const { left, width } = menu.getBoundingClientRect();
+      const margin = CHAT_CONTEXT_VIEWPORT_MARGIN;
+      menu.style.left = `${Math.max(margin, Math.min(left, clientWidth - width - margin))}px`;
+      const edge = this.expandUp ? "bottom" : "top";
+      const anchor = Number.parseFloat(menu.style[edge]);
+      if (Number.isFinite(anchor)) {
+        const inset = Math.max(margin, Math.min(anchor, clientHeight - margin));
+        menu.style[edge] = `${inset}px`;
+        menu.style.maxHeight = `${Math.max(0, clientHeight - inset - margin)}px`;
+      }
+      return result;
+    }
+  }
+
+  _uesrpgChatContextMenuClass = UESRPGChatContextMenu;
+  CONFIG.ux.ContextMenu = UESRPGChatContextMenu;
+}
+
 /**
  * Install the system ChatLog subclass through Foundry's documented CONFIG.ui extension point.
  */
 export function registerUESRPGChatLogClass() {
+  _registerChatContextMenuClass();
   if (_uesrpgChatLogClass && CONFIG?.ui?.chat === _uesrpgChatLogClass) return _uesrpgChatLogClass;
 
   const BaseChatLog = CONFIG?.ui?.chat ?? foundry?.applications?.sidebar?.tabs?.ChatLog;
@@ -215,6 +342,11 @@ export function registerUESRPGChatLogClass() {
   }
 
   class UESRPGChatLog extends BaseChatLog {
+    _attachLogListeners(element, options) {
+      element?.classList?.add(CHAT_CONTEXT_SCOPE_CLASS);
+      return super._attachLogListeners(element, options);
+    }
+
     _getEntryContextOptions() {
       return buildUESRPGChatContextOptions(super._getEntryContextOptions());
     }

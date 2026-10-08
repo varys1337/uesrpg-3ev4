@@ -88,6 +88,22 @@ export async function handleDefenderRoll(ctx, action) {
     selectedCharacteristicKey: defaultCharacteristic
   });
 
+  const computeDeclaredTN = (declaration) => {
+    const decl = { ...declaration, ...normalizeSkillRollOptions(declaration, defaults) };
+    return resolveSelectionAndComputeTN({
+      side: "defender",
+      actor: defender,
+      opponentActor: attacker,
+      decl,
+      defaultCharacteristic,
+      data,
+      resMods: buildResistanceBonusMods(decl?.resistanceSelected ?? []),
+      includeInvisibleTrackingPenalty: false,
+      includeHistskin: true,
+      includeResModsForCombatStyle: false
+    });
+  };
+
   let decl = null;
   const quick = _isQuickShiftRequested(event);
 
@@ -101,6 +117,11 @@ export async function handleDefenderRoll(ctx, action) {
       // Always show skill selection dropdown (removed pre-choice dialog dependency)
       decl = await _skillRollDialog({
         title: "Oppose - Choose Skill",
+        resolveEstimate: (declaration) => {
+          if (!_isSpecialActionSelectionLegal(declaration, specialLegality)) return { reason: "Select a legal test for this Special Action." };
+          const computed = computeDeclaredTN(declaration);
+          return { result: computed.tn, label: computed.skillLabel, reason: computed.error ? "Select an available test." : null };
+        },
         actor: defender,
         showSkillSelect: true,
         skills,
@@ -141,19 +162,7 @@ export async function handleDefenderRoll(ctx, action) {
     return;
   }
 
-  const resMods = buildResistanceBonusMods(decl?.resistanceSelected ?? []);
-  const computed = resolveSelectionAndComputeTN({
-    side: "defender",
-    actor: defender,
-    opponentActor: attacker,
-    decl,
-    defaultCharacteristic,
-    data,
-    resMods,
-    includeInvisibleTrackingPenalty: false,
-    includeHistskin: true,
-    includeResModsForCombatStyle: false
-  });
+  const computed = computeDeclaredTN(decl);
   if (computed.error) {
     ui.notifications.warn("Selected defender skill or combat style could not be found.");
     return;
@@ -228,7 +237,7 @@ export async function handleDefenderRoll(ctx, action) {
 
   skillRollDebug("opposed defender result", { rollTotal: res.rollTotal, target: res.target, isSuccess: res.isSuccess, degree: res.degree, critS: res.isCriticalSuccess, critF: res.isCriticalFailure });
 
-  _emitSuppressedSubRollDice(res.roll, { rollMode });
+  _emitSuppressedSubRollDice(res.roll, { rollMode, actor: defender, message, user: game.user });
 
   if (defSkill) {
     await consumePhysicalExertionForSkill(defender, defSkill, {

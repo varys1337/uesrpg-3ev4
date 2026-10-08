@@ -5,7 +5,7 @@ import { escapeHtml as _escapeHtml } from '../../../../utils/html.js';
  * Extracted from opposed-workflow.js for maintainability.
  */
 
-import { formatResultSummary } from "../../../../utils/degree-roll-helper.js";
+import { renderOpposedOutcome, renderResultSummary, renderRollSummary, renderTargetNumberLine, renderCommitWaitingStatus } from "../../../opposed/shared/card-rendering.js";
 import { maybeT, t, tf } from "../../../../utils/i18n.js";
 import { localizeHitLocation } from "../../combat-utils.js";
 import { systemTooltipAttributes } from "../../../../ui/shared/system-tooltips.js";
@@ -18,9 +18,7 @@ import { systemTooltipAttributes } from "../../../../ui/shared/system-tooltips.j
  */
 export function _fmtDegree(res) {
   if (!res) return "-";
-  const cls = res.isSuccess ? "is-success" : "is-failure";
-  const text = formatResultSummary(res, { includeDegree: true, degreeStyle: "paren" });
-  return `<span class="uesrpg-chat-result ${cls}">${text}</span>`;
+  return renderResultSummary(res);
 }
 
 /**
@@ -108,16 +106,7 @@ export function _renderBreakdown(tnObj, { inline = false } = {}) {
  * @returns {string}
  */
 export function _renderTNLine({ value = "??", tnObj = null } = {}) {
-  const rows = _buildBreakdownRows(tnObj);
-  if (!rows) return `<div class="uesrpg-opposed-stat"><b>${t("UESRPG.Chat.Common.TN", "TN")}:</b> ${value}</div>`;
-  return `
-    <details class="uesrpg-chat-details uesrpg-chat-details--tn">
-      <summary>
-        <b>${t("UESRPG.Chat.Common.TN", "TN")}:</b> ${value}
-      </summary>
-      <div class="uesrpg-chat-details__body">${rows}</div>
-    </details>
-  `;
+  return renderTargetNumberLine(value, _buildBreakdownRows(tnObj));
 }
 
 /**
@@ -132,7 +121,7 @@ export function _renderRollLine({ result = null, noDefense = false } = {}) {
   if (noDefense) {
     // Keep output consistent with normal failures: represent No Defense as a deterministic 1 DoF failure.
     const stub = { rollTotal: 100, isSuccess: false, degree: 1 };
-    return `<div class="uesrpg-opposed-stat"><b>${t("UESRPG.Chat.Common.Roll", "Roll")}:</b> 100 - ${_fmtDegree(stub)}</div>`;
+    return renderRollSummary(100, stub);
   }
   if (!result) return "";
   const total = _extractRollTotal(result);
@@ -141,7 +130,7 @@ export function _renderRollLine({ result = null, noDefense = false } = {}) {
   const notesHtml = notes.length
     ? `<div class="uesrpg-opposed-notes">${notes.map(n => `<div>${n}</div>`).join("")}</div>`
     : "";
-  return `<div class="uesrpg-opposed-stat"><b>${t("UESRPG.Chat.Common.Roll", "Roll")}:</b> ${totalText} - ${_fmtDegree(result)}</div>${notesHtml}`;
+  return renderRollSummary(totalText, result) + notesHtml;
 }
 
 /**
@@ -219,8 +208,7 @@ export function _buildAttackerActions({ attacker, bankMode, aCommitted, data, _s
     if (isAutoRolling) return "";
     if (!aCommitted) {
       if (commitGate?.allowed === false) {
-        const reason = String(commitGate?.reason ?? "Unavailable");
-      return `<div class="uesrpg-chat-status-note"><i>${tf("UESRPG.Chat.Opposed.AttackUnavailable", { reason }, `Attack unavailable: ${reason}`)}</i></div>`;
+        return "";
       }
       return `<div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">${_btn(t("UESRPG.Chat.Opposed.Attack", "Attack"), "attacker-commit")}</div>`;
     }
@@ -248,12 +236,11 @@ export function _buildDefenderActions({ defender, bankMode, dCommitted, idx, dat
   if (bankMode) {
     if (isAutoRolling) return "";
     if (!dCommitted) {
+      if (commitDefenseGate?.insufficientAP) return "";
       if (commitDefenseGate?.allowed === false) {
-        const reason = String(commitDefenseGate?.reason ?? "Unavailable");
         return `
         <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">
           ${_btn(t("UESRPG.Chat.Opposed.NoDefense", "No Defense"), "defender-commit-nodefense", { "defender-index": idx })}
-          <div class="uesrpg-chat-status-note"><i>${tf("UESRPG.Chat.Opposed.DefenseUnavailable", { reason }, `Defense unavailable: ${reason}`)}</i></div>
         </div>`;
       }
       return `
@@ -298,22 +285,15 @@ export function _buildDefenderActions({ defender, bankMode, dCommitted, idx, dat
  */
 export function _buildOutcomeLine({ outcome, bankMode, bothCommitted, allDefendersCommitted, aCommitted, anyGMOnline, data, isMulti }) {
   if (outcome) {
-    return `<div class="uesrpg-chat-outcome"><b>${t("UESRPG.Chat.Common.Outcome", "Outcome")}:</b> ${outcome.text ?? ""}</div>`;
+    return renderOpposedOutcome(outcome.text);
   }
 
   if (bankMode) {
-    if (isMulti) {
-      if (!allDefendersCommitted) {
-        if (!aCommitted) {
-          return `<div class="uesrpg-chat-status-note"><i>${t("UESRPG.Chat.Opposed.WaitingAttackerCommit", "Waiting for attacker to commit choice.")}</i></div>`;
-        }
-        return `<div class="uesrpg-chat-status-note"><i>${t("UESRPG.Chat.Opposed.WaitingDefendersCommit", "Waiting for all defenders to commit choices.")}</i></div>`;
-      }
-      return `<div class="uesrpg-chat-status-note"><i>${t("UESRPG.Chat.Opposed.Rolling", "Rolling.")}</i></div>`;
-    }
-
-    if (!bothCommitted) {
-      return `<div class="uesrpg-chat-status-note"><i>${t("UESRPG.Chat.Opposed.WaitingBothCommit", "Waiting for both sides to commit choices...")}</i></div>`;
+    if (!bothCommitted || (isMulti && (!aCommitted || !allDefendersCommitted))) {
+      return renderCommitWaitingStatus({
+        attackerCommitted: aCommitted,
+        defendersCommitted: isMulti ? allDefendersCommitted : Boolean(data?.defender?.banked?.committed || data?.defender?.noDefense || data?.defender?.result)
+      });
     }
 
     return `<div class="uesrpg-chat-status-note"><i>${t("UESRPG.Chat.Opposed.RollingEllipsis", "Rolling...")}</i></div>`;
@@ -471,6 +451,49 @@ export function _buildResolvedActions({ outcome, defender, advantage, resolution
   return "";
 }
 
+/** Render public spell calculations from saved outcome data, never from an Item. */
+function _buildSpellPanelDetails(damageData, metadataHtml, componentsHtml, total, damageLabel) {
+  const payload = damageData._magicPayload ?? {};
+  const context = payload.castContext ?? {};
+  const rows = [];
+  const addRow = (label, value) => {
+    if (value == null || String(value).trim() === "") return;
+    rows.push(`<div class="uesrpg-chat-kv-row"><span>${_escapeHtml(label)}</span><span>${_escapeHtml(String(value))}</span></div>`);
+  };
+  const rollTotals = (rolls) => (Array.isArray(rolls) ? rolls : [])
+    .map((roll) => roll?.total)
+    .filter((value) => value != null && Number.isFinite(Number(value)))
+    .join(" / ");
+  addRow(t("UESRPG.Chat.DamagePanel.StrengthFormula", "Spell Strength formula"), context.spellStrengthFormula);
+  addRow(t("UESRPG.Chat.DamagePanel.StrengthRolls", "Spell Strength rolls"), rollTotals(context.spellStrengthRolls));
+  if (payload.isOvercharged) {
+    const totals = (Array.isArray(payload.overchargeTotals) ? payload.overchargeTotals : [])
+      .filter((value) => value != null && Number.isFinite(Number(value))).join(" / ");
+    addRow(t("UESRPG.Chat.DamagePanel.OverchargeRolls", "Overcharge rolls"), totals);
+    addRow(t("UESRPG.Chat.DamagePanel.SelectedStrengthRolls", "Selected strength rolls"), rollTotals(context.spellStrengthSelectedRolls));
+  }
+  if (payload.overloadBonus) addRow(t("UESRPG.Chat.DamagePanel.OverloadBonus", "Overload bonus"), payload.overloadBonus);
+  if (payload.elementalBonus) addRow(payload.elementalBonusLabel || t("UESRPG.Chat.DamagePanel.ElementalBonus", "Elemental bonus"), payload.elementalBonus);
+  const block = damageData.blockResult;
+  const ward = damageData.wardResult;
+  if (block) {
+    addRow(t("UESRPG.Chat.DamagePanel.BlockRating", "Block rating"), block.blockRating);
+    if (block.isAoE) addRow(t("UESRPG.Chat.DamagePanel.AfterBlock", "After block"), block.reducedDamage);
+  }
+  if (ward) {
+    addRow(t("UESRPG.Chat.DamagePanel.WardRating", "Ward rating"), ward.wardBR);
+    if (ward.isAoE) addRow(t("UESRPG.Chat.DamagePanel.AfterWard", "After ward"), ward.reducedDamage);
+  }
+  if (total !== null && (damageData.mode === "healing" || payload.isDamaging !== false)) {
+    addRow(tf("UESRPG.Chat.DamagePanel.ResultTotal", { label: damageLabel }, `${damageLabel} total`), total);
+  }
+  // This is the existing persisted Roll.render() output, not newly evaluated dice.
+  const rollHtml = String(payload.rollHTML ?? damageData.damageString ?? "").trim();
+  const content = metadataHtml + rows.join("") + componentsHtml
+    + (rollHtml ? `<div class="dmg-roll-html">${rollHtml}</div>` : "");
+  return content ? `<div class="dmg-public-details">${content}</div>` : "";
+}
+
 /**
  * Build inline damage panel for the opposed card.
  * Renders damage results, hit location, quality pills, and Apply button
@@ -479,12 +502,15 @@ export function _buildResolvedActions({ outcome, defender, advantage, resolution
  * @param {Object|null} damageData - Damage state from flags.
  * @returns {string} - HTML string for the damage panel, or empty string.
  */
-export function _buildDamagePanel(damageData) {
+export function _buildDamagePanel(damageData, { showHeader = true, showHitLocation = true } = {}) {
   if (!damageData || damageData.rolled !== true) return "";
 
   const mode = String(damageData.mode ?? "weapon");
   const isHealing = mode === "healing";
   const p = damageData.applyPayload ?? {};
+  const isMagic = Boolean(damageData._magicPayload) || String(p.magic ?? "") === "1" || mode === "magic" || isHealing;
+  const rawTotal = damageData.finalDamage ?? damageData._magicPayload?.damage ?? p.damage;
+  const total = rawTotal != null && rawTotal !== "" && Number.isFinite(Number(rawTotal)) ? Number(rawTotal) : null;
   const gmReportKey = String(damageData?.gmDamageReport?.panelKey ?? "").trim();
 
   // ── Compact header: small icon + name ──
@@ -527,6 +553,7 @@ export function _buildDamagePanel(damageData) {
     ? damageData.panelMetadata.filter((row) => row && typeof row === "object" && row.value != null && String(row.value).trim() !== "")
     : [];
   const damageComponents = Array.isArray(damageData.damageComponents) ? damageData.damageComponents : [];
+  const fallbackType = _localizeDamageType(damageData._magicPayload?.damageType ?? p.damageType ?? "");
   const componentsHtml = damageComponents.length
     ? `<div class="dmg-components">${damageComponents.map((c) => {
       const rawLabel = c?.displayLabel ?? c?.sourceLabel ?? c?.source;
@@ -534,35 +561,43 @@ export function _buildDamagePanel(damageData) {
       const amount = Number(c?.amount ?? 0) || 0;
       const dtype = String(c?.damageType ?? "").trim();
       const dtypeLabel = dtype ? _localizeDamageType(dtype) : "";
-      return `<div class="dmg-component-line"><span class="dmg-component-source">${_escapeHtml(label)}</span><span class="dmg-component-value"><b>${amount}</b>${dtypeLabel ? ` <span class="type-tag">${_escapeHtml(dtypeLabel)}</span>` : ""}</span></div>`;
+      const repeatedSource = damageComponents.length === 1 && label === maybeT(headerLabel, headerLabel);
+      return `<div class="dmg-component-line"><span class="dmg-component-source">${repeatedSource ? `<b>${damageLabel}:</b>` : _escapeHtml(label)}</span><span class="dmg-component-value"><b>${amount}</b>${dtypeLabel ? ` <span class="type-tag">${_escapeHtml(dtypeLabel)}</span>` : ""}</span></div>`;
     }).join("")}</div>`
-    : "";
+    : (isMagic && total !== null && (isHealing || damageData._magicPayload?.isDamaging !== false))
+      ? `<div class="dmg-components"><div class="dmg-component-line"><span class="dmg-component-source"><b>${damageLabel}:</b></span><span class="dmg-component-value"><b>${total}</b>${fallbackType && !isHealing ? ` <span class="type-tag">${_escapeHtml(fallbackType)}</span>` : ""}</span></div></div>`
+      : "";
 
   // ── Combined header row: icon + name + hit location on one line ──
   const hitLocationDisplay = localizeHitLocation(damageData.hitLocation, t("UESRPG.Sheets.Item.HitLocation.Body", "Body"));
-  const hdrRowHtml = fullyBlocked
+  const hdrRowHtml = !showHeader ? "" : fullyBlocked
     ? `<div class="dmg-hdr">${headerImg}</div>`
-    : `<div class="dmg-hdr ${headerImg ? "has-icon" : ""}">${headerImg}<div class="dmg-title">${headerLabel}</div><div class="dmg-hitloc"><b>${t("UESRPG.Chat.DamagePanel.HitLocationShort", "Hit Loc.")}</b> ${hitLocationDisplay}</div></div>`;
+    : `<div class="dmg-hdr ${headerImg ? "has-icon" : ""}">${headerImg}<div class="dmg-title">${headerLabel}</div></div>`;
   const pillsHtml = pills ? `<div class="val-pills">${pills}</div>` : "";
   const metadataHtml = metadataRows.length
-    ? `<div class="dmg-meta">${metadataRows.map((row) => `<div><b>${_escapeHtml(maybeT(row.label, t("UESRPG.Chat.DamagePanel.Info", "Info")))}:</b> ${_escapeHtml(maybeT(row.value, row.value ?? ""))}</div>`).join("")}</div>`
+    ? `<div class="dmg-meta">${metadataRows.map((row) => {
+      const label = maybeT(row.label, row.label || t("UESRPG.Chat.DamagePanel.Info", "Info"));
+      return `<div><b>${_escapeHtml(label)}:</b> ${_escapeHtml(maybeT(row.value, row.value ?? ""))}</div>`;
+    }).join("")}</div>`
     : "";
   const damageDisplayHtml = fullyBlocked ? "" : `
     <div class="dmg-kv">
-      ${metadataHtml}
+      ${isMagic ? "" : metadataHtml}
       ${pillsHtml}
-      ${componentsHtml}
+      <div class="dmg-summary">${componentsHtml}${showHitLocation ? `<div class="dmg-hitloc"><b>${t("UESRPG.Chat.DamagePanel.HitLocationShort", "Hit Loc.")}</b> ${hitLocationDisplay}</div>` : ""}</div>
     </div>`;
 
   const gmDetailsAnchor = (gmReportKey || p.targetUuid)
     ? `<div class="dmg-gm-breakdown-anchor" data-ues-gm-damage-report-key="${gmReportKey}" data-ues-gm-damage-target="${String(p.targetUuid ?? "").trim()}"></div>`
     : "";
 
-  const damageDetailsHtml = (!fullyBlocked && gmDetailsAnchor) ? `
+  const publicDetails = isMagic ? _buildSpellPanelDetails(damageData, metadataHtml, damageComponents.length ? componentsHtml : "", total, damageLabel) : "";
+  const damageDetailsHtml = (publicDetails || (!fullyBlocked && gmDetailsAnchor)) ? `
     <details class="dmg-details">
-      <summary class="dmg-details-summary">${t("UESRPG.UI.Details", "Details")}</summary>
+      <summary class="dmg-details-summary">${isMagic ? t("UESRPG.Chat.DamagePanel.Detail", "Detail") : t("UESRPG.UI.Details", "Details")}</summary>
       <div class="dmg-details-content">
-        ${gmDetailsAnchor}
+        ${publicDetails}
+        ${fullyBlocked ? "" : gmDetailsAnchor}
       </div>
     </details>` : "";
   const kvGrid = damageDisplayHtml + damageDetailsHtml;
@@ -590,16 +625,13 @@ export function _buildDamagePanel(damageData) {
       .map(([k, v]) => `data-${_camelToKebab(k)}="${_escapeHtml(v)}"`)
       .join(" ");
     actionSection = `<div class="dmg-action"><button type="button" class="${btnClass}" ${dataAttrs}>${btnLabel}</button></div>`;
-    if (applicationStatus === "pending") {
-      actionSection += `<div role="status">${t("UESRPG.Chat.Common.ApplicationPending", "Applying… If interrupted, use Apply to recover the saved outcome.")}</div>`;
-    }
     if (applicationStatus === "failed") {
       actionSection += `<div role="status">${t("UESRPG.Chat.Common.ApplicationFailed", "Application failed. Review the target before retrying.")}</div>`;
     }
   }
 
   return `
-    <div class="uesrpg-damage-panel">
+    <div class="uesrpg-damage-panel" data-ues-outcome-target="${_escapeHtml(p.targetUuid ?? "")}" data-ues-outcome-id="${_escapeHtml(damageData.application?.id ?? "")}">
       ${hdrRowHtml}
       ${statusBadge}
       ${kvGrid}

@@ -54,9 +54,9 @@ async function promptPreparedInvocations(actor, domainEntry) {
     content: `<div style="display:flex; flex-direction:column; gap:8px;">
       <p style="margin:0;">${tf("UESRPG.Dialogs.Worship.PreparationLimit", { limit: prepLimit })}</p>
       <div style="max-height:420px; overflow:auto;">${rows.map((row) => `
-        <label style="display:flex; gap:8px; align-items:flex-start; padding:4px 0;">
+        <label class="uesrpg-adv-choice uesrpg-choice-bar">
           <input type="checkbox" name="invocationId" value="${foundry.utils.escapeHTML(row.id)}" ${row.prepared ? "checked" : ""} />
-          <span><b>${foundry.utils.escapeHTML(row.label)}</b> (${foundry.utils.escapeHTML(row.groupLabel)}, ${t("UESRPG.Sheets.Magic.Circle")} ${row.circle}, ${row.pietyCost} ${t("UESRPG.UI.PP")})</span>
+          <span class="uesrpg-adv-choice__label"><b>${foundry.utils.escapeHTML(row.label)}</b> (${foundry.utils.escapeHTML(row.groupLabel)}, ${t("UESRPG.Sheets.Magic.Circle")} ${row.circle}, ${row.pietyCost} ${t("UESRPG.UI.PP")})</span>
         </label>
       `).join("")}</div>
     </div>`,
@@ -78,7 +78,7 @@ async function promptPreparedInvocations(actor, domainEntry) {
     ui.notifications?.warn?.(tf("UESRPG.Notifications.Worship.PreparationLimitExceeded", { limit: prepLimit, domain: domainEntry.label }));
     return;
   }
-  await setPreparedInvocations(actor, domainKey, picked);
+  await setPreparedInvocations(actor, domainKey, picked, { strict: true });
 }
 
 export class WorshipManagerAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {

@@ -1,4 +1,5 @@
 import initHandler from "./hooks/init.js";
+import { applyChatComposerPreference } from "./hooks/init/settings/ui.js";
 import { isPerfEnabled, monoMs, perfRecord } from "./utils/perf-tracker.js";
 import { registerWarfareProfiles } from "./hooks/init/register-warfare-profiles.js";
 import { registerSystemRuntimeApi } from "./hooks/init/register-system-runtime-api.js";
@@ -23,20 +24,30 @@ function registerSystemHandlebarsHelpers() {
 Hooks.once("ready", async function () {
   const readyStartedAt = isPerfEnabled() ? monoMs() : 0;
 
-  await runWorldReadyMaintenance();
-  await registerMagicRuntime();
-  registerReadyRuntimeDevApi();
-  registerSystemDeferredTasks();
+  try {
+    await runWorldReadyMaintenance();
+    await registerMagicRuntime();
+    registerReadyRuntimeDevApi();
+    registerSystemDeferredTasks();
 
-  if (isPerfEnabled()) {
-    perfRecord({
-      event: "system.ready",
-      durationMs: monoMs() - readyStartedAt,
+    if (isPerfEnabled()) {
+      perfRecord({
+        event: "system.ready",
+        durationMs: monoMs() - readyStartedAt,
+      });
+    }
+  } catch (error) {
+    Hooks.onError("uesrpg.ready", error, {
+      msg: "UESRPG could not finish system initialization. Check the console for details.",
+      log: "error",
+      notify: "error",
     });
   }
 });
 
 Hooks.once("setup", function() {
+  // Settings are initialized at setup, before the native chat UI is created.
+  applyChatComposerPreference();
   void Promise.all([
     registerWarfareProfiles(),
     registerSystemRuntimeApi(),

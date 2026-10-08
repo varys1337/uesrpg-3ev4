@@ -85,7 +85,8 @@ export function buildActorSheetItemView(item) {
     img: item?.img ?? CONST.DEFAULT_TOKEN,
     type: item?.type ?? "",
     flags: item?.flags ?? {},
-    system: item?.system ?? {},
+    // Presentation annotations and AE skill bonuses must never mutate the Item.
+    system: { ...(item?.system ?? {}) },
   };
 }
 

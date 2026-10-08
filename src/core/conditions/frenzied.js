@@ -1,3 +1,4 @@
+import { renderTNSummary, bindTNEstimates } from "../../ui/shared/tn-presentation.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
 import { buildEffectChange, getEffectChanges, buildEffectChangesData, buildEffectChangesUpdate, getEffectChangeTypeValue, normalizeEffectChanges } from "../../utils/compat.js";
 
@@ -792,7 +793,8 @@ export async function promptWillpowerTest(actor) {
   const result = await customDialog({
     layout: "workflow",
     title: `${actor.name} - End Frenzied`,
-    content: `<p><strong>Willpower Test (-20):</strong> Roll d100 ≤ ${tn} to end Frenzied.</p>`,
+    render: (_event, dialog) => bindTNEstimates(dialog.element, () => ({ finalTN: tn, breakdown: [{ key: "base", label: "Willpower", value: wpTotal }, { label: "Frenzied", value: -20 }] })),
+    content: `${renderTNSummary("Willpower")}<p><strong>Willpower Test (-20):</strong> Roll d100 ≤ ${tn} to end Frenzied.</p>`,
     buttons: {
       roll: {
         label: "Roll",

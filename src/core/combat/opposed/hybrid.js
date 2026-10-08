@@ -1,3 +1,4 @@
+import { renderTNSummary, bindTNEstimates } from "../../../ui/shared/tn-presentation.js";
 import { customDialog } from "../../../utils/dialog-v2-helper.js";
 import { doTestRoll } from "../../../utils/degree-roll-helper.js";
 import { t, tf } from "../../../utils/i18n.js";
@@ -128,7 +129,7 @@ function getDamagingSpellEntries(actor) {
   return [...damagingImplements, ...damagingScrolls];
 }
 
-export async function promptHybridWarfareAttack(actor, { initialAttackFamily = "" } = {}) {
+export async function promptHybridWarfareAttack(actor, { initialAttackFamily = "", joinFray = false } = {}) {
   if (!requireMassCombatEnabled()) return null;
   const canRanged = Boolean(actor?.system?._derived?.canRangedAttack);
   const spellEntries = getDamagingSpellEntries(actor);
@@ -147,11 +148,27 @@ export async function promptHybridWarfareAttack(actor, { initialAttackFamily = "
     return `<option value="${index}">${name} (${source})</option>`;
   }).join("");
 
+  const readDeclaration = (root) => {
+    return {
+      attackFamily: String(root?.querySelector('[name="attackFamily"]')?.value ?? initialAttackFamily ?? "melee"),
+      modifier: Number(root?.querySelector('[name="modifier"]')?.value ?? 0) || 0,
+      longRange: Boolean(root?.querySelector('[name="longRange"]')?.checked),
+      spareAmmo: Boolean(root?.querySelector('[name="spareAmmo"]')?.checked),
+      charged: Boolean(root?.querySelector('[name="charged"]')?.checked),
+      spellIndex: Number(root?.querySelector('[name="spellIndex"]')?.value ?? -1),
+    };
+  };
   return customDialog({
     layout: "workflow",
+    render: (_event, dialog) => bindTNEstimates(dialog.element, () => {
+      const declaration = readDeclaration(dialog.element);
+      if (declaration.attackFamily === "spell" && !spellEntries[declaration.spellIndex]) return { reason: "Select a valid damaging magic source." };
+      return buildHybridWarfareTn(actor, declaration, { joinFray });
+    }),
     title: tf("UESRPG.Dialogs.Opposed.MixedAttackTitle", { actor: actor?.name ?? t("UESRPG.Dialogs.Opposed.Unit", "Unit") }, `${actor?.name ?? "Unit"} - Mixed Attack`),
     content: `
       <div class="warfare-discipline-dialog">
+        ${renderTNSummary("Mixed Attack")}
         <div class="form-group">
           <label>${t("UESRPG.Dialogs.Opposed.AttackFamily", "Attack Family")}</label>
           <select name="attackFamily">${options}</select>
@@ -161,13 +178,13 @@ export async function promptHybridWarfareAttack(actor, { initialAttackFamily = "
           <input type="number" name="modifier" value="0" style="width:90px;">
         </div>
         <div class="form-group">
-          <label><input type="checkbox" name="longRange"> ${t("UESRPG.Dialogs.Opposed.LongRangePenalty", "Long Range (-10 TN)")}</label>
+          <label class="uesrpg-adv-choice uesrpg-choice-bar"><input type="checkbox" name="longRange"><span class="uesrpg-adv-choice__label">${t("UESRPG.Dialogs.Opposed.LongRangePenalty", "Long Range (-10 TN)")}</span></label>
         </div>
         <div class="form-group">
-          <label><input type="checkbox" name="spareAmmo"> ${t("UESRPG.Dialogs.Opposed.SpareAmmunition", "Spare Ammunition (extra die)")}</label>
+          <label class="uesrpg-adv-choice uesrpg-choice-bar"><input type="checkbox" name="spareAmmo"><span class="uesrpg-adv-choice__label">${t("UESRPG.Dialogs.Opposed.SpareAmmunition", "Spare Ammunition (extra die)")}</span></label>
         </div>
         <div class="form-group">
-          <label><input type="checkbox" name="charged" ${chargeActive ? "checked" : ""}> ${t("UESRPG.Dialogs.Opposed.CountAsCharging", "Count as Charging")}</label>
+          <label class="uesrpg-adv-choice uesrpg-choice-bar"><input type="checkbox" name="charged" ${chargeActive ? "checked" : ""}><span class="uesrpg-adv-choice__label">${t("UESRPG.Dialogs.Opposed.CountAsCharging", "Count as Charging")}</span></label>
         </div>
         ${hasSpell ? `
         <div class="form-group">
@@ -179,17 +196,7 @@ export async function promptHybridWarfareAttack(actor, { initialAttackFamily = "
     buttons: {
       attack: {
         label: t("UESRPG.UI.Commit", "Commit"),
-        callback: (html) => {
-          const root = html instanceof HTMLElement ? html : html?.[0];
-          return {
-            attackFamily: String(root?.querySelector('[name="attackFamily"]')?.value ?? initialAttackFamily ?? "melee"),
-            modifier: Number(root?.querySelector('[name="modifier"]')?.value ?? 0) || 0,
-            longRange: Boolean(root?.querySelector('[name="longRange"]')?.checked),
-            spareAmmo: Boolean(root?.querySelector('[name="spareAmmo"]')?.checked),
-            charged: Boolean(root?.querySelector('[name="charged"]')?.checked),
-            spellIndex: Number(root?.querySelector('[name="spellIndex"]')?.value ?? -1),
-          };
-        },
+        callback: (html) => readDeclaration(html instanceof HTMLElement ? html : html?.[0]),
       },
       cancel: { label: t("UESRPG.UI.Cancel", "Cancel") },
     },
@@ -212,14 +219,24 @@ export async function promptHybridWarfareAttack(actor, { initialAttackFamily = "
   });
 }
 
-export async function promptHybridWarfareDefense(actor, attacker) {
+export async function promptHybridWarfareDefense(actor, attacker, { joinFray = false } = {}) {
   if (!requireMassCombatEnabled()) return null;
   const holdActive = hasHoldNextDefend(actor);
+  const readDeclaration = (root) => {
+    return {
+      modifier: Number(root?.querySelector('[name="modifier"]')?.value ?? 0) || 0,
+    };
+  };
   return customDialog({
     layout: "workflow",
+    render: (_event, dialog) => bindTNEstimates(dialog.element, () => {
+      const declaration = readDeclaration(dialog.element);
+      return buildHybridWarfareTn(actor, declaration, { joinFray });
+    }),
     title: tf("UESRPG.Dialogs.Opposed.MixedDefenseTitle", { actor: actor?.name ?? t("UESRPG.Dialogs.Opposed.Unit", "Unit") }, `${actor?.name ?? "Unit"} - Mixed Defense`),
     content: `
       <div class="warfare-discipline-dialog">
+        ${renderTNSummary("Mixed Defense")}
         <p>${t("UESRPG.Dialogs.Opposed.MixedDefenseNote", "Resolve this defense using the unit's current Discipline.")}</p>
         <div class="form-group">
           <label>${t("UESRPG.Dialogs.Opposed.ManualModifier", "Manual Modifier")}</label>
@@ -235,12 +252,7 @@ export async function promptHybridWarfareDefense(actor, attacker) {
     buttons: {
       defend: {
         label: t("UESRPG.UI.Commit", "Commit"),
-        callback: (html) => {
-          const root = html instanceof HTMLElement ? html : html?.[0];
-          return {
-            modifier: Number(root?.querySelector('[name="modifier"]')?.value ?? 0) || 0,
-          };
-        },
+        callback: (html) => readDeclaration(html instanceof HTMLElement ? html : html?.[0]),
       },
       cancel: { label: t("UESRPG.UI.Cancel", "Cancel") },
     },

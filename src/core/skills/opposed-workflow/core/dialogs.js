@@ -1,3 +1,4 @@
+import { renderTNSummary, bindTNEstimates } from "../../../../ui/shared/tn-presentation.js";
 /**
  * src/core/skills/opposed/dialogs.js
  * Skill roll dialog UI for opposed tests
@@ -11,10 +12,12 @@ import { hasTalent } from "../../../traits/talents-api.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { resolveUuidSync } from "../../../../utils/uuid-cache.js";
 import { buildCircumstanceOptionsHtml } from "../../../opposed/circumstance.js";
+import { systemTooltipAttributes, setSystemOptionTooltip } from "../../../../ui/shared/system-tooltips.js";
 
 export async function _skillRollDialog({
   title,
   actor = null,
+  resolveEstimate = () => ({ reason: "Select an available test." }),
   showSkillSelect = false,
   skills = [],
   selectedSkillUuid = null,
@@ -54,11 +57,12 @@ export async function _skillRollDialog({
 
   const specDisabled = !allowSpecialization;
   const specChecked = (!specDisabled && defaultUseSpec) ? "checked" : "";
+  const specExplanation = specDisabled ? "No specialization on this skill." : "Apply the specialization bonus (+10).";
   const specRow = `
-      <div class="form-group" style="margin-top:8px;">
-        <label style="display:flex; align-items:center; gap:8px;">
-          <input type="checkbox" name="useSpec" ${specChecked} ${specDisabled ? "disabled" : ""} />
-          <span><b>Use Specialization</b> (+10)${specDisabled ? ' <span style="opacity:0.75;">(none on this skill)</span>' : ""}</span>
+      <div class="form-group">
+        <label class="uesrpg-inline-check uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: specExplanation })} ${specDisabled ? 'tabindex="0"' : ""}>
+          <input type="checkbox" name="useSpec" ${specChecked} ${specDisabled ? "disabled" : ""} aria-description="${_esc(specExplanation)}" />
+          <span class="uesrpg-adv-choice__label"><b>Use Specialization</b> (+10)</span>
         </label>
       </div>`;
 
@@ -71,7 +75,7 @@ export async function _skillRollDialog({
   const showCharacteristic = selectedGoverning.length > 0;
   const defaultCharacteristic = String(defaultSelectedCharacteristicKey || selectedBaseCha || selectedGoverning[0]?.key || "").toLowerCase();
   const characteristicRow = `
-      <div class="form-group" style="margin-top:8px;" data-ues-char-row="1" ${showCharacteristic ? "" : "hidden"}>
+      <div class="form-group" data-ues-char-row="1" ${showCharacteristic ? "" : "hidden"}>
         <label><b>Characteristic</b></label>
         <select name="selectedCharacteristicKey" style="width:100%;">
           ${selectedGoverning.map(o => {
@@ -98,18 +102,18 @@ export async function _skillRollDialog({
   const isHistskinEligible = canHistskin && ["athletics", "stealth"].includes(String(selectedName ?? "").trim().toLowerCase());
   const interrogationDisabled = !canInterrogate || !isPersuadeSelected;
   const interrogationRow = canInterrogate ? `
-      <div class="form-group" style="margin-top:8px;" data-ues-interrogation-row="1">
-        <label style="display:flex; align-items:center; gap:8px;">
+      <div class="form-group" data-ues-interrogation-row="1">
+        <label class="uesrpg-inline-check uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: interrogationDisabled ? "Interrogator talent: requires a Persuade test." : "Interrogator talent: applies to this Persuade test." })} ${interrogationDisabled ? 'tabindex="0"' : ""}>
           <input type="checkbox" name="isInterrogationTest" ${interrogationDisabled ? "disabled" : ""} />
-          <span><b>Interrogation</b> (Interrogator talent)</span>
+          <span class="uesrpg-adv-choice__label"><b>Interrogation</b></span>
         </label>
       </div>` : "";
 
   const histskinRow = canHistskin ? `
-      <div class="form-group" style="margin-top:8px;" data-ues-histskin-row="1">
-        <label style="display:flex; align-items:center; gap:8px;">
+      <div class="form-group" data-ues-histskin-row="1">
+        <label class="uesrpg-inline-check uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: "Histskin: +30 to Athletics or Stealth while underwater." })} ${isHistskinEligible ? "" : 'tabindex="0"'}>
           <input type="checkbox" name="histskinUnderwater" ${isHistskinEligible ? "" : "disabled"} />
-          <span><b>Histskin</b> (Underwater) +30</span>
+          <span class="uesrpg-adv-choice__label"><b>Histskin</b> (Underwater) +30</span>
         </label>
       </div>` : "";
   const resistanceSection = buildResistanceBonusSection(actor);
@@ -120,15 +124,34 @@ export async function _skillRollDialog({
       <div class="uesrpg-defense-flags">
         <span class="uesrpg-defense-flags__label">Apply if relevant:</span>
         <div class="uesrpg-defense-flags__items">
-          ${hasBlinded ? '<label class="uesrpg-inline-check"><input type="checkbox" name="applyBlinded" ' + (defaultApplyBlinded ? 'checked' : '') + '/> <span>Blinded (-30, sight-based)</span></label>' : ''}
-          ${hasDeafened ? '<label class="uesrpg-inline-check"><input type="checkbox" name="applyDeafened" ' + (defaultApplyDeafened ? 'checked' : '') + '/> <span>Deafened (-30, hearing-based)</span></label>' : ''}
+          ${hasBlinded ? `<label class="uesrpg-inline-check uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: "RAW: apply only if the test benefits from sight." })}><input type="checkbox" name="applyBlinded" ${defaultApplyBlinded ? "checked" : ""}/> <span class="uesrpg-adv-choice__label">Blinded (-30)</span></label>` : ""}
+          ${hasDeafened ? `<label class="uesrpg-inline-check uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: "RAW: apply only if the test benefits from hearing." })}><input type="checkbox" name="applyDeafened" ${defaultApplyDeafened ? "checked" : ""}/> <span class="uesrpg-adv-choice__label">Deafened (-30)</span></label>` : ""}
         </div>
-      </div>
-      <p class="uesrpg-sensory-hint">RAW: apply only if the test benefits from the relevant sense.</p>` : "";
+      </div>` : "";
 
+
+  const readDeclaration = (root) => {
+    const skillUuid = root?.querySelector('select[name="skillUuid"]')?.value
+      ?? root?.querySelector('input[name="skillUuid"]')?.value
+      ?? "";
+    const selectedCharacteristicKey = String(root?.querySelector('select[name="selectedCharacteristicKey"]')?.value ?? "").trim().toLowerCase();
+    const difficultyKey = root?.querySelector('select[name="difficultyKey"]')?.value ?? "average";
+    const circumstanceMod = Number.parseInt(String(root?.querySelector('select[name="circumstanceMod"]')?.value ?? "0"), 10) || 0;
+    const useSpec = Boolean(root?.querySelector('input[name="useSpec"]')?.checked);
+    const isInterrogationTest = Boolean(root?.querySelector('input[name="isInterrogationTest"]')?.checked);
+    const histskinUnderwater = Boolean(root?.querySelector('input[name="histskinUnderwater"]')?.checked);
+    const applyBlinded = Boolean(root?.querySelector('input[name="applyBlinded"]')?.checked);
+    const applyDeafened = Boolean(root?.querySelector('input[name="applyDeafened"]')?.checked);
+    const selectedRes = readResistanceBonusSelections(root, resistanceSection.options);
+
+    const rawManual = root?.querySelector('input[name="manualMod"]')?.value ?? "0";
+    const manualMod = Number.parseInt(String(rawManual), 10) || 0;
+    return { skillUuid, selectedCharacteristicKey, difficultyKey, circumstanceMod, useSpec, manualMod, applyBlinded, applyDeafened, resistanceSelected: selectedRes, isInterrogationTest, histskinUnderwater };
+  };
 
   const content = `
-    <div class="uesrpg-skill-declare">
+    <div class="uesrpg-skill-declare uesrpg-dialog-stack">
+      ${renderTNSummary(selectedName || title)}
       ${skillSelect}
 
       <div class="form-group">
@@ -152,7 +175,7 @@ export async function _skillRollDialog({
 
       ${resistanceSection.html}
 
-      <div class="form-group" style="margin-top:8px;">
+      <div class="form-group">
         <label><b>Manual Modifier</b></label>
         <input name="manualMod" type="number" value="${Number(defaultManualMod) || 0}" style="width:100%;" />
       </div>
@@ -167,7 +190,6 @@ export async function _skillRollDialog({
     const form = root?.querySelector('.uesrpg-skill-declare') ?? root;
     const sel = form?.querySelector('select[name="skillUuid"]');
     const cb = form?.querySelector('input[name="useSpec"]');
-    const label = cb?.closest('label');
     const interrogationCb = form?.querySelector('input[name="isInterrogationTest"]');
     const histskinCb = form?.querySelector('input[name="histskinUnderwater"]');
     const chaRow = form?.querySelector('[data-ues-char-row="1"]');
@@ -185,22 +207,14 @@ export async function _skillRollDialog({
       const has = (opt?.dataset?.hasSpec === '1');
       cb.disabled = !has;
       if (!has) cb.checked = false;
-      if (label) {
-        label.querySelectorAll('span[data-spec-none]').forEach(n => n.remove());
-        if (!has) {
-          const s = document.createElement('span');
-          s.dataset.specNone = '1';
-          s.style.opacity = '0.75';
-          s.textContent = ' (none on this skill)';
-          label.appendChild(s);
-        }
-      }
+      setSystemOptionTooltip(cb, has ? "Apply the specialization bonus (+10)." : "No specialization on this skill.");
 
       if (interrogationCb) {
         const name = String(opt?.dataset?.skillName ?? '').trim().toLowerCase();
         const isPersuade = (name === 'persuade');
         interrogationCb.disabled = !isPersuade;
         if (!isPersuade) interrogationCb.checked = false;
+        setSystemOptionTooltip(interrogationCb, isPersuade ? "Interrogator talent: applies to this Persuade test." : "Interrogator talent: requires a Persuade test.");
       }
 
       if (histskinCb) {
@@ -208,6 +222,7 @@ export async function _skillRollDialog({
         const ok = (name === 'athletics' || name === 'stealth');
         histskinCb.disabled = !ok;
         if (!ok) histskinCb.checked = false;
+        setSystemOptionTooltip(histskinCb, ok ? "Histskin: +30 while underwater." : "Histskin: requires an Athletics or Stealth test while underwater.");
       }
 
       if (chaRow && chaSelect) {
@@ -244,30 +259,15 @@ export async function _skillRollDialog({
       layout: "workflow",
       title,
       content,
-      render: renderCallback,
+      render: (event, dialog) => {
+        renderCallback?.(event, dialog);
+        bindTNEstimates(dialog.element, () => [{ key: "test", ...resolveEstimate(readDeclaration(dialog.element)) }]);
+      },
       classes: ["uesrpg-attack-declare"],
       buttons: {
         ok: {
           label: "Roll",
-          callback: (html) => {
-            const root = html instanceof HTMLElement ? html : html?.[0];
-            const skillUuid = root?.querySelector('select[name="skillUuid"]')?.value
-              ?? root?.querySelector('input[name="skillUuid"]')?.value
-              ?? "";
-            const selectedCharacteristicKey = String(root?.querySelector('select[name="selectedCharacteristicKey"]')?.value ?? "").trim().toLowerCase();
-            const difficultyKey = root?.querySelector('select[name="difficultyKey"]')?.value ?? "average";
-            const circumstanceMod = Number.parseInt(String(root?.querySelector('select[name="circumstanceMod"]')?.value ?? "0"), 10) || 0;
-            const useSpec = Boolean(root?.querySelector('input[name="useSpec"]')?.checked);
-            const isInterrogationTest = Boolean(root?.querySelector('input[name="isInterrogationTest"]')?.checked);
-            const histskinUnderwater = Boolean(root?.querySelector('input[name="histskinUnderwater"]')?.checked);
-            const applyBlinded = Boolean(root?.querySelector('input[name="applyBlinded"]')?.checked);
-            const applyDeafened = Boolean(root?.querySelector('input[name="applyDeafened"]')?.checked);
-            const selectedRes = readResistanceBonusSelections(root, resistanceSection.options);
-
-            const rawManual = root?.querySelector('input[name="manualMod"]')?.value ?? "0";
-            const manualMod = Number.parseInt(String(rawManual), 10) || 0;
-            return { skillUuid, selectedCharacteristicKey, difficultyKey, circumstanceMod, useSpec, manualMod, applyBlinded, applyDeafened, resistanceSelected: selectedRes, isInterrogationTest, histskinUnderwater };
-          }
+          callback: (html) => readDeclaration(html instanceof HTMLElement ? html : html?.[0])
         },
         cancel: { label: "Cancel", callback: () => null }
       },
@@ -279,4 +279,3 @@ export async function _skillRollDialog({
     return null;
   }
 }
-

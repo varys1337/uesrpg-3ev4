@@ -1,3 +1,4 @@
+import { isActiveGMUser } from "../../../utils/users.js";
 import { isMassCombatEnabled } from "../../homebrew/settings.js";
 import { openWarfareEncounterApp, syncWarfareEncounterForChatMessage } from "./controller.js";
 
@@ -42,8 +43,10 @@ export function registerWarfareEncounterHooks() {
     };
   });
 
-  Hooks.on("updateChatMessage", (message) => {
-    if (!isMassCombatEnabled()) return;
-    void syncWarfareEncounterForChatMessage(message);
+  Hooks.on("updateChatMessage", (message, changed) => {
+    if (!isMassCombatEnabled() || !isActiveGMUser(game.user)) return;
+    const keys = Object.keys(foundry.utils.flattenObject(changed ?? {}));
+    if (!keys.some(key => key.startsWith("flags.uesrpg-3ev4"))) return;
+    void syncWarfareEncounterForChatMessage(message).catch(error => console.error("UESRPG | Warfare chat synchronization failed", error));
   });
 }

@@ -9,6 +9,7 @@ export function registerAlchemyRuntimeHooks({ onDamageApplied, onUpdateCombat } 
   runtimeInitialized = true;
 
   Hooks.on("uesrpgDamageApplied", (targetActor, context) => {
+    if (context?.handledDomains?.includes("alchemy")) return;
     Promise.resolve(onDamageApplied?.(targetActor, context)).catch((err) => {
       console.error("UESRPG | Alchemy on-hit resolution failed", err);
     });

@@ -99,6 +99,7 @@ export async function promptFearTestForSelection({ type = null, modifier = null,
   }
 
   const config = await showFearTestDialog({
+    actors,
     defaultType: type ?? "panic",
     defaultModifier: modifier ?? 0,
     defaultSource: source ?? t("UESRPG.Dialogs.Fear.Source"),

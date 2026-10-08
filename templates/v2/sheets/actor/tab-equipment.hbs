@@ -2,10 +2,7 @@
                 <div class="equipmentTabContainer">
                     <div class="uesrpg-equipment-main-body">
                     <div class="itemListContainer">
-                        {{#if sheetUi.showSheetSearchBars}}
-                        {{> "systems/uesrpg-3ev4/templates/partials/sheets/list-filter.hbs" scope="equipment"}}
-                        {{/if}}
-                        <div class="tableListHeader">
+                        <div class="tableListHeader uesrpg-inventory-tools">
                             <div class="equipment-info-container">
                                 <div class="wealthContainer uesrpg-panel">
                                     <div class="section-header"><span class="section-header__label">{{localize "UESRPG.Sheets.Equipment.Wealth"}}</span></div>
@@ -28,13 +25,15 @@
                             {{#if sheetUi.enableLoadouts}}
                                 <div class="uesrpg-item-tools">
                                     <div class="uesrpg-loadouts" data-actor-id="{{actor._id}}">
-                                        <label>{{localize "UESRPG.Sheets.Equipment.Loadout"}}</label>
-                                        <select data-role="loadout-select" aria-label="{{localize "UESRPG.Sheets.Equipment.Loadout"}}">
-                                            <option value="">-</option>
-                                            {{#each sheetUi.loadouts as |l id|}}
-                                                <option value="{{l.id}}">{{l.name}}</option>
-                                            {{/each}}
-                                        </select>
+                                        <label class="uesrpg-loadout-choice">
+                                            <span>{{localize "UESRPG.Sheets.Equipment.Loadout"}}</span>
+                                            <select data-role="loadout-select" aria-label="{{localize "UESRPG.Sheets.Equipment.Loadout"}}">
+                                                <option value="">-</option>
+                                                {{#each sheetUi.loadouts as |l id|}}
+                                                    <option value="{{l.id}}">{{l.name}}</option>
+                                                {{/each}}
+                                            </select>
+                                        </label>
                                         <button type="button" data-action="loadoutSave" class="uesrpg-loadout-save uesrpg-styled-action">{{localize "UESRPG.Sheets.Equipment.SaveCurrent"}}</button>
                                         <button type="button" data-action="loadoutApply" class="uesrpg-loadout-apply uesrpg-styled-action">{{localize "UESRPG.UI.Apply"}}</button>
                                         <button type="button" data-action="loadoutDelete" class="uesrpg-loadout-delete uesrpg-styled-action" data-tooltip="UESRPG.UI.Delete" aria-label="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash"></i></button>
@@ -43,344 +42,387 @@
                             {{/if}}
                         </div>
 
+                        {{#if sheetUi.showSheetSearchBars}}
+                        {{> "systems/uesrpg-3ev4/templates/partials/sheets/list-filter.hbs" scope="equipment"}}
+                        {{/if}}
+
                         <div class="containerList" data-ues-section="container-list">
-                            <table class="ues-table--container">
-                                <thead>
-                                    <tr class="uesrpg-equipment-group-header">
-                                        {{> "systems/uesrpg-3ev4/templates/partials/sheets/equipment-group-name-header.hbs" group="containers" itemType="container" legacyId="container" nameCellClass="ues-col-name" label=(localize "UESRPG.Sheets.Equipment.Container")}}
-                                        <th class="ues-col-stat" data-tooltip="UESRPG.Sheets.Equipment.EmptyContainerEncTitle">{{localize "UESRPG.UI.ENC"}}</th>
-                                        <th class="ues-col-stat">{{localize "UESRPG.Sheets.Equipment.Capacity"}}</th>
-                                        <th class="ues-col-stat">{{localize "UESRPG.Sheets.Equipment.ItemCount"}}</th>
-                                        <th class="ues-col-actions"><i class="fas fa-trash"></i></th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {{#each actor.container as |item id|}}
-                                        <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
-                                            <td class="item-name-cell ues-col-name">
-                                                <div class="tableItemNameCell">
-                                                    <div class="qty-controls">
-                                                        <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} data-tooltip="UESRPG.UI.Equip" aria-label="{{localize "UESRPG.UI.Equip"}}">
-                                                    </div>
-                                                    <img class="item-img" src="{{item.img}}" data-tooltip="UESRPG.UI.PostToChat" alt="{{item.name}}" />
-                                                    <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control">{{item.name}}</button>
-                                                    {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-cast-enchantment-control.hbs" item=item}}
-                                                </div>
-                                            </td>
-                                            <td class="ues-col-stat" data-tooltip="UESRPG.Sheets.Equipment.ContainerOwnEnc">{{item.system.enc}}</td>
-                                            <td class="ues-col-stat">{{item.system.container_enc.current}}/{{item.system.container_enc.max}}</td>
-                                            <td class="ues-col-stat">{{item.system.container_enc.item_count}}</td>
-                                            <td class="ues-col-actions">
-                                                <button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></button>
-                                            </td>
-                                        </tr>
-                                    {{/each}}
-                                </tbody>
-                            </table>
+                            <section class="uesrpg-inventory-section uesrpg-collapsible" data-list-filter-group>
+                                {{> "systems/uesrpg-3ev4/templates/partials/sheets/equipment-group-name-header.hbs" group="containers" itemType="container" legacyId="container" nameCellClass="ues-col-name" label=(localize "UESRPG.Sheets.Equipment.Container") sectionHeader=true}}
+                                {{#if actor.container.length}}
+                                <div class="uesrpg-collapse-body uesrpg-inventory-table-wrap">
+                                    <table class="ues-table--container">
+                                        <thead>
+                                            <tr>
+                                                <th scope="col" class="item-name-cell ues-col-name">{{localize "UESRPG.UI.Name"}}</th>
+                                                <th scope="col" class="ues-col-stat" data-tooltip="UESRPG.Sheets.Equipment.EmptyContainerEncTitle">{{localize "UESRPG.UI.ENC"}}</th>
+                                                <th scope="col" class="ues-col-stat">{{localize "UESRPG.Sheets.Equipment.Capacity"}}</th>
+                                                <th scope="col" class="ues-col-stat">{{localize "UESRPG.Sheets.Equipment.ItemCount"}}</th>
+                                                <th scope="col" class="ues-col-actions" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash" aria-hidden="true"></i></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {{#each actor.container as |item id|}}
+                                                <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                                    <td class="item-name-cell ues-col-name">
+                                                        <div class="tableItemNameCell">
+                                                            <div class="qty-controls">
+                                                                <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} data-tooltip="UESRPG.UI.Equip" aria-label="{{localize "UESRPG.UI.Equip"}}">
+                                                            </div>
+                                                            <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-image-action" data-action="postItemToChat" data-tooltip="UESRPG.UI.PostToChat" aria-label="{{localize "UESRPG.UI.PostToChat"}}: {{item.name}}"><img class="item-img" src="{{item.img}}" alt="" aria-hidden="true" /></button>
+                                                            <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control">{{item.name}}</button>
+                                                            {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-cast-enchantment-control.hbs" item=item}}
+                                                        </div>
+                                                    </td>
+                                                    <td class="ues-col-stat" data-tooltip="UESRPG.Sheets.Equipment.ContainerOwnEnc">{{item.system.enc}}</td>
+                                                    <td class="ues-col-stat">{{item.system.container_enc.current}}/{{item.system.container_enc.max}}</td>
+                                                    <td class="ues-col-stat">{{item.system.container_enc.item_count}}</td>
+                                                    <td class="ues-col-actions">
+                                                        <button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></button>
+                                                    </td>
+                                                </tr>
+                                            {{/each}}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                {{/if}}
+                            </section>
                         </div>
 
                         <div class="equipmentList">
 
-                            <table class="weapon-table">
-                                <thead>
-                                    <tr class="uesrpg-equipment-group-header">
-                                        {{> "systems/uesrpg-3ev4/templates/partials/sheets/equipment-group-name-header.hbs" group="weapons" itemType="weapon" legacyId="weapon" label=(localize "UESRPG.Sheets.Equipment.Weapons")}}
-                                        <th>{{localize "UESRPG.Sheets.Equipment.Damage"}}</th>
-                                        <th>{{sheetUi.weaponDistanceHeaderLabel}}</th>
-                                        <th>{{localize "UESRPG.Sheets.Equipment.TwoHandedAmmo"}}</th>
-                                        <th class="right-align-cell"><i class="fas fa-trash"></i></th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {{#each actor.weapon.equipped as |item id|}}
-                                        <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
-                                            <td class="item-name-cell">
-                                                <div class="flex-container">
-                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} data-tooltip="UESRPG.UI.Equip" aria-label="{{localize "UESRPG.UI.Equip"}}">
-                                                    <img class="item-img" src="{{item.img}}" alt="{{item.name}}">
-                                                    {{#if item.system.containerStats.container_id}}
-                                                        <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}" data-tooltip="UESRPG.Sheets.Equipment.OpenContainer" aria-label="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}"><i class="fa-solid fa-backpack" aria-hidden="true"></i></button>
-                                                    {{/if}}
-                                                    <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control">{{item.name}}</button>
-                                                    {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-cast-enchantment-control.hbs" item=item}}
-                                                </div>
-                                            </td>
-                                            <td class="damage-entry"><button type="button" class="weapon-damage-roll uesrpg-styled-action" data-action="weaponDamageRoll" data-tooltip="UESRPG.Sheets.Equipment.RollDamage" aria-label="{{localize "UESRPG.Sheets.Equipment.RollDamage"}}: {{item.name}}">{{item.system.damage3}}</button></td>
-                                            <td>
-                                                {{#if (eq item.system.attackMode "ranged")}}
-                                                    {{item.system.resolvedDistanceDisplay}}
-                                                {{else}}
-                                                    {{item.system.resolvedDistanceDisplay}}
-                                                {{/if}}
-                                            </td>
-                                            <td class="weapon-mode-cell">
-                                                {{#if (eq item.system.attackMode "ranged")}}
-                                                    <div class="weapon-ammo-select-wrap" data-tooltip-text="{{item.system.inlineAmmoLabel}}">
-                                                        <select class="weapon-ammo-select" data-action="weaponAmmoSelect" aria-label="{{localize "UESRPG.Sheets.Equipment.SelectAmmunition"}}">
-                                                            {{#each item.system.inlineAmmoOptions}}
-                                                                <option value="{{this.value}}" {{#if this.selected}}selected{{/if}}>{{this.label}}</option>
-                                                            {{/each}}
-                                                        </select>
-                                                    </div>
-                                                {{else}}
-                                                    <input data-action="toggle2H" class="toggle2H checkbox" type="checkbox" {{checked item.system.weapon2H}} data-tooltip="UESRPG.Sheets.Equipment.Toggle2HDamage" aria-label="{{localize "UESRPG.Sheets.Equipment.Toggle2HDamage"}}">
-                                                {{/if}}
-                                            </td>
-                                            <td class="right-align-cell"><button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></button></td>
-                                        </tr>
-                                    {{/each}}
-                                    {{#each actor.weapon.unequipped as |item id|}}
-                                        <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
-                                            <td class="item-name-cell">
-                                                <div class="flex-container">
-                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} data-tooltip="UESRPG.UI.Equip" aria-label="{{localize "UESRPG.UI.Equip"}}">
-                                                    <img class="item-img" src="{{item.img}}" alt="{{item.name}}">
-                                                    {{#if item.system.containerStats.container_id}}
-                                                        <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}" data-tooltip="UESRPG.Sheets.Equipment.OpenContainer" aria-label="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}"><i class="fa-solid fa-backpack" aria-hidden="true"></i></button>
-                                                    {{/if}}
-                                                    <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control">{{item.name}}</button>
-                                                    {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-cast-enchantment-control.hbs" item=item}}
-                                                </div>
-                                            </td>
-                                            <td class="damage-entry"><button type="button" class="weapon-damage-roll uesrpg-styled-action" data-action="weaponDamageRoll" data-tooltip="UESRPG.Sheets.Equipment.RollDamage" aria-label="{{localize "UESRPG.Sheets.Equipment.RollDamage"}}: {{item.name}}">{{item.system.damage3}}</button></td>
-                                            <td>
-                                                {{#if (eq item.system.attackMode "ranged")}}
-                                                    {{item.system.resolvedDistanceDisplay}}
-                                                {{else}}
-                                                    {{item.system.resolvedDistanceDisplay}}
-                                                {{/if}}
-                                            </td>
-                                            <td class="weapon-mode-cell">
-                                                {{#if (eq item.system.attackMode "ranged")}}
-                                                    <div class="weapon-ammo-select-wrap" data-tooltip-text="{{item.system.inlineAmmoLabel}}">
-                                                        <select class="weapon-ammo-select" data-action="weaponAmmoSelect" aria-label="{{localize "UESRPG.Sheets.Equipment.SelectAmmunition"}}">
-                                                            {{#each item.system.inlineAmmoOptions}}
-                                                                <option value="{{this.value}}" {{#if this.selected}}selected{{/if}}>{{this.label}}</option>
-                                                            {{/each}}
-                                                        </select>
-                                                    </div>
-                                                {{else}}
-                                                    <input data-action="toggle2H" class="toggle2H checkbox" type="checkbox" {{checked item.system.weapon2H}} data-tooltip="UESRPG.Sheets.Equipment.Toggle2HDamage" aria-label="{{localize "UESRPG.Sheets.Equipment.Toggle2HDamage"}}">
-                                                {{/if}}
-                                            </td>
-                                            <td class="right-align-cell"><button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></button></td>
-                                        </tr>
-                                    {{/each}}
-                                </tbody>
-                            </table>
+                            <section class="uesrpg-inventory-section uesrpg-collapsible" data-list-filter-group>
+                                {{> "systems/uesrpg-3ev4/templates/partials/sheets/equipment-group-name-header.hbs" group="weapons" itemType="weapon" legacyId="weapon" label=(localize "UESRPG.Sheets.Equipment.Weapons") sectionHeader=true}}
+                                {{#if (or actor.weapon.equipped.length actor.weapon.unequipped.length)}}
+                                <div class="uesrpg-collapse-body uesrpg-inventory-table-wrap">
+                                    <table class="weapon-table">
+                                        <thead>
+                                            <tr>
+                                                <th scope="col" class="item-name-cell">{{localize "UESRPG.UI.Name"}}</th>
+                                                <th scope="col">{{sheetUi.weaponDistanceHeaderLabel}}</th>
+                                                <th scope="col">{{localize "UESRPG.Sheets.Equipment.TwoHandedAmmo"}}</th>
+                                                <th scope="col" class="right-align-cell" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash" aria-hidden="true"></i></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {{#each actor.weapon.equipped as |item id|}}
+                                                <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                                    <td class="item-name-cell">
+                                                        <div class="flex-container">
+                                                            <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} data-tooltip="UESRPG.UI.Equip" aria-label="{{localize "UESRPG.UI.Equip"}}">
+                                                            {{> "systems/uesrpg-3ev4/templates/partials/sheets/skill-roll-icon.hbs" action="weaponDamageRoll" rollTargetClass="uesrpg-weapon-roll-icon" rollLabel=(localize "UESRPG.Sheets.Equipment.RollDamage") img=item.img label=item.name detail=item.system.damage3}}
+                                                            {{#if item.system.containerStats.container_id}}
+                                                                <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}" data-tooltip="UESRPG.Sheets.Equipment.OpenContainer" aria-label="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}"><i class="fa-solid fa-backpack" aria-hidden="true"></i></button>
+                                                            {{/if}}
+                                                            <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control">{{item.name}}</button>
+                                                            {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-cast-enchantment-control.hbs" item=item}}
+                                                        </div>
+                                                    </td>
+                                                    <td>
+                                                        {{#if (eq item.system.attackMode "ranged")}}
+                                                            {{item.system.resolvedDistanceDisplay}}
+                                                        {{else}}
+                                                            {{item.system.resolvedDistanceDisplay}}
+                                                        {{/if}}
+                                                    </td>
+                                                    <td class="weapon-mode-cell">
+                                                        {{#if (eq item.system.attackMode "ranged")}}
+                                                            <div class="weapon-ammo-select-wrap" data-tooltip-text="{{item.system.inlineAmmoLabel}}">
+                                                                <select class="weapon-ammo-select" data-action="weaponAmmoSelect" aria-label="{{localize "UESRPG.Sheets.Equipment.SelectAmmunition"}}">
+                                                                    {{#each item.system.inlineAmmoOptions}}
+                                                                        <option value="{{this.value}}" {{#if this.selected}}selected{{/if}}>{{this.label}}</option>
+                                                                    {{/each}}
+                                                                </select>
+                                                            </div>
+                                                        {{else}}
+                                                            <input data-action="toggle2H" class="toggle2H checkbox" type="checkbox" {{checked item.system.weapon2H}} data-tooltip="UESRPG.Sheets.Equipment.Toggle2HDamage" aria-label="{{localize "UESRPG.Sheets.Equipment.Toggle2HDamage"}}">
+                                                        {{/if}}
+                                                    </td>
+                                                    <td class="right-align-cell"><button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></button></td>
+                                                </tr>
+                                            {{/each}}
+                                            {{#each actor.weapon.unequipped as |item id|}}
+                                                <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                                    <td class="item-name-cell">
+                                                        <div class="flex-container">
+                                                            <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} data-tooltip="UESRPG.UI.Equip" aria-label="{{localize "UESRPG.UI.Equip"}}">
+                                                            {{> "systems/uesrpg-3ev4/templates/partials/sheets/skill-roll-icon.hbs" action="weaponDamageRoll" rollTargetClass="uesrpg-weapon-roll-icon" rollLabel=(localize "UESRPG.Sheets.Equipment.RollDamage") img=item.img label=item.name detail=item.system.damage3}}
+                                                            {{#if item.system.containerStats.container_id}}
+                                                                <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}" data-tooltip="UESRPG.Sheets.Equipment.OpenContainer" aria-label="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}"><i class="fa-solid fa-backpack" aria-hidden="true"></i></button>
+                                                            {{/if}}
+                                                            <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control">{{item.name}}</button>
+                                                            {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-cast-enchantment-control.hbs" item=item}}
+                                                        </div>
+                                                    </td>
+                                                    <td>
+                                                        {{#if (eq item.system.attackMode "ranged")}}
+                                                            {{item.system.resolvedDistanceDisplay}}
+                                                        {{else}}
+                                                            {{item.system.resolvedDistanceDisplay}}
+                                                        {{/if}}
+                                                    </td>
+                                                    <td class="weapon-mode-cell">
+                                                        {{#if (eq item.system.attackMode "ranged")}}
+                                                            <div class="weapon-ammo-select-wrap" data-tooltip-text="{{item.system.inlineAmmoLabel}}">
+                                                                <select class="weapon-ammo-select" data-action="weaponAmmoSelect" aria-label="{{localize "UESRPG.Sheets.Equipment.SelectAmmunition"}}">
+                                                                    {{#each item.system.inlineAmmoOptions}}
+                                                                        <option value="{{this.value}}" {{#if this.selected}}selected{{/if}}>{{this.label}}</option>
+                                                                    {{/each}}
+                                                                </select>
+                                                            </div>
+                                                        {{else}}
+                                                            <input data-action="toggle2H" class="toggle2H checkbox" type="checkbox" {{checked item.system.weapon2H}} data-tooltip="UESRPG.Sheets.Equipment.Toggle2HDamage" aria-label="{{localize "UESRPG.Sheets.Equipment.Toggle2HDamage"}}">
+                                                        {{/if}}
+                                                    </td>
+                                                    <td class="right-align-cell"><button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></button></td>
+                                                </tr>
+                                            {{/each}}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                {{/if}}
+                            </section>
 
-                            <table class="ammunition-table">
-                                <thead>
-                                    <tr class="uesrpg-equipment-group-header">
-                                        {{> "systems/uesrpg-3ev4/templates/partials/sheets/equipment-group-name-header.hbs" group="ammunition" itemType="ammunition" legacyId="ammunition" label=(localize "UESRPG.Sheets.Equipment.Ammunition")}}
-                                        <th>{{localize "UESRPG.Sheets.Equipment.Bonus"}}</th>
-                                        <th>{{localize "UESRPG.Sheets.Equipment.Qty"}}</th>
-                                        <th class="right-align-cell"><i class="fas fa-trash"></i></th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {{#each actor.ammunition.equipped as |item id|}}
-                                        <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
-                                            <td class="item-name-cell">
-                                                <div class="flex-container">
-                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} data-tooltip="UESRPG.UI.Equip" aria-label="{{localize "UESRPG.UI.Equip"}}">
-                                                    <img class="item-img" src="{{item.img}}" alt="{{item.name}}">
-                                                    {{#if item.system.containerStats.container_id}}
-                                                        <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}" data-tooltip="UESRPG.Sheets.Equipment.OpenContainer" aria-label="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}"><i class="fa-solid fa-backpack" aria-hidden="true"></i></button>
-                                                    {{/if}}
-                                                    <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control">{{item.name}}</button>
-                                                    {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-cast-enchantment-control.hbs" item=item}}
-                                                </div>
-                                            </td>
-                                            <td>{{item.system.damage}}</td>
-                                            <td>{{item.system.quantity}}</td>
-                                            <td class="right-align-cell"><button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></button></td>
-                                        </tr>
-                                    {{/each}}
-                                    {{#each actor.ammunition.unequipped as |item id|}}
-                                        <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
-                                            <td class="item-name-cell">
-                                                <div class="flex-container">
-                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} data-tooltip="UESRPG.UI.Equip" aria-label="{{localize "UESRPG.UI.Equip"}}">
-                                                    <img class="item-img" src="{{item.img}}" alt="{{item.name}}">
-                                                    {{#if item.system.containerStats.container_id}}
-                                                        <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}" data-tooltip="UESRPG.Sheets.Equipment.OpenContainer" aria-label="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}"><i class="fa-solid fa-backpack" aria-hidden="true"></i></button>
-                                                    {{/if}}
-                                                    <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control">{{item.name}}</button>
-                                                    {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-cast-enchantment-control.hbs" item=item}}
-                                                </div>
-                                            </td>
-                                            <td>{{item.system.damage}}</td>
-                                            <td>{{item.system.quantity}}</td>
-                                            <td class="right-align-cell"><button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></button></td>
-                                        </tr>
-                                    {{/each}}
-                                </tbody>
-                            </table>
+                            <section class="uesrpg-inventory-section uesrpg-collapsible" data-list-filter-group>
+                                {{> "systems/uesrpg-3ev4/templates/partials/sheets/equipment-group-name-header.hbs" group="ammunition" itemType="ammunition" legacyId="ammunition" label=(localize "UESRPG.Sheets.Equipment.Ammunition") sectionHeader=true}}
+                                {{#if (or actor.ammunition.equipped.length actor.ammunition.unequipped.length)}}
+                                <div class="uesrpg-collapse-body uesrpg-inventory-table-wrap">
+                                    <table class="ammunition-table">
+                                        <thead>
+                                            <tr>
+                                                <th scope="col" class="item-name-cell">{{localize "UESRPG.UI.Name"}}</th>
+                                                <th scope="col">{{localize "UESRPG.Sheets.Equipment.Bonus"}}</th>
+                                                <th scope="col">{{localize "UESRPG.Sheets.Equipment.Qty"}}</th>
+                                                <th scope="col" class="right-align-cell" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash" aria-hidden="true"></i></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {{#each actor.ammunition.equipped as |item id|}}
+                                                <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                                    <td class="item-name-cell">
+                                                        <div class="flex-container">
+                                                            <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} data-tooltip="UESRPG.UI.Equip" aria-label="{{localize "UESRPG.UI.Equip"}}">
+                                                            <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-image-action" data-action="postItemToChat" data-tooltip="UESRPG.UI.PostToChat" aria-label="{{localize "UESRPG.UI.PostToChat"}}: {{item.name}}"><img class="item-img" src="{{item.img}}" alt="" aria-hidden="true"></button>
+                                                            {{#if item.system.containerStats.container_id}}
+                                                                <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}" data-tooltip="UESRPG.Sheets.Equipment.OpenContainer" aria-label="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}"><i class="fa-solid fa-backpack" aria-hidden="true"></i></button>
+                                                            {{/if}}
+                                                            <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control">{{item.name}}</button>
+                                                            {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-cast-enchantment-control.hbs" item=item}}
+                                                        </div>
+                                                    </td>
+                                                    <td>{{item.system.damage}}</td>
+                                                    <td>{{item.system.quantity}}</td>
+                                                    <td class="right-align-cell"><button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></button></td>
+                                                </tr>
+                                            {{/each}}
+                                            {{#each actor.ammunition.unequipped as |item id|}}
+                                                <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                                    <td class="item-name-cell">
+                                                        <div class="flex-container">
+                                                            <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} data-tooltip="UESRPG.UI.Equip" aria-label="{{localize "UESRPG.UI.Equip"}}">
+                                                            <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-image-action" data-action="postItemToChat" data-tooltip="UESRPG.UI.PostToChat" aria-label="{{localize "UESRPG.UI.PostToChat"}}: {{item.name}}"><img class="item-img" src="{{item.img}}" alt="" aria-hidden="true"></button>
+                                                            {{#if item.system.containerStats.container_id}}
+                                                                <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}" data-tooltip="UESRPG.Sheets.Equipment.OpenContainer" aria-label="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}"><i class="fa-solid fa-backpack" aria-hidden="true"></i></button>
+                                                            {{/if}}
+                                                            <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control">{{item.name}}</button>
+                                                            {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-cast-enchantment-control.hbs" item=item}}
+                                                        </div>
+                                                    </td>
+                                                    <td>{{item.system.damage}}</td>
+                                                    <td>{{item.system.quantity}}</td>
+                                                    <td class="right-align-cell"><button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></button></td>
+                                                </tr>
+                                            {{/each}}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                {{/if}}
+                            </section>
 
-                            <table class="shield-table">
-                                <thead>
-                                    <tr class="uesrpg-equipment-group-header">
-                                        {{> "systems/uesrpg-3ev4/templates/partials/sheets/equipment-group-name-header.hbs" group="shield" itemType="shield" legacyId="shield" label=(localize "UESRPG.Sheets.Equipment.Shields")}}
-                                        <th>{{localize "UESRPG.Sheets.Equipment.BR"}}</th>
-                                        <th>{{localize "UESRPG.Sheets.Equipment.MBR"}}</th>
-                                        <th>{{localize "UESRPG.Sheets.Equipment.Type"}}</th>
-                                        <th class="right-align-cell"><i class="fas fa-trash"></i></th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {{#each actor.shield.equipped as |item id|}}
-                                        <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
-                                            <td class="item-name-cell">
-                                                <div class="flex-container">
-                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} data-tooltip="UESRPG.UI.Equip" aria-label="{{localize "UESRPG.UI.Equip"}}">
-                                                    <img class="item-img" src="{{item.img}}" alt="{{item.name}}">
-                                                    {{#if item.system.containerStats.container_id}}
-                                                        <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}" data-tooltip="UESRPG.Sheets.Equipment.OpenContainer" aria-label="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}"><i class="fa-solid fa-backpack" aria-hidden="true"></i></button>
-                                                    {{/if}}
-                                                    <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control">{{item.name}}</button>
-                                                    {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-cast-enchantment-control.hbs" item=item}}
-                                                </div>
-                                            </td>
-                                            <td>{{#if item.system.blockRatingEffective}}{{item.system.blockRatingEffective}}{{else}}{{item.system.blockRating}}{{/if}}</td>
-                                            <td>{{#if item.system.magic_brEffective}}{{item.system.magic_brEffective}}{{else}}{{item.system.magic_br}}{{/if}}</td>
-                                            <td>{{item.system.shieldType}}</td>
-                                            <td class="right-align-cell"><button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></button></td>
-                                        </tr>
-                                    {{/each}}
-                                    {{#each actor.shield.unequipped as |item id|}}
-                                        <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
-                                            <td class="item-name-cell">
-                                                <div class="flex-container">
-                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} data-tooltip="UESRPG.UI.Equip" aria-label="{{localize "UESRPG.UI.Equip"}}">
-                                                    <img class="item-img" src="{{item.img}}" alt="{{item.name}}">
-                                                    {{#if item.system.containerStats.container_id}}
-                                                        <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}" data-tooltip="UESRPG.Sheets.Equipment.OpenContainer" aria-label="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}"><i class="fa-solid fa-backpack" aria-hidden="true"></i></button>
-                                                    {{/if}}
-                                                    <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control">{{item.name}}</button>
-                                                    {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-cast-enchantment-control.hbs" item=item}}
-                                                </div>
-                                            </td>
-                                            <td>{{#if item.system.blockRatingEffective}}{{item.system.blockRatingEffective}}{{else}}{{item.system.blockRating}}{{/if}}</td>
-                                            <td>{{#if item.system.magic_brEffective}}{{item.system.magic_brEffective}}{{else}}{{item.system.magic_br}}{{/if}}</td>
-                                            <td>{{item.system.shieldType}}</td>
-                                            <td class="right-align-cell"><button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></button></td>
-                                        </tr>
-                                    {{/each}}
-                                </tbody>
-                            </table>
+                            <section class="uesrpg-inventory-section uesrpg-collapsible" data-list-filter-group>
+                                {{> "systems/uesrpg-3ev4/templates/partials/sheets/equipment-group-name-header.hbs" group="shield" itemType="shield" legacyId="shield" label=(localize "UESRPG.Sheets.Equipment.Shields") sectionHeader=true}}
+                                {{#if (or actor.shield.equipped.length actor.shield.unequipped.length)}}
+                                <div class="uesrpg-collapse-body uesrpg-inventory-table-wrap">
+                                    <table class="shield-table">
+                                        <thead>
+                                            <tr>
+                                                <th scope="col" class="item-name-cell">{{localize "UESRPG.UI.Name"}}</th>
+                                                <th scope="col">{{localize "UESRPG.Sheets.Equipment.BR"}}</th>
+                                                <th scope="col">{{localize "UESRPG.Sheets.Equipment.MBR"}}</th>
+                                                <th scope="col">{{localize "UESRPG.Sheets.Equipment.Type"}}</th>
+                                                <th scope="col" class="right-align-cell" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash" aria-hidden="true"></i></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {{#each actor.shield.equipped as |item id|}}
+                                                <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                                    <td class="item-name-cell">
+                                                        <div class="flex-container">
+                                                            <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} data-tooltip="UESRPG.UI.Equip" aria-label="{{localize "UESRPG.UI.Equip"}}">
+                                                            <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-image-action" data-action="postItemToChat" data-tooltip="UESRPG.UI.PostToChat" aria-label="{{localize "UESRPG.UI.PostToChat"}}: {{item.name}}"><img class="item-img" src="{{item.img}}" alt="" aria-hidden="true"></button>
+                                                            {{#if item.system.containerStats.container_id}}
+                                                                <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}" data-tooltip="UESRPG.Sheets.Equipment.OpenContainer" aria-label="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}"><i class="fa-solid fa-backpack" aria-hidden="true"></i></button>
+                                                            {{/if}}
+                                                            <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control">{{item.name}}</button>
+                                                            {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-cast-enchantment-control.hbs" item=item}}
+                                                        </div>
+                                                    </td>
+                                                    <td>{{#if item.system.blockRatingEffective}}{{item.system.blockRatingEffective}}{{else}}{{item.system.blockRating}}{{/if}}</td>
+                                                    <td>{{#if item.system.magic_brEffective}}{{item.system.magic_brEffective}}{{else}}{{item.system.magic_br}}{{/if}}</td>
+                                                    <td>{{item.system.shieldType}}</td>
+                                                    <td class="right-align-cell"><button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></button></td>
+                                                </tr>
+                                            {{/each}}
+                                            {{#each actor.shield.unequipped as |item id|}}
+                                                <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                                    <td class="item-name-cell">
+                                                        <div class="flex-container">
+                                                            <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} data-tooltip="UESRPG.UI.Equip" aria-label="{{localize "UESRPG.UI.Equip"}}">
+                                                            <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-image-action" data-action="postItemToChat" data-tooltip="UESRPG.UI.PostToChat" aria-label="{{localize "UESRPG.UI.PostToChat"}}: {{item.name}}"><img class="item-img" src="{{item.img}}" alt="" aria-hidden="true"></button>
+                                                            {{#if item.system.containerStats.container_id}}
+                                                                <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}" data-tooltip="UESRPG.Sheets.Equipment.OpenContainer" aria-label="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}"><i class="fa-solid fa-backpack" aria-hidden="true"></i></button>
+                                                            {{/if}}
+                                                            <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control">{{item.name}}</button>
+                                                            {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-cast-enchantment-control.hbs" item=item}}
+                                                        </div>
+                                                    </td>
+                                                    <td>{{#if item.system.blockRatingEffective}}{{item.system.blockRatingEffective}}{{else}}{{item.system.blockRating}}{{/if}}</td>
+                                                    <td>{{#if item.system.magic_brEffective}}{{item.system.magic_brEffective}}{{else}}{{item.system.magic_br}}{{/if}}</td>
+                                                    <td>{{item.system.shieldType}}</td>
+                                                    <td class="right-align-cell"><button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></button></td>
+                                                </tr>
+                                            {{/each}}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                {{/if}}
+                            </section>
 
-                            <table class="armor-table">
-                                <thead>
-                                    <tr class="uesrpg-equipment-group-header">
-                                        {{> "systems/uesrpg-3ev4/templates/partials/sheets/equipment-group-name-header.hbs" group="armor" itemType="armor" legacyId="armor" altType="equipment" label=(localize "UESRPG.Sheets.Equipment.Armor")}}
-                                        <th>{{localize "UESRPG.Sheets.Equipment.AR"}}</th>
-                                        <th>{{localize "UESRPG.Sheets.Equipment.MR"}}</th>
-                                        <th>{{localize "UESRPG.Sheets.Equipment.BR"}}</th>
-                                        <th class="right-align-cell"><i class="fas fa-trash"></i></th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {{#each actor.armor.equipped as |item id|}}
-                                        <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
-                                            <td class="item-name-cell">
-                                                <div class="flex-container">
-                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} data-tooltip="UESRPG.UI.Equip" aria-label="{{localize "UESRPG.UI.Equip"}}">
-                                                    <img class="item-img" src="{{item.img}}" alt="{{item.name}}">
-                                                    {{#if item.system.containerStats.container_id}}
-                                                        <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}" data-tooltip="UESRPG.Sheets.Equipment.OpenContainer" aria-label="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}"><i class="fa-solid fa-backpack" aria-hidden="true"></i></button>
-                                                    {{/if}}
-                                                    <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control">{{item.name}}</button>
-                                                    {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-cast-enchantment-control.hbs" item=item}}
-                                                </div>
-                                            </td>
-                                            <td>{{#if item.system.armorEffective}}{{item.system.armorEffective}}{{else}}{{item.system.armor}}{{/if}}</td>
-                                            <td>{{#if item.system.magic_arEffective}}{{item.system.magic_arEffective}}{{#if item.system.special_ar_typeEffective}} {{item.system.special_ar_typeEffective}}{{/if}}{{else}}{{item.system.magic_ar}}{{/if}}</td>
-                                            <td>{{#if item.system.blockRatingEffective}}{{item.system.blockRatingEffective}}{{else}}{{item.system.blockRating}}{{/if}}</td>
-                                            <td class="right-align-cell"><button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></button></td>
-                                        </tr>
-                                    {{/each}}
-                                    {{#each actor.armor.unequipped as |item id|}}
-                                        <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
-                                            <td class="item-name-cell">
-                                                <div class="flex-container">
-                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} data-tooltip="UESRPG.UI.Equip" aria-label="{{localize "UESRPG.UI.Equip"}}">
-                                                    <img class="item-img" src="{{item.img}}" alt="{{item.name}}">
-                                                    {{#if item.system.containerStats.container_id}}
-                                                        <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}" data-tooltip="UESRPG.Sheets.Equipment.OpenContainer" aria-label="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}"><i class="fa-solid fa-backpack" aria-hidden="true"></i></button>
-                                                    {{/if}}
-                                                    <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control">{{item.name}}</button>
-                                                    {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-cast-enchantment-control.hbs" item=item}}
-                                                </div>
-                                            </td>
-                                            <td>{{#if item.system.armorEffective}}{{item.system.armorEffective}}{{else}}{{item.system.armor}}{{/if}}</td>
-                                            <td>{{#if item.system.magic_arEffective}}{{item.system.magic_arEffective}}{{#if item.system.special_ar_typeEffective}} {{item.system.special_ar_typeEffective}}{{/if}}{{else}}{{item.system.magic_ar}}{{/if}}</td>
-                                            <td>{{#if item.system.blockRatingEffective}}{{item.system.blockRatingEffective}}{{else}}{{item.system.blockRating}}{{/if}}</td>
-                                            <td class="right-align-cell"><button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></button></td>
-                                        </tr>
-                                    {{/each}}
-                                </tbody>
-                            </table>
+                            <section class="uesrpg-inventory-section uesrpg-collapsible" data-list-filter-group>
+                                {{> "systems/uesrpg-3ev4/templates/partials/sheets/equipment-group-name-header.hbs" group="armor" itemType="armor" legacyId="armor" altType="equipment" label=(localize "UESRPG.Sheets.Equipment.Armor") sectionHeader=true}}
+                                {{#if (or actor.armor.equipped.length actor.armor.unequipped.length)}}
+                                <div class="uesrpg-collapse-body uesrpg-inventory-table-wrap">
+                                    <table class="armor-table">
+                                        <thead>
+                                            <tr>
+                                                <th scope="col" class="item-name-cell">{{localize "UESRPG.UI.Name"}}</th>
+                                                <th scope="col">{{localize "UESRPG.Sheets.Equipment.AR"}}</th>
+                                                <th scope="col">{{localize "UESRPG.Sheets.Equipment.MR"}}</th>
+                                                <th scope="col">{{localize "UESRPG.Sheets.Equipment.BR"}}</th>
+                                                <th scope="col" class="right-align-cell" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash" aria-hidden="true"></i></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {{#each actor.armor.equipped as |item id|}}
+                                                <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                                    <td class="item-name-cell">
+                                                        <div class="flex-container">
+                                                            <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} data-tooltip="UESRPG.UI.Equip" aria-label="{{localize "UESRPG.UI.Equip"}}">
+                                                            <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-image-action" data-action="postItemToChat" data-tooltip="UESRPG.UI.PostToChat" aria-label="{{localize "UESRPG.UI.PostToChat"}}: {{item.name}}"><img class="item-img" src="{{item.img}}" alt="" aria-hidden="true"></button>
+                                                            {{#if item.system.containerStats.container_id}}
+                                                                <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}" data-tooltip="UESRPG.Sheets.Equipment.OpenContainer" aria-label="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}"><i class="fa-solid fa-backpack" aria-hidden="true"></i></button>
+                                                            {{/if}}
+                                                            <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control">{{item.name}}</button>
+                                                            {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-cast-enchantment-control.hbs" item=item}}
+                                                        </div>
+                                                    </td>
+                                                    <td>{{#if item.system.armorEffective}}{{item.system.armorEffective}}{{else}}{{item.system.armor}}{{/if}}</td>
+                                                    <td>{{#if item.system.magic_arEffective}}{{item.system.magic_arEffective}}{{#if item.system.special_ar_typeEffective}} {{item.system.special_ar_typeEffective}}{{/if}}{{else}}{{item.system.magic_ar}}{{/if}}</td>
+                                                    <td>{{#if item.system.blockRatingEffective}}{{item.system.blockRatingEffective}}{{else}}{{item.system.blockRating}}{{/if}}</td>
+                                                    <td class="right-align-cell"><button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></button></td>
+                                                </tr>
+                                            {{/each}}
+                                            {{#each actor.armor.unequipped as |item id|}}
+                                                <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                                    <td class="item-name-cell">
+                                                        <div class="flex-container">
+                                                            <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} data-tooltip="UESRPG.UI.Equip" aria-label="{{localize "UESRPG.UI.Equip"}}">
+                                                            <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-image-action" data-action="postItemToChat" data-tooltip="UESRPG.UI.PostToChat" aria-label="{{localize "UESRPG.UI.PostToChat"}}: {{item.name}}"><img class="item-img" src="{{item.img}}" alt="" aria-hidden="true"></button>
+                                                            {{#if item.system.containerStats.container_id}}
+                                                                <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}" data-tooltip="UESRPG.Sheets.Equipment.OpenContainer" aria-label="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}"><i class="fa-solid fa-backpack" aria-hidden="true"></i></button>
+                                                            {{/if}}
+                                                            <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control">{{item.name}}</button>
+                                                            {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-cast-enchantment-control.hbs" item=item}}
+                                                        </div>
+                                                    </td>
+                                                    <td>{{#if item.system.armorEffective}}{{item.system.armorEffective}}{{else}}{{item.system.armor}}{{/if}}</td>
+                                                    <td>{{#if item.system.magic_arEffective}}{{item.system.magic_arEffective}}{{#if item.system.special_ar_typeEffective}} {{item.system.special_ar_typeEffective}}{{/if}}{{else}}{{item.system.magic_ar}}{{/if}}</td>
+                                                    <td>{{#if item.system.blockRatingEffective}}{{item.system.blockRatingEffective}}{{else}}{{item.system.blockRating}}{{/if}}</td>
+                                                    <td class="right-align-cell"><button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></button></td>
+                                                </tr>
+                                            {{/each}}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                {{/if}}
+                            </section>
 
-                            <table class="ues-table--gear">
-                                <thead>
-                                    <tr class="uesrpg-equipment-group-header">
-                                        {{> "systems/uesrpg-3ev4/templates/partials/sheets/equipment-group-name-header.hbs" group="gear" itemType="createSelect" legacyId="createSelect" nameCellClass="ues-col-name" label=(localize "UESRPG.Sheets.Equipment.Equipment")}}
-                                        <th class="ues-col-stat">{{localize "UESRPG.Sheets.Equipment.Qty"}}</th>
-                                        <th class="ues-col-stat">{{localize "UESRPG.UI.ENC"}}</th>
-                                        <th class="ues-col-stat">{{localize "UESRPG.Sheets.Equipment.Price"}}</th>
-                                        <th class="ues-col-actions"><i class="fas fa-trash"></i></th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {{#each actor.gear.equipped as |item id|}}
-                                        <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
-                                            <td class="item-name-cell ues-col-name">
-                                                <div class="tableItemNameCell">
-                                                    <div class="qty-controls">
-                                                        <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} data-tooltip="UESRPG.UI.Equip" aria-label="{{localize "UESRPG.UI.Equip"}}">
-                                                    </div>
-                                                    <img class="item-img" src="{{item.img}}" data-tooltip="UESRPG.UI.PostToChat" alt="{{item.name}}" />
-                                                    {{#if item.system.containerStats.container_id}}
-                                                        <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}" data-tooltip="UESRPG.Sheets.Equipment.OpenContainer" aria-label="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}"><i class="fa-solid fa-backpack" aria-hidden="true"></i></button>
-                                                    {{/if}}
-                                                    <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control">{{item.name}}</button>
-                                                    {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-cast-enchantment-control.hbs" item=item}}
-                                                </div>
-                                            </td>
-                                            <td class="ues-col-stat">{{item.system.quantity}}</td>
-                                            <td class="ues-col-stat">{{item.system.enc}}</td>
-                                            <td class="ues-col-stat">{{item.system.price}}</td>
-                                            <td class="ues-col-actions">
-                                                <button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></button>
-                                            </td>
-                                        </tr>
-                                    {{/each}}
-                                    {{#each actor.gear.unequipped as |item id|}}
-                                        <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
-                                            <td class="item-name-cell ues-col-name">
-                                                <div class="tableItemNameCell">
-                                                    <div class="qty-controls">
-                                                        <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} data-tooltip="UESRPG.UI.Equip" aria-label="{{localize "UESRPG.UI.Equip"}}">
-                                                    </div>
-                                                    <img class="item-img" src="{{item.img}}" data-tooltip="UESRPG.UI.PostToChat" alt="{{item.name}}" />
-                                                    {{#if item.system.containerStats.container_id}}
-                                                        <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}" data-tooltip="UESRPG.Sheets.Equipment.OpenContainer" aria-label="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}"><i class="fa-solid fa-backpack" aria-hidden="true"></i></button>
-                                                    {{/if}}
-                                                    <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control">{{item.name}}</button>
-                                                    {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-cast-enchantment-control.hbs" item=item}}
-                                                </div>
-                                            </td>
-                                            <td class="ues-col-stat">{{item.system.quantity}}</td>
-                                            <td class="ues-col-stat">{{item.system.enc}}</td>
-                                            <td class="ues-col-stat">{{item.system.price}}</td>
-                                            <td class="ues-col-actions">
-                                                <button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></button>
-                                            </td>
-                                        </tr>
-                                    {{/each}}
-                                </tbody>
-                            </table>
+                            <section class="uesrpg-inventory-section uesrpg-collapsible" data-list-filter-group>
+                                {{> "systems/uesrpg-3ev4/templates/partials/sheets/equipment-group-name-header.hbs" group="gear" itemType="createSelect" legacyId="createSelect" nameCellClass="ues-col-name" label=(localize "UESRPG.Sheets.Equipment.Equipment") sectionHeader=true}}
+                                {{#if (or actor.gear.equipped.length actor.gear.unequipped.length)}}
+                                <div class="uesrpg-collapse-body uesrpg-inventory-table-wrap">
+                                    <table class="ues-table--gear">
+                                        <thead>
+                                            <tr>
+                                                <th scope="col" class="item-name-cell ues-col-name">{{localize "UESRPG.UI.Name"}}</th>
+                                                <th scope="col" class="ues-col-stat">{{localize "UESRPG.Sheets.Equipment.Qty"}}</th>
+                                                <th scope="col" class="ues-col-stat">{{localize "UESRPG.UI.ENC"}}</th>
+                                                <th scope="col" class="ues-col-stat">{{localize "UESRPG.Sheets.Equipment.Price"}}</th>
+                                                <th scope="col" class="ues-col-actions" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash" aria-hidden="true"></i></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {{#each actor.gear.equipped as |item id|}}
+                                                <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                                    <td class="item-name-cell ues-col-name">
+                                                        <div class="tableItemNameCell">
+                                                            <div class="qty-controls">
+                                                                <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} data-tooltip="UESRPG.UI.Equip" aria-label="{{localize "UESRPG.UI.Equip"}}">
+                                                            </div>
+                                                            <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-image-action" data-action="postItemToChat" data-tooltip="UESRPG.UI.PostToChat" aria-label="{{localize "UESRPG.UI.PostToChat"}}: {{item.name}}"><img class="item-img" src="{{item.img}}" alt="" aria-hidden="true" /></button>
+                                                            {{#if item.system.containerStats.container_id}}
+                                                                <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}" data-tooltip="UESRPG.Sheets.Equipment.OpenContainer" aria-label="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}"><i class="fa-solid fa-backpack" aria-hidden="true"></i></button>
+                                                            {{/if}}
+                                                            <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control">{{item.name}}</button>
+                                                            {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-cast-enchantment-control.hbs" item=item}}
+                                                        </div>
+                                                    </td>
+                                                    <td class="ues-col-stat">{{item.system.quantity}}</td>
+                                                    <td class="ues-col-stat">{{item.system.enc}}</td>
+                                                    <td class="ues-col-stat">{{item.system.price}}</td>
+                                                    <td class="ues-col-actions">
+                                                        <button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></button>
+                                                    </td>
+                                                </tr>
+                                            {{/each}}
+                                            {{#each actor.gear.unequipped as |item id|}}
+                                                <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                                    <td class="item-name-cell ues-col-name">
+                                                        <div class="tableItemNameCell">
+                                                            <div class="qty-controls">
+                                                                <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} data-tooltip="UESRPG.UI.Equip" aria-label="{{localize "UESRPG.UI.Equip"}}">
+                                                            </div>
+                                                            <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-image-action" data-action="postItemToChat" data-tooltip="UESRPG.UI.PostToChat" aria-label="{{localize "UESRPG.UI.PostToChat"}}: {{item.name}}"><img class="item-img" src="{{item.img}}" alt="" aria-hidden="true" /></button>
+                                                            {{#if item.system.containerStats.container_id}}
+                                                                <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}" data-tooltip="UESRPG.Sheets.Equipment.OpenContainer" aria-label="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}"><i class="fa-solid fa-backpack" aria-hidden="true"></i></button>
+                                                            {{/if}}
+                                                            <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control">{{item.name}}</button>
+                                                            {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-cast-enchantment-control.hbs" item=item}}
+                                                        </div>
+                                                    </td>
+                                                    <td class="ues-col-stat">{{item.system.quantity}}</td>
+                                                    <td class="ues-col-stat">{{item.system.enc}}</td>
+                                                    <td class="ues-col-stat">{{item.system.price}}</td>
+                                                    <td class="ues-col-actions">
+                                                        <button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></button>
+                                                    </td>
+                                                </tr>
+                                            {{/each}}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                {{/if}}
+                            </section>
 
                         </div>
                     </div>

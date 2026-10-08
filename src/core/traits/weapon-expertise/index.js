@@ -26,6 +26,7 @@ export {
   applyWeaponExpertiseAttackerPreTN,
   applyWeaponExpertiseDamageModifiers,
   applyWeaponExpertisePostDamageEffects,
+  hasWeaponExpertisePostDamageEffects,
   getWeaponExpertiseWTDelta,
   collectWeaponExpertiseNotes
 } from "./weapon-expertise-handlers.js";

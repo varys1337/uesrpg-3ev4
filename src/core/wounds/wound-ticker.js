@@ -69,16 +69,16 @@ export function registerWoundCombatTicker({ tickActorEndTurn } = {}) {
     if (!combat?.id) return;
     if (payload?.combat?.id && String(payload.combat.id) !== String(combat.id)) return;
 
-    const prev = _getState(combat);
+    const prev = payload.combat?.prior ?? _getState(combat);
     if (!prev) {
       _setState(combat);
       return;
     }
 
     const prevCombatantId = prev.combatantId;
-    const next = _snapshotCombat(combat);
+    const next = payload.combat?.current ?? _snapshotCombat(combat);
     const advanced = (next.round !== prev.round) || (next.turn !== prev.turn) || (next.combatantId !== prevCombatantId);
-    _setState(combat);
+    _combatState.set(String(combat.id), { ...next });
     if (!advanced) return;
 
     if (!tickFn || !prevCombatantId) return;
@@ -88,9 +88,10 @@ export function registerWoundCombatTicker({ tickActorEndTurn } = {}) {
     if (!actor) return;
 
     try {
-      await tickFn(actor);
+      await tickFn(actor, { strict: true });
     } catch (err) {
       console.warn("UESRPG | Wounds | combat ticker failed", err);
+      throw err;
     }
   };
 

@@ -4,11 +4,12 @@ let _chatLogHookRegistered = false;
 function _registerChatLogHook() {
   if (_chatLogHookRegistered) return;
   Hooks.on("renderChatLog", (_app, html) => {
-    const host = html instanceof HTMLElement ? html : html?.[0];
-    if (!(host instanceof HTMLElement)) return;
+    const host = html?.nodeType === 1 ? html : html?.[0];
+    const view = host?.ownerDocument?.defaultView;
+    if (!view || !(host instanceof view.HTMLElement)) return;
 
     const chatLog = host.querySelector?.("#chat-log") ?? host;
-    if (!(chatLog instanceof HTMLElement)) return;
+    if (!(chatLog instanceof view.HTMLElement)) return;
 
     for (const mount of _chatLogMountHandlers.values()) {
       try {
@@ -46,17 +47,18 @@ export function registerDelegatedChatLogClickHandler({
     chatLog.addEventListener(
       "click",
       async (ev) => {
-        const target = ev.target instanceof HTMLElement ? ev.target : null;
+        const view = chatLog.ownerDocument.defaultView;
+        const target = ev.target instanceof view.Element ? ev.target : null;
         if (!target) return;
 
         const btn = target.closest(selector);
-        if (!(btn instanceof HTMLElement)) return;
+        if (!(btn instanceof view.HTMLElement)) return;
 
         if (btn.hasAttribute("disabled") || btn.getAttribute("aria-disabled") === "true") {
           ev.preventDefault();
           return;
         }
-        if (btn instanceof HTMLButtonElement && btn.disabled) {
+        if (btn instanceof view.HTMLButtonElement && btn.disabled) {
           ev.preventDefault();
           return;
         }

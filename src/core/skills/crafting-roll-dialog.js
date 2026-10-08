@@ -1,9 +1,11 @@
+import { renderTNSummary, bindTNEstimates } from "../../ui/shared/tn-presentation.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
 import { getAllCharacteristicOptions, getPreferredSkillCharacteristic, normalizeCharacteristicKey } from "../../utils/maps/characteristics.js";
 import { buildResistanceBonusSection, readResistanceBonusSelections, buildResistanceBonusMods } from "../traits/trait-resistance-ui.js";
 import { normalizeSkillRollOptions } from "./roll-request.js";
 import { computeSkillTN, SKILL_DIFFICULTIES } from "./skill-tn.js";
 import { t } from "../../utils/i18n.js";
+import { systemTooltipAttributes } from "../../ui/shared/system-tooltips.js";
 
 /**
  * Prompt for the common declaration options used by non-opposed crafting tests.
@@ -13,6 +15,7 @@ import { t } from "../../utils/i18n.js";
 export async function promptCraftingSkillRollDeclaration(actor, skill, {
   title = null,
   difficultyKey = "average",
+  estimateTests = null,
 } = {}) {
   if (!actor || !skill) return null;
 
@@ -69,17 +72,47 @@ export async function promptCraftingSkillRollDeclaration(actor, skill, {
       </select>
     </div>` : "";
 
+  const readDeclaration = (root) => {
+    const selectedCharacteristicKey = String(
+      root?.querySelector('select[name="selectedCharacteristicKey"]')?.value
+      ?? defaults.selectedCharacteristicKey
+      ?? defaultCharacteristic
+    );
+    const normalized = normalizeSkillRollOptions({
+      difficultyKey: root?.querySelector('select[name="difficultyKey"]')?.value ?? difficultyKey,
+      manualMod: Number.parseInt(String(root?.querySelector('input[name="manualMod"]')?.value ?? "0"), 10) || 0,
+      useSpec: Boolean(root?.querySelector('input[name="useSpec"]')?.checked),
+      selectedCharacteristicKey,
+    }, defaults);
+    return {
+      ...normalized,
+      resistanceSelected: readResistanceBonusSelections(root, resistanceSection.options),
+    };
+  };
+
+  const computeDeclaredTN = (declaration) => computeSkillTN({
+    actor,
+    skillItem: skill,
+    difficultyKey: declaration.difficultyKey,
+    manualMod: declaration.manualMod,
+    selectedCharacteristicKey: String(declaration.selectedCharacteristicKey ?? defaultCharacteristic),
+    useSpecialization: hasSpecialization && declaration.useSpec,
+    situationalMods: buildResistanceBonusMods(declaration.resistanceSelected),
+  });
+  const estimates = estimateTests ?? [{ key: "test", label: skill.name, resolve: (tn) => tn }];
+
   const content = `
     <div class="uesrpg-skill-roll">
+      ${renderTNSummary(estimates)}
       <div class="form-group">
         <label><b>${esc(t("UESRPG.Apps.EnchantingWorkshop.RollDialog.Difficulty", "Difficulty"))}</b></label>
         <select name="difficultyKey">${difficultyOptions}</select>
       </div>
       ${characteristicSelect}
       <div class="form-group">
-        <label class="uesrpg-inline-checkbox">
+        <label class="uesrpg-inline-checkbox uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: hasSpecialization ? t("UESRPG.Apps.EnchantingWorkshop.RollDialog.Specialization", "Use Specialization") : t("UESRPG.Apps.EnchantingWorkshop.RollDialog.NoSpecialization", "none on this skill") })} ${hasSpecialization ? "" : 'tabindex="0"'}>
           <input type="checkbox" name="useSpec" ${hasSpecialization ? "" : "disabled"} ${defaults.useSpec ? "checked" : ""}>
-          <span><b>${esc(t("UESRPG.Apps.EnchantingWorkshop.RollDialog.Specialization", "Use Specialization"))}</b> (+10)${hasSpecialization ? "" : ` <small>${esc(t("UESRPG.Apps.EnchantingWorkshop.RollDialog.NoSpecialization", "none on this skill"))}</small>`}</span>
+          <span class="uesrpg-adv-choice__label"><b>${esc(t("UESRPG.Apps.EnchantingWorkshop.RollDialog.Specialization", "Use Specialization"))}</b> (+10)</span>
         </label>
       </div>
       <div class="form-group">
@@ -95,27 +128,14 @@ export async function promptCraftingSkillRollDeclaration(actor, skill, {
       layout: "workflow",
       title: title ?? `${skill.name} - ${t("UESRPG.Apps.EnchantingWorkshop.RollDialog.Title", "Roll Options")}`,
       content,
+      render: (_event, dialog) => bindTNEstimates(dialog.element, () => {
+        const tn = computeDeclaredTN(readDeclaration(dialog.element));
+        return estimates.map(({ key, label, resolve }) => ({ key, label, result: resolve(tn) }));
+      }),
       buttons: {
         ok: {
           label: t("UESRPG.Apps.EnchantingWorkshop.RollDialog.Roll", "Roll"),
-          callback: (html) => {
-            const root = html instanceof HTMLElement ? html : html?.[0];
-            const selectedCharacteristicKey = String(
-              root?.querySelector('select[name="selectedCharacteristicKey"]')?.value
-              ?? defaults.selectedCharacteristicKey
-              ?? defaultCharacteristic
-            );
-            const normalized = normalizeSkillRollOptions({
-              difficultyKey: root?.querySelector('select[name="difficultyKey"]')?.value ?? difficultyKey,
-              manualMod: Number.parseInt(String(root?.querySelector('input[name="manualMod"]')?.value ?? "0"), 10) || 0,
-              useSpec: Boolean(root?.querySelector('input[name="useSpec"]')?.checked),
-              selectedCharacteristicKey,
-            }, defaults);
-            return {
-              ...normalized,
-              resistanceSelected: readResistanceBonusSelections(root, resistanceSection.options),
-            };
-          },
+          callback: (html) => readDeclaration(html instanceof HTMLElement ? html : html?.[0])
         },
         cancel: { label: t("UESRPG.Buttons.Cancel", "Cancel"), callback: () => null },
       },
@@ -127,8 +147,9 @@ export async function promptCraftingSkillRollDeclaration(actor, skill, {
   }
   if (!declaration) return null;
 
+  const resistanceSelected = Array.isArray(declaration.resistanceSelected) ? declaration.resistanceSelected : [];
   declaration = normalizeSkillRollOptions(declaration, defaults);
-  declaration.resistanceSelected = Array.isArray(declaration.resistanceSelected) ? declaration.resistanceSelected : [];
+  declaration.resistanceSelected = resistanceSelected;
   await setLast({
     difficultyKey: declaration.difficultyKey,
     manualMod: declaration.manualMod,
@@ -136,14 +157,6 @@ export async function promptCraftingSkillRollDeclaration(actor, skill, {
     lastSkillUuidByActor: { [actor.uuid]: skill.uuid },
   });
 
-  const tn = computeSkillTN({
-    actor,
-    skillItem: skill,
-    difficultyKey: declaration.difficultyKey,
-    manualMod: declaration.manualMod,
-    selectedCharacteristicKey: String(declaration.selectedCharacteristicKey ?? defaultCharacteristic),
-    useSpecialization: hasSpecialization && declaration.useSpec,
-    situationalMods: buildResistanceBonusMods(declaration.resistanceSelected),
-  });
+  const tn = computeDeclaredTN(declaration);
   return { declaration, tn, hasSpec: hasSpecialization };
 }

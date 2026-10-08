@@ -27,6 +27,10 @@ import { buildClashGroupForPair } from "../battlefield/groups.js";
 import { getWarfareTerrainAtPoint } from "../battlefield/terrain.js";
 import { isMassCombatEnabled, requireMassCombatEnabled } from "../../homebrew/settings.js";
 
+import { isActiveGMUser } from "../../../utils/users.js";
+import { measurePerfStage } from "../../../utils/perf-tracker.js";
+const _sceneSynchronizations = new Map();
+
 const ONE_ROUND_WARFARE_EFFECT_KEYS = new Set([
   "joinFrayNextClash",
   "holdNextDefend",
@@ -154,6 +158,7 @@ function _currentChargeForTarget(state, defenderTokenUuid) {
 
 async function _synchronizeBattlefieldStateAndModifiers(scene) {
   if (!scene) return null;
+  if (!isActiveGMUser(game.user)) return getSceneWarfareEncounterState(scene);
   const state = getSceneWarfareEncounterState(scene);
   const actorUpdates = [];
   let battlefieldChanged = false;
@@ -205,11 +210,14 @@ async function _synchronizeBattlefieldStateAndModifiers(scene) {
     if (Object.keys(updateData).length) actorUpdates.push({ docOrUuid: actor, updateData });
   }
 
-  if (actorUpdates.length) await requestBatchUpdateDocuments(actorUpdates);
+  if (actorUpdates.length) {
+    const applied = await requestBatchUpdateDocuments(actorUpdates);
+    if (applied.failedCount) throw new Error("Warfare Actor synchronization only partially persisted.");
+  }
   if (battlefieldChanged) {
     return updateSceneWarfareEncounterState(scene, {
       battlefield: { units: nextBattlefieldUnits },
-    });
+    }, { strict: true });
   }
   return getSceneWarfareEncounterState(scene);
 }
@@ -255,11 +263,14 @@ async function _processBrokenAndRoutedUnits(scene, state) {
     }
   }
 
-  if (actorUpdates.length) await requestBatchUpdateDocuments(actorUpdates);
+  if (actorUpdates.length) {
+    const applied = await requestBatchUpdateDocuments(actorUpdates);
+    if (applied.failedCount) throw new Error("Warfare Actor synchronization only partially persisted.");
+  }
   if (battlefieldChanged) {
     await updateSceneWarfareEncounterState(scene, {
       battlefield: { units: nextUnits },
-    });
+    }, { strict: true });
   }
 }
 
@@ -283,7 +294,8 @@ async function _clearWarfareActorRoundState(actor, {
   }
 
   if (Object.keys(updateData).length) {
-    await requestBatchUpdateDocuments([{ docOrUuid: actor, updateData }]);
+    const applied = await requestBatchUpdateDocuments([{ docOrUuid: actor, updateData }]);
+    if (applied.failedCount) throw new Error("Warfare round cleanup was not confirmed.");
   }
 
   if (!clearOneRoundEffects) return;
@@ -291,7 +303,7 @@ async function _clearWarfareActorRoundState(actor, {
     .filter((effect) => !effect.disabled && ONE_ROUND_WARFARE_EFFECT_KEYS.has(String(effect?.flags?.[FLAG_SCOPE]?.key ?? "")))
     .map((effect) => effect.id)
     .filter(Boolean);
-  if (ids.length) await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", ids);
+  if (ids.length && !await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", ids)) throw new Error("Warfare effect cleanup was not confirmed.");
 }
 
 async function _clearEncounterCleanupState(scene) {
@@ -316,13 +328,36 @@ export function getWarfareEncounterState(scene) {
   return getSceneWarfareEncounterState(resolvedScene);
 }
 
-export async function synchronizeWarfareEncounter(scene) {
-  if (!isMassCombatEnabled()) return null;
+export function synchronizeWarfareEncounter(scene) {
+  if (!isMassCombatEnabled()) return Promise.resolve(null);
   const resolvedScene = _resolveScene(scene);
-  if (!resolvedScene) return null;
-  const synchronized = await updateSceneWarfareEncounterState(resolvedScene, (current) => _normalizeClashLogStatuses(current));
-  await _synchronizeBattlefieldStateAndModifiers(resolvedScene);
-  return synchronized;
+  if (!resolvedScene) return Promise.resolve(null);
+  if (!isActiveGMUser(game.user)) return Promise.resolve(getSceneWarfareEncounterState(resolvedScene));
+  const key = resolvedScene.uuid;
+  const active = _sceneSynchronizations.get(key);
+  if (active) { active.dirty = true; return active.promise; }
+  const state = { dirty: false, promise: null };
+  state.promise = Promise.resolve().then(async () => {
+    let result;
+    const failures = [];
+    do {
+      state.dirty = false;
+      try {
+        result = await measurePerfStage("warfare", "synchronization", { sceneUuid: key }, async () => {
+          await updateSceneWarfareEncounterState(resolvedScene, current => _normalizeClashLogStatuses(current), { strict: true });
+          return _synchronizeBattlefieldStateAndModifiers(resolvedScene);
+        });
+      } catch (error) { failures.push(error); }
+    } while (state.dirty);
+    // Release before the promise settles so a subsequent change starts a fresh pass.
+    _sceneSynchronizations.delete(key);
+    if (failures.length) throw new AggregateError(failures, "Warfare synchronization only partially completed.");
+    return result;
+  }).finally(() => {
+    if (_sceneSynchronizations.get(key) === state) _sceneSynchronizations.delete(key);
+  });
+  _sceneSynchronizations.set(key, state);
+  return state.promise;
 }
 
 export async function startWarfareEncounter(scene) {
@@ -343,8 +378,8 @@ export async function startWarfareEncounter(scene) {
     activations: {},
     charges: {},
     clashLog: [],
-  }));
-  await _synchronizeBattlefieldStateAndModifiers(resolvedScene);
+  }), { strict: true });
+  await synchronizeWarfareEncounter(resolvedScene);
   return started;
 }
 
@@ -363,8 +398,8 @@ export async function endWarfareEncounter(scene) {
     activations: {},
     charges: {},
     clashLog: [],
-  }));
-  await _synchronizeBattlefieldStateAndModifiers(resolvedScene);
+  }), { strict: true });
+  await synchronizeWarfareEncounter(resolvedScene);
   return ended;
 }
 
@@ -383,13 +418,13 @@ export async function advanceWarfareEncounter(scene) {
     return updateSceneWarfareEncounterState(resolvedScene, {
       phase: WARFARE_ENCOUNTER_PHASES.STRATEGIC,
       currentSide: current.prioritySide,
-    });
+    }, { strict: true });
   }
 
   if (current.phase === WARFARE_ENCOUNTER_PHASES.STRATEGIC) {
     return updateSceneWarfareEncounterState(resolvedScene, {
       phase: WARFARE_ENCOUNTER_PHASES.CLASH,
-    });
+    }, { strict: true });
   }
 
   await _processBrokenAndRoutedUnits(resolvedScene, current);
@@ -403,8 +438,8 @@ export async function advanceWarfareEncounter(scene) {
     state.activations = {};
     state.charges = {};
     return state;
-  });
-  await _synchronizeBattlefieldStateAndModifiers(resolvedScene);
+  }, { strict: true });
+  await synchronizeWarfareEncounter(resolvedScene);
   return advanced;
 }
 
@@ -420,7 +455,7 @@ export async function passWarfareEncounterStrategic(scene) {
   }
   return updateSceneWarfareEncounterState(resolvedScene, {
     currentSide: _oppositeSide(current.currentSide),
-  });
+  }, { strict: true });
 }
 
 export async function ensureEncounterAllowsUtilityAction(actor, {
@@ -523,7 +558,7 @@ export async function commitWarfareEncounterStrategicActivation(actor, {
     };
     state.currentSide = _oppositeSide(resolvedGate.side);
     return state;
-  });
+  }, { strict: true });
   return true;
 }
 
@@ -623,9 +658,9 @@ export async function declareWarfareEncounterChargeForActor(actor, {
       },
     };
     return next;
-  });
+  }, { strict: true });
 
-  await _synchronizeBattlefieldStateAndModifiers(scene);
+  await synchronizeWarfareEncounter(scene);
 
   return {
     handled: true,
@@ -786,19 +821,18 @@ export async function recordWarfareEncounterClash(actor, {
       };
     }
     return next;
-  });
+  }, { strict: true });
 }
 
 export async function syncWarfareEncounterForChatMessage(message) {
-  if (!isMassCombatEnabled()) return false;
+  if (!isMassCombatEnabled() || !isActiveGMUser(game.user)) return false;
   if (!message?.id) return false;
   const scenes = Array.from(game?.scenes?.contents ?? []);
   let updated = false;
   for (const scene of scenes) {
     const current = getSceneWarfareEncounterState(scene);
     if (!Array.from(current?.clashLog ?? []).some((entry) => String(entry.messageId ?? "") === String(message.id))) continue;
-    await updateSceneWarfareEncounterState(scene, (state) => _normalizeClashLogStatuses(state));
-    await _synchronizeBattlefieldStateAndModifiers(scene);
+    await synchronizeWarfareEncounter(scene);
     updated = true;
   }
   return updated;

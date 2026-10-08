@@ -1,3 +1,4 @@
+import { resolveMagicCastContext } from "../../magic/opposed/cast-context.js";
 import { updateCard as updateMagicCard } from "../../magic/opposed/updater.js";
 import { _renderCard as renderCombatCard } from "../opposed/render.js";
 import { getOwnerAndGmRecipientIds as getWhisperRecipients } from '../../../utils/chat-recipients.js';
@@ -10,163 +11,33 @@ export { getWhisperRecipients };
  */
 
 import { DAMAGE_TYPES } from "../damage-automation.js";
-import { doesUserOwnActor } from "../../../utils/authority-proxy.js";
+import { canUserUpdateChatMessage } from "../../../utils/authority-proxy.js";
+import { ChatOutcomeApplicationService } from "../../../application/combat/chat-outcome-application-service.js";
 
 import {
   getMessageState as getMagicMessageState,
-  isMultiDefender as isMagicMultiDefender,
   getMagicDefenderDamage, setMagicDefenderDamage,
   getDefenderEntries as getMagicDefenderEntries,
 } from "../../magic/opposed/schema.js";
 import { renderCard as renderMagicCard } from "../../magic/opposed/render.js";
 import { applyMagicDamage, applyMagicHealing } from "../../magic/damage-application.js";
 import { applyResolvedSpellEffects } from "../../magic/effects/spell-effects.js";
-import { applySpellResourceRestoration } from "../../magic/services/resource-restoration-service.js";
+import { applySpellResourceRestoration, hasSpellResourceRestoration, getSpellResourceRestorationRecipient } from "../../magic/services/resource-restoration-service.js";
 
-import { _isMultiDefender, _getDefenderDamage, _setDefenderDamage, _getDefenderEntries } from "../opposed/schema.js";
+import { _getDefenderDamage, _setDefenderDamage, _getDefenderEntries } from "../opposed/schema.js";
 
 import { updateCard } from "../opposed/cards/updater.js";
 
 import { resolveActorFromUuidSync, resolveUuidSync } from "../../../utils/uuid-cache.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { ApplyDamageService } from "../../../application/combat/apply-damage-service.js";
-import {
-  AUTHORITY_RESULT_CODES,
-  registerAuthorityIntentCommand,
-  registerAuthorityIntentService,
-  requestAuthorityIntent,
-} from "../../../utils/authority-intents.js";
-import { acquireLock, releaseLock } from "../../../utils/authority-proxy/shared.js";
-import { getActiveGMUser } from "../../../utils/users.js";
+import { isPerfEnabled, monoMs, perfRecord } from "../../../utils/perf-tracker.js";
+import { resumeDamageAftermath } from "../damage/deferred-operations.js";
+import { restoreOutcomeItem } from "../../../utils/item-outcome-snapshot.js";
 
 const _FLAG_NS = FLAG_SCOPE;
-const COMBAT_OUTCOME_INTENT = "combat.applyOutcome";
-let _combatOutcomeIntentRegistered = false;
-
-function _getCanonicalOutcome(message, targetUuid, requestedKind = null) {
-  const normalizedTarget = String(targetUuid ?? "").trim();
-  if (!message || !normalizedTarget) return null;
-
-  const magicData = getMagicMessageState(message);
-  if (magicData) {
-    const defender = isMagicMultiDefender(magicData)
-      ? getMagicDefenderEntries(magicData).find((entry) => (
-          entry?.actorUuid === normalizedTarget || entry?.tokenUuid === normalizedTarget
-        ))
-      : magicData.defender;
-    const damage = getMagicDefenderDamage(magicData, defender);
-    const payload = damage?._magicPayload;
-    const applyPayload = damage?.applyPayload;
-    const kind = payload?.isHealing === true ? "healing" : "damage";
-    if (!defender || !damage || damage.applied || !payload || applyPayload?.targetUuid !== normalizedTarget) return null;
-    if (requestedKind && requestedKind !== kind) return null;
-    return {
-      kind,
-      sourceActorUuid: String(payload.casterUuid ?? magicData?.attacker?.actorUuid ?? "").trim(),
-      targetUuid: normalizedTarget,
-      revision: Number(magicData?.context?.updatedSeq ?? magicData?.context?.updatedAt ?? 0) || 0,
-      dataset: foundry.utils.deepClone(applyPayload),
-    };
-  }
-
-  const data = message?.flags?.[_FLAG_NS]?.opposed;
-  if (!data || typeof data !== "object") return null;
-  const defender = _isMultiDefender(data)
-    ? _getDefenderEntries(data).find((entry) => (
-        entry?.actorUuid === normalizedTarget || entry?.tokenUuid === normalizedTarget
-      ))
-    : data.defender;
-  const damage = _getDefenderDamage(data, defender);
-  const applyPayload = damage?.applyPayload;
-  const kind = String(damage?.mode ?? "").toLowerCase() === "healing" ? "healing" : "damage";
-  if (!defender || !damage || damage.applied || !applyPayload || applyPayload.targetUuid !== normalizedTarget) return null;
-  if (requestedKind && requestedKind !== kind) return null;
-  return {
-    kind,
-    sourceActorUuid: String(applyPayload.attackerActorUuid ?? data?.attacker?.actorUuid ?? "").trim(),
-    targetUuid: normalizedTarget,
-    revision: Number(data?.context?.updatedSeq ?? data?.context?.updatedAt ?? 0) || 0,
-    dataset: foundry.utils.deepClone(applyPayload),
-  };
-}
-
-function _requesterOwnsOutcomeSource(requester, message, outcome) {
-  if (requester?.isGM) return true;
-  const sourceActor = outcome?.sourceActorUuid
-    ? resolveActorFromUuidSync(outcome.sourceActorUuid)
-    : null;
-  if (sourceActor) return doesUserOwnActor(requester, sourceActor);
-  const targetActor = resolveActor(message, outcome?.targetUuid);
-  return doesUserOwnActor(requester, targetActor);
-}
-
-async function _requestCombatOutcome(message, targetUuid, kind) {
-  const outcome = _getCanonicalOutcome(message, targetUuid, kind);
-  if (!outcome) return false;
-  const result = await requestAuthorityIntent(COMBAT_OUTCOME_INTENT, {
-    messageId: message.id,
-    targetUuid: outcome.targetUuid,
-    kind: outcome.kind,
-  }, { expectedRevision: outcome.revision });
-  if (!result?.ok) {
-    const warning = result?.code === AUTHORITY_RESULT_CODES.NO_ACTIVE_GM
-      ? "An active GM is required to apply this outcome."
-      : "The GM rejected this combat outcome.";
-    ui.notifications?.warn?.(warning);
-  }
-  return result?.ok === true;
-}
-
 export function registerCombatOutcomeAuthorityIntent() {
-  if (_combatOutcomeIntentRegistered) return;
-  _combatOutcomeIntentRegistered = true;
-  registerAuthorityIntentService();
-  registerAuthorityIntentCommand(COMBAT_OUTCOME_INTENT, async ({ requester, data, expectedRevision }) => {
-    const messageId = String(data?.messageId ?? "").trim();
-    const targetUuid = String(data?.targetUuid ?? "").trim();
-    const kind = String(data?.kind ?? "").trim();
-    if (!messageId || !targetUuid || !["damage", "healing"].includes(kind)) {
-      return { ok: false, code: AUTHORITY_RESULT_CODES.INVALID_REQUEST };
-    }
-
-    const lockKey = `CombatOutcome:${messageId}:${targetUuid}`;
-    let acquired = false;
-    try {
-      await acquireLock(lockKey);
-      acquired = true;
-      const message = game.messages?.get?.(messageId) ?? null;
-      const outcome = _getCanonicalOutcome(message, targetUuid, kind);
-      if (!outcome) return { ok: false, code: AUTHORITY_RESULT_CODES.CONFLICT };
-      if (Number(expectedRevision ?? outcome.revision) !== outcome.revision) {
-        return { ok: false, code: AUTHORITY_RESULT_CODES.STALE_REVISION };
-      }
-      if (!_requesterOwnsOutcomeSource(requester, message, outcome)) {
-        return { ok: false, code: AUTHORITY_RESULT_CODES.UNAUTHORIZED };
-      }
-
-      await _updateInlineApplication(message, targetUuid, (damage) => { damage.applicationStatus = 'pending'; });
-      const event = { preventDefault() {}, currentTarget: { dataset: outcome.dataset } };
-      if (kind === "healing") await onApplyHealing(event, message, { authoritative: true });
-      else await onApplyDamage(event, message, { authoritative: true });
-
-      const unapplied = _getCanonicalOutcome(game.messages?.get?.(messageId), targetUuid, kind);
-      if (unapplied) {
-        await _updateInlineApplication(message, targetUuid, (damage) => { damage.applicationStatus = 'failed'; });
-        return { ok: false, code: AUTHORITY_RESULT_CODES.FAILED };
-      }
-      return { ok: true };
-    } catch (error) {
-      console.error("UESRPG | combat outcome authority intent failed", error);
-      const message = game.messages?.get?.(messageId);
-      if (message) {
-        try { await _updateInlineApplication(message, targetUuid, (damage) => { if (!damage.applied) damage.applicationStatus = 'failed'; }); }
-        catch (reportError) { console.warn('UESRPG | Could not save failed application feedback', reportError); }
-      }
-      return { ok: false, code: AUTHORITY_RESULT_CODES.FAILED };
-    } finally {
-      if (acquired) releaseLock(lockKey);
-    }
-  });
+  ChatOutcomeApplicationService.register();
 }
 
 function _mergeSupplementalGmDamageReport(existing, supplemental) {
@@ -236,8 +107,7 @@ function _mergeSupplementalGmDamageReport(existing, supplemental) {
  */
 export function resolveActor(message, uuid) {
   if (uuid) {
-    const actor = resolveActorFromUuidSync(uuid);
-    if (actor) return actor;
+    return resolveActorFromUuidSync(uuid);
   }
   const sp = message?.speaker;
   if (sp?.token) return canvas?.tokens?.get(sp.token)?.actor ?? null;
@@ -268,34 +138,42 @@ function _resolvedDamageComponents(components) {
   return normalized.length ? normalized : null;
 }
 
-async function _updateInlineApplication(message, targetUuid, mutate) {
+function inlineApplicationLane(data, magic, targetUuid, options = {}) {
+  const entries = magic ? getMagicDefenderEntries(data) : _getDefenderEntries(data);
+  const defender = entries.find(entry => options.defenderTokenUuid ? entry.tokenUuid === options.defenderTokenUuid
+    : entry.actorUuid === targetUuid || entry.tokenUuid === targetUuid)
+    ?? ((!targetUuid || entries.length <= 1) ? data.defender : null);
+  if (!defender) throw new Error('Application target is no longer on this card.');
+  const damage = magic ? getMagicDefenderDamage(data, defender) : _getDefenderDamage(data, defender);
+  if (!damage) throw new Error('No resolved outcome is available for this target.');
+  return { defender, damage };
+}
+
+async function _updateInlineApplication(message, targetUuid, mutate, options = {}) {
   const magic = Boolean(getMagicMessageState(message));
   const updater = magic ? updateMagicCard : updateCard;
-  return updater(message, (data) => {
-    const entries = magic ? getMagicDefenderEntries(data) : _getDefenderEntries(data);
-    const defender = entries.find((entry) => entry.actorUuid === targetUuid || entry.tokenUuid === targetUuid)
-      ?? ((!targetUuid || entries.length <= 1) ? data.defender : null);
-    if (!defender) throw new Error('Application target is no longer on this card.');
-    const damage = magic ? getMagicDefenderDamage(data, defender) : _getDefenderDamage(data, defender);
-    if (!damage) throw new Error('No resolved outcome is available for this target.');
-    mutate(damage);
-    if (magic) setMagicDefenderDamage(data, defender, damage);
-    else _setDefenderDamage(data, defender, damage);
-    return data;
-  }, magic ? renderMagicCard : renderCombatCard);
+  const startedAt = isPerfEnabled() ? monoMs() : null;
+  let kind = null;
+  try {
+    return await updater(message, (data) => {
+      const { defender, damage } = inlineApplicationLane(data, magic, targetUuid, options);
+      kind = damage._magicPayload?.isHealing === true || damage.mode === "healing" ? "healing" : "damage";
+      mutate(damage);
+      if (magic) setMagicDefenderDamage(data, defender, damage);
+      else _setDefenderDamage(data, defender, damage);
+      return data;
+    }, magic ? renderMagicCard : renderCombatCard, options);
+  } finally {
+    if (startedAt !== null) perfRecord({
+      event: "damage.chat.cardUpdate",
+      messageId: message?.id ?? null,
+      targetUuid,
+      kind, family: magic ? "magic" : "combat",
+      renderContent: options.renderContent !== false,
+      durationMs: monoMs() - startedAt,
+    });
+  }
 }
-
-async function _markInlineDamageApplied(message, targetUuid, { gmDamageReport = null, components = null, execution = null } = {}) {
-  return _updateInlineApplication(message, targetUuid, (damage) => {
-    damage.applied = true;
-    damage.applicationStatus = execution?.status === 'partial' ? 'partial' : 'applied';
-    const resolvedComponents = _resolvedDamageComponents(components);
-    if (resolvedComponents) damage.damageComponents = resolvedComponents;
-    if (gmDamageReport) damage.gmDamageReport = foundry.utils.deepClone(gmDamageReport);
-  });
-}
-
-const _markMagicInlineDamageApplied = _markInlineDamageApplied;
 
 export async function appendSupplementalDamageReportToMessage(message, targetUuid, { gmDamageReport = null } = {}) {
   if (!message || !targetUuid || !gmDamageReport || typeof gmDamageReport !== "object") return false;
@@ -307,300 +185,154 @@ export async function appendSupplementalDamageReportToMessage(message, targetUui
   return true;
 }
 
-/** Record the start before any secondary write; interrupted work requires review. */
-async function _applyMagicFollowups({ message, targetUuid, damage, casterActor, targetActor, spell, payload, emitHit = false }) {
-  if (damage.followupsStarted) return { status: "partial", committed: true };
-  let claimed = false;
-  await _updateInlineApplication(message, targetUuid, (current) => {
-    if (current.followupsStarted) return;
-    current.followupsStarted = true;
-    claimed = true;
-  });
-  if (!claimed) return { status: "partial", committed: true };
-  const execution = { status: "applied", committed: true };
+function applyInlineReceipt(damage, receipt) {
+  damage.applicationStatus = receipt.status;
+  damage.applicationError = receipt.error ?? "";
+  damage.applied = ["applied", "partial"].includes(receipt.status) || receipt.stages?.health?.status === "applied";
+  const result = receipt.result ?? receipt.stages?.health?.result;
+  const components = _resolvedDamageComponents(result?.components);
+  if (components) damage.damageComponents = components;
+  if (result?.gmDamageReport) damage.gmDamageReport = foundry.utils.deepClone(result.gmDamageReport);
+  const castContext = receipt.stages?.castContext?.result?.castContext;
+  if (castContext && damage._magicPayload) damage._magicPayload.castContext = castContext;
+}
+
+export async function synchronizeInlineChatOutcome(message, outcome, receipt) {
+  if (!canUserUpdateChatMessage(message, game.user)) return false;
+  const live = game.messages.get(message.id) ?? message;
+  const magic = getMagicMessageState(live);
+  const options = { defenderTokenUuid: outcome.defenderTokenUuid };
+  const { damage } = inlineApplicationLane(magic ?? live.flags?.[_FLAG_NS]?.opposed ?? {}, Boolean(magic), outcome.targetUuid, options);
+  const next = foundry.utils.deepClone(damage);
+  applyInlineReceipt(next, receipt);
+  if (!Object.keys(foundry.utils.diffObject(damage, next)).length) return { ok: true, changed: false };
+  return _updateInlineApplication(live, outcome.targetUuid, damage => applyInlineReceipt(damage, receipt), options);
+}
+
+function requireResult(result) {
+  if (result == null) throw Object.assign(new Error("The outcome could not be applied."), { committed: false });
+  return result;
+}
+
+async function applyMagicOutcome(outcome, context) {
+  const { message, actor: targetActor } = context;
+  const payload = foundry.utils.deepClone(outcome.damage._magicPayload);
+  if (outcome.damage.followupsStarted) throw new Error("Previously started spell consequences require manual review.");
+  if (!payload) throw Object.assign(new Error("The stored spell result is unavailable."), { committed: false });
+  const casterActor = resolveActorFromUuidSync(payload.casterUuid);
+  const spell = payload.alchemySpell ? payload.spellSnapshot : payload.spellSnapshot
+    ? restoreOutcomeItem(payload.spellSnapshot, payload.spellSnapshotContext)
+    : payload.spellUuid ? resolveUuidSync(payload.spellUuid) : null;
+  if (payload.needsEffects && (!spell || !casterActor)) {
+    throw Object.assign(new Error("The spell or caster is no longer available."), { committed: false });
+  }
+  if (!payload.castContext?.spellStrengthResolved && spell) {
+    const resolved = await context.stage("castContext", async () => ({ castContext: await resolveMagicCastContext({
+      castContext: payload.castContext, spellOptions: payload.spellOptions, scalingChoices: payload.scalingChoices,
+    }, spell, { actor: casterActor, message, user: message.author }) }));
+    payload.castContext = resolved.castContext;
+  }
+  let result = {};
+  if (outcome.kind === "healing" && Number(payload.damage ?? 0) <= 0) result = { healing: 0 };
+  else if (outcome.kind !== "effect") {
+    result = await context.stage("health", async () => requireResult(outcome.kind === "healing"
+      ? await applyMagicHealing(targetActor, Number(payload.damage ?? 0), spell, {
+          ...payload, messageId: message.id, receiptId: context.receiptId, casterActor, outcomeContext: context,
+          isTemporary: Boolean(payload.isTemporary),
+        })
+      : await applyMagicDamage(targetActor, Number(payload.damage ?? 0), payload.damageType || "magic", spell, {
+          ...payload, receiptId: context.receiptId, casterActor, skipChatMessage: true, outcomeContext: context,
+        })));
+  }
+  result = await resumeDamageAftermath(result, context);
+  if (result.spellAbsorbed) return result;
+  const { getSpellConsequenceDocuments, settleSpellOwnedStages } = await import("../../magic/spell-runtime.js");
+  let effectsApplied = false;
   if (payload.needsEffects) {
-    try {
-      if (!spell || !casterActor) throw new Error("The spell or caster is no longer available.");
-      await applyResolvedSpellEffects({ casterActor, targetActor, spell, payload });
-    } catch (error) {
-      execution.status = "partial";
-      console.error("UESRPG | Deferred spell effects failed", error);
-    }
+    const { findOriginAE } = await import("../../magic/effects/origin-effect.js");
+    const origin = findOriginAE(casterActor, payload.spellUuid ?? spell.uuid);
+    const applied = await context.stage("effects", async () => applyResolvedSpellEffects({
+      casterActor, targetActor, spell, payload: { ...payload, message }, strict: true, deferOwnedStages: true, chatOutcomeExecution: true,
+    }), { documents: origin ? [targetActor, origin] : [targetActor] });
+    effectsApplied = Boolean(applied.effects?.length || applied.effectsApplied);
+    await context.stage("spellConsequences", async () => {
+      const effects = Array.from(targetActor.effects ?? []).filter(effect =>
+        effect.flags?.[FLAG_SCOPE]?.spellUuid === (payload.spellUuid ?? spell.uuid)
+        && effect.flags?.[FLAG_SCOPE]?.casterUuid === casterActor.uuid);
+      return settleSpellOwnedStages({ caster: casterActor, target: targetActor, spell, effects,
+        castContext: payload.castContext, message }, { kind: "effects" });
+    }, { documents: getSpellConsequenceDocuments({ caster: casterActor, target: targetActor, spell }) });
   }
-  if (emitHit) Hooks.callAll("uesrpg.spellHitTarget", {
-    caster: casterActor, target: targetActor, spell,
-    hitLocation: payload.hitLocation ?? "Body", defenseType: payload.defenseType ?? "",
-    isCritical: Boolean(payload.isCritical), isDamaging: payload.isDamaging !== false,
-  });
-  try {
-    await applySpellResourceRestoration({ caster: casterActor, target: targetActor, spell, payload, message });
-  } catch (error) {
-    execution.status = "partial";
-    console.error("UESRPG | Spell resource restoration failed", error);
+  if (outcome.kind !== "healing") {
+    await context.stage("spellHit", async () => {
+      const hit = { caster: casterActor, target: targetActor, spell, ...payload, message, effectsApplied };
+      const completion = await settleSpellOwnedStages(hit, { kind: "hit" });
+      hit.handledDomains = completion.handledDomains;
+      hit.completion = completion;
+      Hooks.callAll("uesrpg.spell.spellHitTarget", hit);
+      Hooks.callAll("uesrpg.spellHitTarget", hit);
+      return completion;
+    }, { documents: getSpellConsequenceDocuments({ caster: casterActor, target: targetActor, spell }) });
   }
-  return execution;
+  if (hasSpellResourceRestoration(spell, payload)) {
+    await context.stage("restoration", async () => {
+      await applySpellResourceRestoration({ caster: casterActor, target: targetActor, spell, payload, message, strict: true });
+      return { ok: true };
+    }, { documents: [getSpellResourceRestorationRecipient({ caster: casterActor, target: targetActor, spell, payload })] });
+  }
+  return { ...result, effectsApplied };
 }
 
-// ── Magic inline damage / healing ────────────────────────────────────────────
-
-async function _onApplyMagicDamage(ev, message, btn) {
-  const targetUuid = btn.dataset.targetUuid || null;
-
-  const targetActor = resolveActor(message, targetUuid);
-  if (!targetActor) {
-    ui.notifications.warn("No valid target actor found for magic damage application.");
-    return;
+/** Execute canonical flag data only; button datasets never supply mechanics. */
+export async function executeInlineChatOutcome(outcome, context) {
+  if (outcome.magic) return applyMagicOutcome(outcome, context);
+  if (outcome.damage.mode === "coup") {
+    const { executeChatOutcome } = await import("../opposed/actions/damage.js");
+    return executeChatOutcome({ payload: { mode: outcome.damage.coupMode } }, context);
   }
-
-  const data = getMagicMessageState(message);
-  if (!data) {
-    ui.notifications.warn("Could not read magic opposed card state.");
-    return;
+  const { message, actor: targetActor } = context;
+  const payload = outcome.payload;
+  if (outcome.kind === "healing") {
+    const result = await context.stage("health", async () => requireResult(await ApplyDamageService.applyHealing(targetActor,
+      Number(payload.healing ?? 0), {
+        source: payload.source ?? "Healing", isTemporary: String(payload.tempHp ?? "0") === "1",
+        messageId: message.id, receiptId: context.receiptId, outcomeContext: context,
+      })));
+    return resumeDamageAftermath(result, context);
   }
-
-  let defender = null;
-  if (isMagicMultiDefender(data)) {
-    const list = getMagicDefenderEntries(data);
-    defender = list.find(d =>
-      (d.actorUuid && d.actorUuid === targetUuid) ||
-      (d.tokenUuid && d.tokenUuid === targetUuid)
-    ) ?? null;
-  } else {
-    defender = data.defender ?? null;
+  let damageComponents = payload.damageComponents;
+  if (typeof damageComponents === "string") {
+    try { damageComponents = JSON.parse(damageComponents); } catch { damageComponents = null; }
   }
-
-  const dmgData = getMagicDefenderDamage(data, defender);
-  if (!dmgData || dmgData.applied) return;
-
-  const mp = dmgData._magicPayload;
-  if (!mp) {
-    ui.notifications.warn("No stored magic payload found for deferred damage application.");
-    return;
-  }
-
-  const spell = mp.spellUuid ? resolveUuidSync(mp.spellUuid) : null;
-  const casterActor = mp.casterUuid ? resolveActorFromUuidSync(mp.casterUuid) : null;
-
-  if (mp.isDamaging === false && !mp.isHealing) {
-    const execution = await _applyMagicFollowups({ message, targetUuid, damage: dmgData, casterActor, targetActor, spell, payload: mp, emitHit: true });
-    await _markMagicInlineDamageApplied(message, targetUuid, { execution });
-    return;
-  }
-
-  const damageResult = await applyMagicDamage(targetActor, Number(mp.damage ?? 0), mp.damageType || "magic", spell, {
-    receiptId: `${message.id}:${targetActor.uuid}:damage`,
-    hitLocation: mp.hitLocation ?? "Body",
-    isCritical: Boolean(mp.isCritical),
-    source: mp.source ?? "Spell",
-    rollHTML: mp.rollHTML ?? "",
-    isOverloaded: Boolean(mp.isOverloaded),
-    overloadBonus: Number(mp.overloadBonus ?? 0),
-    isOvercharged: Boolean(mp.isOvercharged),
-    overchargeTotals: mp.overchargeTotals ?? null,
-    elementalBonus: Number(mp.elementalBonus ?? 0),
-    elementalBonusLabel: mp.elementalBonusLabel ?? "",
-    damageComponents: Array.isArray(mp.damageComponents) ? mp.damageComponents : null,
-    casterActor,
-    magicCost: Number(mp.magicCost ?? 0),
-    skipChatMessage: true,
-  });
-
-  if (!damageResult) return;
-  let execution = damageResult.execution;
-  if (!damageResult.spellAbsorbed) {
-    // HP receipts prevent duplicate damage; they cannot prove that subsequent
-    // multi-document effects completed if the final chat write was interrupted.
-    execution = execution?.replayed || execution?.status === "partial"
-      ? { ...execution, status: "partial" }
-      : await _applyMagicFollowups({ message, targetUuid, damage: dmgData, casterActor, targetActor, spell, payload: mp, emitHit: true });
-  }
-  await _markMagicInlineDamageApplied(message, targetUuid, { gmDamageReport: damageResult.gmDamageReport, execution });
+  const attackerActor = resolveActorFromUuidSync(payload.attackerActorUuid);
+  const weapon = payload.weaponUuid ? resolveUuidSync(payload.weaponUuid) : null;
+  const result = await context.stage("health", async () => requireResult(await ApplyDamageService.applyChatCard({
+    targetActor, receiptId: context.receiptId, outcomeContext: context,
+    rawDamage: Number(payload.damage ?? 0), damageType: payload.damageType || DAMAGE_TYPES.PHYSICAL,
+    dosBonus: Number(payload.dosBonus ?? 0), penetration: Number(payload.penetration ?? 0),
+    hitLocation: payload.hitLocation || "Body", damagedValue: Number(payload.damagedValue ?? 0),
+    source: payload.source || message.speaker?.alias || "Unknown",
+    ignoreReduction: String(payload.ignoreReduction ?? "0") === "1",
+    penetrateArmorForTriggers: String(payload.penetrateArmor ?? "0") === "1",
+    forcefulImpact: String(payload.forcefulImpact ?? "0") === "1",
+    pressAdvantage: String(payload.pressAdvantage ?? "0") === "1",
+    magicSource: String(payload.magicSource ?? "0") === "1",
+    sourceItemUuid: payload.sourceItemUuid || null, attackMode: payload.attackMode || null,
+    movementAction: payload.movementAction || null,
+    attackFromHidden: String(payload.attackHidden ?? "") === "1" ? true : String(payload.attackHidden ?? "") === "0" ? false : null,
+    ammoUuid: payload.ammoUuid || null, damageComponents: Array.isArray(damageComponents) ? damageComponents : null,
+    attackerActor, weapon, targetDomain: payload.targetDomain || "",
+    chatContext: { parentMessageId: message.id, suppressStandaloneSummary: true },
+  })));
+  return resumeDamageAftermath(result, context);
 }
 
-async function _onApplyMagicHealing(ev, message, btn) {
-  const targetUuid = btn.dataset.targetUuid || null;
-
-  const targetActor = resolveActor(message, targetUuid);
-  if (!targetActor) {
-    ui.notifications.warn("No valid target actor found for magic healing.");
-    return;
-  }
-
-  const data = getMagicMessageState(message);
-  if (!data) {
-    ui.notifications.warn("Could not read magic opposed card state.");
-    return;
-  }
-
-  let defender = null;
-  if (isMagicMultiDefender(data)) {
-    const list = getMagicDefenderEntries(data);
-    defender = list.find(d =>
-      (d.actorUuid && d.actorUuid === targetUuid) ||
-      (d.tokenUuid && d.tokenUuid === targetUuid)
-    ) ?? null;
-  } else {
-    defender = data.defender ?? null;
-  }
-
-  const dmgData = getMagicDefenderDamage(data, defender);
-  if (!dmgData || dmgData.applied) return;
-
-  const mp = dmgData._magicPayload;
-  if (!mp) {
-    ui.notifications.warn("No stored magic payload found for deferred healing.");
-    return;
-  }
-
-  const spell = mp.spellUuid ? resolveUuidSync(mp.spellUuid) : null;
-  const casterActor = mp.casterUuid ? resolveActorFromUuidSync(mp.casterUuid) : null;
-
-  const healResult = await applyMagicHealing(targetActor, Number(mp.damage ?? 0), spell, {
-    receiptId: `${message.id}:${targetActor.uuid}:healing`,
-    source: mp.source ?? "Spell",
-    rollHTML: mp.rollHTML ?? "",
-    isTemporary: Boolean(mp.isTemporary),
-    casterActor,
-    magicCost: Number(mp.magicCost ?? 0),
-  });
-
-  if (!healResult) return;
-  let execution = healResult.execution;
-  if (!healResult.spellAbsorbed) {
-    execution = execution?.replayed || execution?.status === "partial"
-      ? { ...execution, status: "partial" }
-      : await _applyMagicFollowups({ message, targetUuid, damage: dmgData, casterActor, targetActor, spell, payload: mp });
-  }
-  await _markMagicInlineDamageApplied(message, targetUuid, { execution });
+export async function onApplyDamage(event, message) {
+  event.preventDefault();
+  return ChatOutcomeApplicationService.apply(message, { targetUuid: event.currentTarget.dataset.targetUuid, kind: "damage" });
 }
 
-// ── Public handlers ───────────────────────────────────────────────────────────
-
-export async function onApplyDamage(ev, message, { authoritative = false } = {}) {
-  ev.preventDefault();
-
-  const btn = ev.currentTarget;
-  const targetUuid = btn.dataset.targetUuid || null;
-  const targetActor = resolveActor(message, targetUuid);
-  if (!targetActor) {
-    ui.notifications.warn("No valid target actor found for damage application.");
-    return;
-  }
-  if (!authoritative && (!doesUserOwnActor(game.user, targetActor)
-    || (getActiveGMUser() && _getCanonicalOutcome(message, targetUuid, "damage")))) {
-    await _requestCombatOutcome(message, targetUuid, "damage");
-    return;
-  }
-
-  if (String(btn.dataset.magic ?? "0") === "1") {
-    return _onApplyMagicDamage(ev, message, btn);
-  }
-
-  const rawDamage = Number(btn.dataset.damage || 0);
-  const damageType = btn.dataset.damageType || DAMAGE_TYPES.PHYSICAL;
-  const dosBonus = Number(btn.dataset.dosBonus || 0);
-  const penetration = Number(btn.dataset.penetration || 0);
-  const hitLocation = btn.dataset.hitLocation || "Body";
-  const damagedValue = Number(btn.dataset.damagedValue || 0);
-  const source = btn.dataset.source || (message?.speaker?.alias ?? "Unknown");
-  const penetrateArmorForTriggers = String(btn.dataset.penetrateArmor ?? "0") === "1";
-  const forcefulImpact = String(btn.dataset.forcefulImpact ?? "0") === "1";
-  const pressAdvantage = String(btn.dataset.pressAdvantage ?? "0") === "1";
-  const ignoreReduction = String(btn.dataset.ignoreReduction ?? "0") === "1";
-  const magicSource = String(btn.dataset.magicSource ?? "0") === "1";
-  const sourceItemUuid = btn.dataset.sourceItemUuid || null;
-  const attackMode = String(btn.dataset.attackMode ?? "").trim() || null;
-  const movementAction = String(btn.dataset.movementAction ?? "").trim() || null;
-  const attackFromHidden = (String(btn.dataset.attackHidden ?? "").trim() === "1")
-    ? true
-    : (String(btn.dataset.attackHidden ?? "").trim() === "0" ? false : null);
-  const ammoUuid = String(btn.dataset.ammoUuid ?? "").trim() || null;
-  let damageComponents = null;
-  {
-    const raw = String(btn.dataset.damageComponents ?? "").trim();
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) damageComponents = parsed;
-      } catch (_e) {
-        damageComponents = null;
-      }
-    }
-  }
-
-  const attackerActorUuid = btn.dataset.attackerActorUuid || null;
-  const weaponUuid = btn.dataset.weaponUuid || null;
-
-  const attackerActor = attackerActorUuid ? resolveActorFromUuidSync(attackerActorUuid) : null;
-  const weapon = weaponUuid ? resolveUuidSync(weaponUuid) : null;
-
-  const targetDomain = String(btn.dataset.targetDomain ?? "").trim().toLowerCase();
-  const resolvedDamage = await ApplyDamageService.applyChatCard({
-    receiptId: `${message.id}:${targetActor.uuid}:damage`,
-    targetActor,
-    rawDamage,
-    damageType,
-    dosBonus,
-    penetration,
-    hitLocation,
-    damagedValue,
-    source,
-    ignoreReduction,
-    penetrateArmorForTriggers,
-    forcefulImpact,
-    pressAdvantage,
-    weapon,
-    attackerActor,
-    magicSource,
-    sourceItemUuid,
-    attackMode,
-    movementAction,
-    attackFromHidden,
-    ammoUuid,
-    damageComponents,
-    targetDomain,
-    chatContext: {
-      parentMessageId: message?.id ?? null,
-      suppressStandaloneSummary: true,
-    },
-  });
-
-  if (!resolvedDamage) return;
-  await _markInlineDamageApplied(message, targetUuid, {
-    gmDamageReport: resolvedDamage?.gmDamageReport ?? null,
-    components: resolvedDamage?.components ?? null,
-    execution: resolvedDamage.execution,
-  });
-}
-
-export async function onApplyHealing(ev, message, { authoritative = false } = {}) {
-  ev.preventDefault();
-
-  const btn = ev.currentTarget;
-  const targetUuid = btn.dataset.targetUuid || null;
-  const targetActor = resolveActor(message, targetUuid);
-  if (!targetActor) {
-    ui.notifications.warn("No valid target actor found for healing.");
-    return;
-  }
-  if (!authoritative && (!doesUserOwnActor(game.user, targetActor)
-    || (getActiveGMUser() && _getCanonicalOutcome(message, targetUuid, "healing")))) {
-    await _requestCombatOutcome(message, targetUuid, "healing");
-    return;
-  }
-
-  if (String(btn.dataset.magic ?? "0") === "1") {
-    return _onApplyMagicHealing(ev, message, btn);
-  }
-
-  const healing = Number(btn.dataset.healing || 0);
-  const source = btn.dataset.source || (message?.speaker?.alias ?? "Healing");
-  const isTemporary = String(btn.dataset.tempHp ?? "0") === "1";
-
-  const result = await ApplyDamageService.applyHealing(targetActor, healing, {
-    source, isTemporary, receiptId: `${message.id}:${targetActor.uuid}:healing`,
-  });
-  if (!result) return;
-
-  await _markInlineDamageApplied(message, targetUuid, { execution: result.execution });
+export async function onApplyHealing(event, message) {
+  event.preventDefault();
+  return ChatOutcomeApplicationService.apply(message, { targetUuid: event.currentTarget.dataset.targetUuid, kind: "healing" });
 }

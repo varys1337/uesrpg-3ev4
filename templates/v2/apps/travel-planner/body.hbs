@@ -135,7 +135,7 @@
               </select>
             </td>
             <td><input type="number" name="planning:{{this.id}}:manualMod" value="{{this.manualMod}}" {{#unless ../editable}}disabled{{/unless}} /></td>
-            <td><input type="checkbox" name="planning:{{this.id}}:useSpec" {{checked this.useSpec}} {{#unless ../editable}}disabled{{/unless}} /></td>
+            <td><label class="uesrpg-adv-choice uesrpg-choice-bar" data-tooltip-text="{{localize 'UESRPG.Apps.EnchantingWorkshop.RollDialog.Specialization'}}{{#unless ../editable}} · {{localize 'UESRPG.Notifications.TravelPlanner.ReadOnly'}}{{/unless}}" {{#unless ../editable}}tabindex="0"{{/unless}}><input type="checkbox" name="planning:{{this.id}}:useSpec" {{checked this.useSpec}} {{#unless ../editable}}disabled{{/unless}} /><span class="uesrpg-adv-choice__label">{{localize "UESRPG.Apps.TravelPlanner.Spec"}} (+10)</span></label></td>
             <td>{{#if this.result}}{{this.result.textual}} ({{this.result.rollTotal}}/{{this.result.target}}){{/if}}</td>
             <td class="travel-planner__actions">
               <button type="button" data-action="rollPlanningEntry" data-id="{{this.id}}" {{#unless ../editable}}disabled{{/unless}}>{{localize "UESRPG.UI.Roll"}}</button>

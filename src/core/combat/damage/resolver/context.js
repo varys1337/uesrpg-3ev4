@@ -94,6 +94,7 @@ export function buildDamageContext(payload = {}) {
   const options = {
     applicationId: payload.applicationId,
     _application: payload._application,
+    outcomeContext: payload.outcomeContext,
     // Damage-automation options (kept stable)
     ignoreReduction: payload.ignoreReduction === true,
     penetrateArmorForTriggers: payload.penetrateArmorForTriggers === true,

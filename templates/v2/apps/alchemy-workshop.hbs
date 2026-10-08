@@ -129,7 +129,7 @@
     <div class="alchemy-summary-stat"><span>{{localize "UESRPG.Apps.AlchemyWorkshop.AdjustedTN"}}</span><strong>{{adjustedTN}}</strong></div>
     <div class="alchemy-summary-stat"><span>{{localize "UESRPG.Apps.AlchemyWorkshop.BrewTime"}}</span><strong>{{mods.brewTime}}h</strong></div>
     {{#each mods.penaltyBreakdown as |modifier|}}<div class="alchemy-summary-modifier"><span>{{modifier.label}}</span><strong>{{#if (gt modifier.value 0)}}+{{/if}}{{modifier.value}}</strong></div>{{/each}}
-    {{#if talents.hasNothingVentured}}<label class="alchemy-inline-check"><input type="checkbox" name="nothing-ventured" data-alchemy-control {{#if ws.nothingVentured}}checked{{/if}}> {{localize "UESRPG.Apps.AlchemyWorkshop.UseNothingVentured"}}</label>{{/if}}
+    {{#if talents.hasNothingVentured}}<label class="alchemy-inline-check uesrpg-adv-choice uesrpg-choice-bar" data-tooltip="UESRPG.Apps.AlchemyWorkshop.UseNothingVentured"><input type="checkbox" name="nothing-ventured" data-alchemy-control {{#if ws.nothingVentured}}checked{{/if}}><span class="uesrpg-adv-choice__label">{{localize "UESRPG.ModernUI.NothingVenturedNothingGained"}} (+20)</span></label>{{/if}}
   </section>
   {{/unless}}
 

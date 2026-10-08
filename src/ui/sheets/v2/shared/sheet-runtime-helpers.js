@@ -1,6 +1,6 @@
 import { requestDeleteEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
 import { unlinkAllItemsFromContainer, unlinkItemFromContainer } from "../../sheet-containers.js";
-import { isPerfEnabled, perfRecord } from "../../../../utils/perf-tracker.js";
+import { isPerfEnabled, perfRecord, perfRecordHealthRefresh, perfApplicationContext } from "../../../../utils/perf-tracker.js";
 import { localizeChoiceObject, t } from "../../../../utils/i18n.js";
 
 export function localizeSheetChoiceLabels(source, prefix) {
@@ -80,15 +80,25 @@ function getFormUpdateState(sheet) {
   return state;
 }
 
-function reportFormUpdateFailure(state, error) {
+function reportFormUpdateFailure(state, error, sheet) {
   state.lastError = error;
   if (state.notifiedError === error) return;
   state.notifiedError = error;
-  console.error("UESRPG | ApplicationV2 form update failed", error);
-  ui.notifications?.error?.(t(
+  // A validation dialog or warning already explained this blocked save.
+  if (error?.uesrpgFormFailureNotified) return;
+  const document = sheet?.document;
+  console.error("UESRPG | ApplicationV2 form update failed", {
+    uuid: document?.uuid,
+    validationFailures: document?.validationFailures,
+    error,
+  });
+  const fallback = t(
     "UESRPG.Notifications.Sheets.FormSaveFailed",
     "The document could not be saved. Review the entered values and try again."
-  ));
+  );
+  const message = String(error?.message || (typeof error === "string" ? error : fallback));
+  const reference = document?.uuid && !message.includes(document.uuid) ? ` (${document.uuid})` : "";
+  ui.notifications?.error?.(`${message}${reference}`);
 }
 
 /**
@@ -109,14 +119,16 @@ export function queueSheetFormUpdate(sheet, operation) {
     try {
       const result = await operation();
       if (result === false || result?.ok === false) {
-        throw new Error(t(
+        const error = new Error(t(
           "UESRPG.Notifications.Sheets.FormSaveFailed",
           "The document could not be saved. Review the entered values and try again."
         ));
+        error.uesrpgFormFailureNotified = result?.notified === true;
+        throw error;
       }
       return result;
     } catch (error) {
-      reportFormUpdateFailure(state, error);
+      reportFormUpdateFailure(state, error, sheet);
       throw error;
     }
   };
@@ -132,7 +144,7 @@ export async function flushSheetFormUpdates(sheet) {
     await state.pending;
     return state.lastError == null;
   } catch (error) {
-    reportFormUpdateFailure(state, error);
+    reportFormUpdateFailure(state, error, sheet);
     return false;
   }
 }
@@ -207,13 +219,14 @@ function escapeSelectorValue(value) {
 
 function describeElement(root, element) {
   if (!(root instanceof HTMLElement) || !(element instanceof HTMLElement) || !root.contains(element)) return null;
-  const attributes = ["name", "data-role", "data-action", "data-tab", "data-item-id", "data-effect-id"];
+  const attributes = ["name", "data-role", "data-action", "data-group", "data-tab", "data-item-id", "data-effect-id", "data-uesrpg"];
   const selectors = [];
   for (const attribute of attributes) {
     const value = element.getAttribute(attribute);
     if (value) selectors.push(`[${attribute}="${escapeSelectorValue(value)}"]`);
   }
-  const selector = `${element.tagName.toLowerCase()}${selectors.join("")}`;
+  const container = element.classList.contains("window-content") ? ".window-content" : "";
+  const selector = `${element.tagName.toLowerCase()}${container}${selectors.join("")}`;
   const matches = Array.from(root.querySelectorAll(selector));
   const index = matches.indexOf(element);
   return index >= 0 ? { selector, index } : null;
@@ -224,61 +237,70 @@ function resolveElement(root, descriptor) {
   return root.querySelectorAll(descriptor.selector)?.[descriptor.index] ?? null;
 }
 
-function captureRenderUiState(sheet) {
+/** Capture transient DOM state; callers can opt into a specific scroll owner and exact zero offsets. */
+export function captureRenderUiState(sheet, { scrollSelector = null, includeZeroScroll = false } = {}) {
   const root = getRenderRoot(sheet);
   if (!root) return null;
-  const active = root.contains(document.activeElement) ? document.activeElement : null;
+  const activeElement = root.ownerDocument.activeElement;
+  const active = root.contains(activeElement) ? activeElement : null;
   const focus = describeElement(root, active);
-  if (focus && active instanceof HTMLInputElement) {
+  if (focus && (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement)) {
     focus.selectionStart = active.selectionStart;
     focus.selectionEnd = active.selectionEnd;
+    focus.selectionDirection = active.selectionDirection;
   }
 
-  const scrollSelector = [
+  const selectors = scrollSelector ?? [
     ".window-content",
     ".sheet-body",
     ".tab.active",
     "[data-role]",
     "[class*='__scroll']",
   ].join(",");
-  const scroll = Array.from(root.querySelectorAll(scrollSelector))
+  const scroll = Array.from(root.querySelectorAll(selectors))
     .map((element) => ({
       descriptor: describeElement(root, element),
       left: element.scrollLeft,
       top: element.scrollTop,
     }))
-    .filter((entry) => entry.descriptor && (entry.left || entry.top));
+    .filter((entry) => entry.descriptor && (includeZeroScroll || entry.left || entry.top));
   const disclosures = Array.from(root.querySelectorAll("details"))
     .map((element) => ({ descriptor: describeElement(root, element), open: element.open }))
     .filter((entry) => entry.descriptor);
   return { focus, scroll, disclosures };
 }
 
-function restoreRenderUiState(sheet, state) {
+/** Restore layout-affecting disclosures before the viewport, then focus without scrolling. */
+export function restoreRenderUiState(sheet, state) {
   if (!state) return;
   const root = getRenderRoot(sheet);
   if (!root) return;
-  for (const entry of state.scroll ?? []) {
-    const element = resolveElement(root, entry.descriptor);
-    if (!(element instanceof HTMLElement)) continue;
-    element.scrollLeft = entry.left;
-    element.scrollTop = entry.top;
-  }
+  // Disclosures affect layout and must be restored before scroll offsets.
   for (const entry of state.disclosures ?? []) {
     const element = resolveElement(root, entry.descriptor);
     if (element instanceof HTMLDetailsElement) element.open = entry.open;
   }
+  for (const entry of state.scroll ?? []) {
+    const element = resolveElement(root, entry.descriptor);
+    if (!(element instanceof HTMLElement)) continue;
+    element.scrollLeft = Math.max(0, Math.min(entry.left, element.scrollWidth - element.clientWidth));
+    element.scrollTop = Math.max(0, Math.min(entry.top, element.scrollHeight - element.clientHeight));
+  }
   const active = resolveElement(root, state.focus);
-  if (!(active instanceof HTMLElement) || active.matches(":disabled")) return;
+  if (!(active instanceof HTMLElement) || active.matches(":disabled") || !active.getClientRects().length) return;
   active.focus({ preventScroll: true });
-  if (active instanceof HTMLInputElement && Number.isInteger(state.focus?.selectionStart)) {
-    active.setSelectionRange(state.focus.selectionStart, state.focus.selectionEnd);
+  if ((active instanceof HTMLTextAreaElement || (active instanceof HTMLInputElement
+      && ["text", "search", "url", "tel", "password"].includes(active.type)))
+      && Number.isInteger(state.focus?.selectionStart)) {
+    active.setSelectionRange(state.focus.selectionStart, state.focus.selectionEnd, state.focus.selectionDirection ?? "none");
   }
 }
 
 async function renderQueuedParts(sheet, state, queued) {
   if (state.cancelled || closedRenderQueues.has(sheet)) return;
-  const uiState = captureRenderUiState(sheet);
+  // Item sheets own restoration for both document and queued renders. Do not
+  // apply an older queue snapshot after their lifecycle restores a newer tab.
+  const uiState = sheet.constructor.preservesRenderUiState ? null : captureRenderUiState(sheet);
   try {
     if (queued === null) await sheet.render(true);
     else if (queued.length) await sheet.render({ parts: queued });
@@ -360,15 +382,18 @@ export function traceSheetPerf(sheet, { systemId, sheetName, stage, startedAtMs,
   const traceEnabled = isSheetPerfTraceEnabled(systemId);
   const perfEnabled = isPerfEnabled();
   if (!traceEnabled && !perfEnabled) return;
+  if (perfEnabled && stage === "_onRender") perfRecordHealthRefresh(sheet);
 
   const elapsedMs = Number((performance.now() - startedAtMs).toFixed(2));
   const payload = {
     sheet: sheetName,
     actorId: sheet?.document?.id ?? null,
+    actorUuid: sheet?.document?.uuid ?? null,
     actorName: sheet?.document?.name ?? null,
     tab: sheet?.tabGroups?.primary ?? "core",
     stage,
     elapsedMs,
+    ...perfApplicationContext(sheet?.document),
     ...details,
   };
 

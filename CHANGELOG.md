@@ -2,6 +2,12 @@
 
 ## v14.2.0
 
+### Interface preferences
+
+- Adds a per-user **Chat: Hide Formatting Toolbar** option to Interface settings. The toolbar stays visible by default; saving the option hides it and compacts native chat input without rebuilding the editor or losing a draft.
+- Makes Interface settings available to players while keeping world settings hidden and protected by the same scope-aware allowlist used for submission. Existing setting scopes and values are preserved.
+- Applies the chat preference at setup and immediately after saving, covers sidebar, main-window chat popout, and notification composer spacing, and keeps other rich-text editors unchanged. No Oliver's Foundry Tweaks dependency is required.
+
 ### Pipeline consolidation for Foundry 14.368+
 
 - Routes damage and healing through one application service while preserving physical, spell, alchemy, ongoing-damage, and Warfare calculation policies. Confirms writes before success reporting and records bounded receipts for chat recovery.

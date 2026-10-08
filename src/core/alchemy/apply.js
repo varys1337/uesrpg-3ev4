@@ -4,11 +4,12 @@ import { t, tf } from "../../utils/i18n.js";
 import {
   clearLegacyAlchemyCarrierFlag,
   consumeOwnedItem,
+  consumeOwnedItemQuantity,
+  runAlchemyItemActivation,
   createAlchemyChatMessage,
   createCarrierEffect,
   createOwnedItem,
   deleteOwnedItem,
-  updateAlchemyDocument,
 } from "./operations.js";
 import { getEffectByKey } from "./effects.js";
 import { renderApplyToWeaponCard } from "./render.js";
@@ -52,25 +53,30 @@ async function _normalizeAlchemyCarrierEffects(alchemyFlags, { mode = "poison" }
 
 async function _applyAlchemyToCarrierItem(carrierItem, alchemyItem, alchemyFlags) {
   const existing = getAppliedAlchemy(carrierItem);
-  if (existing) await clearAppliedAlchemy(carrierItem, existing);
+  if (existing && !await clearAppliedAlchemy(carrierItem, existing)) return null;
 
   const aeData = buildWeaponAlchemyAEData(alchemyItem, alchemyFlags);
   const created = await createCarrierEffect(carrierItem, aeData);
   const createdEffect = created.data ?? null;
-  if (!createdEffect) return null;
+  if (!createdEffect) {
+    if (existing) { const error = new Error("Replacement coating creation failed after old coating removal."); error.committed = true; throw error; }
+    return null;
+  }
 
   if (carrierItem?.flags?.[FLAG_NS]?.alchemyApplied) {
-    await clearLegacyAlchemyCarrierFlag(carrierItem, `flags.${FLAG_NS}.alchemyApplied`);
+    const cleanup = await clearLegacyAlchemyCarrierFlag(carrierItem, `flags.${FLAG_NS}.alchemyApplied`);
+    if (!cleanup.ok) { const error = new Error(cleanup.reason); error.committed = true; throw error; }
   }
   return createdEffect;
 }
 
-function _alchemyApplyResult({ ok = false, targetType = null, carrierItem = null, consumedAlchemyItem = false, reason = "" } = {}) {
+function _alchemyApplyResult({ ok = false, targetType = null, carrierItem = null, consumedAlchemyItem = false, reason = "", committed = false } = {}) {
   return createAlchemyOperationResult({
     ok,
     targetType: targetType ? String(targetType) : null,
     carrierItem: carrierItem ?? null,
     consumedAlchemyItem: Boolean(consumedAlchemyItem),
+    execution: { status: ok ? "completed" : committed ? "partial" : "failed", committed: Boolean(committed || consumedAlchemyItem) },
     reason,
   });
 }
@@ -108,7 +114,8 @@ async function _createCoatedAmmoItem(actor, ammoItem, alchemyFlags) {
 }
 
 export async function consumeAlchemyItem(actor, item) {
-  await consumeOwnedItem(item);
+  if (item?.parent?.uuid !== actor?.uuid) return createAlchemyOperationResult({ reason: "Alchemy Item does not belong to this Actor." });
+  return consumeOwnedItem(item);
 }
 
 async function _postApplyCard(actor, carrierItem, algData, effectData) {
@@ -125,15 +132,29 @@ async function _postApplyCard(actor, carrierItem, algData, effectData) {
     getEffectLabel: (k) => getEffectByKey(k)?.label ?? k,
   });
 
-  await createAlchemyChatMessage({
-    user: game.user.id,
-    speaker: ChatMessage.getSpeaker({ actor }),
-    content,
-    style: CONST.CHAT_MESSAGE_STYLES.OTHER,
+  try {
+    const created = await createAlchemyChatMessage({
+      user: game.user.id,
+      speaker: ChatMessage.getSpeaker({ actor }),
+      content,
+      style: CONST.CHAT_MESSAGE_STYLES.OTHER,
+    });
+    if (!created) throw new Error("Coating summary creation was not confirmed.");
+  } catch (error) { error.committed = true; throw error; }
+}
+
+export function applyAlchemyToWeapon(actor, alchemyItem, weaponItem) {
+  return runAlchemyItemActivation(alchemyItem, async fresh => {
+    try { return await _applyAlchemyToWeapon(actor, fresh, weaponItem); }
+    catch (error) {
+      const reason = error?.message ?? String(error);
+      ui.notifications.warn(`Coating ${error.committed ? "partially completed" : "failed"}: ${reason}`);
+      return _alchemyApplyResult({ targetType: "weapon", carrierItem: weaponItem, reason, committed: error.committed === true });
+    }
   });
 }
 
-export async function applyAlchemyToWeapon(actor, alchemyItem, weaponItem) {
+async function _applyAlchemyToWeapon(actor, alchemyItem, weaponItem) {
   if (!actor || !alchemyItem || !weaponItem) {
     return _alchemyApplyResult({ reason: "Missing actor, alchemy item, or weapon." });
   }
@@ -172,24 +193,36 @@ export async function applyAlchemyToWeapon(actor, alchemyItem, weaponItem) {
   }
 
   try {
-    await consumeAlchemyItem(actor, alchemyItem);
+    const consumption = await consumeAlchemyItem(actor, alchemyItem);
+    if (!consumption.ok) throw new Error(consumption.reason);
   } catch (err) {
     try {
-      await clearAppliedAlchemy(weaponItem);
+      if (!await clearAppliedAlchemy(weaponItem)) throw new Error("Coating rollback was not confirmed.");
     } catch (_cleanupErr) {
       // no-op
     }
     const reason = `${alchemyItem.name ?? "Alchemy item"} could not be consumed after coating ${weaponItem.name ?? "weapon"}.`;
     console.error("UESRPG | Failed to consume alchemy item after weapon coating", { actor: actor?.uuid, item: alchemyItem?.uuid, weapon: weaponItem?.uuid, err });
     ui.notifications.warn(tf("UESRPG.Notifications.Alchemy.CouldNotConsumeAfterCoating", { alchemyItem: alchemyItem?.name ?? "Alchemy item", ammunition: weaponItem?.name ?? "weapon" }));
-    return _alchemyApplyResult({ targetType: "weapon", carrierItem: weaponItem, reason });
+    return _alchemyApplyResult({ targetType: "weapon", carrierItem: weaponItem, reason, committed: true });
   }
 
   await _postApplyCard(actor, weaponItem, algData, effectData);
   return _alchemyApplyResult({ ok: true, targetType: "weapon", carrierItem: weaponItem, consumedAlchemyItem: true });
 }
 
-export async function applyAlchemyToAmmo(actor, alchemyItem, ammoItem) {
+export function applyAlchemyToAmmo(actor, alchemyItem, ammoItem) {
+  return runAlchemyItemActivation(alchemyItem, async fresh => {
+    try { return await _applyAlchemyToAmmo(actor, fresh, ammoItem); }
+    catch (error) {
+      const reason = error?.message ?? String(error);
+      ui.notifications.warn(`Coating ${error.committed ? "partially completed" : "failed"}: ${reason}`);
+      return _alchemyApplyResult({ targetType: "ammunition", carrierItem: ammoItem, reason, committed: error.committed === true });
+    }
+  });
+}
+
+async function _applyAlchemyToAmmo(actor, alchemyItem, ammoItem) {
   if (!actor || !alchemyItem || !ammoItem) {
     return _alchemyApplyResult({ reason: "Missing actor, alchemy item, or ammunition." });
   }
@@ -227,67 +260,27 @@ export async function applyAlchemyToAmmo(actor, alchemyItem, ammoItem) {
 
   const createdEffect = await _applyAlchemyToCarrierItem(coatedAmmo, alchemyItem, effectData);
   if (!createdEffect) {
-    try {
-      await deleteOwnedItem(actor, coatedAmmo.id);
-    } catch (_cleanupErr) {
-      // no-op
-    }
-    const reason = `Could not apply ${alchemyItem.name ?? "alchemy item"} to ${ammoItem.name ?? "ammunition"}.`;
+    const rollback = await deleteOwnedItem(actor, coatedAmmo.id);
+    const reason = `Could not apply ${alchemyItem.name ?? "alchemy item"} to ${ammoItem.name ?? "ammunition"}.${rollback.ok ? "" : " Coated ammunition cleanup was not confirmed."}`;
     ui.notifications.warn(tf("UESRPG.Notifications.Alchemy.CouldNotApplyToWeapon", { alchemyItem: alchemyItem?.name ?? "alchemy item", weapon: ammoItem?.name ?? "ammunition" }));
-    return _alchemyApplyResult({ targetType: "ammunition", carrierItem: ammoItem, reason });
+    return _alchemyApplyResult({ targetType: "ammunition", carrierItem: rollback.ok ? ammoItem : coatedAmmo, reason, committed: !rollback.ok });
   }
 
-  const sourceQty = Math.max(0, Number(ammoItem?.system?.quantity ?? 0) || 0);
-  try {
-    if (sourceQty <= 1) {
-      await deleteOwnedItem(actor, ammoItem.id);
-    } else {
-      await updateAlchemyDocument(ammoItem, { "system.quantity": sourceQty - 1 });
-    }
-  } catch (err) {
-    console.error("UESRPG | Failed to consume source ammunition for alchemy coating", { actor: actor?.uuid, ammo: ammoItem?.uuid, err });
-    try {
-      await deleteOwnedItem(actor, coatedAmmo.id);
-    } catch (_cleanupErr) {
-      // no-op
-    }
-    const reason = `Failed to split ${ammoItem?.name ?? "ammunition"} for coating.`;
-    ui.notifications.warn(tf("UESRPG.Notifications.Alchemy.FailedSplitForCoating", { item: ammoItem?.name ?? "ammunition" }));
-    return _alchemyApplyResult({ targetType: "ammunition", carrierItem: ammoItem, reason });
+  const sourceConsumption = await consumeOwnedItemQuantity(ammoItem, 1);
+  if (!sourceConsumption.ok) {
+    const rollback = await deleteOwnedItem(actor, coatedAmmo.id);
+    const reason = `${sourceConsumption.reason}${rollback.ok ? "" : " Coated ammunition cleanup also failed."}`;
+    ui.notifications.warn(reason);
+    return _alchemyApplyResult({ targetType: "ammunition", carrierItem: coatedAmmo, reason, committed: !rollback.ok });
   }
 
-  try {
-    await consumeAlchemyItem(actor, alchemyItem);
-  } catch (err) {
-    console.error("UESRPG | Failed to consume alchemy item after ammo coating", { actor: actor?.uuid, item: alchemyItem?.uuid, ammo: ammoItem?.uuid, coatedAmmo: coatedAmmo?.uuid, err });
-    try {
-      await deleteOwnedItem(actor, coatedAmmo.id);
-    } catch (_cleanupErr) {
-      // no-op
-    }
-    const restoreQty = Math.max(0, Number(ammoItem?.system?.quantity ?? 0) || 0);
-    try {
-      if (ammoItem?.parent?.items?.get?.(ammoItem.id)) {
-        await updateAlchemyDocument(ammoItem, { "system.quantity": restoreQty + 1 });
-      } else {
-        const restored = {
-          name: ammoItem.name,
-          type: ammoItem.type,
-          img: ammoItem.img,
-          system: {
-            ...cloneAlchemyData(ammoItem.system ?? {}),
-            quantity: 1,
-          },
-          flags: cloneAlchemyData(ammoItem.flags ?? {}),
-        };
-        await createOwnedItem(actor, restored);
-      }
-    } catch (_restoreErr) {
-      // no-op
-    }
-    const reason = `${alchemyItem.name ?? "Alchemy item"} could not be consumed after coating ${ammoItem.name ?? "ammunition"}.`;
-    ui.notifications.warn(tf("UESRPG.Notifications.Alchemy.CouldNotConsumeAfterCoating", { alchemyItem: alchemyItem?.name ?? "Alchemy item", ammunition: ammoItem?.name ?? "ammunition" }));
-    return _alchemyApplyResult({ targetType: "ammunition", carrierItem: ammoItem, reason });
+  const consumption = await consumeAlchemyItem(actor, alchemyItem);
+  if (!consumption.ok) {
+    // Source ammunition and coating already committed. Leave the result visible
+    // for explicit repair rather than granting or consuming another Item.
+    const reason = `Coating partially completed: ${consumption.reason} Source ammunition was consumed; do not repeat this operation.`;
+    ui.notifications.warn(reason);
+    return _alchemyApplyResult({ targetType: "ammunition", carrierItem: coatedAmmo, reason, committed: true });
   }
 
   await _postApplyCard(actor, coatedAmmo, algData, effectData);

@@ -3,19 +3,18 @@
                     {{#if sheetUi.showSheetSearchBars}}
                     {{> "systems/uesrpg-3ev4/templates/partials/sheets/list-filter.hbs" scope="magic"}}
                     {{/if}}
-                    <div class="magicSkillContainer">
+                    <div class="magicSkillContainer uesrpg-collapsible">
                         <div class="section-header">
+                            <button type="button" data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle uesrpg-semantic-control uesrpg-plain-control" data-group="magic-skills" data-tooltip="UESRPG.UI.CollapseExpand" aria-label="{{localize "UESRPG.Sheets.Magic.MagicSkills"}}: {{localize "UESRPG.UI.CollapseExpand"}}" aria-expanded="true"></button>
                             <span class="section-header__label">{{localize "UESRPG.Sheets.Magic.MagicSkills"}}</span>
                         </div>
-                        <ol class="skillList">
+                        <ol class="skillList uesrpg-collapse-body">
                             {{#each actor.magicSkill as |item id|}}
                                 <li class="item" data-item-id="{{item._id}}">
-                                    <button type="button" class="itemInfo skill-roll-target uesrpg-semantic-control uesrpg-plain-control" data-action="skillRoll">
-                                        <img class="item-img" src="{{item.img}}" data-tooltip="UESRPG.UI.PostToChat" alt="{{item.name}}" />
-                                        <span class="item-name skill-open-item">
-                                            {{item.name}}
-                                        </span>
-                                    </button>
+                                    <div class="itemInfo">
+                                        {{> "systems/uesrpg-3ev4/templates/partials/sheets/skill-roll-icon.hbs" action="skillRoll" img=item.img label=item.name}}
+                                        <button type="button" class="item-name skill-open-item uesrpg-semantic-control uesrpg-plain-control" data-action="itemOpen" data-tooltip-text="{{localize "UESRPG.ModernUI.OpenItemSheet"}}: {{item.name}}" aria-label="{{localize "UESRPG.ModernUI.OpenItemSheet"}}: {{item.name}}">{{item.name}}</button>
+                                    </div>
                                     <div class="item-controls">
                                         <div class="item-value">{{item.system.value}}%</div>
                                         <button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></button>
@@ -36,9 +35,9 @@
                         <div class="spellList">
                             {{#each actor.invocationGroups as |group|}}
                                 <div class="spell-school-section" data-school="{{group.key}}">
-                                    <button type="button" class="spell-school-header uesrpg-group-toggle uesrpg-semantic-control uesrpg-plain-control" data-action="groupToggle" data-group="invocation-group-{{group.key}}" aria-expanded="true">
+                                    <button type="button" class="spell-school-header section-header uesrpg-group-toggle uesrpg-semantic-control uesrpg-plain-control" data-action="groupToggle" data-group="invocation-group-{{group.key}}" aria-expanded="true">
                                         <i class="fas fa-chevron-down collapse-arrow"></i>
-                                        <span class="school-name">{{group.label}}</span>
+                                        <span class="school-name section-header__label">{{group.label}}</span>
                                         <span class="school-count">({{group.count}})</span>
                                     </button>
                                     <table class="spell-school-table">
@@ -54,8 +53,7 @@
                                             {{#each group.invocations as |invocation|}}
                                                 <tr class="spell-row item active" data-item-id="{{invocation._id}}">
                                                     <td class="spell-name-cell">
-                                                        <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="castInvocation" data-tooltip="UESRPG.Sheets.Magic.InvokeRite" aria-label="{{localize "UESRPG.Sheets.Magic.InvokeRite"}}"><i class="fas fa-dice-d20 magic-roll" aria-hidden="true"></i></button>
-                                                        <img class="item-img" src="{{invocation.img}}" alt="{{invocation.name}}" />
+                                                        {{> "systems/uesrpg-3ev4/templates/partials/sheets/skill-roll-icon.hbs" action="castInvocation" rollTargetClass="uesrpg-spell-roll-icon magic-roll" rollLabel=(localize "UESRPG.Sheets.Magic.InvokeRite") img=invocation.img label=invocation.name}}
                                                         <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control">{{invocation.name}}</button>
                                                     </td>
                                                     <td class="spell-rank-cell">{{localize "UESRPG.Sheets.Magic.Circle"}} {{invocation.system.circle}}</td>
@@ -81,9 +79,9 @@
                             {{!-- Spell schools organized by category --}}
                             {{#each actor.spellSchools as |schoolData|}}
                                 <div class="spell-school-section" data-school="{{schoolData.key}}">
-                                    <button type="button" class="spell-school-header uesrpg-group-toggle uesrpg-semantic-control uesrpg-plain-control" data-action="groupToggle" data-group="spell-school-{{schoolData.key}}" aria-expanded="true">
+                                    <button type="button" class="spell-school-header section-header uesrpg-group-toggle uesrpg-semantic-control uesrpg-plain-control" data-action="groupToggle" data-group="spell-school-{{schoolData.key}}" aria-expanded="true">
                                         <i class="fas fa-chevron-down collapse-arrow"></i>
-                                        <span class="school-name">{{schoolData.label}}</span>
+                                        <span class="school-name section-header__label">{{schoolData.label}}</span>
                                         <span class="school-count">({{schoolData.count}})</span>
                                     </button>
                                     <table class="spell-school-table">
@@ -99,8 +97,7 @@
                                             {{#each schoolData.spells as |spell|}}
                                                 <tr class="spell-row item active" data-item-id="{{spell._id}}">
                                                     <td class="spell-name-cell">
-                                                        <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="castMagic" data-tooltip="UESRPG.Sheets.Magic.CastSpellPostDescription" aria-label="{{localize "UESRPG.Sheets.Magic.CastSpellPostDescription"}}"><i class="fas fa-dice-d20 magic-roll" aria-hidden="true"></i></button>
-                                                        <img class="item-img" src="{{spell.img}}" alt="{{spell.name}}" />
+                                                        {{> "systems/uesrpg-3ev4/templates/partials/sheets/skill-roll-icon.hbs" action="castMagic" rollTargetClass="uesrpg-spell-roll-icon magic-roll" rollLabel=(localize "UESRPG.Sheets.Magic.CastSpellPostDescription") img=spell.img label=spell.name}}
                                                         <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control">{{spell.name}}</button>
                                                     </td>
                                                     <td class="spell-rank-cell">
@@ -129,13 +126,13 @@
 
                     {{!-- Spell Effects Breakdown (Origin AE summaries) --}}
                     {{#if spellEffectsBreakdown.length}}
-                    <div class="spell-effects-breakdown">
+                    <div class="spell-effects-breakdown uesrpg-collapsible">
                         <button type="button" data-action="groupToggle" class="uesrpg-group-toggle u-cursor-pointer uesrpg-semantic-control uesrpg-plain-control" data-group="spell-effects-breakdown" aria-expanded="true">
                             <i class="fas fa-chevron-down collapse-arrow"></i>
                             {{localize "UESRPG.Sheets.Magic.SpellEffectsBreakdown"}}
                             <span class="spell-effect-count">({{spellEffectsBreakdown.length}})</span>
                         </button>
-                        <div class="collapse-content">
+                        <div class="collapse-content uesrpg-collapse-body">
                             {{#each spellEffectsBreakdown as |se|}}
                             <div class="spell-effect-entry">
                                 <div class="spell-effect-header">

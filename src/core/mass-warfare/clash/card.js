@@ -140,7 +140,7 @@ function _renderDamageDetails(unit) {
 
   return `
     <details style="margin-top:4px;">
-      <summary style="cursor:pointer; user-select:none; white-space:nowrap;">Damage details</summary>
+      <summary style="cursor:var(--uesrpg-cursor-pointer, pointer); user-select:none; white-space:nowrap;">Damage details</summary>
       <div style="margin-top:4px; font-size:12px; opacity:0.92; display:flex; flex-direction:column; gap:6px;">
         ${damage ? `<div><b>Damage Formula:</b> <code style="font-size:11px; background:rgba(0,0,0,0.07); padding:0 3px; border-radius:2px;">${_esc(damage.rollFormula ?? unit.dmgFormula ?? "0")}</code></div>` : ""}
         ${damageRows.length ? `<div><b>Outgoing Damage</b></div><div>${_renderRows(damageRows)}</div>` : ""}

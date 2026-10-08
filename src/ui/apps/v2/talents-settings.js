@@ -20,17 +20,19 @@ export class TalentsSettingsAppV2 extends HandlebarsApplicationMixin(Application
       submitOnChange: false,
     },
     window: {
+      resizable: true,
       title: "UESRPG - Talents",
     },
     position: {
       width: 520,
     },
-    classes: ["uesrpg"],
+    classes: ["standard-form", "uesrpg-settings-app"],
   };
 
   static PARTS = {
     form: {
       template: templatePath("v2/apps/talents-settings.hbs"),
+      scrollable: [".uesrpg-settings__body"],
     },
   };
 

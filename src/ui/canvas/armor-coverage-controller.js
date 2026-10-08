@@ -7,6 +7,7 @@
 import { resolveArmorCoverage } from "../../core/combat/armor-coverage-service.js";
 import { buildArmorCoverageViewModel } from "./armor-coverage-presenter.js";
 import { ArmorCoverageOverlay } from "./armor-coverage-overlay.js";
+import { isDamageReceiptOnlyUpdate } from "../../core/combat/damage/receipt-metadata.js";
 
 export const ARMOR_COVERAGE_OVERLAY_MODES = Object.freeze({
   DISABLED: "disabled",
@@ -185,8 +186,9 @@ function _registerHooks() {
     _refreshTokensById(_actorTokenIds(item.parent));
   });
 
-  Hooks.on("updateActor", (actor) => {
+  Hooks.on("updateActor", (actor, changed) => {
     if (!_isEnabled()) return;
+    if (isDamageReceiptOnlyUpdate(changed)) return;
     _refreshTokensById(_actorTokenIds(actor));
   });
 }

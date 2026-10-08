@@ -2,6 +2,7 @@ import { safeUpdateChatMessage } from "../../../utils/chat-message-socket.js";
 import { SYSTEM_ID } from "../system-id.js";
 import { firstNonEmptyString, normalizeUsage, formatUsagePeriod } from "./helpers.js";
 import { getActivationActionTypeLabel, getActivationCostPreview } from "./costs-and-usage.js";
+import { renderEffectLinks } from "../../../ui/shared/effect-chat.js";
 
 function buildActivationHeader({ label, img, actor, includeImage }) {
   const title = String(label ?? "Activation");
@@ -41,7 +42,7 @@ export function renderActivationCard({
     ? `<div class="uesrpg-activation-costs"><b>Costs:</b> ${foundry.utils.escapeHTML(costPreview.summary)}</div>` : "";
   const renderSimple = Boolean(item && activation?.renderFullCard !== true);
   if (renderSimple) {
-    const baseHtml = buildItemDescriptionHtml({ item, includeImage }) + costsHtml;
+    const baseHtml = buildItemDescriptionHtml({ item, includeImage }) + costsHtml + renderEffectLinks(item.effects);
     const notes = Array.isArray(resultNotes)
       ? resultNotes.map((note) => String(note ?? "").trim()).filter(Boolean)
       : [];
@@ -106,7 +107,7 @@ export function renderActivationCard({
   ${shortHtml}
   <hr />
   ${fullHtml}
-  ${notesHtml}`;
+  ${notesHtml}${renderEffectLinks(item?.effects)}`;
 }
 
 export async function appendActivationResultToMessage(message, {

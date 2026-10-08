@@ -56,6 +56,8 @@
         "ConditionHint": "Managed by the condition engine.",
         "Disabled": "Disabled",
         "DisabledHint": "This effect is disabled.",
+        "Expired": "Expired",
+        "ExpiredHint": "Foundry duration has expired.",
         "ExpiryHint": "Generic lifecycle expiry mode.",
         "Generic": "Generic",
         "GenericHint": "Generic ActiveEffect lifecycle metadata.",
@@ -64,6 +66,8 @@
         "Spell": "Spell",
         "SpellHint": "Managed by spell automation.",
         "StackHint": "Generic stack policy.",
+        "StaleExpired": "Expired/Stale",
+        "StaleExpiredHint": "This expired system spell effect is still embedded and should be cleaned by GM maintenance.",
         "Suppressed": "Suppressed",
         "SuppressedHint": "Expired with suppression instead of deletion.",
         "Temporary": "Temporary",
@@ -201,9 +205,11 @@
         "RevisionStatus": "Applied revision {applied}; required revision {required}",
         "Migrations": {
           "activeEffectChangeTypes": "Active Effect change types",
+          "activeEffectDurationV14": "Active Effect durations",
           "actors": "Actor data",
           "socialItemRetirementCleanup": "Retired social items",
           "itemLegacyRepair": "Legacy item repair",
+          "itemSheetCompatibility": "Legacy item sheet compatibility",
           "ruleElementRetirementCleanup": "Retired rule elements",
           "items": "Item data",
           "scrollCastingControls": "Scroll casting controls",
@@ -215,6 +221,8 @@
           "warfareUnitNeutralLanesV1": "Warfare Unit canonical data",
           "warfareFlagsV1": "Warfare document flags",
           "npcArmorCoverageDefaultsV1": "NPC armor coverage defaults",
+          "spellDamageTypeNormalization": "Spell damage types",
+          "systemTemplateDirectiveCleanup": "System template directives",
           "timeDefaultsCompositeOrchestratorV1": "Time orchestration defaults",
           "automationProfileRemovalDefaultsV2": "Automation setting defaults"
         },
@@ -1136,6 +1144,12 @@
         "CharacteristicsOptions": "Characteristics Options"
       },
       "Combat": {
+        "Actions": "Combat Actions",
+        "AddCombatStyle": "Add Combat Style",
+        "CurrentAP": "Current action points",
+        "MaximumAP": "Maximum action points",
+        "CurrentAttacks": "Current attacks",
+        "MaximumAttacks": "Maximum attacks",
         "Action": "Action",
         "Aim": "Aim",
         "AttackMelee": "Attack (Melee)",
@@ -1193,6 +1207,12 @@
         "UseItem": "Use Item",
         "DefensiveStanceDisabledReason": "Defensive Stance: attacks disabled until your next Turn.",
         "Wound": "Wound"
+      },
+      "Effects": {
+        "DisableEffect": "Disable Effect",
+        "EffectCount": "Effect count: {count}",
+        "EnableEffect": "Enable Effect",
+        "NoneRecorded": "No effects recorded."
       },
       "Equipment": {
         "AddSubtract": "Add/Subtract",
@@ -1690,6 +1710,7 @@
         "FastSpeedKmh": "7 km/h",
         "NormalDailyDistance": "40 km",
         "NormalSpeedKmh": "5 km/h",
+        "TravelPaceReference": "Travel Pace Reference",
         "Pace": "Pace",
         "SlowDailyDistance": "24 km",
         "SlowPaceEffect": "Can move stealthily",
@@ -1715,6 +1736,8 @@
         "UpkeepCount": "Upkeep x{count}"
       },
       "Wounds": {
+        "ProgressForLocation": "Healing progress: {location}. Press Enter to apply.",
+        "DamageForLocation": "Wound damage: {location}. Press Enter to apply.",
         "Actions": "Actions",
         "BloodLossPaused": "Blood Loss Paused ({reason}, {rounds} rounds left)",
         "BloodLossRounds": "Blood Loss ({rounds} rounds)",
@@ -1871,6 +1894,9 @@
       }
     },
     "Notifications": {
+      "Rest": {
+        "Partial": "Rest partially completed. Review the rest summary and saved time; do not repeat confirmed recovery."
+      },
       "Authority": {
         "GMRequired": "A GM must perform this cross-owner change."
       },
@@ -1954,6 +1980,7 @@
         "SelectAction": "Please select a stamina action."
       },
       "Magic": {
+        "InvalidSpellStrength": "Cannot resolve Spell Strength for {spell}: {formula}. Check the spell formula and actor references.",
         "ActorSurprisedReactionsOnly": "{actor} is surprised and may only take reactions until their first turn passes.",
         "ActorCannotCastFear": "{actor} cannot cast due to fear effects.",
         "ActorFailsCastBurning": "{actor} fails to cast while burning.",
@@ -2228,7 +2255,8 @@
         "WoundEffectNotFound": "Shock: wound effect not found.",
         "AlreadyResolved": "Shock test already resolved for this wound.",
         "AlreadyResolving": "Shock test already resolving.",
-        "InvalidEnduranceTN": "Shock: invalid Endurance TN."
+        "InvalidEnduranceTN": "Shock: invalid Endurance TN.",
+        "InvalidRollOptions": "Shock: enter a valid Base TN (0 or greater) and manual modifier."
       },
       "Dynamic": {
         "ActorCannotAttack": "{actor} cannot attack{reason}.",
@@ -2293,6 +2321,10 @@
       "Opposed": {
         "AlreadyUsedThisRound": "Already used this round.",
         "AllOutAttack": "All Out Attack",
+        "FirstAdvantage": "First Advantage",
+        "SecondAdvantage": "Second Advantage",
+        "NoAdvantage": "None",
+        "AdvantageAlreadyChosen": "Already chosen as the first Advantage. Choose a different option or None.",
         "AllOutAttackDesc": "Melee only; +1 AP to +20 TN",
         "ApplyBlinded": "Apply Blinded (-30, sight-based)",
         "ApplyDeafened": "Apply Deafened (-30, hearing-based)",
@@ -2315,6 +2347,9 @@
         "CounterAttack": "Counter-Attack",
         "CountAsCharging": "Count as Charging",
         "CoupDeGrace": "Coup de Grace",
+        "CoupMode": "Coup de Grace outcome",
+        "CoupLethalShort": "Lethal",
+        "CoupNonLethalShort": "Non-Lethal",
         "CoupLethal": "Lethal (HP -> 0)",
         "CoupNonLethal": "Non-Lethal (-1 Stamina, +1 Fatigue)",
         "DeafenedPenalty": "Deafened (-30, hearing-based)",
@@ -2330,11 +2365,19 @@
         "ExploitAdvantageRequiresDuel": "Exploit Advantage: requires an isolated duel to double Press Advantage.",
         "EyeOfNight": "Eye of Night (night/darkness): Precision Strike without -20",
         "EyeOfNightHint": "Chapter 4: applies to the first attack made while Hidden.",
+        "EyeOfNightShort": "Eye of Night (Precision)",
+        "BlindedShort": "Blinded (-30)",
+        "DeafenedShort": "Deafened (-30)",
+        "ThunderousChargeShort": "Thunderous Charge (-1 AP)",
+        "GladiatorFreeShort": "Gladiator (0 AP)",
+        "SelectPrecisionHint": "Select Precision Strike to enable this option.",
+        "SelectAllOutHint": "Select All Out Attack to enable this option.",
         "Fearsome": "Fearsome",
         "FearsomeBody": "<b>{defender}</b> may use <b>Persuade (Strength)</b> in place of <b>Evade</b> when taking an Evade reaction against melee attacks.",
         "Flail": "Flail",
         "FlailDefenseNote": "Attacks with a flail cannot be parried or counter-attacked.",
         "ForcefulImpact": "Forceful Impact",
+        "ForcefulImpactHint": "After physical damage is applied, increase Damaged by 1 on one equipped armor piece or shield protecting the hit location.",
         "Gladiator": "Gladiator",
         "HelplessTargetOnly": "Helpless target only",
         "HoldActiveMixed": "Hold is active: the attacker suffers -20 TN in this mixed engagement.",
@@ -2363,8 +2406,11 @@
         "OverwhelmDesc": "Opponent cannot make Attacks of Opportunity until your next turn.",
         "Parry": "Parry",
         "PenetrateArmor": "Penetrate Armor",
+        "PenetrateArmorHint": "Treat the hit location as one protection class lower for weapon-quality effects.",
         "PrecisionStrike": "Precision Strike",
         "PressAdvantage": "Press Advantage",
+        "PressAdvantageHint": "+10 TN to your next melee attack against this opponent within one round.",
+        "AdvantageBudgetHint": "All available Advantage is selected. Clear a selected option to choose this one.",
         "RangedDefenseNote": "Ranged attacks cannot be parried or counter-attacked.",
         "ResolveDamage": "Resolve Damage",
         "ResolveDefenderAdvantage": "Resolve Defender Advantage",
@@ -2415,7 +2461,12 @@
         "LevelAbbrev": "L",
         "LevelOption": "Level {level} ({cost} MP{extra})",
         "MagickaCycling": "Magicka Cycling",
-        "MasterOfMagickaAllowsBoth": "Master of Magicka allows Overcharge and Spell Restraint together.",
+        "MasterOfMagickaAllowsBoth": "Master of Magicka allows Overload and Restraint together.",
+        "RestraintAmount": "Restraint ({value} MP)",
+        "AttemptPayment": "Payment for this attempt: {value} {resource}.",
+        "CurrentCostMultiplier": "{option}: x{value} cost.",
+        "SelectRestraintClearsOverload": "Selecting Restraint clears Overload.",
+        "SelectOverloadClearsRestraint": "Selecting Overload clears Restraint.",
         "Overcharge": "Overcharge",
         "OverchargeCostShort": "+{value} MP",
         "Overload": "Overload",
@@ -2701,6 +2752,9 @@
         "Title": "Cast Magic",
         "TitleInstant": "Cast Magic (Instant)",
         "SelectSource": "Select Spell, Scroll, or Item Slot",
+        "SelectSchool": "Choose a School",
+        "SourceOne": "source available.",
+        "Sources": "sources available.",
         "Cast": "Cast"
       },
       "GroupSheet": {
@@ -2978,10 +3032,20 @@
         "Target": "Target",
         "Test": "Test",
         "TN": "TN",
+        "EstimatedTNHint": "Estimated TN for the current options; confirmed when the test is rolled.",
+        "EstimatedTNUnavailable": "Select the required test options to estimate its TN.",
         "TnBreakdown": "TN breakdown",
         "ApplicationPending": "Applying… If interrupted, use Apply to recover the saved outcome.",
         "ApplicationPartial": "Partially applied — review remaining effects before retrying.",
-        "ApplicationFailed": "Application failed. Review the target before retrying."
+        "ApplicationFailed": "Application failed. Review the target before retrying.",
+        "OutcomeApplied": "Applied",
+        "OutcomeApply": "Apply Outcome",
+        "OutcomeRetry": "Retry Unstarted Work",
+        "OutcomeProcessing": "Applying...",
+        "OutcomeWaitingGM": "Pending: GM required for remaining work.",
+        "OutcomeAutomatic": "Pending automatic application.",
+        "OutcomeAwaitingConfirmation": "Awaiting confirmation.",
+        "OutcomeUnavailable": "Failed: recipient unavailable."
       },
       "Alchemy": {
         "AddSuitableIngredient": "Add a suitable ingredient item to the actor's inventory.",
@@ -3023,7 +3087,9 @@
         "DefenderHitLocation": "Defender hit location",
         "DefenderUnavailable": "Defender unavailable",
         "Defense": "Defense",
-        "DefenseUnavailable": "Defense unavailable: {reason}",
+        "AutoNoDefenseAP": "No Defense selected — insufficient AP.",
+      "PaidDefenseUnavailable": "Not enough Action Points for this defense. Choose an available free defense or No Defense.",
+      "DefenseUnavailable": "Defense unavailable: {reason}",
         "Declared": "declared",
         "Evade": "Evade",
         "Initiator": "Initiator",
@@ -3049,6 +3115,7 @@
         "FollowUpStrike1SP": "Follow-up Strike (1 SP)"
       },
       "Magic": {
+        "AutomationPartial": "Spell automation partially completed. Confirmed changes remain applied; review the unresolved consequences before repeating the action.",
         "AoeDefenseNote": "AoE: Block or Evade if aware. Choose No Defense if unable to defend.",
         "AwaitingCasterRoll": "Awaiting Caster Roll",
         "AwaitingDefenseSelection": "Awaiting defense selection",
@@ -3156,6 +3223,17 @@
       "DamagePanel": {
         "Result": "Result",
         "Detail": "Detail",
+        "StrengthFormula": "Spell Strength formula",
+        "StrengthRolls": "Spell Strength rolls",
+        "SelectedStrengthRolls": "Selected strength rolls",
+        "OverchargeRolls": "Overcharge rolls",
+        "OverloadBonus": "Overload bonus",
+        "ElementalBonus": "Elemental bonus",
+        "BlockRating": "Block rating",
+        "WardRating": "Ward rating",
+        "AfterBlock": "After block",
+        "AfterWard": "After ward",
+        "ResultTotal": "{label} total",
         "FromAttackRoll": "from attack roll",
         "Effect": "Effect",
         "HitLocationShort": "Hit Loc.",
@@ -3411,6 +3489,10 @@
           "Name": "Journals: Custom Styling",
           "Hint": "Use the UESRPG wood, parchment, and sidebar styling for native Journal windows."
         },
+        "hideChatFormattingToolbar": {
+          "Name": "Chat: Hide Formatting Toolbar",
+          "Hint": "Hide the chat formatting controls and compact the input for your user. Formatting keyboard shortcuts remain available. Changes apply when you save, without reloading."
+        },
         "encumbranceUiEnhanced": {
           "Name": "Sheets: Encumbrance Breakdown + Highlights",
           "Hint": "Show ENC breakdown dialog and highlight top encumbrance contributors."
@@ -3638,6 +3720,11 @@
         "enableActionEconomyUI": {
           "Name": "Combat Sheet: Action Economy UI",
           "Hint": "When enabled, Combat tab quick action buttons are disabled when the actor has 0 Action Points."
+        },
+        "combatOutcomeApplicationMode": {
+          "Name": "Damage, Healing, and Effects Application",
+          "Hint": "Choose who confirms resolved outcomes. GM and Player allows owners to apply incoming damage, and healing or effects involving their actors. Automatic application affects newly resolved outcomes only. Changing modes does not reverse applied results.",
+          "Choices": { "gm": "GM Gated", "owners": "GM and Player", "automatic": "Everything Automated" }
         },
         "tokenRangeMeasurement": {
           "Name": "Combat: Token Range Measurement Mode",
@@ -4123,10 +4210,7 @@
     },
     "DefectUpdate": {
       "AdministrativeCorrection": "Administrative Correction",
-      "ApplyCategoryCoverage": "Apply Category Coverage",
       "Applied": "Applied",
-      "ArmorCoverageApplied": "Armor coverage was restored from its category.",
-      "ArmorCoverageUnknown": "Set a recognized armor category before applying category coverage.",
       "BashFailure": "{actor} fails the Acrobatics test and falls Prone.",
       "BashFlavor": "Acrobatics — Bash Follow-Up (avoid Prone)",
       "BashNoAcrobatics": "{actor} has no Acrobatics skill or NPC physical profession. Apply Prone manually if they fail.",
@@ -4463,6 +4547,24 @@
         "greater": "Greater",
         "legendary": "Legendary"
       }
+    },
+    "EffectTransfer": {
+      "PostLabel": "Post to Chat",
+      "MoveLabel": "Move effect",
+      "ApplyLabel": "Apply effect",
+      "MoveHint": "Drag to another actor sheet or visible token to move this effect. Click to edit.",
+      "ApplyHint": "Drag to an actor sheet or visible token to apply this effect definition. Click to edit.",
+      "Unavailable": "This effect reference is no longer available. Open its current sheet to use a live effect.",
+      "Expired": "Expired effects cannot be moved or applied.",
+      "Managed": "This effect depends on a managed workflow or linked documents. Use its existing condition, wound, spell, or activation workflow.",
+      "Permission": "Moving an effect requires write permission on both actors. Applying a definition requires source read permission and destination ownership.",
+      "Changed": "The effect or an affected destination effect changed during transfer. The transfer was cancelled.",
+      "Retained": "{effect} was not moved or applied because the stacking policy retained an existing effect or discarded the incoming effect.",
+      "Failed": "The destination could not apply {effect}. The transfer was cancelled and recoverable destination changes were restored.",
+      "DeleteFailed": "The source could not remove {effect}. The move was cancelled and destination changes were restored.",
+      "RecoveryFailed": "The effect transfer failed and recovery was incomplete. Concurrent changes were preserved. Check the source and destination Effects tabs before retrying.",
+      "Moved": "Moved {effect} to {actor}, preserving its original expiry.",
+      "Applied": "Applied {effect} to {actor}. The reusable definition remains available."
     }
   },
   "TYPES": {

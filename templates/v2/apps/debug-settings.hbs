@@ -1,28 +1,34 @@
-{{!-- templates/v2/apps/debug-settings.hbs - AppV2 (no form wrapper) --}}
-<section class="uesrpg-settings">
-{{#if isGM}}
-<fieldset>
-  <legend>{{localize "UESRPG.Apps.DebugSettings.Sections.World"}}</legend>
+{{!-- templates/v2/apps/debug-settings.hbs --}}
+<section class="uesrpg-settings uesrpg-settings-panel">
+  <div class="uesrpg-settings__body">
+    {{#if isGM}}
+    <fieldset class="uesrpg-settings__section">
+      <legend>{{localize "UESRPG.Apps.DebugSettings.Sections.World"}}</legend>
 
-  <div class="form-group">
-    <label>{{world.debugEnabled.name}}</label>
-    <input type="checkbox" name="world.debugEnabled" {{checked world.debugEnabled.value}}>
-    <p class="notes">{{world.debugEnabled.hint}}</p>
+      <div class="setting-row setting-row--toggle">
+        <div class="setting-row__main">
+          <label class="setting-row__label" for="uesrpg-world-debug">{{world.debugEnabled.name}}</label>
+          <p id="uesrpg-world-debug-hint" class="setting-help">{{world.debugEnabled.hint}}</p>
+        </div>
+        <input id="uesrpg-world-debug" aria-describedby="uesrpg-world-debug-hint" type="checkbox" name="world.debugEnabled" {{checked world.debugEnabled.value}}>
+      </div>
+    </fieldset>
+    {{/if}}
+
+    <fieldset class="uesrpg-settings__section">
+      <legend>{{localize "UESRPG.Apps.DebugSettings.Sections.Client"}}</legend>
+
+      <div class="setting-row setting-row--toggle">
+        <div class="setting-row__main">
+          <label class="setting-row__label" for="uesrpg-client-debug">{{client.debugClientEnabled.name}}</label>
+          <p id="uesrpg-client-debug-hint" class="setting-help">{{client.debugClientEnabled.hint}}</p>
+        </div>
+        <input id="uesrpg-client-debug" aria-describedby="uesrpg-client-debug-hint" type="checkbox" name="client.debugClientEnabled" {{checked client.debugClientEnabled.value}}>
+      </div>
+    </fieldset>
   </div>
-</fieldset>
-{{/if}}
 
-<fieldset>
-  <legend>{{localize "UESRPG.Apps.DebugSettings.Sections.Client"}}</legend>
-
-  <div class="form-group">
-    <label>{{client.debugClientEnabled.name}}</label>
-    <input type="checkbox" name="client.debugClientEnabled" {{checked client.debugClientEnabled.value}}>
-    <p class="notes">{{client.debugClientEnabled.hint}}</p>
-  </div>
-</fieldset>
-
-<footer class="sheet-footer flexrow">
-  <button type="submit" class="save"><i class="fas fa-save"></i> {{localize "UESRPG.UI.Save"}}</button>
-</footer>
+  <footer class="uesrpg-settings__footer">
+    <button type="submit" class="save"><i class="fas fa-save" aria-hidden="true"></i> {{localize "UESRPG.UI.Save"}}</button>
+  </footer>
 </section>

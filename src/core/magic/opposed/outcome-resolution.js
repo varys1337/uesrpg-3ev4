@@ -1,3 +1,4 @@
+import { emitSuppressedSubRollDice } from "../../../utils/dice-visualization.js";
 /**
  * @module magic/opposed/outcome-resolution
  *
@@ -11,15 +12,16 @@ import { resolveOpposed } from "../../../utils/degree-roll-helper.js";
 import { getSpellCost, getSpellDamageFormula, getSpellDamageType, rollSpellHealing } from "../magicka-utils.js";
 
 import { getHitLocationFromRoll } from "../../combat/combat-utils.js";
-import { getOrCreateSharedSpellDamage, computeSpellDamageShared, spellNeedsDeferredDirectApplication, spellNeedsEffectApplication, isHealingType, isTemporaryHealingType, maybeResolveAoEEvadeEscape } from "./spell-helpers.js";
+import { prepareSpellStrengthForUse, getOrCreateSharedSpellDamage, computeSpellDamageShared, spellNeedsDeferredDirectApplication, spellNeedsEffectApplication, isHealingType, isTemporaryHealingType, maybeResolveAoEEvadeEscape } from "./spell-helpers.js";
 import { setDefenderOutcome, markResolutionPhase, setMagicDefenderDamage } from "./schema.js";
 import { trySpellReflect } from "../spell-runtime.js";
 import { isCharacteristicDefense, executeCharacteristicDefense, processCharacteristicDefenseOutcome } from "../characteristic-defense-service.js";
 import { createDebugLogger } from "../_primitives.js";
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
-import { buildMagicCastContextRows } from "./cast-context.js";
+import { buildMagicCastContextRows, recordSpellStrengthRolls } from "./cast-context.js";
 import { postMagicOpposedSubRoll } from "./subrolls.js";
+import { captureItemOutcomeContext } from "../../../utils/item-outcome-snapshot.js";
 
 const _spellDebug = createDebugLogger("spellCastingDebug");
 function _buildMagicDamageComponents(spell, damageType, damageInfo = null, targetTotal = null) {
@@ -94,6 +96,7 @@ function _buildMagicDamageData({
   isCritical = false,
   damageType = "",
   damageInfo = null,
+  strengthRoll = null,
   isTemporary = false,
   defenseType = "",
   isDamaging = true,
@@ -111,7 +114,10 @@ function _buildMagicDamageData({
     ?? 0
   );
   const originalCastWorldTime = Number(data?.context?.originalCastWorldTime ?? game?.time?.worldTime ?? 0) || 0;
-  const castContext = buildMagicCastContextRows(data?.attacker ?? {}, spell, { actor: attacker });
+  const strengthContext = damageInfo?.castContext ?? (data?.attacker?.castContext?.spellStrengthResolved ? data.attacker.castContext : null) ?? (strengthRoll
+    ? recordSpellStrengthRolls(data?.attacker ?? {}, spell, { rolls: [strengthRoll], actor: attacker })
+    : data?.attacker?.castContext);
+  const castContext = buildMagicCastContextRows({ ...data?.attacker, castContext: strengthContext }, spell, { actor: attacker });
 
   return {
     rolled: true,
@@ -136,6 +142,8 @@ function _buildMagicDamageData({
       damage: finalDamage,
       damageType: effectiveDamageType || "",
       spellUuid: spell?.uuid ?? "",
+      spellSnapshot: spell?.toObject() ?? null,
+      spellSnapshotContext: captureItemOutcomeContext(spell),
       casterUuid: attacker?.uuid ?? "",
       casterTokenUuid: data?.attacker?.tokenUuid ?? "",
       hitLocation,
@@ -187,13 +195,14 @@ async function _buildDeferredDirectApplicationData({
   const effectiveDefenseType = String(defenseType ?? defenderEntry?.defenseType ?? "").trim().toLowerCase();
 
   if (isHealingType(damageType)) {
-    const healRoll = await rollSpellHealing(spell, { isCritical });
+    const healRoll = await rollSpellHealing(spell, { isCritical, actor: attacker, level: data?.attacker?.spellOptions?.castLevel, castContext: data?.attacker?.castContext });
+    if (!data?.attacker?.castContext?.spellStrengthResolved) void emitSuppressedSubRollDice(healRoll, { actor: attacker, parentMessageId: message?.id, damageType, user: game.users.get(data.attacker?.banked?.committedBy) ?? message?.author ?? game.user });
     const healValue = Number(healRoll.total) || 0;
     const rollHTML = await healRoll.render();
     const isTemporaryHealing = isTemporaryHealingType(damageType);
 
     const healDmgData = _buildMagicDamageData({
-      mode: "healing",
+      mode: "healing", strengthRoll: healRoll,
       finalDamage: healValue,
       damageString: rollHTML,
       hitLocation: "Body",
@@ -221,7 +230,7 @@ async function _buildDeferredDirectApplicationData({
   const isDamaging = Boolean(damageFormula && damageFormula !== "0" && damageType !== "none");
   if (isDamaging) {
     const spellOptions = data.attacker.spellOptions ?? {};
-    const sharedDamage = await getOrCreateSharedSpellDamage({
+    const sharedDamage = await getOrCreateSharedSpellDamage({ castContext: data?.attacker?.castContext,
       data,
       attacker,
       spell,
@@ -231,7 +240,7 @@ async function _buildDeferredDirectApplicationData({
       targetActor: defender,
       parentMessageId: message.id
     });
-    const damageInfo = sharedDamage ?? await computeSpellDamageShared({
+    const damageInfo = sharedDamage ?? await computeSpellDamageShared({ castContext: data?.attacker?.castContext,
       attacker,
       spell,
       spellOptions,
@@ -334,7 +343,8 @@ export async function resolveDirectUndefendable(ctx) {
 
   // ── Healing: roll and apply immediately (includes temporary healing) ──
   if (isHealingType(damageType)) {
-    const healRoll = await rollSpellHealing(spell, { isCritical });
+    const healRoll = await rollSpellHealing(spell, { isCritical, actor: attacker, level: data?.attacker?.spellOptions?.castLevel, castContext: data?.attacker?.castContext });
+    if (!data?.attacker?.castContext?.spellStrengthResolved) void emitSuppressedSubRollDice(healRoll, { actor: attacker, parentMessageId: message?.id, damageType, user: game.users.get(data.attacker?.banked?.committedBy) ?? message?.author ?? game.user });
     const healValue = Number(healRoll.total) || 0;
     const rollHTML = await healRoll.render();
     
@@ -366,7 +376,7 @@ export async function resolveDirectUndefendable(ctx) {
     });
 
     const healDmgData = _buildMagicDamageData({
-      mode: "healing", finalDamage: healValue, damageString: rollHTML,
+      mode: "healing", strengthRoll: healRoll, finalDamage: healValue, damageString: rollHTML,
       hitLocation: "Body", spell, target: effectiveTarget, attacker, data,
       isCritical, damageType, isTemporary: isTemporaryHealing, isDamaging: false,
     });
@@ -382,8 +392,8 @@ export async function resolveDirectUndefendable(ctx) {
 
     if (isDamaging) {
       const spellOptions = data.attacker.spellOptions ?? {};
-      const sharedDamage = await getOrCreateSharedSpellDamage({ data, attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
-      const damageInfo = sharedDamage ?? await computeSpellDamageShared({ attacker, spell, spellOptions, isCritical, damageType, targetActor: effectiveTarget, parentMessageId: message.id });
+      const sharedDamage = await getOrCreateSharedSpellDamage({ castContext: data?.attacker?.castContext, data, attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
+      const damageInfo = sharedDamage ?? await computeSpellDamageShared({ castContext: data?.attacker?.castContext, attacker, spell, spellOptions, isCritical, damageType, targetActor: effectiveTarget, parentMessageId: message.id });
       const damageValue = Number(damageInfo?.damageValue ?? 0) || 0;
       const rollHTML = damageInfo?.rollHTML ?? "";
 
@@ -447,7 +457,8 @@ export async function resolveDirectNoTest(ctx) {
 
   // ── Healing: roll and apply immediately (includes temporary healing) ──
   if (isHealingType(damageType)) {
-    const healRoll = await rollSpellHealing(spell, { isCritical });
+    const healRoll = await rollSpellHealing(spell, { isCritical, actor: attacker, level: data?.attacker?.spellOptions?.castLevel, castContext: data?.attacker?.castContext });
+    if (!data?.attacker?.castContext?.spellStrengthResolved) void emitSuppressedSubRollDice(healRoll, { actor: attacker, parentMessageId: message?.id, damageType, user: game.users.get(data.attacker?.banked?.committedBy) ?? message?.author ?? game.user });
     const healValue = Number(healRoll.total) || 0;
     const rollHTML = await healRoll.render();
     
@@ -480,7 +491,7 @@ export async function resolveDirectNoTest(ctx) {
     });
 
     const healDmgData = _buildMagicDamageData({
-      mode: "healing", finalDamage: healValue, damageString: rollHTML,
+      mode: "healing", strengthRoll: healRoll, finalDamage: healValue, damageString: rollHTML,
       hitLocation: "Body", spell, target: effectiveTarget, attacker, data,
       isCritical, damageType, isTemporary: isTemporaryHealing, isDamaging: false,
     });
@@ -494,8 +505,8 @@ export async function resolveDirectNoTest(ctx) {
 
     if (isDamaging) {
       const spellOptions = data.attacker.spellOptions ?? {};
-      const sharedDamage = await getOrCreateSharedSpellDamage({ data, attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
-      const damageInfo = sharedDamage ?? await computeSpellDamageShared({ attacker, spell, spellOptions, isCritical, damageType, targetActor: effectiveTarget, parentMessageId: message.id });
+      const sharedDamage = await getOrCreateSharedSpellDamage({ castContext: data?.attacker?.castContext, data, attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
+      const damageInfo = sharedDamage ?? await computeSpellDamageShared({ castContext: data?.attacker?.castContext, attacker, spell, spellOptions, isCritical, damageType, targetActor: effectiveTarget, parentMessageId: message.id });
       const damageValue = Number(damageInfo?.damageValue ?? 0) || 0;
       const rollHTML = damageInfo?.rollHTML ?? "";
 
@@ -548,7 +559,8 @@ export async function resolveHealingDirect(ctx) {
     }
     const effectiveTarget = reflectResult.reflected && reflectResult.behavior === "redirect" ? attacker : defender;
 
-    const healRoll = await rollSpellHealing(spell, { isCritical });
+    const healRoll = await rollSpellHealing(spell, { isCritical, actor: attacker, level: data?.attacker?.spellOptions?.castLevel, castContext: data?.attacker?.castContext });
+    if (!data?.attacker?.castContext?.spellStrengthResolved) void emitSuppressedSubRollDice(healRoll, { actor: attacker, parentMessageId: message?.id, damageType, user: game.users.get(data.attacker?.banked?.committedBy) ?? message?.author ?? game.user });
     const healValue = Number(healRoll.total) || 0;
     const rollHTML = await healRoll.render();
     
@@ -582,7 +594,7 @@ export async function resolveHealingDirect(ctx) {
     });
 
     const healDmgData = _buildMagicDamageData({
-      mode: "healing", finalDamage: healValue, damageString: rollHTML,
+      mode: "healing", strengthRoll: healRoll, finalDamage: healValue, damageString: rollHTML,
       hitLocation: "Body", spell, target: effectiveTarget, attacker, data,
       isCritical, damageType, isTemporary: isTemporaryHealing, isDamaging: false,
     });
@@ -736,8 +748,8 @@ export async function resolveOpposedTest(ctx) {
 
     if (isDamaging) {
       const spellOptions = data.attacker.spellOptions ?? {};
-      const sharedDamage = await getOrCreateSharedSpellDamage({ data, attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
-      const damageInfo = sharedDamage ?? await computeSpellDamageShared({ attacker, spell, spellOptions, isCritical, damageType, targetActor: effectiveTarget, parentMessageId: message.id });
+      const sharedDamage = await getOrCreateSharedSpellDamage({ castContext: data?.attacker?.castContext, data, attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
+      const damageInfo = sharedDamage ?? await computeSpellDamageShared({ castContext: data?.attacker?.castContext, attacker, spell, spellOptions, isCritical, damageType, targetActor: effectiveTarget, parentMessageId: message.id });
       const damageValue = Number(damageInfo?.damageValue ?? 0) || 0;
       const rollHTML = damageInfo?.rollHTML ?? "";
 
@@ -846,8 +858,8 @@ export async function resolveOpposedTest(ctx) {
 
     if (isDamaging) {
       const spellOptions = data.attacker.spellOptions ?? {};
-      const sharedDamage = await getOrCreateSharedSpellDamage({ data, attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
-      const damageInfo = sharedDamage ?? await computeSpellDamageShared({ attacker, spell, spellOptions, isCritical, damageType, targetActor: defender, parentMessageId: message.id });
+      const sharedDamage = await getOrCreateSharedSpellDamage({ castContext: data?.attacker?.castContext, data, attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
+      const damageInfo = sharedDamage ?? await computeSpellDamageShared({ castContext: data?.attacker?.castContext, attacker, spell, spellOptions, isCritical, damageType, targetActor: defender, parentMessageId: message.id });
       const damageValue = Number(damageInfo?.damageValue ?? 0) || 0;
       const appliedDamage = applyOnBlock ? Math.ceil(damageValue / 2) : damageValue;
       const rollHTML = damageInfo?.rollHTML ?? "";
@@ -941,6 +953,8 @@ async function resolveWithCharacteristicDefense(ctx) {
   // If the defender already rolled via the chat card button (handleDefenderCharacteristicTest),
   // use their stored result instead of rolling a second time.
   let defResult;
+  const config = (await import("../spell-config.js")).normalizeSpellConfig(spell);
+  const charDef = config?.characteristicDefense;
   // Guard: if the defender was stamped with noDefense=true (e.g. isDirect spells in
   // the directNoDefense block), the stored result is a placeholder — not a real roll.
   // In that case, ignore the preRolled data and execute the actual characteristic save.
@@ -957,8 +971,6 @@ async function resolveWithCharacteristicDefense(ctx) {
   });
   if (preRolled) {
     // Reconstruct defResult from stored defender data
-    const config = (await import("../spell-config.js")).normalizeSpellConfig(spell);
-    const charDef = config?.characteristicDefense;
     defResult = {
       success: Boolean(defenderEntry.result.isSuccess),
       criticalSuccess: Boolean(defenderEntry.result.isCriticalSuccess),
@@ -976,6 +988,10 @@ async function resolveWithCharacteristicDefense(ctx) {
       roll: defenderEntry.result.roll
     };
   } else {
+    if (charDef?.modifierMode !== "formula") {
+      await prepareSpellStrengthForUse({ data, attacker, spell, targetActor: defender, message });
+      await _updateCard(message, data);
+    }
     defResult = await executeCharacteristicDefense(defender, spell, {
       caster: attacker,
       attacker: data?.attacker ?? {},
@@ -1082,7 +1098,7 @@ async function resolveWithCharacteristicDefense(ctx) {
  * @private
  */
 async function _applyCharDefDamageAndEffects(ctx, effectiveTarget, isCritical, outcome, halveDamage = false) {
-  const { data, attacker, spell, isAoE, forcedHitLocation, defenderEntry } = ctx;
+  const { message, data, attacker, spell, isAoE, forcedHitLocation, defenderEntry } = ctx;
   const hitLocation = forcedHitLocation || (isAoE ? "Body" : getHitLocationFromRoll(Number(data.attacker.result?.rollTotal ?? 0)));
 
   const damageFormula = getSpellDamageFormula(spell, null, { actor: attacker });
@@ -1091,7 +1107,8 @@ async function _applyCharDefDamageAndEffects(ctx, effectiveTarget, isCritical, o
 
   if (isHealingType(damageType)) {
     // Characteristic defense on healing spells: apply healing
-    const healRoll = await rollSpellHealing(spell, { isCritical });
+    const healRoll = await rollSpellHealing(spell, { isCritical, actor: attacker, level: data?.attacker?.spellOptions?.castLevel, castContext: data?.attacker?.castContext });
+    if (!data?.attacker?.castContext?.spellStrengthResolved) void emitSuppressedSubRollDice(healRoll, { actor: attacker, parentMessageId: message?.id, damageType, user: game.users.get(data.attacker?.banked?.committedBy) ?? message?.author ?? game.user });
     const healValue = Number(healRoll.total) || 0;
     const rollHTML = await healRoll.render();
     const isTemporaryHealing = isTemporaryHealingType(damageType);
@@ -1106,7 +1123,7 @@ async function _applyCharDefDamageAndEffects(ctx, effectiveTarget, isCritical, o
     }
 
     const healDmgData = _buildMagicDamageData({
-      mode: "healing", finalDamage: appliedHeal, damageString: rollHTML,
+      mode: "healing", strengthRoll: healRoll, finalDamage: appliedHeal, damageString: rollHTML,
       hitLocation, spell, target: effectiveTarget, attacker, data,
       isCritical, damageType, isTemporary: isTemporaryHealing, isDamaging: false,
       defenseType: "characteristic-save",
@@ -1114,8 +1131,8 @@ async function _applyCharDefDamageAndEffects(ctx, effectiveTarget, isCritical, o
     setMagicDefenderDamage(data, defenderEntry, healDmgData);
   } else if (isDamaging) {
     const spellOptions = data.attacker.spellOptions ?? {};
-    const sharedDamage = await getOrCreateSharedSpellDamage({ data, attacker, spell, spellOptions, isCritical, damageType, parentMessageId: ctx?.message?.id ?? null });
-    const damageInfo = sharedDamage ?? await computeSpellDamageShared({ attacker, spell, spellOptions, isCritical, damageType, targetActor: effectiveTarget, parentMessageId: ctx?.message?.id ?? null });
+    const sharedDamage = await getOrCreateSharedSpellDamage({ castContext: data?.attacker?.castContext, data, attacker, spell, spellOptions, isCritical, damageType, parentMessageId: ctx?.message?.id ?? null });
+    const damageInfo = sharedDamage ?? await computeSpellDamageShared({ castContext: data?.attacker?.castContext, attacker, spell, spellOptions, isCritical, damageType, targetActor: effectiveTarget, parentMessageId: ctx?.message?.id ?? null });
     const damageValue = Number(damageInfo?.damageValue ?? 0) || 0;
     const appliedDamage = halveDamage ? Math.ceil(damageValue / 2) : damageValue;
     const rollHTML = damageInfo?.rollHTML ?? "";

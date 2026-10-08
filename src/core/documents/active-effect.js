@@ -48,8 +48,16 @@ function _turnIndex(combat, combatant) {
  */
 export class UESRPGActiveEffect extends foundry.documents.ActiveEffect {
   async _preCreate(data, options, user) {
+    // Relocation and rollback carry existing native anchors, unlike a newly cast spell.
+    // Snapshot before core's documented _preCreate and restore via updateSource afterwards.
+    const preserved = options?.uesrpgPreserveEffectTiming === true
+      ? foundry.utils.deepClone({ start: data.start, duration: data.duration }) : null;
     const allowed = await super._preCreate(data, options, user);
     if (allowed === false) return false;
+    if (preserved) {
+      this.updateSource(preserved);
+      return allowed;
+    }
 
     if (!_isActorEmbedded(this)) return allowed;
 

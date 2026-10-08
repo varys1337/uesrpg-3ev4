@@ -1,3 +1,4 @@
+import { emitSuppressedSubRollDice } from "../../../../utils/dice-visualization.js";
 import { executeAdvantageSpecialActions } from "../special-actions-automation.js";
 
 import { pushAdvantageMarker as _pushAdvantageMarker, _getDefenderOutcome, _getDefenderAdvantage, _getDefenderResolutionState, _getDefenderDamage, _setDefenderDamage } from '../schema.js';
@@ -16,6 +17,7 @@ import { _canControlActor } from "../helpers/util.js";
 
 import { hasCondition } from "../../../conditions/condition-engine.js";
 import { _ensureResolvedForPostActions } from "../../opposed-workflow.js";
+import { isAdvantageSelectionValid } from "../dialogs/advantage-options.js";
 import { promptWeaponAndAdvantages as _promptWeaponAndAdvantages } from "../dialogs/attacker.js";
 import { applyPressAdvantageEffect as _applyPressAdvantageEffect } from "../effects.js";
 import { selectEquippedRangedWeapon } from "../helpers/select-equipped-ranged-weapon.js";
@@ -116,22 +118,9 @@ export async function _emitInlineDamageRollMessage({
   const rolls = [dmg.rollA, dmg.rollB].filter(Boolean);
   if (!rolls.length) return null;
 
-  const dsn = game?.dice3d;
-  if (!dsn || typeof dsn.showForRoll !== "function") return null;
-
-  // NOTE: We intentionally avoid ChatMessage.create() here to prevent duplicate
-  // "Weapon - Damage Roll" cards in opposed inline-damage workflows.
-  await Promise.allSettled(rolls.map(async (roll) => {
-    try {
-      await dsn.showForRoll(roll, game.user, true);
-    } catch (_err) {
-      try {
-        await dsn.showForRoll(roll);
-      } catch (_err2) {
-        // no-op: inline panel still shows rendered roll HTML
-      }
-    }
-  }));
+  for (const roll of rolls) {
+    void emitSuppressedSubRollDice(roll, { actor, token, parentMessageId, damageType: dmg.damageType, user: game.user });
+  }
 
   return null;
 }
@@ -191,6 +180,18 @@ export function _buildApplyPayload({
  * Apply Coup de Grâce special resolution instead of a normal damage roll.
  * Lethal: sets defender HP to 0. Non-lethal: -1 Stamina (min 0) and +1 Fatigue.
  */
+export async function executeChatOutcome(outcome, context) {
+  return context.stage("coup", async () => {
+    const actor = context.actor;
+    const update = outcome.payload.mode === "nonlethal" ? {
+      "system.stamina.value": Math.max(0, Number(actor.system?.stamina?.value ?? 0) - 1),
+      "system.fatigue.bonus": Number(actor.system?.fatigue?.bonus ?? 0) + 1,
+    } : { "system.hp.value": 0 };
+    if (!await requestUpdateDocument(actor, update)) throw Object.assign(new Error("Coup de Grace update failed."), { committed: false });
+    return { ok: true };
+  });
+}
+
 async function _applyCoupDeGrace({ ctx, coupMode, defenderActor, data, message, _updateCard }) {
   if (!defenderActor) {
     ui.notifications.warn("Coup de Grâce: defender actor could not be resolved.");
@@ -198,35 +199,13 @@ async function _applyCoupDeGrace({ ctx, coupMode, defenderActor, data, message, 
   }
 
   const isLethal = String(coupMode ?? "lethal").toLowerCase() !== "nonlethal";
-  let effectSummary = "";
-
-  try {
-    if (isLethal) {
-      await requestUpdateDocument(defenderActor, { "system.hp.value": 0 });
-      effectSummary = "HP set to 0.";
-    } else {
-      const curStamina = Number(defenderActor.system?.stamina?.value ?? 0);
-      const newStamina = Math.max(0, curStamina - 1);
-      const curFatigue = Number(defenderActor.system?.fatigue?.bonus ?? 0);
-      await requestUpdateDocument(defenderActor, {
-        "system.stamina.value": newStamina,
-        "system.fatigue.bonus": curFatigue + 1,
-      });
-      effectSummary = `Stamina −1 (${curStamina} → ${newStamina}), Fatigue +1 (now ${curFatigue + 1}).`;
-    }
-  } catch (err) {
-    console.error("UESRPG | Coup de Grâce application failed", err);
-    ui.notifications.warn("Coup de Grâce: failed to apply effects — see console.");
-    return false;
-  }
-
+  const effectSummary = isLethal ? "HP will be set to 0." : "Stamina -1 and Fatigue +1.";
   const damageObj = {
-    rolled: true,
-    mode: "coup",
-    coupMode: isLethal ? "lethal" : "nonlethal",
+    rolled: true, mode: "coup", coupMode: isLethal ? "lethal" : "nonlethal",
     effectSummary,
     extraNoteHtml: `<b>Coup de Grace:</b> ${isLethal ? "Lethal" : "Non-Lethal"}<br>${effectSummary}`,
-    applied: true,
+    applied: false,
+    applyPayload: { targetUuid: defenderActor.uuid, attackerActorUuid: ctx.attacker?.uuid ?? "", source: "Coup de Grace" },
   };
   _setDefenderDamage(data, data.defender, damageObj);
   await _updateCard(message, data);
@@ -410,6 +389,11 @@ export async function handleDamageRoll(ctx) {
   // callback's return value in some edge cases. Detect and recover.
   if (typeof selection !== "object" || selection === null) {
     console.warn("UESRPG | handleDamageRoll: selection is not an object (got", typeof selection, JSON.stringify(selection), ") — treating as canceled.");
+    return;
+  }
+
+  if (!isAdvantageSelectionValid(selection, advCount, { allowPress: attackMode === "melee" })) {
+    ui.notifications.warn("Invalid Advantage selection for this outcome. Resolve the choices again.");
     return;
   }
 
@@ -841,6 +825,11 @@ export async function handleCounterDamageRoll(ctx) {
   // callback's return value in some edge cases. Detect and recover.
   if (typeof selection !== "object" || selection === null) {
     console.warn("UESRPG | handleCounterDamageRoll: selection is not an object (got", typeof selection, JSON.stringify(selection), ") — treating as canceled.");
+    return;
+  }
+
+  if (!isAdvantageSelectionValid(selection, advCount)) {
+    ui.notifications.warn("Invalid Advantage selection for this outcome. Resolve the choices again.");
     return;
   }
 

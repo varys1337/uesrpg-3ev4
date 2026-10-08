@@ -1,4 +1,5 @@
-import { renderSpecialActionOption as renderSpecialOpt } from "./advantage-options.js";
+import { buildCombatOptionTooltipText } from "../../../../data/tooltips/index.js";
+import { renderAdvantageChoices, readAdvantageChoices, bindAdvantageChoices, getAdvantageChoiceLimit, isAdvantageSelectionValid } from "./advantage-options.js";
 
 /**
  * src/core/combat/opposed/dialogs/defender.js
@@ -14,7 +15,7 @@ import { buildSpecialActionsForActor } from "../../combat-style-utils.js";
 import { hasTalent } from "../../../traits/talents-api.js";
 import { canUseExploitAdvantage as _canUseExploitAdvantage } from "../helpers/workflow.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
-import { t, tf } from "../../../../utils/i18n.js";
+import { t } from "../../../../utils/i18n.js";
 
 import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "../../../../ui/sheets/v2/shared/sheet-tooltips.js";
 
@@ -33,7 +34,7 @@ export async function promptDefenderAdvantage({
 } = {}) {
   if (!defenderActor || advantageCount <= 0) return null;
 
-  const max = Number(advantageCount || 0);
+  const max = getAdvantageChoiceLimit(advantageCount);
 
   const hasExploitTalent = Boolean(defenderActor && hasTalent(defenderActor, "exploitadvantage"));
   const exploitEligible = Boolean(hasExploitTalent && _canUseExploitAdvantage(defenderActor, { actorTokenUuid: defenderTokenUuid, opponentTokenUuid }));
@@ -52,44 +53,20 @@ export async function promptDefenderAdvantage({
   })();
 
 
-const content = `
-    <div class="uesrpg-adv-dialog uesrpg-adv-dialog--defender">
-      <div class="uesrpg-adv-summary">
-        <div><b>${t("UESRPG.Dialogs.Opposed.Advantage", "Advantage")}</b>: ${tf("UESRPG.Dialogs.Opposed.AvailableCount", { count: max }, `${max} available`)}</div>
-        <div class="uesrpg-adv-count" aria-live="polite"></div>
-      </div>
-      <div class="uesrpg-adv-grid">
-        <label class="uesrpg-adv-choice">
-          <input type="checkbox" name="overextend" />
-          <span class="uesrpg-adv-choice__label">
-            <span class="uesrpg-adv-choice__title">${t("UESRPG.Dialogs.Opposed.Overextend", "Overextend")}</span>
-            <span class="uesrpg-adv-choice__desc">${t("UESRPG.Dialogs.Opposed.OverextendDesc", "Opponent's next attack within 1 round suffers -10.")}</span>
-          </span>
-        </label>
-        <label class="uesrpg-adv-choice">
-          <input type="checkbox" name="overwhelm" />
-          <span class="uesrpg-adv-choice__label">
-            <span class="uesrpg-adv-choice__title">${t("UESRPG.Dialogs.Opposed.Overwhelm", "Overwhelm")}</span>
-            <span class="uesrpg-adv-choice__desc">${t("UESRPG.Dialogs.Opposed.OverwhelmDesc", "Opponent cannot make Attacks of Opportunity until your next turn.")}</span>
-          </span>
-        </label>
-        ${hasExploitTalent ? `
-        <div class="uesrpg-adv-section">
-          <p class="hint uesrpg-dialog-note">${exploitEligible ? t("UESRPG.Dialogs.Opposed.ExploitAdvantageOverextendEligible", "Exploit Advantage: Overextend is doubled (-20) (isolated duel).") : t("UESRPG.Dialogs.Opposed.ExploitAdvantageOverextendRequiresDuel", "Exploit Advantage: requires an isolated duel to double Overextend.")}</p>
-        </div>
-        ` : ``}
-      </div>
-      ${knownSpecial.length ? `
-        <section class="uesrpg-known-specials">
-          <div class="uesrpg-adv-section__title"><b>${t("UESRPG.Dialogs.Opposed.KnownSpecialActions", "Known Special Actions")}</b></div>
-          <div class="uesrpg-known-specials__grid">
-            ${knownSpecial.map(renderSpecialOpt).join("\n")}
-          </div>
-        </section>
-      ` : ``}
-      <p class="hint">${tf("UESRPG.Dialogs.Opposed.SelectUpToOptions", { count: max }, `Select up to ${max} option(s).`)}</p>
-    </div>
-  `;
+  const optionHelp = {
+    overextend: buildCombatOptionTooltipText("overextend", hasExploitTalent
+      ? (exploitEligible ? t("UESRPG.Dialogs.Opposed.ExploitAdvantageOverextendEligible", "Exploit Advantage: Overextend is doubled (-20) (isolated duel).")
+        : t("UESRPG.Dialogs.Opposed.ExploitAdvantageOverextendRequiresDuel", "Exploit Advantage: requires an isolated duel to double Overextend.")) : ""),
+    overwhelm: buildCombatOptionTooltipText("overwhelm"),
+  };
+  const options = [
+    { id: "overextend", title: t("UESRPG.Dialogs.Opposed.Overextend", "Overextend"), help: optionHelp.overextend },
+    { id: "overwhelm", title: t("UESRPG.Dialogs.Opposed.Overwhelm", "Overwhelm"), help: optionHelp.overwhelm },
+    ...knownSpecial.map(special => ({ id: `sa:${special.id}`, special }))
+  ];
+  const content = `<div class="uesrpg-dialog-stack uesrpg-adv-dialog uesrpg-adv-dialog--defender uesrpg-adv-dialog--choice-bars">
+    ${renderAdvantageChoices({ count: max, options })}
+  </div>`;
 
   const tooltipScope = { kind: "adv-dialog", domain: "defender-advantage" };
   try {
@@ -97,7 +74,8 @@ const content = `
       layout: "workflow",
       title: t("UESRPG.Dialogs.Opposed.ResolveDefenderAdvantage", "Resolve Defender Advantage"),
       content,
-      classes: ["uesrpg-attack-declare"],
+      classes: ["uesrpg-attack-declare", "uesrpg-adv-resolution-window"],
+      width: 460,
       buttons: {
         apply: {
           label: t("UESRPG.UI.Apply", "Apply"),
@@ -106,23 +84,12 @@ const content = `
             const form = root?.querySelector(".uesrpg-adv-dialog--defender") ?? root;
             if (!form) return null;
 
-            const q = (name) => form.querySelector(`[name="${name}"]`);
-            const overextend = Boolean(q("overextend")?.checked);
+            const selected = readAdvantageChoices(form);
+            const overextend = selected.includes("overextend");
             const overextendDouble = Boolean(overextend && exploitEligible);
-            const overwhelm = Boolean(q("overwhelm")?.checked);
-
-            const selectedSpecial = [];
-            for (const sa of knownSpecial) {
-              const id = String(sa?.id ?? "").trim();
-              if (!id) continue;
-              if (Boolean(q(`sa_${id}`)?.checked)) selectedSpecial.push(id);
-            }
-
-            const selectedCount = [overextend, overwhelm].filter(Boolean).length + selectedSpecial.length;
-            if (selectedCount > max) {
-              ui.notifications.warn(tf("UESRPG.Notifications.Opposed.OnlyHaveAdvantage", { count: max }, `You only have ${max} Advantage to spend.`));
-              return null;
-            }
+            const overwhelm = selected.includes("overwhelm");
+            const selectedSpecial = knownSpecial.filter(sa => selected.includes(`sa:${sa.id}`)).map(sa => String(sa.id));
+            if (!isAdvantageSelectionValid({ overextend, overwhelm, specialActionsSelected: selectedSpecial }, max, { role: "defender" })) return null;
 
             return { overextend, overextendDouble, overwhelm, specialActionsSelected: selectedSpecial };
           }
@@ -137,40 +104,7 @@ const content = `
       const form = root?.querySelector(".uesrpg-adv-dialog--defender") ?? root;
       if (!form) return;
 
-      const listAllCheckboxes = () => [...form.querySelectorAll('input[type="checkbox"]')];
-      const computeSelectedCount = () => listAllCheckboxes().filter(el => Boolean(el.checked)).length;
-
-      const updateUi = () => {
-        const count = computeSelectedCount();
-        const c = form.querySelector(".uesrpg-adv-count");
-        if (c) c.textContent = tf("UESRPG.Dialogs.Opposed.SelectedCount", { count, max }, `${count} / ${max} selected`);
-
-        for (const el of listAllCheckboxes()) {
-          
-          if (Boolean(el.checked)) {
-            el.disabled = false;
-            continue;
-          }
-          el.disabled = (count >= max);
-        }
-      };
-
-      for (const el of listAllCheckboxes()) {
-        el.addEventListener("change", (ev) => {
-          if (ev.currentTarget?.dataset?.free === "true") {
-            updateUi();
-            return;
-          }
-          const count = computeSelectedCount();
-          if (count > max) {
-            ev.currentTarget.checked = false;
-            ui.notifications.warn(tf("UESRPG.Notifications.Opposed.OnlyHaveAdvantage", { count: max }, `You only have ${max} Advantage to spend.`));
-          }
-          updateUi();
-        });
-      }
-
-      updateUi();
+      bindAdvantageChoices(root, { finalAction: "apply" });
     },
   });
   } finally {

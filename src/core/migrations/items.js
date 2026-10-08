@@ -1,7 +1,7 @@
 import { _inferTypedLaneFromText, _extractFirstNumber } from '../documents/item-utils.js';
 
 /**
- * Items migration / normalization (v13-safe, no ApplicationV2 dependency).
+ * Manual, revision-gated Item migration / normalization for Foundry v14.
  *
  * Scope:
  * - World Items (game.items)
@@ -9,7 +9,7 @@ import { _inferTypedLaneFromText, _extractFirstNumber } from '../documents/item-
  *
  * Notes:
  * - Compendia are not auto-migrated here.
- * - This is a lightweight normalization pass intended to be safe to run on every startup.
+ * - Startup reports pending revisions; the migration UI runs these passes.
  */
 
 import { applyDefaults } from "./apply-defaults.js";
@@ -22,9 +22,10 @@ import {
   markMigrationRevisionApplied,
   setMigrationState
 } from "./state.js";
-import { cleanSystemDataWithModel, isTypeDataModelsEnabled } from "../data-models/registry.js";
+import { cleanSystemDataWithModel } from "../data-models/registry.js";
 import { MIGRATION_REVISIONS } from "./revisions.js";
 import { isActiveGMUser } from "../../utils/users.js";
+import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import {
   ARMOR_HIT_LOCATION_KEYS,
   getArmorCategoryCoverage,
@@ -35,6 +36,7 @@ import {
 const MODULE_ID = SYSTEM_ID;
 const _SOCIAL_ITEM_RETIREMENT_CLEANUP_REVISION = MIGRATION_REVISIONS.socialItemRetirementCleanup;
 const _ITEM_LEGACY_REPAIR_REVISION = MIGRATION_REVISIONS.itemLegacyRepair;
+const _ITEM_SHEET_COMPATIBILITY_REVISION = MIGRATION_REVISIONS.itemSheetCompatibility;
 const _RULE_ELEMENT_RETIREMENT_CLEANUP_REVISION = MIGRATION_REVISIONS.ruleElementRetirementCleanup;
 const _ITEMS_MIGRATION_REVISION = MIGRATION_REVISIONS.items;
 const _SCROLL_CASTING_CONTROLS_REVISION = MIGRATION_REVISIONS.scrollCastingControls;
@@ -76,7 +78,7 @@ function _parseLegacyTypedNumeric(value) {
   return { number, type };
 }
 
-function _applyLegacyArmorTypedFields(system) {
+function _applyLegacyArmorTypedFields(system, { strict = false } = {}) {
   if (!system || typeof system !== "object") return false;
   let changed = false;
   const numericArmorFields = ["magic_ar", "special_ar", "armor", "blockRating", "magic_br"];
@@ -102,7 +104,7 @@ function _applyLegacyArmorTypedFields(system) {
       }
 
       const parsed = _parseLegacyTypedNumeric(trimmed);
-      if (parsed.number !== null) {
+      if (parsed.number !== null && (!strict || (parsed.type && (trimmed.match(/[-+]?\d*\.?\d+/g) ?? []).length === 1))) {
         system[key] = parsed.number;
         changed = true;
         if (parsed.type && !String(system.special_ar_type ?? "").trim()) {
@@ -113,6 +115,7 @@ function _applyLegacyArmorTypedFields(system) {
       }
     }
 
+    if (strict) throw new Error(`Invalid legacy armor field: system.${key}`);
     system[key] = 0;
     changed = true;
   }
@@ -120,7 +123,9 @@ function _applyLegacyArmorTypedFields(system) {
   const sat = String(system.special_ar_type ?? "").trim().toLowerCase();
   const valid = new Set(["", "fire", "frost", "shock", "poison", "disease", "magic", "silver", "sunlight"]);
   if (!valid.has(sat)) {
-    system.special_ar_type = _inferTypedLaneFromText(sat) ?? "";
+    const inferred = _inferTypedLaneFromText(sat);
+    if (strict && !inferred) throw new Error("Invalid legacy armor field: system.special_ar_type");
+    system.special_ar_type = inferred ?? "";
     changed = true;
   }
 
@@ -1098,8 +1103,98 @@ export async function migrateNpcArmorCoverageDefaultsIfNeeded() {
   return { applied: true, ...telemetry };
 }
 
+/**
+ * Manual compatibility repair. Invalid documents stay untouched and keep the
+ * revision pending; successful writes can be safely retried on the next pass.
+ * This pass does not invoke retirement or gameplay normalization.
+ */
+export async function migrateItemSheetCompatibilityIfNeeded() {
+  if (!isActiveGMUser(game.user)) return { applied: false, reason: "not-active-gm" };
+  const state = getMigrationState();
+  if (isMigrationRevisionApplied("itemSheetCompatibility", _ITEM_SHEET_COMPATIBILITY_REVISION, state)) {
+    return { applied: false };
+  }
+
+  const references = [];
+  const telemetry = { scanned: 0, worldUpdated: 0, actorUpdated: 0, tokenUpdated: 0, unsupported: 0 };
+  const processItems = async (items, { scope, actor = null, token = null }) => {
+    for (const item of items ?? []) {
+      telemetry.scanned += 1;
+      try {
+        const normalized = _normalizeItemSheetSystem(item);
+        if (!normalized) { telemetry.unsupported += 1; continue; }
+        if (!normalized.changed) {
+          item.validate({ strict: true, fallback: false, dropInvalidElements: false, dropInvalidEmbedded: false });
+          continue;
+        }
+        const typeChanged = normalized.type !== normalized.source.type;
+        const update = typeChanged
+          ? { _id: item.id, type: normalized.type, system: normalized.system }
+          : { _id: item.id, ...foundry.utils.flattenObject({ system: foundry.utils.diffObject(normalized.source.system, normalized.system) }) };
+        const payload = typeChanged ? _createForcedTypeChangeUpdate(update) : update;
+        // Validate the complete document change without mutating the live Item.
+        item.validate({
+          changes: foundry.utils.deepClone(payload),
+          strict: true,
+          fallback: false,
+          dropInvalidElements: false,
+          dropInvalidEmbedded: false,
+        });
+        if (typeChanged) {
+          await item.update(payload);
+          _assertTypeChangesApplied([{ item, update }], (id) => actor ? actor.items.get(id) : game.items.get(id), { actor });
+        } else if (!await requestUpdateDocument(item, payload)) {
+          throw new Error("The validated Item update was not committed.");
+        }
+        telemetry[`${scope}Updated`] += 1;
+      } catch (error) {
+        references.push({
+          scope,
+          uuid: item?.uuid ?? null,
+          name: item?.name ?? "",
+          type: item?.type ?? "",
+          actorUuid: actor?.uuid ?? null,
+          tokenUuid: token?.uuid ?? null,
+          error: error?.message ?? String(error),
+        });
+      }
+    }
+  };
+
+  await processItems(game.items?.contents, { scope: "world" });
+  const processedActors = new Set();
+  for (const actor of game.actors?.contents ?? []) {
+    processedActors.add(actor.uuid);
+    await processItems(actor.items?.contents, { scope: "actor", actor });
+  }
+  for (const scene of game.scenes?.contents ?? []) {
+    for (const token of scene.tokens?.contents ?? []) {
+      if (!token.actorId) continue; // Actorless tokens have no embedded Items.
+      const actor = token.actor;
+      if (!actor) {
+        references.push({ scope: "token", tokenUuid: token.uuid, error: "Token Actor is unavailable; Items could not be inspected." });
+        continue;
+      }
+      if (processedActors.has(actor.uuid)) continue;
+      processedActors.add(actor.uuid);
+      await processItems(actor.items?.contents, { scope: "token", actor, token });
+    }
+  }
+  telemetry.totalUpdated = telemetry.worldUpdated + telemetry.actorUpdated + telemetry.tokenUpdated;
+  telemetry.failures = references.length;
+  console.log(`${MODULE_ID} | Item sheet compatibility repair`, { ...telemetry, references });
+  if (references.length) {
+    const error = new Error(`Item sheet compatibility repair left ${references.length} document(s) for review. The revision remains pending.`);
+    error.migrationTelemetry = { ...telemetry, references };
+    throw error;
+  }
+  markMigrationRevisionApplied(state, "itemSheetCompatibility", _ITEM_SHEET_COMPATIBILITY_REVISION, telemetry);
+  await setMigrationState(state);
+  return { applied: true, ...telemetry };
+}
+
 export async function migrateItemsIfNeeded() {
-  // Lightweight normalization pass; safe to run on every startup.
+  // Invoked by the manual migration runner; startup only notifies.
   if (!isActiveGMUser(game.user)) return;
   const state = getMigrationState();
   const needsSocialRetirementCleanup = !isMigrationRevisionApplied("socialItemRetirementCleanup", _SOCIAL_ITEM_RETIREMENT_CLEANUP_REVISION, state);
@@ -1254,47 +1349,46 @@ function _applySystemUpdateObject(system, updateObject = {}) {
   }
 }
 
+/** Repair only recognized legacy shapes before strict TypeDataModel cleaning. */
+function _normalizeItemSheetSystem(item) {
+  const source = item.toObject(true);
+  let type = _getNormalizedItemType(source);
+  let seed = ITEM_TYPE_MODEL_SEEDS[type];
+  if (!seed) return null;
+  if (!source.system || typeof source.system !== "object" || Array.isArray(source.system)) {
+    throw new Error("Invalid legacy system object.");
+  }
+  const system = _deepCloneSystem(source.system);
+  if (source.type === "armor" && system.isShield != null) {
+    // Resolve a legacy Boolean representation before choosing the subtype.
+    // This prevents a second pass from finding a newly cleaned shield flag.
+    applyDefaults(system, { isShield: ITEM_TYPE_MODEL_SEEDS.armor.isShield }, { coerce: true, clone: false, strict: true });
+    type = _getNormalizedItemType({ type: source.type, system });
+    seed = ITEM_TYPE_MODEL_SEEDS[type];
+  }
+  if (["armor", "shield"].includes(type) || source.type === "armor") {
+    _applyLegacyArmorTypedFields(system, { strict: true });
+  }
+  if (type === "spell" && (typeof system.duration === "number" || typeof system.duration === "string")) {
+    const duration = Number(system.duration);
+    if (!Number.isFinite(duration) || duration < 0) throw new Error("Invalid legacy field: system.duration");
+    system.duration = { ..._deepCloneSystem(seed.duration), value: duration };
+  }
+  const ignorePaths = (_ITEM_DEFAULT_IGNORE_PATHS[type] ?? []).slice();
+  for (const key of _NON_NUMERIC_ALLOWLIST[type] ?? []) {
+    if (_isNonNumericString(system[key])) ignorePaths.push(key);
+  }
+  applyDefaults(system, seed, { coerce: true, clone: false, strict: true, ignorePaths });
+  const cleaned = cleanSystemDataWithModel("Item", type, system, { strict: true });
+  return { source, type, system: cleaned, changed: type !== source.type || !_systemsEqual(source.system, cleaned) };
+}
+
 function _normalizeItemSystem(item) {
-  const sourceType = item?.type;
-  const type = _getNormalizedItemType(item);
-  if (!type) return null;
-  const sourceSystem = _deepCloneSystem(item.system);
-  const isLegacyArmorShield = sourceType === "armor" && type === "shield";
-  const hasDefaults = Object.prototype.hasOwnProperty.call(ITEM_TYPE_MODEL_SEEDS, type);
-  if (!hasDefaults && type !== "equipment") return null;
-
-  let currentSystem = sourceSystem;
-  let preChanged = false;
-
-  if (isTypeDataModelsEnabled()) {
-    const cleanedSystem = cleanSystemDataWithModel("Item", type, currentSystem);
-    if (cleanedSystem && !_systemsEqual(cleanedSystem, currentSystem)) {
-      currentSystem = cleanedSystem;
-      preChanged = true;
-    }
-  }
-
-  if (sourceType === "armor" || type === "armor") {
-    preChanged = _applyLegacyArmorTypedFields(currentSystem) || preChanged;
-  }
-  let system = currentSystem;
-  let defaultsChanged = false;
-  if (hasDefaults) {
-    const ignorePaths = (_ITEM_DEFAULT_IGNORE_PATHS[type] ?? []).slice();
-    const allowNonNumeric = _NON_NUMERIC_ALLOWLIST[type] ?? [];
-    for (const key of allowNonNumeric) {
-      if (_isNonNumericString(currentSystem[key])) ignorePaths.push(key);
-    }
-    const defaultsResult = applyDefaults(
-      currentSystem,
-      ITEM_TYPE_MODEL_SEEDS[type],
-      { coerce: true, ignorePaths, clone: false }
-    );
-    system = defaultsResult.result;
-    defaultsChanged = defaultsResult.changed;
-  }
-
-  let changed = Boolean(defaultsChanged || preChanged);
+  const normalized = _normalizeItemSheetSystem(item);
+  if (!normalized) return null;
+  const sourceType = normalized.source.type;
+  const { type, system } = normalized;
+  let changed = normalized.changed;
   let deleteEquippped = false;
 
   if (type === "weapon") {

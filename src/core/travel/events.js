@@ -50,7 +50,7 @@ export async function setMappedTable(groupActor, phase, terrainKey, tableUuid, {
     list[idx] = String(tableUuid || "");
     updateTableUuidList(next, phase, terrainKey, list);
     return next;
-  });
+  }, { strict: true });
 }
 
 export async function addMappedTableEntry(groupActor, phase, terrainKey) {
@@ -59,7 +59,7 @@ export async function addMappedTableEntry(groupActor, phase, terrainKey) {
     list.push("");
     updateTableUuidList(next, phase, terrainKey, list);
     return next;
-  });
+  }, { strict: true });
 }
 
 export async function removeMappedTableEntry(groupActor, phase, terrainKey, index = 0) {
@@ -69,7 +69,7 @@ export async function removeMappedTableEntry(groupActor, phase, terrainKey, inde
     if (idx < list.length) list.splice(idx, 1);
     updateTableUuidList(next, phase, terrainKey, list);
     return next;
-  });
+  }, { strict: true });
 }
 
 export async function rollMappedEvent({
@@ -145,7 +145,7 @@ export async function createStarterEventTablesForGroup(groupActor, { overwrite =
       ...Object.fromEntries(Object.entries(updates.camping).map(([k, v]) => [k, v ? [v] : []])),
     };
     return next;
-  });
+  }, { strict: true });
 
   return updates;
 }

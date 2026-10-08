@@ -13,11 +13,11 @@
  * Called from: src/core/combat/damage/resolver/resolve.js
  * Hook consumer: src/core/enchanting/runtime/strike-on-hit.js
  *
- * Target: Foundry VTT v13.351
+ * Target: Foundry VTT v14.368+
  */
 
 import { STRIKE_ENCHANTMENTS_CATALOG } from "../../../data/strike-enchantments-catalog.js";
-import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
+import { requestAtomicUpdateDocument } from "../../../utils/authority-proxy.js";
 import { SYSTEM_ID } from "../../constants.js";
 import { isDebugEnabled } from "../../../utils/debug.js";
 import { localizeStrikeEnchantment } from "../../../data/spell-i18n.js";
@@ -173,17 +173,23 @@ export function collectStrikeEnchantmentEffects(weapon, attackerActor) {
  * @param {Item} weapon
  * @returns {Promise<void>}
  */
-export async function consumeStrikeCharge(weapon) {
-  const enc = _getStrikeEnc(weapon);
-  if (!enc || enc.strike.useCharges !== true) return;
-
-  const currentCharge = Number(weapon.system?.charge?.value ?? 0);
-  if (currentCharge <= 0) return; // Nothing to consume (should not fire, but safe guard).
-
-  const newCharge = Math.max(0, currentCharge - 1);
-  await requestUpdateDocument(weapon, { "system.charge.value": newCharge });
-
-  if (isDebugEnabled()) {
-    console.debug(`UESRPG | Strike enchantment charge consumed on "${weapon.name}": ${currentCharge} → ${newCharge}`);
-  }
+export async function consumeStrikeCharge(weapon, { strict = false } = {}) {
+  let applicable = false;
+  let calculated = false;
+  let currentCharge = 0;
+  let newCharge = 0;
+  const confirmed = await requestAtomicUpdateDocument(weapon, fresh => {
+    calculated = true;
+    const enc = _getStrikeEnc(fresh);
+    if (!enc || enc.strike.useCharges !== true) return null;
+    applicable = true;
+    currentCharge = Number(fresh.system?.charge?.value ?? 0);
+    if (currentCharge <= 0) return null;
+    newCharge = Math.max(0, currentCharge - 1);
+    return { "system.charge.value": newCharge };
+  }, { perfKind: "consumption" });
+  const ok = calculated && (!applicable || (currentCharge > 0 && confirmed));
+  if (strict && !ok) throw new Error("Strike charge consumption was not confirmed.");
+  if (confirmed && isDebugEnabled()) console.debug(`UESRPG | Strike enchantment charge consumed on "${weapon.name}": ${currentCharge} → ${newCharge}`);
+  return { ok, consumed: Boolean(confirmed) };
 }

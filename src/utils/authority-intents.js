@@ -9,6 +9,7 @@
 import { SYSTEM_ID } from "../core/constants.js";
 import { getActiveGMUser, isActiveGMUser } from "./users.js";
 import { acquireLock, releaseLock } from "./authority-proxy/shared.js";
+import { isPerfEnabled, monoMs, perfRecord } from "./perf-tracker.js";
 
 export const AUTHORITY_QUERY_V1 = `${SYSTEM_ID}.authority.intent.v1`;
 
@@ -124,7 +125,16 @@ async function _writeRequest(user, requestId, update) {
       updateData[`flags.${SYSTEM_ID}.authority.requests.-=${existingId}`] = null;
     }
 
-    await user.update(updateData);
+    const startedAt = isPerfEnabled() ? monoMs() : null;
+    try { await user.update(updateData, { render: false }); }
+    finally {
+      if (startedAt !== null) perfRecord({
+        event: "authority.intent.write", requestId, command: next?.command ?? current?.command,
+        kind: next?.data?.kind ?? (next?.data?.type === "healingApplied" ? "healing" : null),
+        messageId: next?.data?.messageId ?? null, actorUuid: next?.data?.actorUuid ?? next?.data?.targetUuid ?? null,
+        status: next?.status ?? null, writeCount: 1, durationMs: monoMs() - startedAt,
+      });
+    }
     return kept[requestId] ?? null;
   });
 }
@@ -137,16 +147,17 @@ function _readRequest(user, requestId) {
  * Register a built-in command. This module is intentionally not re-exported by
  * the public API barrel; only system-owned registrars may extend the command set.
  */
-export function registerAuthorityIntentCommand(command, handler) {
+export function registerAuthorityIntentCommand(command, handler, { persistProcessing = true, resolveAuthority = null } = {}) {
   const name = String(command ?? "").trim();
   if (!name || typeof handler !== "function") return false;
   if (_commands.has(name)) return false;
-  _commands.set(name, handler);
+  _commands.set(name, { handler, persistProcessing: persistProcessing !== false, resolveAuthority });
   return true;
 }
 
 async function _reject(user, requestId, code, data = null) {
   const receipt = _result(false, "rejected", code, data, requestId);
+  if (!user.canUserModify(game.user, "update")) return receipt;
   try {
     await _writeRequest(user, requestId, (current) => ({
       ...(current ?? {}),
@@ -161,10 +172,6 @@ async function _reject(user, requestId, code, data = null) {
 }
 
 async function _handleAuthorityIntent(queryData) {
-  if (!isActiveGMUser(game.user)) {
-    return _result(false, "rejected", AUTHORITY_RESULT_CODES.UNAUTHORIZED);
-  }
-
   const requesterUserId = String(queryData?.requesterUserId ?? "").trim();
   const requestId = String(queryData?.requestId ?? "").trim();
   if (!requesterUserId || !_isSafeId(requestId)) {
@@ -184,34 +191,40 @@ async function _handleAuthorityIntent(queryData) {
   try {
     const request = _readRequest(requester, requestId);
     if (!request || request.id !== requestId || request.v !== REQUEST_VERSION) {
-      return _reject(requester, requestId, AUTHORITY_RESULT_CODES.INVALID_REQUEST);
+      return _result(false, "rejected", AUTHORITY_RESULT_CODES.INVALID_REQUEST, null, requestId);
     }
-    if (request.status === "completed" || request.status === "rejected") {
-      return request.result ?? _result(request.status === "completed", request.status, null, null, requestId);
+    const command = String(request.command ?? "");
+    const registration = _commands.get(command);
+    if (!registration) return _result(false, "rejected", AUTHORITY_RESULT_CODES.INVALID_REQUEST, null, requestId);
+    const authority = registration.resolveAuthority ? await registration.resolveAuthority(request.data) : getActiveGMUser();
+    if (!authority?.active || authority.id !== game.user?.id
+      || (!registration.resolveAuthority && !isActiveGMUser(game.user))) {
+      return _result(false, "rejected", AUTHORITY_RESULT_CODES.UNAUTHORIZED, null, requestId);
     }
-    if (request.status !== "pending") {
-      return _result(false, "rejected", AUTHORITY_RESULT_CODES.CONFLICT, null, requestId);
-    }
-
     const age = Date.now() - Number(request.createdAt ?? 0);
     if (!Number.isFinite(age) || age < -5_000 || age > REQUEST_TTL_MS) {
       return _reject(requester, requestId, AUTHORITY_RESULT_CODES.EXPIRED);
     }
+    if (request.status === "completed" || request.status === "rejected") {
+      return request.result ?? _result(request.status === "completed", request.status, null, null, requestId);
+    }
+    if (request.status !== "pending") return _result(false, "rejected", AUTHORITY_RESULT_CODES.CONFLICT, null, requestId);
 
-    const command = String(request.command ?? "");
-    const handler = _commands.get(command);
-    if (!handler) return _reject(requester, requestId, AUTHORITY_RESULT_CODES.INVALID_REQUEST);
-
-    await _writeRequest(requester, requestId, (current) => ({
-      ...current,
-      status: "processing",
-      processingAt: Date.now(),
-      processorUserId: game.user.id,
-    }));
+    // Combat owns its outcome lock and durable Actor receipts. It can proceed
+    // from the sealed pending request without an intermediate User write.
+    if (registration.persistProcessing) {
+      await _writeRequest(requester, requestId, (current) => ({
+        ...current,
+        status: "processing",
+        processingAt: Date.now(),
+        processorUserId: game.user.id,
+      }));
+    }
 
     let commandResult;
+    const commandStartedAt = isPerfEnabled() ? monoMs() : null;
     try {
-      commandResult = await handler({
+      commandResult = await registration.handler({
         requester,
         requestId,
         data: _clone(request.data, {}),
@@ -220,13 +233,19 @@ async function _handleAuthorityIntent(queryData) {
     } catch (error) {
       console.error(`UESRPG | authority-intents | Command "${command}" failed`, error);
       commandResult = _result(false, "rejected", AUTHORITY_RESULT_CODES.FAILED);
+    } finally {
+      if (commandStartedAt !== null) perfRecord({
+        event: "authority.intent.command", command, requestId, kind: request.data?.kind ?? null,
+        messageId: request.data?.messageId ?? null, actorUuid: request.data?.actorUuid ?? request.data?.targetUuid ?? null,
+        ok: commandResult?.ok === true, durationMs: monoMs() - commandStartedAt,
+      });
     }
 
     const receipt = commandResult?.ok === true
       ? _result(true, "completed", commandResult.code ?? null, commandResult.data ?? null, requestId)
       : _result(false, "rejected", commandResult?.code ?? AUTHORITY_RESULT_CODES.FAILED, commandResult?.data ?? null, requestId);
 
-    await _writeRequest(requester, requestId, (current) => ({
+    if (requester.canUserModify(game.user, "update")) await _writeRequest(requester, requestId, (current) => ({
       ...current,
       status: receipt.status,
       finishedAt: Date.now(),
@@ -249,8 +268,6 @@ export function registerAuthorityIntentService() {
  * Persist and submit a sealed authority request.
  */
 export async function requestAuthorityIntent(command, data, { expectedRevision = null, timeout = 5_000 } = {}) {
-  const activeGM = getActiveGMUser();
-  if (!activeGM) return _result(false, "rejected", AUTHORITY_RESULT_CODES.NO_ACTIVE_GM);
   if (!game.user) return _result(false, "rejected", AUTHORITY_RESULT_CODES.UNAUTHORIZED);
 
   const commandName = String(command ?? "").trim();
@@ -258,6 +275,10 @@ export async function requestAuthorityIntent(command, data, { expectedRevision =
   if (!commandName || !clonedData || typeof clonedData !== "object") {
     return _result(false, "rejected", AUTHORITY_RESULT_CODES.INVALID_REQUEST);
   }
+  const registration = _commands.get(commandName);
+  const authority = registration?.resolveAuthority
+    ? await registration.resolveAuthority(clonedData) : getActiveGMUser();
+  if (!authority?.active) return _result(false, "rejected", AUTHORITY_RESULT_CODES.NO_ACTIVE_GM);
 
   let serialized = "";
   try {
@@ -287,13 +308,26 @@ export async function requestAuthorityIntent(command, data, { expectedRevision =
     return _result(false, "rejected", AUTHORITY_RESULT_CODES.FAILED, null, requestId);
   }
 
+  const queryStartedAt = isPerfEnabled() ? monoMs() : null;
+  let response;
   try {
-    return await activeGM.query(AUTHORITY_QUERY_V1, {
+    response = await authority.query(AUTHORITY_QUERY_V1, {
       requesterUserId: game.user.id,
       requestId,
     }, { timeout });
+    if (registration?.resolveAuthority && response && !game.user.isGM) {
+      await _writeRequest(game.user, requestId, current => ({ ...current, status: response.status,
+        finishedAt: Date.now(), result: response }));
+    }
+    return response;
   } catch (error) {
     console.error("UESRPG | authority-intents | Query failed", { requestId, error });
     return _result(false, "rejected", AUTHORITY_RESULT_CODES.FAILED, null, requestId);
+  } finally {
+    if (queryStartedAt !== null) perfRecord({
+      event: "authority.intent.query", command: commandName, requestId, kind: clonedData.kind ?? null,
+      messageId: clonedData.messageId ?? null, actorUuid: clonedData.actorUuid ?? clonedData.targetUuid ?? null,
+      ok: response?.ok === true, durationMs: monoMs() - queryStartedAt,
+    });
   }
 }

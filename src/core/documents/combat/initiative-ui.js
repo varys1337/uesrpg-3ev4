@@ -1,5 +1,5 @@
+import { emitSuppressedSubRollDice } from "../../../utils/dice-visualization.js";
 import { getCombatRollModeMessageOptions } from "./settings.js";
-import { isPublicChatMessageMode } from "../../../utils/chat-roll-mode.js";
 
 export async function emitDynamicInitiativeRoundSummary(summary, { combatId = null, round = null } = {}) {
   void combatId;
@@ -42,7 +42,7 @@ export async function emitDynamicInitiativeRoundSummary(summary, { combatId = nu
     `;
 
   const modeOpts = getCombatRollModeMessageOptions();
-  await ChatMessage.create({
+  const created = await ChatMessage.create({
     user: game.user.id,
     speaker: ChatMessage.getSpeaker({ alias: "Initiative" }),
     content,
@@ -50,15 +50,9 @@ export async function emitDynamicInitiativeRoundSummary(summary, { combatId = nu
     ...modeOpts,
   });
 
-  const dsn = game?.dice3d;
-  if (!dsn || typeof dsn.showForRoll !== "function") return;
-  const sync = isPublicChatMessageMode(modeOpts.rollMode);
-  const rolls = sorted.map((r) => r?.roll).filter(Boolean);
-  await Promise.allSettled(rolls.map(async (roll) => {
-    try {
-      await dsn.showForRoll(roll, game.user, sync);
-    } catch (_err) {
-      try { await dsn.showForRoll(roll); } catch (_err2) {}
-    }
-  }));
+  const message = created;
+  for (const row of sorted) {
+    const actor = game.combat?.combatants?.get(row.combatantId)?.actor ?? game.actors?.get(row.actorId) ?? null;
+    void emitSuppressedSubRollDice(row.roll, { actor, message });
+  }
 }

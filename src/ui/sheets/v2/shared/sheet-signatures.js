@@ -1,4 +1,4 @@
-import { getActorSheetRevision } from "../../../../core/actors/derived-cache/actor-derived-cache.js";
+import { getActorSheetRevision, getActorInventoryRevision } from "../../../../core/actors/derived-cache/actor-derived-cache.js";
 import { isReligionWorshipEnabled } from "../../../../core/homebrew/settings.js";
 /**
  * src/ui/sheets/v2/shared/sheet-signatures.js
@@ -10,10 +10,11 @@ import { isReligionWorshipEnabled } from "../../../../core/homebrew/settings.js"
  * Signatures are cheap string/JSON representations of the actor state used
  * to skip expensive context-building when nothing relevant has changed.
  *
- * Item signatures now use the same document revision and religion setting.
+ * Structural grouping uses its own revision; other consumers retain the broad revision.
  */
 
 import { SYSTEM_ID } from "../../../../core/system/namespace.js";
+import { getCanonicalFlags, getLegacyFlags } from "../../../../core/system/flags.js";
 import { resolveDamageUpdateTarget } from "../../../../core/combat/damage/post-application.js";
 import { resolveAttackTrackerActor } from "../../../../core/combat/attack-tracker-context.js";
 import { getEffectChanges } from "../../../../utils/compat.js";
@@ -25,15 +26,23 @@ import { AttackTracker } from "../../../../core/combat/attack-tracker.js";
  * @returns {string}
  */
 export function buildEffectsSignature(actor) {
-  const parts = [String(actor?.effects?.size ?? 0)];
+  const parts = [String(actor?.effects?.size ?? 0), globalThis.game?.user?.isGM ? "gm" : "player"];
   for (const e of actor?.effects?.contents ?? []) {
-    parts.push([
+    // Include the view builder's inputs so editor changes cannot reuse stale rows.
+    parts.push(JSON.stringify([
       e?.id ?? "",
       e?.disabled ? "1" : "0",
       e?.transfer ? "1" : "0",
       String(getEffectChanges(e).length),
       String(e?.duration?.remaining ?? ""),
-    ].join("~"));
+      e?.name ?? "",
+      e?.img ?? "",
+      e?.duration?.value ?? null,
+      e?.duration?.expired === true,
+      Boolean(e?.isTemporary),
+      getCanonicalFlags(e),
+      getLegacyFlags(e),
+    ]));
   }
   return parts.join("|");
 }
@@ -169,11 +178,11 @@ export function buildSheetUiSignature(actor) {
   });
 }
 
-export function buildItemsSignature(actor) {
-    return [
-      actor?.id ?? "",
-      actor?.type ?? "",
-      getActorSheetRevision(actor),
-      isReligionWorshipEnabled() ? "religion:on" : "religion:off",
-    ].join("|");
-  }
+export function buildItemsSignature(actor, { structural = false } = {}) {
+  return [
+    actor?.id ?? "",
+    actor?.type ?? "",
+    structural ? getActorInventoryRevision(actor) : getActorSheetRevision(actor),
+    isReligionWorshipEnabled() ? "religion:on" : "religion:off",
+  ].join("|");
+}

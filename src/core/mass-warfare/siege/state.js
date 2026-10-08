@@ -1,4 +1,4 @@
-import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
+import { requestAtomicUpdateDocument } from "../../../utils/authority-proxy.js";
 import { cloneFlagState, clonePlain } from "../../../utils/clone.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { isMassCombatEnabled } from "../../homebrew/settings.js";
@@ -65,23 +65,25 @@ export function getSceneWarfareSiegeState(scene) {
   return migrateWarfareSiegeState(raw);
 }
 
-export async function updateSceneWarfareSiegeState(scene, updater) {
+export async function updateSceneWarfareSiegeState(scene, updater, { strict = false } = {}) {
   if (!isMassCombatEnabled()) return null;
   if (!scene) throw new Error("Missing scene for warfare siege update.");
-  const current = getSceneWarfareSiegeState(scene);
-  const next = typeof updater === "function"
-    ? await updater(clonePlain(current))
-    : foundry.utils.mergeObject(current, clonePlain(updater ?? {}), {
-      inplace: false,
-      overwrite: true,
-      insertKeys: true,
-      insertValues: true,
-    });
-  const migrated = migrateWarfareSiegeState(next);
-  await requestUpdateDocument(scene, {
-    [`flags.${FLAG_SCOPE}.${WARFARE_SIEGE_FLAG_KEY}`]: migrated,
-  });
-  return migrated;
+  let calculated = false;
+  let changed = false;
+  let calculationError = null;
+  const confirmed = await requestAtomicUpdateDocument(scene, async fresh => {
+    try {
+      const current = getSceneWarfareSiegeState(fresh);
+      const next = typeof updater === "function" ? await updater(clonePlain(current))
+        : foundry.utils.mergeObject(current, clonePlain(updater ?? {}), { inplace: false, overwrite: true, insertKeys: true, insertValues: true });
+      const migrated = migrateWarfareSiegeState(next);
+      changed = JSON.stringify(foundry.utils.getProperty(fresh, `flags.${FLAG_SCOPE}.${WARFARE_SIEGE_FLAG_KEY}`)) !== JSON.stringify(migrated);
+      calculated = true;
+      return changed ? { [`flags.${FLAG_SCOPE}.${WARFARE_SIEGE_FLAG_KEY}`]: migrated } : {};
+    } catch (error) { calculationError = error; throw error; }
+  }, { perfKind: "warfare" });
+  if (strict && !confirmed && (!calculated || changed)) throw calculationError ?? new Error("Warfare state was not saved.");
+  return getSceneWarfareSiegeState((scene.uuid ? await fromUuid(scene.uuid) : null) ?? scene);
 }
 
 export function createDefaultWarfareFeatureState() {
@@ -135,21 +137,23 @@ export function getRegionWarfareFeatureState(region) {
   return migrateWarfareFeatureState(raw);
 }
 
-export async function updateRegionWarfareFeatureState(region, updater) {
+export async function updateRegionWarfareFeatureState(region, updater, { strict = false } = {}) {
   if (!isMassCombatEnabled()) return null;
   if (!region) throw new Error("Missing region for warfare feature update.");
-  const current = getRegionWarfareFeatureState(region);
-  const next = typeof updater === "function"
-    ? await updater(clonePlain(current))
-    : foundry.utils.mergeObject(current, clonePlain(updater ?? {}), {
-      inplace: false,
-      overwrite: true,
-      insertKeys: true,
-      insertValues: true,
-    });
-  const migrated = migrateWarfareFeatureState(next);
-  await requestUpdateDocument(region, {
-    [`flags.${FLAG_SCOPE}.${WARFARE_FEATURE_FLAG_KEY}`]: migrated,
-  });
-  return migrated;
+  let calculated = false;
+  let changed = false;
+  let calculationError = null;
+  const confirmed = await requestAtomicUpdateDocument(region, async fresh => {
+    try {
+      const current = getRegionWarfareFeatureState(fresh);
+      const next = typeof updater === "function" ? await updater(clonePlain(current))
+        : foundry.utils.mergeObject(current, clonePlain(updater ?? {}), { inplace: false, overwrite: true, insertKeys: true, insertValues: true });
+      const migrated = migrateWarfareFeatureState(next);
+      changed = JSON.stringify(foundry.utils.getProperty(fresh, `flags.${FLAG_SCOPE}.${WARFARE_FEATURE_FLAG_KEY}`)) !== JSON.stringify(migrated);
+      calculated = true;
+      return changed ? { [`flags.${FLAG_SCOPE}.${WARFARE_FEATURE_FLAG_KEY}`]: migrated } : {};
+    } catch (error) { calculationError = error; throw error; }
+  }, { perfKind: "warfare" });
+  if (strict && !confirmed && (!calculated || changed)) throw calculationError ?? new Error("Warfare state was not saved.");
+  return getRegionWarfareFeatureState((region.uuid ? await fromUuid(region.uuid) : null) ?? region);
 }

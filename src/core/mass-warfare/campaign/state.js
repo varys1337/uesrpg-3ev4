@@ -1,4 +1,4 @@
-import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
+import { requestAtomicUpdateDocument } from "../../../utils/authority-proxy.js";
 import { cloneFlagState, clonePlain } from "../../../utils/clone.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { isMassCombatEnabled } from "../../homebrew/settings.js";
@@ -117,23 +117,25 @@ export async function deriveArmyCampaignStateForGroup(groupActor, rawState = nul
   return state;
 }
 
-export async function updateArmyCampaignState(groupActor, updater) {
+export async function updateArmyCampaignState(groupActor, updater, { strict = false } = {}) {
   if (!isMassCombatEnabled()) return null;
   if (!groupActor) throw new Error("Missing Group actor for army campaign update.");
-  const current = getArmyCampaignState(groupActor);
-  const next = typeof updater === "function"
-    ? await updater(clonePlain(current))
-    : foundry.utils.mergeObject(current, clonePlain(updater ?? {}), {
-      inplace: false,
-      overwrite: true,
-      insertKeys: true,
-      insertValues: true,
-    });
-  const migrated = await deriveArmyCampaignStateForGroup(groupActor, next);
-  await requestUpdateDocument(groupActor, {
-    [`flags.${FLAG_SCOPE}.${WARFARE_ARMY_FLAG_KEY}`]: migrated,
-  });
-  return migrated;
+  let calculated = false;
+  let changed = false;
+  let calculationError = null;
+  const confirmed = await requestAtomicUpdateDocument(groupActor, async fresh => {
+    try {
+      const current = getArmyCampaignState(fresh);
+      const next = typeof updater === "function" ? await updater(clonePlain(current))
+        : foundry.utils.mergeObject(current, clonePlain(updater ?? {}), { inplace: false, overwrite: true, insertKeys: true, insertValues: true });
+      const migrated = await deriveArmyCampaignStateForGroup(fresh, next);
+      changed = JSON.stringify(foundry.utils.getProperty(fresh, `flags.${FLAG_SCOPE}.${WARFARE_ARMY_FLAG_KEY}`)) !== JSON.stringify(migrated);
+      calculated = true;
+      return changed ? { [`flags.${FLAG_SCOPE}.${WARFARE_ARMY_FLAG_KEY}`]: migrated } : {};
+    } catch (error) { calculationError = error; throw error; }
+  }, { perfKind: "warfare" });
+  if (strict && !confirmed && (!calculated || changed)) throw calculationError ?? new Error("Warfare state was not saved.");
+  return getArmyCampaignState((groupActor.uuid ? await fromUuid(groupActor.uuid) : null) ?? groupActor);
 }
 
 export function getArmyCampaignFlagPath() {

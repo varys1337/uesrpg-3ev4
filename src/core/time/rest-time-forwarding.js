@@ -63,11 +63,12 @@ export async function forwardTimeForGroupRest({ restType, actor = null, actorLab
     return result;
   }
 
+  const before = Number(TimeService.getWorldTimeSeconds() ?? game.time?.worldTime ?? 0);
   try {
-    const before = Number(TimeService.getWorldTimeSeconds() ?? game.time?.worldTime ?? 0);
 
     if (normalizedRestType === "short") {
       await TimeService.advanceWorldTimeSeconds(SHORT_REST_SECONDS, {
+        settleOwned: true,
         source: "group-rest-short",
         actorLabel: actorLabel ?? actor?.name ?? null,
       });
@@ -85,6 +86,7 @@ export async function forwardTimeForGroupRest({ restType, actor = null, actorLab
 
     if (restToSunrise) {
       await TimeService.advanceWorldTimeToPreset("sunrise", {
+        settleOwned: true,
         source: "group-rest-long-sunrise",
         actorLabel: actorLabel ?? actor?.name ?? null,
       });
@@ -101,6 +103,7 @@ export async function forwardTimeForGroupRest({ restType, actor = null, actorLab
     }
 
     await TimeService.advanceWorldTimeSeconds(LONG_REST_SECONDS, {
+      settleOwned: true,
       source: "group-rest-long",
       actorLabel: actorLabel ?? actor?.name ?? null,
     });
@@ -115,6 +118,11 @@ export async function forwardTimeForGroupRest({ restType, actor = null, actorLab
     result.deltaSeconds = delta;
     return result;
   } catch (err) {
+    const after = Number(TimeService.getWorldTimeSeconds() ?? before);
+    result.deltaSeconds = Math.max(0, after - before);
+    result.applied = result.deltaSeconds > 0;
+    result.partial = result.applied;
+    result.mode = result.applied ? (restToSunrise && normalizedRestType === "long" ? "sunrise" : `fixed-${normalizedRestType}`) : "none";
     result.reason = String(err?.message ?? err ?? "Unknown time-forwarding failure.");
     return result;
   }

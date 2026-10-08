@@ -30,16 +30,17 @@ export class DebugSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       closeOnSubmit: true,
       submitOnChange: false,
     },
-    window: {},
+    window: { resizable: true },
     position: {
       width: 520,
     },
-    classes: ["uesrpg"],
+    classes: ["standard-form", "uesrpg-settings-app"],
   };
 
   static PARTS = {
     form: {
       template: templatePath("v2/apps/debug-settings.hbs"),
+      scrollable: [".uesrpg-settings__body"],
     },
   };
 

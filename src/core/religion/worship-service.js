@@ -1,4 +1,4 @@
-import { requestCreateEmbeddedDocuments, requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { requestCreateEmbeddedDocuments, requestUpdateDocument, requestAtomicUpdateDocument } from "../../utils/authority-proxy.js";
 import { doTestRoll, formatResultSummary } from "../../utils/degree-roll-helper.js";
 import { SYSTEM_ID } from "../system/namespace.js";
 import { getReligionDomain } from "./domain-registry.js";
@@ -151,37 +151,35 @@ export function buildClericalTalentBindingContext(actor) {
 }
 
 export async function setWorshipPrimaryDomain(actor, domainKey) {
-  await requestUpdateDocument(actor, {
-    "system.worship.primaryDomainKey": asKey(domainKey),
-  });
+  if (!await requestUpdateDocument(actor, { "system.worship.primaryDomainKey": asKey(domainKey) })) throw new Error("Primary worship domain was not saved.");
 }
 
-export async function updateWorshipDomain(actor, domainKey, updater) {
+export async function updateWorshipDomain(actor, domainKey, updater, { strict = false } = {}) {
   const key = asKey(domainKey);
-  const current = cloneData(getWorshipDomainState(actor, key));
-  const next = typeof updater === "function"
-    ? await updater(current)
-    : foundry.utils.mergeObject(current, cloneData(updater ?? {}), {
-      inplace: false,
-      insertKeys: true,
-      insertValues: true,
-      overwrite: true,
-    });
-
-  const computedMax = getDomainEffectivePietyMax(actor, key);
-  const currentValue = asNumber(next?.piety?.value, 0);
-  const authoredMax = asNumber(next?.piety?.max, 0);
-  next.piety = next.piety ?? {};
-  next.piety.max = Math.max(authoredMax, computedMax);
-  next.piety.value = Math.max(0, Math.min(currentValue, next.piety.max));
-
-  await requestUpdateDocument(actor, {
-    [getDomainPath(key)]: next,
-  });
-  return next;
+  let calculated = false;
+  let changed = false;
+  let calculationError = null;
+  const confirmed = await requestAtomicUpdateDocument(actor, async fresh => {
+    try {
+      const current = cloneData(getWorshipDomainState(fresh, key));
+      const next = typeof updater === "function" ? await updater(current)
+        : foundry.utils.mergeObject(current, cloneData(updater ?? {}), { inplace: false, insertKeys: true, insertValues: true, overwrite: true });
+      const computedMax = getDomainEffectivePietyMax(fresh, key);
+      const currentValue = asNumber(next?.piety?.value, 0);
+      const authoredMax = asNumber(next?.piety?.max, 0);
+      next.piety = next.piety ?? {};
+      next.piety.max = Math.max(authoredMax, computedMax);
+      next.piety.value = Math.max(0, Math.min(currentValue, next.piety.max));
+      changed = JSON.stringify(foundry.utils.getProperty(fresh, getDomainPath(key))) !== JSON.stringify(next);
+      calculated = true;
+      return changed ? { [getDomainPath(key)]: next } : {};
+    } catch (error) { calculationError = error; throw error; }
+  }, { perfKind: "worship" });
+  if (strict && !confirmed && (!calculated || changed)) throw calculationError ?? new Error("Worship state was not saved.");
+  return cloneData(getWorshipDomainState((actor?.uuid ? await fromUuid(actor.uuid) : null) ?? actor, key));
 }
 
-export async function setPreparedInvocations(actor, storeDomainKey, invocationIds = []) {
+export async function setPreparedInvocations(actor, storeDomainKey, invocationIds = [], options = {}) {
   const key = asKey(storeDomainKey);
   const uniqueIds = Array.from(new Set((Array.isArray(invocationIds) ? invocationIds : []).map((value) => String(value ?? "").trim()).filter(Boolean)));
   return updateWorshipDomain(actor, key, (state) => ({
@@ -191,7 +189,7 @@ export async function setPreparedInvocations(actor, storeDomainKey, invocationId
       preparedInvocationIds: uniqueIds,
       lastPreparedAt: Date.now(),
     },
-  }));
+  }), options);
 }
 
 export async function setClericalTalentBinding(actor, itemId, patch = {}) {
@@ -201,7 +199,7 @@ export async function setClericalTalentBinding(actor, itemId, patch = {}) {
   for (const [key, value] of Object.entries(patch ?? {})) {
     next[`flags.${SYSTEM_ID}.religion.${key}`] = value;
   }
-  await requestUpdateDocument(item, next);
+  if (!await requestUpdateDocument(item, next)) throw new Error("Clerical talent binding was not saved.");
   return item;
 }
 
@@ -302,7 +300,7 @@ export async function applyPietyEvent(actor, {
         fasting,
       },
     };
-  });
+  }, { strict: true });
 
   return {
     domain,
@@ -462,7 +460,7 @@ export async function resolveDivineIntervention(actor, {
         note: String(retributionNote ?? "").trim(),
       }),
     ].slice(-50),
-  }));
+  }), { strict: true });
 
   await setChosenIntercessorUsage(actor, {
     restMarker: usage.restMarker,

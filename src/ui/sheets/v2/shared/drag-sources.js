@@ -5,6 +5,8 @@
 
 import { buildItemDragPayload } from "../../../../utils/drag-payload.js";
 import { dndDebug, makeDndTraceId } from "../../../../utils/dnd-debugger.js";
+import { getEffectDropRestriction } from "../../../../core/active-effects/drop-eligibility.js";
+import { t } from "../../../../utils/i18n.js";
 
 const DEFAULT_SELECTOR = "tr.item[data-item-id], .spell-row[data-item-id], li.item[data-item-id]";
 const DEFAULT_OPTOUT_CLASS = "uesrpg-no-drag";
@@ -74,4 +76,33 @@ export function enableItemRowDragSources(root, options = {}) {
 
     if (actor) _bindRowDragEvents(row, actor);
   }
+}
+
+/** Stamp only the icon/name handles; mutation controls and row whitespace never drag. */
+export function enableEffectDragSources(root, document) {
+  for (const row of root?.querySelectorAll?.("[data-effect-id]") ?? []) {
+    const effect = document?.effects?.get(row.dataset.effectId);
+    if (!effect) continue;
+    for (const handle of row.querySelectorAll(".effect-icon, .effect-name button, .effect-name:not(:has(button)), .uesrpg-effect-edit-icon")) {
+      // The surrounding native edit button is the image handle where present.
+      if (handle.matches("img") && handle.closest("button")) { handle.draggable = false; continue; }
+      const restriction = getEffectDropRestriction(effect);
+      handle.draggable = !restriction;
+      handle.classList.toggle("uesrpg-effect-drag-source", !restriction);
+      handle.dataset.effectId = effect.id;
+      handle.dataset.documentUuid = effect.uuid;
+      handle.dataset.documentType = "ActiveEffect";
+      handle.dataset.tooltipText = t(`UESRPG.EffectTransfer.${restriction ?? (document.documentName === "Actor" ? "MoveHint" : "ApplyHint")}`);
+    }
+  }
+}
+
+export function writeEffectDragData(event, document) {
+  const handle = event.target?.closest?.(".uesrpg-effect-drag-source");
+  if (!handle) return false;
+  const effect = document?.effects?.get(handle.dataset.effectId);
+  if (!effect || getEffectDropRestriction(effect)) { event.preventDefault(); return true; }
+  event.dataTransfer?.setData("text/plain", JSON.stringify(effect.toDragData()));
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = document.documentName === "Actor" ? "move" : "copy";
+  return true;
 }

@@ -1,3 +1,4 @@
+import { isDebugEnabled } from "../../../../utils/debug.js";
 import { resolveDamageUpdateTarget } from "../../../../core/combat/damage/post-application.js";
 import { recordAttackTrackerDiagnostic } from "../../../../core/combat/attack-tracker-diagnostics.js";
 import { buildSheetAttackTrackerContext } from "./attack-tracker-sheet-context.js";
@@ -115,6 +116,7 @@ async function _refreshCombatPart(sheet) {
 }
 
 function _recordSheetRefreshDiagnostic(sheet, payload, matched) {
+  if (!isDebugEnabled("effectsProxyDebug")) return;
   const actor = sheet?.document ?? null;
   const trackerContext = buildSheetAttackTrackerContext(sheet, actor);
   const trackedActor = trackerContext?.trackerDocument ?? resolveAttackTrackerActor(actor, trackerContext) ?? resolveDamageUpdateTarget(actor) ?? actor ?? null;

@@ -23,7 +23,7 @@ function renderRaceCard(raceKey, race, idPrefix) {
             ${race.img ? `<img class="card-portrait" src="${escapedImage}" alt="${escapedName}" height="100" width="70">` : ''}
             <div class="card-body">
                 <div class="card-actions">
-                    <label for="${inputId}" class="card-btn">${escapedName}</label>
+                    <label for="${inputId}" class="card-btn uesrpg-adv-choice uesrpg-choice-bar"><span class="uesrpg-adv-choice__label">${escapedName}</span></label>
                 </div>
                 <table class="baseline-table">
                     <thead>

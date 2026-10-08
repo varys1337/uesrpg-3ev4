@@ -134,12 +134,14 @@ export async function dispelEffects(targetActor, effects, opts = {}) {
   });
 
   let dispelled = 0;
+  const dispelledNames = [];
   const errors = [];
 
   for (const entry of effects) {
     try {
       const success = await _dispelSingleEffect(targetActor, entry);
-      if (success) dispelled++;
+      if (success) { dispelled++; dispelledNames.push(entry.name); }
+      else errors.push(`Dispel of "${entry.name}" did not completely settle.`);
     } catch (err) {
       const msg = `Failed to dispel "${entry.name}": ${err.message}`;
       errors.push(msg);
@@ -164,7 +166,7 @@ export async function dispelEffects(targetActor, effects, opts = {}) {
   if (dispelled > 0) {
     try {
       const dispellerName = opts.dispellerActor?.name ?? "Unknown";
-      const effectNames = effects.filter((_, i) => i < dispelled).map(e => e.name).join(", ");
+      const effectNames = dispelledNames.join(", ");
       await ChatMessage.create({
         content: `<div class="uesrpg"><h3>Dispel</h3><p><strong>${dispellerName}</strong> dispels <strong>${effectNames}</strong> from <strong>${targetActor.name}</strong>.</p></div>`,
         speaker: ChatMessage.getSpeaker({ actor: opts.dispellerActor ?? targetActor }),
@@ -193,9 +195,7 @@ async function _dispelSingleEffect(targetActor, entry) {
       if (originDoc) {
         const parent = originDoc.parent;
         if (parent) {
-          await cancelOriginAEUpkeep(originDoc);
-          _debug("Dispelled via Origin AE teardown:", entry.name);
-          return true;
+          return cancelOriginAEUpkeep(originDoc);
         }
       }
     } catch (_e) {
@@ -209,9 +209,7 @@ async function _dispelSingleEffect(targetActor, entry) {
     if (casterActor) {
       const originAE = findOriginAE(casterActor, entry.spellUuid);
       if (originAE) {
-        await cancelOriginAEUpkeep(originAE);
-        _debug("Dispelled via caster Origin AE:", entry.name);
-        return true;
+        return cancelOriginAEUpkeep(originAE);
       }
     }
   }
@@ -259,12 +257,12 @@ export async function showDispelDialog(targetActor, opts = {}) {
   }
 
   const checkboxes = effects.map((e, i) =>
-    `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;">
-      <input type="checkbox" name="dispel-${i}" checked />
+    `<label class="uesrpg-adv-choice uesrpg-choice-bar">
+      <input type="checkbox" name="dispel-${i}" checked /><span class="uesrpg-adv-choice__label">
       <img src="${e.img}" style="width:20px;height:20px;border:none;" />
       <span><strong>${e.name}</strong> (Lv.${e.spellLevel} ${e.spellSchool})</span>
       <span style="color:#888;font-size:0.85em;">by ${e.casterName}</span>
-    </div>`
+    </span></label>`
   ).join("");
 
   const content = `

@@ -45,7 +45,7 @@ export function registerCraftingSettings() {
     name: "Alchemy: Enable Gathering Helper",
     hint: "When enabled, the Workshop includes a Gather Ingredients mode to roll for and record gathered alchemical ingredients.",
     scope: "world",
-    config: true,
+    config: false,
     default: true,
     type: Boolean,
   });

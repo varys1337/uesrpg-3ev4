@@ -4,6 +4,7 @@
  */
 import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, requestUpdateEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
 import { buildGenericAEData } from "../../../../core/active-effects/modifier-evaluator.js";
+import { postEffectToChat } from "../../../shared/effect-chat.js";
 
 /**
  * Handle Active Effect controls from the Effects tab.
@@ -47,6 +48,9 @@ export async function onEffectControl(sheet, event, actionEl = null) {
   if (!effect) return;
 
   switch (action) {
+    case "post":
+      await postEffectToChat(effect);
+      break;
     case "edit":
       if (effect.sheet) effect.sheet.render(true);
       break;

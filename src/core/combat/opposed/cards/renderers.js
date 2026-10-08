@@ -1,3 +1,4 @@
+import { getDefenderCommitAvailability } from "../../../opposed/shared/defense-availability.js";
 /**
  * src/core/combat/opposed/cards/renderers.js
  * Top-level card rendering functions for opposed combat workflows.
@@ -25,6 +26,7 @@ import { _resolveActor, _resolveActorViaToken } from "../helpers/docs.js";
 import { _isBankAutoRollInProgress } from "../banking/state.js";
 import { getPendingAttackApCost } from "../helpers/workflow.js";
 import { t } from "../../../../utils/i18n.js";
+import { renderOpposedLayout, renderOpposedParticipant, renderParticipantContext, renderUnavailableCommitNotice, renderAutomaticNoDefenseNotice } from "../../../opposed/shared/card-rendering.js";
 
 function _attackerTestLabel(value) {
   const raw = String(value ?? t("UESRPG.Chat.Opposed.Attack", "Attack")).trim();
@@ -149,21 +151,8 @@ function _getAttackerCommitGate(data) {
   return { allowed: true };
 }
 
-function _getDefenderCommitGate(defenderData) {
-  const defender = _resolveActorViaToken(defenderData?.actorUuid, defenderData?.tokenUuid);
-  if (!defender) return { allowed: false, reason: t("UESRPG.Chat.Opposed.DefenderUnavailable", "Defender unavailable") };
-  if (!isActorInStartedCombatEncounter(defender, {
-    tokenUuid: defenderData?.tokenUuid ?? null,
-    combatantId: defenderData?.combatantId ?? null
-  })) return { allowed: true };
-
-  const apCost = Number(defenderData?.apCost ?? 1) || 1;
-  const currentAP = Number(foundry.utils.getProperty(defender, "system.action_points.value") ?? 0);
-  if (currentAP < apCost) {
-    return { allowed: false, reason: `${currentAP}/${apCost} AP` };
-  }
-
-  return { allowed: true };
+function _getDefenderCommitGate(data, defenderData, messageId) {
+  return getDefenderCommitAvailability({ data, defenderData, messageId });
 }
 
 /**
@@ -268,6 +257,7 @@ export function renderMultiDefenderCard(data, messageId, helpers) {
     });
     const defenderMarkerHtml = _renderAdvantageMarkers(_takeAdvantageMarkers(markers, d, consumedMarkerKeys));
 
+    const defenderCommitGate = _getDefenderCommitGate(data, d, messageId);
     const defenderActions = _buildDefenderActions({
       defender: d,
       bankMode,
@@ -275,7 +265,7 @@ export function renderMultiDefenderCard(data, messageId, helpers) {
       idx,
       data,
       _allDefendersCommitted,
-      commitDefenseGate: _getDefenderCommitGate(d),
+      commitDefenseGate: defenderCommitGate,
       isAutoRolling
     });
 
@@ -291,7 +281,7 @@ export function renderMultiDefenderCard(data, messageId, helpers) {
         })
       : dCommitted;
 
-    const outcomeLine = _buildOutcomeLine({
+    const outcomeLine = bankMode && !outcome ? "" : _buildOutcomeLine({
       outcome,
       bankMode,
       bothCommitted,
@@ -325,55 +315,31 @@ export function renderMultiDefenderCard(data, messageId, helpers) {
     });
 
     const damagePanel = _buildDamagePanel(damageData);
-    return `
-      <section class="uesrpg-opposed-defender-card">
-        <div class="uesrpg-opposed-lane-header">
-          <span class="uesrpg-opposed-lane-icon" aria-hidden="true"><i class="fa-solid fa-shield-halved"></i></span>
-          <span class="uesrpg-opposed-lane-name">${d.tokenName ?? d.name}</span>
-        </div>
-        <div class="uesrpg-opposed-stats">
-          <div class="uesrpg-opposed-stat"><b>${t("UESRPG.Chat.Common.Test", "Test")}:</b> ${dTestLabel}</div>
-          <div class="uesrpg-opposed-stat"><b>${t("UESRPG.Chat.Opposed.Defense", "Defense")}:</b> ${dDefenseLabel}</div>
-          ${_renderTNLine({ value: dTargetLabel, tnObj: revealDefender ? d.tn : null })}
-          ${dRollLine}
-          ${defenderCommitLine}
-          ${defenderMarkerHtml}
-        </div>
-        ${defenderActions}
-        ${outcomeLine}
-        ${resolutionDetails}
-        ${resolvedActions}
-        ${damagePanel}
-      </section>
-    `;
+    return renderOpposedParticipant({
+      role: "defender", defenderCard: true, name: d.tokenName ?? d.name,
+      context: renderParticipantContext([
+        { label: t("UESRPG.Chat.Common.Test", "Test"), value: dTestLabel },
+        { label: t("UESRPG.Chat.Opposed.Defense", "Defense"), value: dDefenseLabel }
+      ]),
+      tn: _renderTNLine({ value: dTargetLabel, tnObj: revealDefender ? d.tn : null }),
+      roll: dRollLine, status: renderAutomaticNoDefenseNotice(d) + defenderCommitLine + defenderMarkerHtml + renderUnavailableCommitNotice({ active: bankMode && !dCommitted && !d.result, gate: defenderCommitGate }), actions: defenderActions, compactActions: bankMode && !d.result,
+      aftermath: outcomeLine + resolutionDetails + resolvedActions + damagePanel
+    });
   }).join("");
   const unmatchedMarkerHtml = _renderAdvantageMarkers(markers.filter(({ renderKey }) => !consumedMarkerKeys.has(renderKey)));
 
-  return `
-    <div class="ues-opposed-card uesrpg-chat-surface" data-message-id="${messageId}">
-      <div class="uesrpg-opposed-stack">
-        <section class="uesrpg-opposed-lane uesrpg-opposed-lane--attacker">
-          <div class="uesrpg-opposed-lane-header">
-            <span class="uesrpg-opposed-lane-icon" aria-hidden="true"><i class="fa-solid fa-crosshairs"></i></span>
-            <span class="uesrpg-opposed-lane-name">${a.tokenName ?? a.name}</span>
-          </div>
-          <div class="uesrpg-opposed-stats">
-            <div class="uesrpg-opposed-stat"><b>${t("UESRPG.Chat.Common.Test", "Test")}:</b> ${revealAttacker ? _shortenTestLabel(_attackerTestLabel(a.label)) : "??"}</div>
-            <div class="uesrpg-opposed-stat"><b>${t("UESRPG.Chat.Opposed.Attack", "Attack")}:</b> ${aVariantText}</div>
-            ${_renderTNLine({ value: aTargetLabel, tnObj: revealAttacker ? a.tn : null })}
-            ${aRollLine}
-            ${attackerCommitLine}
-            ${attackerMarkerHtml}
-          </div>
-          ${attackerActions}
-        </section>
-        <div class="uesrpg-opposed-defenders">
-          ${defenderBlocks}
-        </div>
-      </div>
-      ${unmatchedMarkerHtml}
-    </div>
-  `;
+  const attackerPanel = renderOpposedParticipant({
+    name: a.tokenName ?? a.name,
+    context: renderParticipantContext([
+      { label: t("UESRPG.Chat.Common.Test", "Test"), value: revealAttacker ? _shortenTestLabel(_attackerTestLabel(a.label)) : "??" },
+      { label: t("UESRPG.Chat.Opposed.Attack", "Attack"), value: aVariantText }
+    ]),
+    tn: _renderTNLine({ value: aTargetLabel, tnObj: revealAttacker ? a.tn : null }),
+    roll: aRollLine, status: attackerCommitLine + attackerMarkerHtml + renderUnavailableCommitNotice({ active: bankMode && !aCommitted && !a.result, gate: attackerCommitGate, kind: "attack" }), actions: attackerActions, compactActions: bankMode && !a.result
+  });
+  return `<div class="ues-opposed-card uesrpg-chat-surface" data-message-id="${messageId}">
+    ${renderOpposedLayout({ attacker: attackerPanel, defenders: defenderBlocks, after: (bankMode && defenders.some(d => !_getDefenderOutcome(data, d)) ? _buildOutcomeLine({ bankMode, bothCommitted: aCommitted && _allDefendersCommitted(data), allDefendersCommitted: defenders.every(d => d.banked?.committed || d.noDefense || d.result), aCommitted, data, isMulti: true }) : "") + unmatchedMarkerHtml })}
+  </div>`;
 }
 
 /**
@@ -473,6 +439,7 @@ export function renderSingleDefenderCard(data, messageId, helpers) {
     isAutoRolling
   });
 
+  const defenderCommitGate = _getDefenderCommitGate(data, d, messageId);
   const defenderActions = _buildDefenderActions({
     defender: d,
     bankMode,
@@ -480,7 +447,7 @@ export function renderSingleDefenderCard(data, messageId, helpers) {
     idx,
     data,
     _allDefendersCommitted,
-    commitDefenseGate: _getDefenderCommitGate(d),
+    commitDefenseGate: defenderCommitGate,
     isAutoRolling
   });
 
@@ -522,44 +489,26 @@ export function renderSingleDefenderCard(data, messageId, helpers) {
   const damagePanel = _buildDamagePanel(damageData);
   const unmatchedMarkerHtml = _renderAdvantageMarkers(markers.filter(({ renderKey }) => !consumedMarkerKeys.has(renderKey)));
 
-  return `
-  <div class="ues-opposed-card uesrpg-chat-surface" data-message-id="${messageId}">
-    <div class="uesrpg-opposed-duel-grid">
-      <section class="uesrpg-opposed-lane uesrpg-opposed-lane--attacker">
-        <div class="uesrpg-opposed-lane-header">
-          <span class="uesrpg-opposed-lane-icon" aria-hidden="true"><i class="fa-solid fa-crosshairs"></i></span>
-          <span class="uesrpg-opposed-lane-name">${a.tokenName ?? a.name}</span>
-        </div>
-        <div class="uesrpg-opposed-stats">
-          <div class="uesrpg-opposed-stat"><b>${t("UESRPG.Chat.Common.Test", "Test")}:</b> ${revealAttacker ? _shortenTestLabel(_attackerTestLabel(a.label)) : "??"}</div>
-          <div class="uesrpg-opposed-stat"><b>${t("UESRPG.Chat.Opposed.Attack", "Attack")}:</b> ${aVariantText}</div>
-          ${_renderTNLine({ value: aTargetLabel, tnObj: revealAttacker ? a.tn : null })}
-          ${aRollLine}
-          ${attackerCommitLine}
-          ${attackerMarkerHtml}
-        </div>
-        ${attackerActions}
-      </section>
-      <section class="uesrpg-opposed-lane uesrpg-opposed-lane--defender">
-        <div class="uesrpg-opposed-lane-header">
-          <span class="uesrpg-opposed-lane-icon" aria-hidden="true"><i class="fa-solid fa-shield-halved"></i></span>
-          <span class="uesrpg-opposed-lane-name">${d.tokenName ?? d.name}</span>
-        </div>
-        <div class="uesrpg-opposed-stats">
-          <div class="uesrpg-opposed-stat"><b>${t("UESRPG.Chat.Common.Test", "Test")}:</b> ${dTestLabel}</div>
-          <div class="uesrpg-opposed-stat"><b>${t("UESRPG.Chat.Opposed.Defense", "Defense")}:</b> ${dDefenseLabel}</div>
-          ${_renderTNLine({ value: dTargetLabel, tnObj: revealDefender ? d.tn : null })}
-          ${dRollLine}
-          ${defenderCommitLine}
-          ${defenderMarkerHtml}
-        </div>
-        ${defenderActions}
-      </section>
-    </div>
-    ${outcomeLine}
-    ${resolutionDetails}
-    ${resolvedActions}
-    ${damagePanel}
-    ${unmatchedMarkerHtml}
+  const attackerPanel = renderOpposedParticipant({
+    name: a.tokenName ?? a.name,
+    context: renderParticipantContext([
+      { label: t("UESRPG.Chat.Common.Test", "Test"), value: revealAttacker ? _shortenTestLabel(_attackerTestLabel(a.label)) : "??" },
+      { label: t("UESRPG.Chat.Opposed.Attack", "Attack"), value: aVariantText }
+    ]),
+    tn: _renderTNLine({ value: aTargetLabel, tnObj: revealAttacker ? a.tn : null }),
+    roll: aRollLine, status: attackerCommitLine + attackerMarkerHtml + renderUnavailableCommitNotice({ active: bankMode && !aCommitted && !a.result, gate: attackerCommitGate, kind: "attack" }), actions: attackerActions, compactActions: bankMode && !a.result
+  });
+  const defenderPanel = renderOpposedParticipant({
+    role: "defender", name: d.tokenName ?? d.name,
+    context: renderParticipantContext([
+      { label: t("UESRPG.Chat.Common.Test", "Test"), value: dTestLabel },
+      { label: t("UESRPG.Chat.Opposed.Defense", "Defense"), value: dDefenseLabel }
+    ]),
+    tn: _renderTNLine({ value: dTargetLabel, tnObj: revealDefender ? d.tn : null }),
+    roll: dRollLine, status: renderAutomaticNoDefenseNotice(d) + defenderCommitLine + defenderMarkerHtml + renderUnavailableCommitNotice({ active: bankMode && !dCommitted && !d.result, gate: defenderCommitGate }), actions: defenderActions, compactActions: bankMode && !d.result
+  });
+  return `<div class="ues-opposed-card uesrpg-chat-surface" data-message-id="${messageId}">
+    ${renderOpposedLayout({ attacker: attackerPanel, defender: defenderPanel,
+      after: outcomeLine + resolutionDetails + resolvedActions + damagePanel + unmatchedMarkerHtml })}
   </div>`;
 }

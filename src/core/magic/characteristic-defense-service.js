@@ -27,8 +27,9 @@ import { normalizeSpellConfig } from "./spell-config.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { applyCondition } from "../conditions/condition-engine.js";
 import { _num, _strTrim as _str, createDebugLogger } from "./_primitives.js";
-import { buildMagicCastContext } from "./opposed/cast-context.js";
+import { buildMagicCastContext, resolveMagicCastContext } from "./opposed/cast-context.js";
 import { getSpellLevel, getSpellStrengthFormula } from "./magicka-utils.js";
+import { resolveActorFromUuidSync } from "../../utils/uuid-cache.js";
 
 const _CHA_LABELS = {
   str: "Strength", end: "Endurance", agi: "Agility", int: "Intelligence",
@@ -162,6 +163,12 @@ export async function executeCharacteristicDefense(defender, spell, opts = {}) {
     0
   );
 
+  // Only the executing save resolves dice; TN previews remain deterministic.
+  if (charDef.modifierMode !== "formula") {
+    opts = { ...opts, castContext: await resolveMagicCastContext({
+      ...opts.attacker, castContext: opts.castContext ?? opts.attacker?.castContext,
+    }, spell, { actor: opts.caster ?? spell.actor, message: opts.message, parentMessageId: opts.parentMessageId }) };
+  }
   // Resolve the modifier (spell strength or formula)
   const modifier = _resolveModifierFromCastContext(spell, charDef, opts);
 
@@ -226,7 +233,8 @@ export async function executeCharacteristicDefense(defender, spell, opts = {}) {
     onFailure: charDef.onFailure,
     result,
     roll: result.roll,
-    tnData
+    tnData,
+    castContext: opts.castContext ?? null
   };
 }
 
@@ -266,6 +274,7 @@ export async function processCharacteristicDefenseOutcome(defender, spell, defRe
       const report = await applyConsequences(defender, consequences, {
         source: spell.name,
         origin: spell.uuid,
+        sourceActorUuid: opts.caster?.uuid,
         halveFactor: 0.5
       });
       await _postOutcomeChat(defender, spell, defResult, {
@@ -303,6 +312,7 @@ export async function processCharacteristicDefenseOutcome(defender, spell, defRe
   const report = await applyConsequences(defender, consequences, {
     source: spell.name,
     origin: spell.uuid,
+    sourceActorUuid: opts.caster?.uuid,
     halveFactor: 1
   });
   await _postOutcomeChat(defender, spell, defResult, {
@@ -378,6 +388,11 @@ const _ceDebug = createDebugLogger("debugMagicRouting", "[UESRPG][ConsequenceEng
  * @param {number} [opts.halveFactor=1]   - Multiply numeric deltas (0.5 for halve)
  * @returns {Promise<ConsequenceReport>}
  */
+export async function executeChatOutcome(outcome, context) {
+  return context.stage("consequences", () => applyConsequences(context.actor, outcome.payload.consequences,
+    { ...outcome.payload.options, chatOutcomeExecution: true, strict: true }));
+}
+
 export async function applyConsequences(actor, consequences, opts = {}) {
   if (!actor) {
     return { applied: false, lines: [], deltas: { stamina: 0, health: 0, magicka: 0 }, conditionName: null };
@@ -397,6 +412,21 @@ export async function applyConsequences(actor, consequences, opts = {}) {
   const hpDelta = factor !== 1 ? Math.ceil(rawHP * factor) : rawHP;
   const mpDelta = factor !== 1 ? Math.ceil(rawMP * factor) : rawMP;
 
+  if (!opts.chatOutcomeExecution && (spDelta || hpDelta || mpDelta || conditionKey)) {
+    const { createChatOutcome } = await import("../config/outcome-application-policy.js");
+    const { persistChatOutcomes } = await import("../../application/combat/chat-outcome-application-service.js");
+    const originDocument = origin ? await fromUuid(origin).catch(() => null) : null;
+    const sourceActor = resolveActorFromUuidSync(opts.sourceActorUuid) ?? originDocument?.actor
+      ?? (originDocument?.documentName === "Actor" ? originDocument : actor);
+    const entry = createChatOutcome({ adapter: "magic.consequences", kind: hpDelta < 0 ? "damage" : hpDelta > 0 ? "healing" : "effect",
+      sourceActorUuid: sourceActor.uuid, targetUuid: actor.uuid, label: source,
+      payload: { consequences, options: { source, origin, halveFactor: factor } } });
+    await persistChatOutcomes({ actor: sourceActor, entries: [entry],
+      content: `<div class="uesrpg"><b>${foundry.utils.escapeHTML(source)}</b><p>${foundry.utils.escapeHTML(actor.name)}</p></div>` });
+    return { applied: false, pending: true, lines: ["Consequences resolved; application pending."],
+      deltas: { stamina: spDelta, health: hpDelta, magicka: mpDelta }, conditionName: conditionKey || null };
+  }
+
   const lines = [];
   const deltas = { stamina: 0, health: 0, magicka: 0 };
   let conditionName = null;
@@ -411,6 +441,7 @@ export async function applyConsequences(actor, consequences, opts = {}) {
 
     if (actualDelta !== 0) {
       const result = await requestUpdateDocument(actor, { "system.stamina.value": newSP });
+      if (!result && opts.strict) throw new Error("Spell Stamina change was not confirmed.");
       if (result !== null) {
         deltas.stamina = actualDelta;
         applied = true;
@@ -430,6 +461,7 @@ export async function applyConsequences(actor, consequences, opts = {}) {
 
     if (actualDelta !== 0) {
       const result = await requestUpdateDocument(actor, { "system.hp.value": newHP });
+      if (!result && opts.strict) throw new Error("Spell Health change was not confirmed.");
       if (result !== null) {
         deltas.health = actualDelta;
         applied = true;
@@ -449,6 +481,7 @@ export async function applyConsequences(actor, consequences, opts = {}) {
 
     if (actualDelta !== 0) {
       const result = await requestUpdateDocument(actor, { "system.magicka.value": newMP });
+      if (!result && opts.strict) throw new Error("Spell Magicka change was not confirmed.");
       if (result !== null) {
         deltas.magicka = actualDelta;
         applied = true;
@@ -463,6 +496,7 @@ export async function applyConsequences(actor, consequences, opts = {}) {
   if (conditionKey) {
     try {
       const ae = await applyCondition(actor, conditionKey, { origin, source });
+      if (!ae && opts.strict) throw new Error("Spell condition creation was not confirmed.");
       if (ae) {
         conditionName = ae.name ?? conditionKey;
         applied = true;
@@ -470,6 +504,7 @@ export async function applyConsequences(actor, consequences, opts = {}) {
         _ceDebug(`Condition applied: ${conditionKey}`);
       }
     } catch (err) {
+      if (opts.strict) throw err;
       console.warn("UESRPG | ConsequenceEngine | Failed to apply condition:", conditionKey, err);
       lines.push(`Failed to apply ${conditionKey} to ${actor.name}`);
     }

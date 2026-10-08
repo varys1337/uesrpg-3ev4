@@ -1,63 +1,73 @@
 {{!-- templates/v2/apps/combat-settings.hbs --}}
 <section class="uesrpg-settings uesrpg-settings-panel">
-  <fieldset class="uesrpg-settings__section">
-    <legend>{{localize "UESRPG.Apps.CombatSettings.Sections.Combat"}}</legend>
+  <div class="uesrpg-settings__body">
+    <fieldset class="uesrpg-settings__section">
+      <legend>{{localize "UESRPG.Apps.CombatSettings.Sections.Combat"}}</legend>
 
-    <div class="setting-row setting-row--toggle">
-      <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-action-economy-ui">{{settings.enableActionEconomyUI.name}}</label>
-        <p class="setting-help">{{settings.enableActionEconomyUI.hint}}</p>
+      <div class="setting-row setting-row--toggle">
+        <div class="setting-row__main">
+          <label class="setting-row__label" for="uesrpg-action-economy-ui">{{settings.enableActionEconomyUI.name}}</label>
+          <p id="uesrpg-action-economy-ui-hint" class="setting-help">{{settings.enableActionEconomyUI.hint}}</p>
+        </div>
+        <input id="uesrpg-action-economy-ui" aria-describedby="uesrpg-action-economy-ui-hint" type="checkbox" name="enableActionEconomyUI" {{checked settings.enableActionEconomyUI.value}}>
       </div>
-      <input id="uesrpg-action-economy-ui" type="checkbox" name="enableActionEconomyUI" {{checked settings.enableActionEconomyUI.value}}>
-    </div>
 
-    <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-action-point-automation">{{settings.actionPointAutomation.name}}</label>
-      <select id="uesrpg-action-point-automation" name="actionPointAutomation">
-        {{selectOptions settings.actionPointAutomation.choices selected=settings.actionPointAutomation.value}}
-      </select>
-      <p class="setting-help">{{settings.actionPointAutomation.hint}}</p>
-    </div>
-
-    <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-token-range-mode">{{settings.tokenRangeMeasurement.name}}</label>
-      <select id="uesrpg-token-range-mode" name="tokenRangeMeasurement">
-        {{selectOptions settings.tokenRangeMeasurement.choices selected=settings.tokenRangeMeasurement.value}}
-      </select>
-      <p class="setting-help">{{settings.tokenRangeMeasurement.hint}}</p>
-    </div>
-
-    <div class="setting-row setting-row--toggle">
-      <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-dynamic-initiative">{{settings.dynamicInitiativeEnabled.name}}</label>
-        <p class="setting-help">{{settings.dynamicInitiativeEnabled.hint}}</p>
+      <div class="setting-row setting-row--select">
+        <label class="setting-row__label" for="uesrpg-outcome-application">{{settings.combatOutcomeApplicationMode.name}}</label>
+        <select id="uesrpg-outcome-application" aria-describedby="uesrpg-outcome-application-hint" name="combatOutcomeApplicationMode">
+          {{selectOptions settings.combatOutcomeApplicationMode.choices selected=settings.combatOutcomeApplicationMode.value}}
+        </select>
+        <p id="uesrpg-outcome-application-hint" class="setting-help">{{settings.combatOutcomeApplicationMode.hint}}</p>
       </div>
-      <input id="uesrpg-dynamic-initiative" type="checkbox" name="dynamicInitiativeEnabled" {{checked settings.dynamicInitiativeEnabled.value}}>
-    </div>
 
-  </fieldset>
+      <div class="setting-row setting-row--select">
+        <label class="setting-row__label" for="uesrpg-action-point-automation">{{settings.actionPointAutomation.name}}</label>
+        <select id="uesrpg-action-point-automation" aria-describedby="uesrpg-action-point-automation-hint" name="actionPointAutomation">
+          {{selectOptions settings.actionPointAutomation.choices selected=settings.actionPointAutomation.value}}
+        </select>
+        <p id="uesrpg-action-point-automation-hint" class="setting-help">{{settings.actionPointAutomation.hint}}</p>
+      </div>
 
-  <fieldset class="uesrpg-settings__section">
-    <legend>{{localize "UESRPG.Apps.CombatSettings.Sections.AreaOfEffect"}}</legend>
+      <div class="setting-row setting-row--select">
+        <label class="setting-row__label" for="uesrpg-token-range-mode">{{settings.tokenRangeMeasurement.name}}</label>
+        <select id="uesrpg-token-range-mode" aria-describedby="uesrpg-token-range-mode-hint" name="tokenRangeMeasurement">
+          {{selectOptions settings.tokenRangeMeasurement.choices selected=settings.tokenRangeMeasurement.value}}
+        </select>
+        <p id="uesrpg-token-range-mode-hint" class="setting-help">{{settings.tokenRangeMeasurement.hint}}</p>
+      </div>
 
-    <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-aoe-containment-mode">{{settings.aoeContainmentMode.name}}</label>
-      <select id="uesrpg-aoe-containment-mode" name="aoeContainmentMode">
-        {{selectOptions settings.aoeContainmentMode.choices selected=settings.aoeContainmentMode.value}}
-      </select>
-      <p class="setting-help">{{settings.aoeContainmentMode.hint}}</p>
-    </div>
+      <div class="setting-row setting-row--toggle">
+        <div class="setting-row__main">
+          <label class="setting-row__label" for="uesrpg-dynamic-initiative">{{settings.dynamicInitiativeEnabled.name}}</label>
+          <p id="uesrpg-dynamic-initiative-hint" class="setting-help">{{settings.dynamicInitiativeEnabled.hint}}</p>
+        </div>
+        <input id="uesrpg-dynamic-initiative" aria-describedby="uesrpg-dynamic-initiative-hint" type="checkbox" name="dynamicInitiativeEnabled" {{checked settings.dynamicInitiativeEnabled.value}}>
+      </div>
 
-    <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-aoe-origin-measurement">{{settings.aoeOriginMeasurement.name}}</label>
-      <select id="uesrpg-aoe-origin-measurement" name="aoeOriginMeasurement">
-        {{selectOptions settings.aoeOriginMeasurement.choices selected=settings.aoeOriginMeasurement.value}}
-      </select>
-      <p class="setting-help">{{settings.aoeOriginMeasurement.hint}}</p>
-    </div>
-  </fieldset>
+    </fieldset>
+
+    <fieldset class="uesrpg-settings__section">
+      <legend>{{localize "UESRPG.Apps.CombatSettings.Sections.AreaOfEffect"}}</legend>
+
+      <div class="setting-row setting-row--select">
+        <label class="setting-row__label" for="uesrpg-aoe-containment-mode">{{settings.aoeContainmentMode.name}}</label>
+        <select id="uesrpg-aoe-containment-mode" aria-describedby="uesrpg-aoe-containment-mode-hint" name="aoeContainmentMode">
+          {{selectOptions settings.aoeContainmentMode.choices selected=settings.aoeContainmentMode.value}}
+        </select>
+        <p id="uesrpg-aoe-containment-mode-hint" class="setting-help">{{settings.aoeContainmentMode.hint}}</p>
+      </div>
+
+      <div class="setting-row setting-row--select">
+        <label class="setting-row__label" for="uesrpg-aoe-origin-measurement">{{settings.aoeOriginMeasurement.name}}</label>
+        <select id="uesrpg-aoe-origin-measurement" aria-describedby="uesrpg-aoe-origin-measurement-hint" name="aoeOriginMeasurement">
+          {{selectOptions settings.aoeOriginMeasurement.choices selected=settings.aoeOriginMeasurement.value}}
+        </select>
+        <p id="uesrpg-aoe-origin-measurement-hint" class="setting-help">{{settings.aoeOriginMeasurement.hint}}</p>
+      </div>
+    </fieldset>
+  </div>
 
   <footer class="uesrpg-settings__footer">
-    <button type="submit" class="save"><i class="fas fa-save"></i> {{localize "UESRPG.UI.Save"}}</button>
+    <button type="submit" class="save"><i class="fas fa-save" aria-hidden="true"></i> {{localize "UESRPG.UI.Save"}}</button>
   </footer>
 </section>

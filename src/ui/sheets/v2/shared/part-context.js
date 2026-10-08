@@ -1,3 +1,6 @@
+import { isEffectCurrentlyApplicable } from "../../../../core/active-effects/collect.js";
+import { SYSTEM_ID } from "../../../../core/system/namespace.js";
+
 /**
  * Build a normalized AppV2 part-request scope for context preparation.
  * Returns a `needs(part)` predicate that is true for full renders or when a part
@@ -42,4 +45,22 @@ export function selectDocumentSheetRenderParts(parts, {
 
   delete configured[limitedPart];
   return configured;
+}
+
+/** Narrow only document-driven health refreshes on already rendered standard sheets. */
+export function narrowHealthSheetRenderOptions(sheet, options, { explicitParts = false } = {}) {
+  if (explicitParts || options.isFirstRender || options.force || !sheet.rendered) return;
+  if (!game.user?.isGM && sheet.document?.limited) return;
+  if (options.renderContext !== "updateActor" || !options.renderData) return;
+  const keys = Object.keys(foundry.utils.flattenObject(options.renderData)).filter(key => key !== "_id");
+  const healthPaths = new Set(["system.hp.value", "system.tempHP", "system.hp.temp"]);
+  if (!keys.some(key => healthPaths.has(key))) return;
+  const receiptPath = `flags.${SYSTEM_ID}.damageApplications`;
+  if (!keys.every(key => healthPaths.has(key) || key === receiptPath || key.startsWith(`${receiptPath}.`))) return;
+  // Includes transferred effects; unknown applicability retains the full render.
+  if (typeof sheet.document?.allApplicableEffects !== "function") return;
+  for (const effect of sheet.document.allApplicableEffects()) {
+    if (isEffectCurrentlyApplicable(effect)) return;
+  }
+  options.parts = ["sidebar", "combat"];
 }

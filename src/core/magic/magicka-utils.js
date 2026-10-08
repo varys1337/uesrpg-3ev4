@@ -12,6 +12,7 @@
  * - Package 1 normalizes reads without migrating or renaming any data fields.
  */
 
+import { tf } from "../../utils/i18n.js";
 import { MagicTimekeeping } from "./timekeeping-helper.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 
@@ -168,7 +169,7 @@ function _evaluateSpellCostAEModifier(actor, spell, options = {}) {
 }
 
 function _computeSpellBaseCost(actor, spell, options = {}) {
-  const baseCostRaw = getSpellCost(spell, options.level ?? null);
+  const baseCostRaw = getSpellCost(spell, options.level ?? null, options._scalingLevels);
   const { total: aeModifierRaw, breakdown } = _evaluateSpellCostAEModifier(actor, spell, options);
   const aeModifier = _num(aeModifierRaw, 0);
 
@@ -179,16 +180,16 @@ function _computeSpellBaseCost(actor, spell, options = {}) {
 
 function _spellHasDamage(spell, options = {}) {
   const formula = getSpellDamageFormula(spell, options.level ?? null, options);
-  return Boolean(formula && formula !== "0" && getSpellDamageType(spell, options.level ?? null) !== "healing");
+  return Boolean(formula && formula !== "0" && getSpellDamageType(spell, options.level ?? null, options._scalingLevels) !== "healing");
 }
 
 function _safeGetTemplatePath(root, path) {
   return root && path ? foundry.utils.getProperty(root, path) : undefined;
 }
 
-function _spellHasLegacyDamageData(spell) {
+function _spellHasLegacyDamageData(spell, scalingLevels = null) {
   const sys = spell?.system ?? {};
-  const scaling = getSpellScalingEntry(spell, null);
+  const scaling = getSpellScalingEntry(spell, null, scalingLevels);
   return Boolean(
     _str(scaling?.damageFormula)
     || _str(sys.damageFormula)
@@ -196,7 +197,7 @@ function _spellHasLegacyDamageData(spell) {
   );
 }
 
-function _spellUsesStrengthDamageLane(spell) {
+function _spellUsesStrengthDamageLane(spell, scalingLevels = null) {
   const sys = spell?.system ?? {};
   const rawDamageType = _str(sys.damageType).toLowerCase();
   return Boolean(
@@ -206,7 +207,7 @@ function _spellUsesStrengthDamageLane(spell) {
     || rawDamageType === "healing"
     || rawDamageType === "temporaryhealing"
     || rawDamageType === "temporary healing"
-    || _spellHasLegacyDamageData(spell)
+    || _spellHasLegacyDamageData(spell, scalingLevels)
   );
 }
 
@@ -290,7 +291,9 @@ export function resolveSpellCostSnapshot(actor, spell, options = {}) {
     };
   }
 
-  const normalized = _normalizeCostOptions(actor, spell, options);
+  const normalized = _normalizeCostOptions(actor, spell, {
+    ...options, _scalingLevels: options._scalingLevels ?? getSpellScalingLevels(spell)
+  });
   const { baseCost, baseCostRaw, aeModifier, aeBreakdown } = _computeSpellBaseCost(actor, spell, normalized);
   const base = Math.max(0, Math.floor(baseCost));
 
@@ -374,8 +377,8 @@ export function resolveSpellCostSnapshot(actor, spell, options = {}) {
  * @param {Item} spell
  * @returns {number}
  */
-export function getSpellLevel(spell) {
-  const scalingLevel = _num(getSpellBaseScalingEntry(spell)?.level, 0);
+export function getSpellLevel(spell, scalingLevels = null) {
+  const scalingLevel = _num(getSpellBaseScalingEntry(spell, scalingLevels)?.level, 0);
   if (scalingLevel > 0) return Math.max(1, Math.min(7, scalingLevel));
   const lvl = _num(spell?.system?.level, 1);
   return Math.max(1, Math.min(7, lvl));
@@ -420,8 +423,8 @@ function _normalizeScalingRow(entry, idx = 0, fallbackDurationUnit = "instant") 
   };
 }
 
-export function getSpellBaseScalingEntry(spell) {
-  const levels = getSpellScalingLevels(spell);
+export function getSpellBaseScalingEntry(spell, scalingLevels = null) {
+  const levels = Array.isArray(scalingLevels) ? scalingLevels : getSpellScalingLevels(spell);
   return levels[0] ?? null;
 }
 
@@ -509,55 +512,20 @@ export function getSpellScalingLevels(spell) {
  * @param {number|null} level
  * @returns {object|null}
  */
-export function getSpellScalingEntry(spell, level = null) {
-  const DEBUG = isDebugEnabled("spellCastingDebug");
-  const levels = getSpellScalingLevels(spell);
-  
-  if (DEBUG) {
-    console.log(`\n🔍 getSpellScalingEntry called for "${spell?.name}":`, {
-      requestedLevel: level,
-      rawLevels: levels,
-      isArray: Array.isArray(levels),
-      isObject: typeof levels === "object" && levels !== null && !Array.isArray(levels)
-    });
+export function getSpellScalingEntry(spell, level = null, scalingLevels = null) {
+  const levels = Array.isArray(scalingLevels) ? scalingLevels : getSpellScalingLevels(spell);
+  if (!levels.length) return null;
+  const fallbackLevel = getSpellLevel(spell, levels);
+  const targetLevel = level == null ? _num(levels[0]?.level, fallbackLevel) : _num(level, fallbackLevel);
+  const byLevel = levels.find(row => _num(row?.level, 0) === targetLevel);
+  const firstKnown = level == null ? levels.find(row => row?.known !== false) : null;
+  const allInferred = !byLevel && !firstKnown && levels.every(row => row?.__inferredLevel === true);
+  const entry = byLevel ?? firstKnown ?? (allInferred ? levels[targetLevel - 1] : null) ?? null;
+  if (isDebugEnabled("spellCastingDebug")) {
+    console.debug("[UESRPG][SpellScaling]", { spellUuid: spell?.uuid ?? null,
+      requestedLevel: level, targetLevel, entryLevel: entry?.level ?? null, rowCount: levels.length });
   }
-  
-  if (!Array.isArray(levels) || levels.length === 0) {
-    if (DEBUG) console.log("  ⚠️ No scaling levels array or empty array - returning null");
-    return null;
-  }
-
-  const targetLevel = level == null ? _num(getSpellBaseScalingEntry(spell)?.level, getSpellLevel(spell)) : _num(level, getSpellLevel(spell));
-  
-  if (DEBUG) {
-    console.log(`  Target level resolved to: ${targetLevel}`);
-    console.log(`  Searching for entry with level === ${targetLevel}...`);
-  }
-  
-  const byLevel = levels.find(l => _num(l?.level, 0) === targetLevel);
-  if (byLevel) {
-    if (DEBUG) console.log(`  ✅ Found entry by level match:`, byLevel);
-    return byLevel;
-  }
-
-  const firstKnown = levels.find((entry) => entry?.known !== false) ?? null;
-  if (level == null && firstKnown) {
-    if (DEBUG) console.log("  ℹ️ No explicit level requested, using first known scaling entry", firstKnown);
-    return firstKnown;
-  }
-
-  const allInferred = levels.every((l) => l?.__inferredLevel === true);
-  if (allInferred) {
-    const byIndex = levels[targetLevel - 1];
-    if (DEBUG) {
-      console.log(`  No exact match, trying inferred index [${targetLevel - 1}]:`, byIndex || "not found");
-    }
-    return byIndex ?? null;
-  }
-  if (DEBUG) {
-    console.log("  No exact match and explicit scaling rows exist - returning null");
-  }
-  return null;
+  return entry;
 }
 
 /**
@@ -567,33 +535,20 @@ export function getSpellScalingEntry(spell, level = null) {
  * @param {number|null} level
  * @returns {number}
  */
-export function getSpellCost(spell, level = null) {
-  const DEBUG = isDebugEnabled("spellCastingDebug");
-  const scaling = getSpellScalingEntry(spell, level);
+export function getSpellCost(spell, level = null, scalingLevels = null) {
+  const scaling = getSpellScalingEntry(spell, level, scalingLevels);
   const scaledCost = scaling ? _num(scaling.cost, NaN) : NaN;
-  
-  if (DEBUG) {
-    console.log(`\n💰 getSpellCost for "${spell?.name}":`, {
-      requestedLevel: level,
-      scalingEntry: scaling,
-      scaledCost,
-      isFinite: Number.isFinite(scaledCost)
-    });
+  const cost = Math.max(0, Number.isFinite(scaledCost) ? scaledCost : _num(spell?.system?.cost, 0));
+  if (isDebugEnabled("spellCastingDebug")) {
+    console.debug("[UESRPG][SpellCost] read", { spellUuid: spell?.uuid ?? null, level, cost });
   }
-  
-  if (Number.isFinite(scaledCost)) {
-    if (DEBUG) console.log(`  ✅ Using scaled cost: ${scaledCost}`);
-    return Math.max(0, scaledCost);
-  }
-
-  const baseCost = _num(spell?.system?.cost, 0);
-  if (DEBUG) console.log(`  ⚠️ No scaled cost, using base cost: ${baseCost}`);
-  return Math.max(0, baseCost);
+  return cost;
 }
 
-export function resolveSpellStrengthFormulaForActor(spell, level = null, actor = null) {
-  let formula = _str(getSpellStrengthFormula(spell, level));
-  if (!formula && _spellUsesStrengthDamageLane(spell)) {
+export function resolveSpellStrengthFormulaForActor(spell, level = null, actor = null, scalingLevels = null) {
+  const levels = Array.isArray(scalingLevels) ? scalingLevels : getSpellScalingLevels(spell);
+  let formula = _str(getSpellStrengthFormula(spell, level, levels));
+  if (!formula && _spellUsesStrengthDamageLane(spell, levels)) {
     formula = "WB";
   }
   if (!formula) return "";
@@ -642,14 +597,16 @@ export function resolveSpellStrengthFormulaForActor(spell, level = null, actor =
  */
 export function getSpellDamageFormula(spell, level = null, options = {}) {
   const DEBUG = isDebugEnabled("spellCastingDebug");
-  const usesStrengthDamage = _spellUsesStrengthDamageLane(spell);
+  const scalingLevels = options._scalingLevels ?? getSpellScalingLevels(spell);
+  const usesStrengthDamage = _spellUsesStrengthDamageLane(spell, scalingLevels);
   const actor = options?.actor ?? options?.attacker ?? spell?.actor ?? null;
   const strengthFormula = usesStrengthDamage
-    ? resolveSpellStrengthFormulaForActor(spell, level, actor)
+    ? resolveSpellStrengthFormulaForActor(spell, level, actor, scalingLevels)
     : "";
 
   if (DEBUG) {
-    console.log(`\n[UESRPG][SpellDamage] getSpellDamageFormula for "${spell?.name}":`, {
+    console.debug("[UESRPG][SpellDamage] read", {
+      spellUuid: spell?.uuid ?? null,
       requestedLevel: level,
       usesStrengthDamage,
       strengthFormula
@@ -687,9 +644,8 @@ function _firstUsableSpellStrengthCandidate(candidates = []) {
  * @param {number|null} level
  * @returns {string} Spell strength/value formula, or an empty string when none is configured
  */
-export function getSpellStrengthFormula(spell, level = null) {
-  const DEBUG = isDebugEnabled("spellCastingDebug");
-  const scaling = getSpellScalingEntry(spell, level);
+export function getSpellStrengthFormula(spell, level = null, scalingLevels = null) {
+  const scaling = getSpellScalingEntry(spell, level, scalingLevels);
 
   const scaledStrength = _firstUsableSpellStrengthCandidate([
     scaling?.spellStrengthFormula,
@@ -715,14 +671,8 @@ export function getSpellStrengthFormula(spell, level = null) {
 
   const resolved = scaledStrength || baseStrength || legacyStrength || "";
 
-  if (DEBUG) {
-    console.log(`\n[UESRPG][SpellStrength] getSpellStrengthFormula for "${spell?.name}":`, {
-      requestedLevel: level,
-      scalingEntry: scaling,
-      scaledStrength,
-      baseStrength,
-      resolved: resolved || ""
-    });
+  if (isDebugEnabled("spellCastingDebug")) {
+    console.debug("[UESRPG][SpellStrength] read", { spellUuid: spell?.uuid ?? null, level, formula: resolved });
   }
 
   return resolved;
@@ -734,8 +684,9 @@ export function getSpellStrengthFormula(spell, level = null) {
  * @param {number|null} level
  * @returns {string}
  */
-export function getSpellDamageType(spell, level = null) {
-  const scaling = getSpellScalingEntry(spell, level);
+export function getSpellDamageType(spell, level = null, scalingLevels = null) {
+  const levels = Array.isArray(scalingLevels) ? scalingLevels : getSpellScalingLevels(spell);
+  const scaling = getSpellScalingEntry(spell, level, levels);
   const scalingDamageType = _str(scaling?.damageType).toLowerCase();
   const rootRawDamageType = _str(spell?.system?.damageType).toLowerCase();
   const rootDamageType = rootRawDamageType && rootRawDamageType !== "none"
@@ -747,13 +698,13 @@ export function getSpellDamageType(spell, level = null) {
   if (scalingDamageType === "none") {
     if (rootDamageType === "temporaryhealing") return "temporaryhealing";
     if (_bool(spell?.system?.isHealingSpell)) return "healing";
-    return _spellUsesStrengthDamageLane(spell) ? "magic" : "none";
+    return _spellUsesStrengthDamageLane(spell, levels) ? "magic" : "none";
   }
 
   const dt = _str(spell?.system?.damageType).toLowerCase();
   if (dt && dt !== "none") return rootDamageType || _normalizeSpellStrengthDamageType(dt, "magic");
   if (_bool(spell?.system?.isHealingSpell)) return "healing";
-  return _spellUsesStrengthDamageLane(spell) ? "magic" : "none";
+  return _spellUsesStrengthDamageLane(spell, levels) ? "magic" : "none";
 }
 
 function _normalizeSpellStrengthDamageType(value, fallback = "magic") {
@@ -838,11 +789,19 @@ function _parseSpellStrengthTerm(term, defaultType, spell) {
  * @returns {Array<{formula:string, damageType:string, label:string}>}
  */
 export function getSpellStrengthDamageComponents(spell, options = {}) {
+  const scalingLevels = options._scalingLevels ?? getSpellScalingLevels(spell);
   const actor = options.actor ?? options.attacker ?? spell?.actor ?? null;
   const level = options.level ?? options.castLevel ?? null;
-  const formula = getSpellDamageFormula(spell, level, { actor });
+  const formula = options.strengthOnly
+    ? resolveSpellStrengthFormulaForActor(spell, level, actor, scalingLevels)
+    : getSpellDamageFormula(spell, level, { actor, _scalingLevels: scalingLevels });
+  if (options.validate) {
+    const configured = String(getSpellStrengthFormula(spell, level, scalingLevels) ?? "").trim();
+    const resolved = resolveSpellStrengthFormulaForActor(spell, level, actor, scalingLevels);
+    if (configured && !resolved) throw _invalidSpellStrength(spell, configured);
+  }
   if (!formula || formula === "0") return [];
-  const defaultType = _normalizeSpellStrengthDamageType(options.damageType ?? getSpellDamageType(spell, level), "magic");
+  const defaultType = _normalizeSpellStrengthDamageType(options.damageType ?? getSpellDamageType(spell, level, scalingLevels), "magic");
   const byType = new Map();
 
   for (const term of _splitSpellStrengthTerms(formula)) {
@@ -854,11 +813,23 @@ export function getSpellStrengthDamageComponents(spell, options = {}) {
     byType.set(key, list);
   }
 
-  return Array.from(byType.entries()).map(([damageType, formulas]) => ({
+  const components = Array.from(byType.entries()).map(([damageType, formulas]) => ({
     formula: formulas.join(" + "),
     damageType,
     label: damageType
   }));
+  if (options.validate && components.some((component) => !Roll.validate(component.formula))) {
+    throw _invalidSpellStrength(spell, formula);
+  }
+  return components;
+}
+
+function _invalidSpellStrength(spell, formula) {
+  const spellName = String(spell?.name ?? "spell");
+  const text = tf("UESRPG.Notifications.Magic.InvalidSpellStrength", { spell: spellName, formula },
+    `Cannot resolve Spell Strength for ${spellName}: ${formula}. Check the spell formula and actor references.`);
+  ui.notifications.error(text);
+  return new Error(text);
 }
 
 /**
@@ -873,8 +844,9 @@ export function getSpellDamageInstances(spell, level = null) {
   const instances = [];
 
   // Primary instance from legacy fields
-  const primaryFormula = getSpellDamageFormula(spell, level);
-  const primaryType = getSpellDamageType(spell, level);
+  const scalingLevels = getSpellScalingLevels(spell);
+  const primaryFormula = getSpellDamageFormula(spell, level, { _scalingLevels: scalingLevels });
+  const primaryType = getSpellDamageType(spell, level, scalingLevels);
   if (primaryFormula && primaryFormula !== "0") {
     instances.push({
       formula: primaryFormula,
@@ -906,11 +878,11 @@ export function getSpellDamageInstances(spell, level = null) {
  * @param {Item} spell
  * @returns {boolean}
  */
-export function isHealingSpell(spell) {
+export function isHealingSpell(spell, scalingLevels = null) {
   // Check the dedicated healing toggle first (new system)
   if (_bool(spell?.system?.isHealingSpell)) return true;
   // Fall back to damage type check (legacy/backwards compatibility)
-  return getSpellDamageType(spell) === "healing";
+  return getSpellDamageType(spell, null, scalingLevels) === "healing";
 }
 
 /**
@@ -1161,13 +1133,14 @@ if (activeNoDuration) {
  * @returns {Promise<Roll>} - Evaluated damage roll
  */
 export async function rollSpellDamage(spell, options = {}) {
+  const components = getSpellStrengthDamageComponents(spell, { ...options, validate: true });
   const actor = options.actor ?? options.attacker ?? spell?.actor ?? null;
   const damageFormula = getSpellDamageFormula(spell, options.level ?? null, { actor });
   if (!damageFormula || damageFormula === "0") {
     return await new Roll("0").evaluate();
   }
 
-  const safeFormula = getSpellStrengthDamageComponents(spell, options)
+  const safeFormula = components
     .map((component) => component.formula)
     .filter(Boolean)
     .join(" + ") || damageFormula.replace(/\[[^\]]+\]/g, "");
@@ -1241,12 +1214,18 @@ export function computeSpellOverloadBonusDamage(actor, spell) {
  * @returns {Promise<Roll>} - Evaluated healing roll
  */
 export async function rollSpellHealing(spell, options = {}) {
+  const stored = options.castContext?.spellStrengthSelectedRolls;
+  if (stored?.length === 1) return Roll.fromData(stored[0]);
+  if (stored?.length > 1 || (options.castContext?.spellStrengthResolved && options.castContext.spellStrengthValue != null)) {
+    return new Roll(String(options.castContext.spellStrengthValue)).evaluate();
+  }
+  const components = getSpellStrengthDamageComponents(spell, { ...options, validate: true });
   const actor = options.actor ?? options.attacker ?? spell?.actor ?? null;
   const healingFormula = getSpellDamageFormula(spell, options.level ?? null, { actor });
   if (!healingFormula || healingFormula === "0") {
     return await new Roll("0").evaluate();
   }
-  const safeFormula = getSpellStrengthDamageComponents(spell, options)
+  const safeFormula = components
     .map((component) => component.formula)
     .filter(Boolean)
     .join(" + ") || healingFormula.replace(/\[[^\]]+\]/g, "");

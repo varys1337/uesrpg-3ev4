@@ -21,17 +21,19 @@ export class HomebrewSettingsAppV2 extends HandlebarsApplicationMixin(Applicatio
       submitOnChange: false,
     },
     window: {
+      resizable: true,
       title: "UESRPG - Homebrew",
     },
     position: {
       width: 520,
     },
-    classes: ["uesrpg"],
+    classes: ["standard-form", "uesrpg-settings-app"],
   };
 
   static PARTS = {
     form: {
       template: templatePath("v2/apps/homebrew-settings.hbs"),
+      scrollable: [".uesrpg-settings__body"],
     },
   };
 

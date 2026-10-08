@@ -1,35 +1,36 @@
 {{!-- templates/v2/apps/migration-settings.hbs --}}
-<section class="uesrpg-settings">
-<fieldset>
-  <legend>{{localize "UESRPG.Apps.MigrationSettings.Sections.ManualRun"}}</legend>
+<section class="uesrpg-settings uesrpg-settings-panel" aria-busy="{{isRunning}}">
+  <div class="uesrpg-settings__body">
+    <fieldset class="uesrpg-settings__section">
+      <legend>{{localize "UESRPG.Apps.MigrationSettings.Sections.ManualRun"}}</legend>
 
-  <div class="form-group">
-    <label>{{localize "UESRPG.Apps.MigrationSettings.StatusLabel" currentVersion=currentVersion}}</label>
-    <p class="notes">{{localize "UESRPG.Apps.MigrationSettings.PendingSummary" count=pendingCount}}</p>
-    <div class="uesrpg-migration-status-list">
-      {{#each statuses as |entry|}}
-        <div class="form-group stacked uesrpg-migration-status-row">
-          <label>{{entry.label}}</label>
-          <p class="notes">
-            {{localize "UESRPG.Apps.MigrationSettings.RevisionStatus" applied=entry.appliedRevision required=entry.requiredRevision}}
-            {{#if entry.upToDate}}({{localize "UESRPG.UI.UpToDate"}}){{else}}({{localize "UESRPG.UI.Outdated"}}){{/if}}
-          </p>
-        </div>
-      {{/each}}
-    </div>
+      <div class="uesrpg-settings__summary">
+        <p class="setting-row__label">{{localize "UESRPG.Apps.MigrationSettings.StatusLabel" currentVersion=currentVersion}}</p>
+        <p class="setting-help">{{localize "UESRPG.Apps.MigrationSettings.PendingSummary" count=pendingCount}}</p>
+      </div>
+
+      <ul class="uesrpg-migration-status-list">
+        {{#each statuses as |entry|}}
+        <li class="uesrpg-migration-status-row" data-migration-key="{{entry.key}}">
+          <strong class="setting-row__label">{{entry.label}}</strong>
+          <span class="uesrpg-migration-status-badge {{#if entry.upToDate}}uesrpg-migration-status-badge--current{{else}}uesrpg-migration-status-badge--pending{{/if}}">
+            {{#if entry.upToDate}}{{localize "UESRPG.UI.UpToDate"}}{{else}}{{localize "UESRPG.UI.Outdated"}}{{/if}}
+          </span>
+          <p class="setting-help">{{localize "UESRPG.Apps.MigrationSettings.RevisionStatus" applied=entry.appliedRevision required=entry.requiredRevision}}</p>
+        </li>
+        {{/each}}
+      </ul>
+    </fieldset>
   </div>
 
-  <div class="form-group">
-    <button
-      type="button"
-      data-action="runMigrations"
-      class="save"
+  <footer class="uesrpg-settings__footer">
+    <button type="button" data-action="runMigrations" class="save"
+      aria-describedby="uesrpg-run-migrations-hint"
       {{#unless canRun}}disabled{{/unless}}
       {{#if isRunning}}disabled{{/if}}>
-      <i class="fas fa-play"></i>
+      <i class="fas fa-play" aria-hidden="true"></i>
       {{#if isRunning}}{{localize "UESRPG.Apps.MigrationSettings.Running"}}{{else}}{{localize "UESRPG.Apps.MigrationSettings.RunNow"}}{{/if}}
     </button>
-    <p class="notes">{{localize "UESRPG.Apps.MigrationSettings.RunHint"}}</p>
-  </div>
-</fieldset>
+    <p id="uesrpg-run-migrations-hint" class="setting-help">{{localize "UESRPG.Apps.MigrationSettings.RunHint"}}</p>
+  </footer>
 </section>

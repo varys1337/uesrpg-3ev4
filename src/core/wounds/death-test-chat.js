@@ -124,6 +124,7 @@ export async function announceDeathTest(actor, {
 }
 
 export async function queueDeathPromptCard(actor, state, {
+  strict = false,
   endTn = 0,
   luckBonus = 0,
 } = {}) {
@@ -159,7 +160,10 @@ export async function queueDeathPromptCard(actor, state, {
     style: CONST.CHAT_MESSAGE_STYLES.OTHER,
   });
 
-  if (!msg?.id) return;
+  if (!msg?.id) {
+    if (strict) throw new Error("Death prompt creation was not confirmed.");
+    return;
+  }
   state.pendingPrompts.push({
     messageId: String(msg.id),
     createdAt: Date.now(),

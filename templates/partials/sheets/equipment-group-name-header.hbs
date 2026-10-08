@@ -1,22 +1,11 @@
+{{#if sectionHeader}}
+<div class="section-header uesrpg-equipment-section-header" data-role="{{legacyId}}-group-header">
+  {{> "systems/uesrpg-3ev4/templates/partials/sheets/equipment-group-controls.hbs"}}
+</div>
+{{else}}
 <th class="item-name-cell item-create {{nameCellClass}}" data-role="{{legacyId}}-group-header" {{#if altType}}data-alt-type="{{altType}}"{{/if}}>
   <div class="ues-th-content">
-    <button type="button"
-            class="uesrpg-group-toggle uesrpg-group-toggle-button uesrpg-styled-action"
-            data-action="groupToggle"
-            data-group="{{group}}"
-            data-tooltip="UESRPG.UI.CollapseExpand"
-            aria-label="{{localize "UESRPG.UI.CollapseExpand"}}: {{label}}">
-      <i class="fas fa-chevron-down" aria-hidden="true"></i>
-      <span class="item-group-label">{{label}}</span>
-    </button>
-    <button type="button"
-            class="item-group-add uesrpg-styled-action"
-            data-action="itemCreate"
-            data-item-type="{{itemType}}"
-            {{#if altType}}data-alt-type="{{altType}}"{{/if}}
-            data-tooltip-text="{{localize "UESRPG.UI.Create"}}: {{label}}"
-            aria-label="{{localize "UESRPG.UI.Create"}}: {{label}}">
-      <span class="item-group-add__glyph" aria-hidden="true">+</span>
-    </button>
+    {{> "systems/uesrpg-3ev4/templates/partials/sheets/equipment-group-controls.hbs"}}
   </div>
 </th>
+{{/if}}

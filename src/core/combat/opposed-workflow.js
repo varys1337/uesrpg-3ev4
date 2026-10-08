@@ -1,3 +1,4 @@
+import { reconcileUnavailableDefenses } from "../opposed/shared/automatic-no-defense.js";
 import { _renderCard } from './opposed/render.js';
 /**
  * src/core/combat/opposed-workflow.js
@@ -280,7 +281,9 @@ export const OpposedWorkflow = {
    * Compatible with legacy callers.
    */
   async createPending(cfg = {}) {
-    return await _createPendingImpl(cfg);
+    const message = await _createPendingImpl(cfg);
+    await reconcileUnavailableDefenses(message, this);
+    return message;
   },
 
   async handleAction(message, action, opts = {}) {

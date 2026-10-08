@@ -9,22 +9,19 @@ import { getCoreRollMode } from "../../../../utils/chat-roll-mode.js";
 import { ensureBurningTurnActionAllowed } from "../../../conditions/condition-engine.js";
 import { hasTalent } from "../../../traits/talents-api.js";
 import { listCombatStyles, computeTN, variantMod as computeVariantMod } from "../../tn.js";
-import { applyCombatTalentDoSAdjustments, applyAttackerTalentPreTN } from "../../../traits/combat-talents.js";
-import { applyRacialTalentAttackPreTN } from "../../../traits/racial-talents.js";
-import { applyWeaponExpertiseAttackerPreTN } from "../../../traits/weapon-expertise/index.js";
+import { applyCombatTalentDoSAdjustments } from "../../../traits/combat-talents.js";
 import { AttackTracker } from "../../attack-tracker.js";
 import { ActionEconomy } from "../../action-economy.js";
 import { isActorInStartedCombatEncounter } from "../../combat-scope.js";
-import { isActorSkeletal } from "../../../traits/trait-registry.js";
 import { applyDamageResolved } from "../../damage-resolver.js";
 import { getAttackModeFromWeapon, getDamageTypeFromWeapon, getHitLocationFromRoll, resolveHitLocationForTarget, getWeaponCombatCapabilities } from "../../combat-utils.js";
 
 // Internal helpers from various opposed modules
-import { _canControlActor, _emitSuppressedSubRollDice, _findEnabledEffectByUesrpgKey, _logDebug } from "../helpers/util.js";
+import { _canControlActor, _emitSuppressedSubRollDice, _logDebug } from "../helpers/util.js";
 import { _resolveItemViaActor } from "../helpers/docs.js";
 import { _getBankCommitState, _getDefenderEntries, reconcileBankedAutoRollRequest } from "../banking/state.js";
 import { 
-  collectSensorySituationalMods as _collectSensorySituationalMods,
+  collectAttackerDeclarationModifiers,
   weaponHasQuality as _weaponHasQuality,
   getPreferredWeaponUuid as _getPreferredWeaponUuid,
   getTokenMovementAction as _getTokenMovementAction,
@@ -53,7 +50,6 @@ import { cloneFlagState } from "../../../../utils/clone.js";
 import { commitLaneToFreshCardState } from "../../../opposed/shared/fresh-commit.js";
 import { maybeHandleUnusualCombatAttackFailure } from "../../unusual-combat.js";
 import {
-  applyHybridAttackerTnPenalty,
   buildHybridWarfareTn,
   getHybridDomain,
   getHybridWarfareAttackMetadata,
@@ -140,6 +136,7 @@ export async function handleAttackerAction(action, ctx) {
 
     if (!isRollCommittedHybrid) {
       const declaration = await promptHybridWarfareAttack(attacker, {
+        joinFray: String(data?.context?.hybrid?.reason ?? "") === "join-fray",
         initialAttackFamily: String(data?.context?.hybrid?.initialAttackFamily ?? data?.context?.hybridInitialAttackFamily ?? ""),
       });
       if (!declaration) return;
@@ -324,6 +321,8 @@ export async function handleAttackerAction(action, ctx) {
       defaultCirc: data.attacker.circumstanceMod ?? 0,
       attackerToken: aToken ?? null,
       defenderToken: dToken ?? null,
+      defenderActor: defender ?? null,
+      opposedData: data,
       prepaidBaseAttackAP: Boolean(data?.context?.activationPrepaidBaseAttackAP)
     });
     if (!decl) return;
@@ -420,18 +419,10 @@ export async function handleAttackerAction(action, ctx) {
 
     const manualMod = Number(decl.manualMod) || 0;
     const circumstanceMod = Number(decl.circumstanceMod) || 0;
-    const situationalMods = _collectSensorySituationalMods(decl, attacker);
-    applyHybridAttackerTnPenalty(data, situationalMods);
 
     // Follow-up Strike (Chapter 4): on a failed dual-wield attack, spend 1 SP to make a free follow-up
     // attack with the other weapon at -20, which does not count toward attacks per round.
     if (data?.context?.followUpStrike?.active) {
-      situationalMods.push({
-        key: "talent:followupstrike",
-        label: "Follow-up Strike",
-        value: -20,
-        source: "talent"
-      });
       data.context.isFreeActionAttack = true;
       data.context.skipAttackerAPDeduction = true;
       data.context.skipAttackCountIncrement = true;
@@ -502,23 +493,7 @@ export async function handleAttackerAction(action, ctx) {
         }
       }
     }
-      if (String(data.context?.attackMode ?? "melee") === "ranged" && defender && isActorSkeletal(defender)) {
-        situationalMods.push({ key: "skeletal", label: "Skeletal (ranged)", value: -20 });
-      }
-
-      // Hard Target (Chapter 4): ranged attacks against this defender suffer -20 until the start of their next turn.
-      if (String(data.context?.attackMode ?? "melee") === "ranged" && defender && _findEnabledEffectByUesrpgKey(defender, "hardTarget")) {
-        situationalMods.push({ key: "talent:hardtarget", label: "Hard Target", value: -20, source: "talent" });
-      }
-
-    // Combat talent: Precise (cancel Precision Strike penalty).
-    // This is implemented as a +20 situational modifier when the attacker chose the
-    // precision variant and has the Precise talent.
-    applyAttackerTalentPreTN({ attacker, declaration: decl, situationalMods });
-    applyRacialTalentAttackPreTN({ attacker, declaration: decl, situationalMods });
-
-    // Weapon Expertise pre-TN modifiers (Executioner AoA bonus, Viper's Eye precision).
-    applyWeaponExpertiseAttackerPreTN({ attacker, declaration: decl, situationalMods, weapon: declaredWeapon });
+    const situationalMods = collectAttackerDeclarationModifiers({ attacker, defender, declaration: decl, weapon: declaredWeapon, data });
 
     const tn = computeTN({
       actor: attacker,
@@ -761,7 +736,7 @@ export async function handleAttackerAction(action, ctx) {
     console.warn("UESRPG | combat talent DoS adjustment (attacker) failed", err);
   }
 
-  _emitSuppressedSubRollDice(res.roll, { rollMode: getCoreRollMode() });
+  _emitSuppressedSubRollDice(res.roll, { rollMode: getCoreRollMode(), actor: attacker, message, user: game.user });
 
   // Flail (Chapter 7): a critical failure with a flail attack hits the attacker.
   if (res.isCriticalFailure === true) {

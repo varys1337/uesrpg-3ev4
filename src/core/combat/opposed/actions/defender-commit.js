@@ -1,3 +1,4 @@
+import { getDefenderCommitAvailability } from "../../../opposed/shared/defense-availability.js";
 /**
  * src/core/combat/opposed/actions/defender-commit.js
  * Defender commit & roll handlers for banked-choice workflow
@@ -108,51 +109,50 @@ export async function handleDefenderCommitNoDefense(ctx) {
     return;
   }
 
-  data.defender.banked = data.defender.banked ?? {};
-  data.defender.banked.committed = true;
-  data.defender.banked.committedAt = Date.now();
-  data.defender.banked.committedBy = game.user.id;
-
-  data.defender.noDefense = true;
-  data.defender.defenseType = "none";
-  data.defender.label = "No Defense";
-  data.defender.testLabel = "No Defense";
-  data.defender.defenseLabel = "No Defense";
-  data.defender.target = 0;
-  data.defender.tn = { finalTN: 0, baseTN: 0, totalMod: 0, breakdown: [{ key: "base", label: "No Defense", value: 0, source: "base" }] };
-  data.defender.result = { rollTotal: 100, target: 0, isSuccess: false, degree: 1 };
-
-  // If the attacker has already rolled, resolve this defender immediately.
-  const currentOutcome = _getDefenderOutcome(data, data.defender);
-  if (data.attacker?.result && !currentOutcome) {
-    const baseOutcome = _resolveOutcomeRAW(data, data.defender) ?? { winner: "tie", text: "" };
-    const outcome = _applyAoEEvadeOutcome(data, baseOutcome);
-    _setDefenderOutcome(data, data.defender, outcome);
-    const advantage = _computeAdvantageRAW(data, outcome, data.defender);
-    _setDefenderAdvantage(data, data.defender, advantage);
-    await _maybeGrantConcussiveNextBash(attacker, data, advantage);
-
-    const allResolved = _getDefenderEntries(data).every(def => Boolean(_getDefenderOutcome(data, def)));
-    if (allResolved) {
-      data.status = "resolved";
-      data.context = data.context ?? {};
-      data.context.phase = "resolved";
-      if (!data.context.resolvedAt) data.context.resolvedAt = Date.now();
-      _cleanupAutoRollContext(data.context);
-    }
-  }
-
-  _logDebug("defenderCommitNoDefense", {
-    defenderUuid: data.defender.actorUuid,
-    attackerUuid: data.attacker.actorUuid
-  });
-
-  // Fresh-state re-read: apply only defender lane + context onto live state to preserve
-  // any attacker-side commit that arrived while this handler was running.
   await commitLaneToFreshCardState({
     message,
     readState: _readCombatOpposedFlagState,
-    mutate: (s) => _applyDefenderLaneToFresh(s, data, ctx.defenderIndex),
+    mutate: async (freshData) => {
+      const lane = _getDefenderEntries(freshData)[Number(ctx.defenderIndex ?? 0)];
+      if (!lane || lane.result || lane.noDefense || lane.banked?.committed
+        || freshData.status === "resolved" || _getDefenderOutcome(freshData, lane)
+        || freshData.context?.autoRollStarted || freshData.context?.autoRollAborted) return;
+      if (ctx.opts?.automaticNoDefense) {
+        const gate = getDefenderCommitAvailability({ data: freshData, defenderData: lane, defenderActor: defender, messageId: message.id });
+        if (!gate.insufficientAP) return;
+      }
+      lane.banked = lane.banked ?? {};
+      lane.banked.committed = true;
+      lane.banked.committedAt = Date.now();
+      lane.banked.committedBy = game.user.id;
+      if (ctx.opts?.automaticNoDefense) {
+        lane.banked.forced = true;
+        lane.banked.reason = "insufficient-ap";
+      }
+      markDefenderNoDefense(lane);
+      freshData.defender = lane;
+      // If the attacker has already rolled, resolve this defender immediately.
+      const currentOutcome = _getDefenderOutcome(freshData, lane);
+      if (freshData.attacker?.result && !currentOutcome) {
+        const baseOutcome = _resolveOutcomeRAW(freshData, lane) ?? { winner: "tie", text: "" };
+        const outcome = _applyAoEEvadeOutcome(freshData, baseOutcome);
+        _setDefenderOutcome(freshData, lane, outcome);
+        const advantage = _computeAdvantageRAW(freshData, outcome, lane);
+        _setDefenderAdvantage(freshData, lane, advantage);
+        await _maybeGrantConcussiveNextBash(attacker, freshData, advantage);
+    
+        const allResolved = _getDefenderEntries(freshData).every(def => Boolean(_getDefenderOutcome(freshData, def)));
+        if (allResolved) {
+          freshData.status = "resolved";
+          freshData.context = freshData.context ?? {};
+          freshData.context.phase = "resolved";
+          if (!freshData.context.resolvedAt) freshData.context.resolvedAt = Date.now();
+          _cleanupAutoRollContext(freshData.context);
+        }
+      }
+      reconcileBankedAutoRollRequest(freshData);
+      _logDebug("defenderCommitNoDefense", { defenderUuid: lane.actorUuid, attackerUuid: freshData.attacker?.actorUuid });
+    },
     updateCard: _updateCard,
     fallbackData: data,
   });
@@ -182,7 +182,7 @@ export async function handleDefenderCommit(ctx) {
       ui.notifications.warn("You do not have permission to choose defender actions.");
       return;
     }
-    const choice = await promptHybridWarfareDefense(defender, attacker);
+    const choice = await promptHybridWarfareDefense(defender, attacker, { joinFray: String(data?.context?.hybrid?.reason ?? "") === "join-fray" });
     if (!choice) {
       return;
     }
@@ -396,6 +396,20 @@ export async function handleDefenderCommit(ctx) {
     choice.label = "Ward";
   }
 
+  const commitAvailability = getDefenderCommitAvailability({
+    data, defenderData, defenderActor: defender, attackerActor: attacker, messageId: message?.id,
+    defenseType: choice.defenseType, gladiatorFree: Boolean(choice.gladiatorFree), allowedDefenseTypes
+  });
+  if (commitAvailability.insufficientAP) {
+    const alternatives = getDefenderCommitAvailability({ data, defenderData, defenderActor: defender, attackerActor: attacker, messageId: message?.id, allowedDefenseTypes });
+    if (alternatives.insufficientAP) {
+      await handleDefenderCommitNoDefense({ ...ctx, opts: { ...ctx.opts, automaticNoDefense: true } });
+    } else {
+      ui.notifications.warn(t("UESRPG.Chat.Opposed.PaidDefenseUnavailable", "Not enough Action Points for this defense. Choose an available free defense or No Defense."));
+    }
+    return;
+  }
+
   // Fearsome (OPTIONAL): if Evade was selected and Fearsome is available, prompt for which test to roll.
   let fearsomeTNOverride = null;
   if (choice.defenseType === "evade" && fearsomeContext?.fearsome?.available) {
@@ -457,7 +471,7 @@ export async function handleDefenderCommit(ctx) {
 
   // Spend immediately upon selecting the defense choice to prevent later desync.
 
-  if (choice.defenseType && choice.defenseType !== "none") {
+  if (choice.defenseType && choice.defenseType !== "none" && commitAvailability.apCost > 0) {
     const gladiatorFreeRequested = gladiatorCtx?.mode === "updated"
       ? Boolean(choice?.gladiatorFree)
       : (gladiatorCtx?.mode === "original");
@@ -489,7 +503,7 @@ export async function handleDefenderCommit(ctx) {
             messageId: consumed.messageId ?? message?.id ?? null
           };
         } else {
-          const ok = await ActionEconomy.spendAP(defender, 1, { reason: `reaction:${choice.defenseType}`, silent: true });
+          const ok = await ActionEconomy.spendAP(defender, commitAvailability.apCost, { reason: `reaction:${choice.defenseType}`, silent: true });
           if (!ok) {
             ui.notifications.warn(`${defender.name} does not have enough Action Points to perform a defensive reaction. Choose No Defense instead.`);
             return;
@@ -503,7 +517,7 @@ export async function handleDefenderCommit(ctx) {
       defenderData.stepAside = { deferredAp: 1, deferredAt: Date.now() };
       data.defender.stepAside = defenderData.stepAside;
     } else {
-      const ok = await ActionEconomy.spendAP(defender, 1, { reason: `reaction:${choice.defenseType}`, silent: true });
+      const ok = await ActionEconomy.spendAP(defender, commitAvailability.apCost, { reason: `reaction:${choice.defenseType}`, silent: true });
       if (!ok) {
         ui.notifications.warn(`${defender.name} does not have enough Action Points to perform a defensive reaction. Choose No Defense instead.`);
         return;
@@ -784,7 +798,7 @@ export async function handleDefenderRollCommitted(ctx) {
     console.warn("UESRPG | combat talent DoS adjustment (defender) failed", err);
   }
 
-  _emitSuppressedSubRollDice(res.roll, { rollMode: getCoreRollMode() });
+  _emitSuppressedSubRollDice(res.roll, { rollMode: getCoreRollMode(), actor: defender, message, user: game.user });
 
   // NOTE: Mid-handler applyExternalRollMessage removed (race condition fix).
   // The handler writes data.defender.result directly below and calls _updateCard.

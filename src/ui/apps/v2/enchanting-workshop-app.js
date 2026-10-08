@@ -651,11 +651,10 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
     const esc = (value) => foundry.utils.escapeHTML(String(value ?? ""));
     const rows = candidates.map((item, index) => {
       const descriptor = this._resourceDescriptor(item, kind);
-      return `<label class="enchanting-picker-row">
-        <input type="radio" name="resourceUuid" value="${esc(item.uuid)}" ${index === 0 ? "checked" : ""}>
-        <img src="${esc(item.img)}" alt="">
-        <span><strong>${esc(item.name)}</strong><small>${esc(descriptor?.meta)} · ×${descriptor?.quantity ?? 1}</small></span>
-      </label>`;
+      return `<label class="enchanting-picker-row uesrpg-adv-choice uesrpg-choice-bar">
+        <input type="radio" name="resourceUuid" value="${esc(item.uuid)}" ${index === 0 ? "checked" : ""}><span class="uesrpg-adv-choice__label"><img src="${esc(item.img)}" alt="">
+        <span><strong>${esc(item.name)}</strong><small>${esc(descriptor?.meta)} · ×${descriptor?.quantity ?? 1}</small></span></span>
+</label>`;
     }).join("");
     const uuid = await customDialog({
       title: kind === "gem"

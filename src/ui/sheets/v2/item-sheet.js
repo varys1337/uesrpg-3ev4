@@ -22,6 +22,7 @@ import {
   buildContainerContainedItemsSnapshot,
 } from "../item/listeners/containment.js";
 import { onEffectControl } from "../item/listeners/effects.js";
+import { enableEffectDragSources, writeEffectDragData } from "./shared/drag-sources.js";
 import { onChargePlus, onChargeMinus } from "../item/listeners/usage.js";
 import { activateTalentFromItemSheet, activatePowerFromItemSheet, activateTraitFromItemSheet } from "../shared-handlers.js";
 import { getScalingLevelsArray, normalizeScalingEntry, logSpellDebug } from "../item/spell-scaling-helpers.js";
@@ -66,13 +67,14 @@ import { buildAdvancementPlan } from "../item/advancement-plan.js";
 import { SYSTEM_ID, templatePath } from "../../constants.js";
 import { createDebugLogger, traceSheetPerf } from "../../../utils/debug.js";
 import { resolveUuidSync } from "../../../utils/uuid-cache.js";
-import { getArmorCategoryCoverage } from "../../../core/items/armor-coverage.js";
+import { ARMOR_HIT_LOCATION_KEYS } from "../../../core/items/armor-coverage.js";
 import { t, tf } from "../../../utils/i18n.js";
 import {
+  captureRenderUiState,
   clearSheetFormUpdateState,
-  flushCurrentSheetForm,
   flushSheetFormUpdates,
   queueSheetFormUpdate,
+  restoreRenderUiState,
 } from "./shared/sheet-runtime-helpers.js";
 import {
   createFormPathMatcher,
@@ -125,6 +127,7 @@ const ITEM_SHEET_TABS = Object.freeze({
 
 const _ARMOR_TYPED_NUMERIC_FIELDS = new Set(["magic_ar", "special_ar", "armor", "blockRating"]);
 const _shieldDebug = createDebugLogger("shieldDebug", "[UESRPG][ShieldDebug][ItemSheet]");
+const ITEM_FORM_SAVE_BLOCKED = "UESRPG_ITEM_FORM_SAVE_BLOCKED";
 
 // AppV1 deprecation warnings seen in recent logs are emitted by external modules
 // (e.g. chat-pruner and SimpleQuest), not by this item sheet implementation.
@@ -214,6 +217,46 @@ function _mergeLiveItemProseValues(flatData, root) {
   return nextFlatData;
 }
 
+/**
+ * Native control defaults are the document-derived values emitted by our
+ * existing render preparation. Compare submitted data with those defaults,
+ * never with a cached UI snapshot or another read of the current input value.
+ * This also excludes untouched legacy fallbacks and fields changed remotely.
+ */
+function _filterEditedItemFormPaths(flatData, form, document) {
+  const controls = new Map();
+  for (const control of Array.from(form?.elements ?? [])) {
+    if (control.name && !control.disabled) controls.set(control.name, control);
+  }
+  const source = document.toObject(true);
+  return Object.fromEntries(Object.entries(flatData).filter(([path, value]) => {
+    const control = controls.get(path);
+    if (!control) {
+      // ProseMirror values are submitted explicitly and may already have been
+      // saved by the description queue. Other custom fields remain eligible.
+      return path !== "system.description" || value !== source.system?.description;
+    }
+    let initial;
+    if (control instanceof HTMLInputElement && control.type === "checkbox") {
+      initial = control.defaultChecked;
+    } else if (control instanceof HTMLSelectElement) {
+      const defaults = Array.from(control.options).filter((option) => option.defaultSelected);
+      initial = control.multiple
+        ? defaults.map((option) => option.value)
+        : (defaults.at(-1)?.value ?? control.options[0]?.value ?? "");
+    } else if (control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement) {
+      initial = control.defaultValue;
+    } else {
+      return true;
+    }
+    if (typeof value === "number") initial = Number(initial);
+    if (Array.isArray(value) && Array.isArray(initial)) {
+      return value.length !== initial.length || value.some((entry, index) => entry !== initial[index]);
+    }
+    return !Object.is(value, initial);
+  }));
+}
+
 function _sanitizeNumericBySchema(node, schema, rootSystem, path = []) {
   if (!_isPlainObject(schema)) return;
   if (!_isPlainObject(node)) return;
@@ -246,8 +289,14 @@ function _buildSanitizedRenderSystem(itemType, systemData) {
 
 export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Base) {
 
-  /** @type {object|null} Snapshot of DOM-only UI state saved before re-render */
-  _savedState = null;
+  /** The shared render queue delegates UI restoration to this sheet's lifecycle. */
+  static preservesRenderUiState = true;
+
+  // Presentation state belongs to this open sheet, never to its Item document.
+  #tabScrollPositions = new Map();
+  #renderUiStates = new WeakMap();
+  #renderRevision = 0;
+  #uiRevision = 0;
 
   /**
    * Native AppV2 tab configuration.
@@ -295,13 +344,12 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     dragDrop: [{
       dragSelector: ".item",
       dropSelector: `.window-content, .sheet-body, .tab, .itemListContainer, ${ALCHEMY_PRODUCT_DROP_SELECTOR}`,
-    }],
+    }, { dragSelector: ".uesrpg-effect-drag-source", dropSelector: ".uesrpg-no-effect-drop" }],
     actions: {
       editPortrait: SimpleItemSheetV2.prototype._onEditPortrait,
       effectControl: SimpleItemSheetV2.prototype._onEffectControl,
       chargePlus: SimpleItemSheetV2.prototype._onChargePlus,
       chargeMinus: SimpleItemSheetV2.prototype._onChargeMinus,
-      applyCategoryCoverage: SimpleItemSheetV2.prototype._onApplyCategoryCoverage,
       talentUse: SimpleItemSheetV2.prototype._onTalentUse,
       powerUse: SimpleItemSheetV2.prototype._onPowerUse,
       traitUse: SimpleItemSheetV2.prototype._onTraitUse,
@@ -516,10 +564,38 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
 
     const target = event?.target;
     const path = String(target?.getAttribute?.("name") ?? "").trim();
+    if (this.document.type === "armor" && target instanceof HTMLInputElement && target.type === "checkbox") {
+      const location = ARMOR_HIT_LOCATION_KEYS.find((key) => path === `system.hitLocations.${key}`);
+      if (location) {
+        // Capture each intent before the queue runs; a rapid on/off sequence
+        // must compare with the source after the preceding write finishes.
+        const nextValue = target.checked;
+        return queueSheetFormUpdate(this, async () => {
+          const currentValue = this.document.toObject(true).system?.hitLocations?.[location] === true;
+          if (currentValue !== nextValue) {
+            // The Item lifecycle marks coverage edits as manual. Keep the
+            // current form and its unrelated unsaved fields in place.
+            const updated = await requestUpdateDocument(this.document, { [path]: nextValue }, { render: false });
+            if (!updated) return false;
+          }
+          if (target.isConnected && target.checked === nextValue) target.defaultChecked = nextValue;
+          return true;
+        }).catch(async () => {
+          // Let later intents finish before reflecting the persisted value.
+          await flushSheetFormUpdates(this);
+          if (target.isConnected) {
+            target.checked = this.document.toObject(true).system?.hitLocations?.[location] === true;
+            target.defaultChecked = target.checked;
+          }
+          return false; // The shared queue already reports failed writes.
+        });
+      }
+    }
     if (path.startsWith("alchemy-effect-level-")) {
       const slotIdx = Number.parseInt(path.slice("alchemy-effect-level-".length), 10);
       if (!Number.isFinite(slotIdx) || slotIdx < 0) return;
-      return queueSheetFormUpdate(this, () => updateAlchemyProductEffectLevel(this, slotIdx, target?.value ?? 1));
+      return queueSheetFormUpdate(this, () => updateAlchemyProductEffectLevel(this, slotIdx, target?.value ?? 1))
+        .catch(() => false);
     }
     if (path !== "system.description" || !("value" in (target ?? {}))) return;
 
@@ -527,7 +603,8 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     const currentValue = String(this.document?.system?.description ?? "");
     if (Object.is(currentValue, nextValue)) return;
 
-    return queueSheetFormUpdate(this, () => requestUpdateDocument(this.document, { "system.description": nextValue }));
+    return queueSheetFormUpdate(this, () => requestUpdateDocument(this.document, { "system.description": nextValue }))
+      .catch(() => false); // The queue reports the failure and retains it for retry.
   }
 
   /**
@@ -543,6 +620,8 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   async _onFormSubmit(event, form, formData) {
     let flatData = filterAllowedFormPaths(formData.object, ALLOW_ITEM_FORM_PATH);
     flatData = _mergeLiveItemProseValues(flatData, form);
+    flatData = _filterEditedItemFormPaths(flatData, form, this.document);
+    if (foundry.utils.isEmpty(flatData)) return { ok: true, changed: {} };
     const docType = String(this.document?.type ?? "").toLowerCase();
     const isShieldLaneDoc = docType === "shield" || (docType === "armor" && (
       this.document?.system?.isShield === true
@@ -567,32 +646,35 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     }
     const { scalingLevels, soulEnergyIssue } = normalizeItemFormData(this.document, flatData);
 
+    // Source values, rather than derived model values, own persistence. Do
+    // this before validation so a normalized no-op does not block closing.
+    const current = foundry.utils.flattenObject(this.document.toObject(true));
+    flatData = foundry.utils.diffObject(current, flatData);
+    if (foundry.utils.isEmpty(flatData)) return { ok: true, changed: {} };
+
     if (soulEnergyIssue) {
       const key = soulEnergyIssue === "reusable-stack"
         ? "UESRPG.Notifications.Enchanting.ReusableSoulVesselStack"
         : "UESRPG.Notifications.Enchanting.SoulEnergyExceedsCapacity";
-      ui.notifications?.warn?.(t(key));
-      return false;
+      ui.notifications?.warn?.(`${t(key)} (${this.document.uuid})`);
+      return { ok: false, notified: true };
     }
 
     if (
       this.document.type === "spell" &&
       scalingLevels.length > 0 &&
+      Object.keys(flatData).some((path) => path === "system.scaling.levels" || path.startsWith("system.duration.")) &&
       !event?.uesrpgSkipScalingValidation
     ) {
       const blocked = await validateSpellScaling(this.document, flatData, scalingLevels);
-      if (blocked) return false;
+      if (blocked) return { ok: false, notified: true };
     }
-    const advancement = buildAdvancementPlan(this.document, flatData);
+    const advancementChanged = Object.keys(flatData).some((path) => /^system\.(rank|trainedItems|trainedEquipment|specialAdvantages)(\.|$)/.test(path));
+    const advancement = advancementChanged ? buildAdvancementPlan(this.document, flatData) : { ok: true, xpCost: 0 };
     if (!advancement.ok) {
-      ui.notifications?.warn?.(advancement.reason || "Unable to apply advancement changes.");
-      return false;
+      ui.notifications?.warn?.(`${advancement.reason || "Unable to apply advancement changes."} (${this.document.uuid})`);
+      return { ok: false, notified: true };
     }
-
-    // Diff against current document state - only send changed fields
-    const current = foundry.utils.flattenObject(this.document.toObject(false));
-    flatData = foundry.utils.diffObject(current, flatData);
-    if (foundry.utils.isEmpty(flatData)) return { ok: true, changed: {} };
 
     if (isShieldLaneDoc) {
       _shieldDebug("form submit diff", {
@@ -603,11 +685,19 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       });
     }
 
+    try {
+      // Validate a clone without changing the source or replacing invalid
+      // legacy values with field defaults. Surface the real field error.
+      const changes = this.document.updateSource(foundry.utils.deepClone(flatData), { dryRun: true, fallback: false });
+      if (foundry.utils.isEmpty(changes)) return { ok: true, changed: {} };
+    } catch (cause) {
+      throw new Error(`${t("UESRPG.Notifications.Sheets.FormSaveFailed")} (${this.document.uuid}): ${cause?.message ?? String(cause)}`, { cause });
+    }
     const updated = await requestUpdateDocument(this.document, flatData);
-    if (!updated) return false;
+    if (!updated) throw new Error(`${t("UESRPG.Notifications.Sheets.FormSaveFailed")} (${this.document.uuid})`);
     if (advancement.xpCost > 0 && advancement.actor) {
       const actorUpdated = await requestUpdateDocument(advancement.actor, { "system.xp": advancement.nextXp });
-      if (!actorUpdated) return false;
+      if (!actorUpdated) throw new Error(`The item was saved, but the XP update failed for ${advancement.actor.uuid}. Review the Actor's XP before further advancement.`);
       ui.notifications?.info?.(game.i18n.format("UESRPG.Notifications.Items.SpentXp", { xp: advancement.xpCost }));
     }
     return {
@@ -617,13 +707,13 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   }
 
   async _submitCurrentForm(event = null) {
-    // Event-driven spell controls still need their explicit event metadata.
-    if (event) return flushCurrentSheetForm(this, this._onFormSubmit, event);
-
-    if (!await flushSheetFormUpdates(this)) return false;
+    // Await the queue even after a failure, then retry the latest native form.
+    // queueSheetFormUpdate clears a prior error only through this new attempt.
+    await flushSheetFormUpdates(this);
     if (!this.isEditable || !this.document?.isOwner) return true;
     const notifyFailure = () => {
-      ui.notifications?.error?.(t("UESRPG.Notifications.Sheets.FormSaveFailed"));
+      // The queue reports write failures. This covers an unavailable form only.
+      ui.notifications?.error?.(`${t("UESRPG.Notifications.Sheets.FormSaveFailed")} (${this.document.uuid})`);
       return false;
     };
 
@@ -632,11 +722,13 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     const form = this.form;
     if (!(form instanceof HTMLFormElement) || !form.isConnected) return notifyFailure();
     try {
-      const result = await this.submit();
-      return result !== false && result?.ok !== false ? true : notifyFailure();
-    } catch (error) {
-      console.error("UESRPG | Item sheet native form submission failed", error);
-      return notifyFailure();
+      const result = await queueSheetFormUpdate(this, () => event
+        ? this._onFormSubmit(event, form, new foundry.applications.ux.FormDataExtended(form))
+        : this.submit());
+      return result !== false && result?.ok !== false;
+    } catch (_error) {
+      // The queue owns the single notification and validation diagnostics.
+      return false;
     }
   }
 
@@ -652,10 +744,22 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       const saved = await this._submitCurrentForm(null);
       if (!saved) {
         const message = t("UESRPG.Notifications.Sheets.FormSaveFailed");
-        throw new Error(message);
+        const error = new Error(message);
+        error.code = ITEM_FORM_SAVE_BLOCKED;
+        throw error;
       }
     }
     return super._preClose(options);
+  }
+
+  /** Observe our save-block rejection without discarding the open form. */
+  async close(options = {}) {
+    try {
+      return await super.close(options);
+    } catch (error) {
+      if (error?.code === ITEM_FORM_SAVE_BLOCKED) return this;
+      throw error;
+    }
   }
 
   /* Actions Map Handlers */
@@ -689,31 +793,6 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
    */
   _onChargeMinus(event, target) {
     return onChargeMinus(this, event);
-  }
-
-  async _onApplyCategoryCoverage(event, target) {
-    event?.preventDefault?.();
-    if (!this.isEditable || this.document?.type !== "armor") return;
-
-    const coverage = getArmorCategoryCoverage(this.document.system);
-    if (!coverage) {
-      ui.notifications?.warn?.(t(
-        "UESRPG.DefectUpdate.ArmorCoverageUnknown",
-        "Set a recognized armor category before applying category coverage."
-      ));
-      return;
-    }
-
-    const updated = await requestUpdateDocument(this.document, {
-      "system.hitLocations": coverage,
-      [`flags.${SYSTEM_ID}.coverageMode`]: "category",
-    });
-    if (updated) {
-      ui.notifications?.info?.(t(
-        "UESRPG.DefectUpdate.ArmorCoverageApplied",
-        "Armor coverage was restored from its category."
-      ));
-    }
   }
 
   /**
@@ -1367,95 +1446,94 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
 
   /* UI State Preservation */
 
-  /**
-   * @override
-   * Snapshot DOM-only UI state before the DOM is replaced on re-render.
-   * Mirrors V1's `_render()` pre-render snapshot.
-   */
-  _preRender(context, options) {
-    super._preRender(context, options);
-
+  /** Key only the secondary group belonging to the displayed primary pane. */
+  #tabScrollKey() {
     const el = this.element;
-    if (!el) return;
-
-    const state = {
-      openDetails: new Set(),
-      windowContentScrollTop: el.querySelector(".window-content")?.scrollTop ?? 0,
-    };
-
-    // <details> open state (spell scaling / advanced options)
-    el.querySelectorAll("details").forEach(d => {
-      if (d.open) {
-        const key = d.dataset.uesrpg || d.className.split(/\s+/)[0] || "";
-        if (key) state.openDetails.add(key);
-      }
-    });
-
-    this._savedState = state;
+    const primary = el?.querySelector('.tabs [data-group="primary"].active')?.dataset.tab
+      ?? this.tabGroups.primary;
+    const pane = el?.querySelector(`.tab[data-group="primary"][data-tab="${CSS.escape(primary ?? "")}"]`);
+    const secondaryNav = pane?.querySelector('.tabs[data-group="secondary"]');
+    const secondary = secondaryNav
+      ? (secondaryNav.querySelector('.active[data-tab]')?.dataset.tab ?? this.tabGroups.secondary)
+      : null;
+    return JSON.stringify([primary, secondary]);
   }
 
-  /**
-   * @override
-   * Restore saved UI state, bind listeners, and set up tabs on the fresh DOM.
-   */
-  _onRender(context, options) {
-    const perfStart = performance.now();
-    /** @type {HTMLElement|null} */
-    let el = null;
-    const renderedParts = Array.isArray(options?.parts) && options.parts.length
-      ? new Set(options.parts)
-      : null;
-    const bodyRendered = !renderedParts || renderedParts.has("body");
-    try {
-      super._onRender(context, options);
+  #captureUiState() {
+    return captureRenderUiState(this, { scrollSelector: ".window-content", includeZeroScroll: true });
+  }
 
+  #restoreTabScroll(key) {
+    // Zero is a real position, not a missing value. Clamp after tab layout.
+    const scroll = this.#tabScrollPositions.get(key)
+      ?? this.#captureUiState()?.scroll.map(entry => ({ ...entry, left: 0, top: 0 }));
+    restoreRenderUiState(this, { scroll });
+  }
+
+  /** @override */
+  changeTab(tab, group, options = {}) {
+    if (!this.element || !["primary", "secondary"].includes(group)) {
+      return super.changeTab(tab, group, options);
+    }
+    const previousKey = this.#tabScrollKey();
+    const previousState = this.#captureUiState();
+    super.changeTab(tab, group, options);
+    const key = this.#tabScrollKey();
+    if (key === previousKey) return;
+    ++this.#uiRevision;
+    if (previousState) this.#tabScrollPositions.set(previousKey, previousState.scroll);
+    this.#restoreTabScroll(key);
+  }
+
+  /** @override Snapshot before replacement; await the AppV2 parent lifecycle. */
+  async _preRender(context, options) {
+    const state = this.#captureUiState();
+    const key = this.#tabScrollKey();
+    const revision = ++this.#uiRevision;
+    const renderRevision = ++this.#renderRevision;
+    if (state) this.#tabScrollPositions.set(key, state.scroll);
+    this.#renderUiStates.set(context, { state, key, revision, renderRevision });
+    await super._preRender(context, options);
+  }
+
+  /** @override Restore visibility before disclosures, viewport and focus. */
+  async _onRender(context, options) {
+    const perfStart = performance.now();
+    let el = null;
+    try {
+      await super._onRender(context, options);
       el = this.element;
-      if (!el) return;
+      const snapshot = this.#renderUiStates.get(context);
+      this.#renderUiStates.delete(context);
+      if (!el?.isConnected || !snapshot || snapshot.renderRevision !== this.#renderRevision) return;
       applySheetDensityClass(el);
       clearItemDescriptionTooltip(this);
-
-      // Restore saved UI state only when the body part is present.
-      const state = this._savedState;
-      if (state && bodyRendered) {
-        state.openDetails?.forEach(key => {
-          const d =
-            el.querySelector(`details[data-uesrpg="${key}"]`) ||
-            el.querySelector(`details.${CSS.escape(key)}`);
-          if (d) d.open = true;
-        });
-
-      }
-
-      // Type-specific wrapper classes for legacy selectors.
       el.classList.add(this.document.type);
-      if (this.document.type === "spell" || this.document.type === "invocation") el.classList.add("spell-sheet");
+      if (["spell", "invocation"].includes(this.document.type)) el.classList.add("spell-sheet");
 
-      // Tab handling: fallback to first visible tab when remembered tab is absent.
-      const desiredTab = this.tabGroups.primary ?? "description";
-      const hasTab = el.querySelector(`.tabs [data-group="primary"][data-tab="${desiredTab}"]`);
-      const targetTab = hasTab ? desiredTab
-        : (el.querySelector('.tabs [data-group="primary"]')?.dataset?.tab ?? "description");
-      this.changeTab(targetTab, "primary", { force: true });
-      const desiredSecondaryTab = this.tabGroups.secondary ?? "attributes";
-      const hasSecondaryTab = el.querySelector(`.tabs [data-group="secondary"][data-tab="${desiredSecondaryTab}"]`);
-      if (hasSecondaryTab || el.querySelector('.tabs [data-group="secondary"]')) {
-        const targetSecondaryTab = hasSecondaryTab
-          ? desiredSecondaryTab
-          : (el.querySelector('.tabs [data-group="secondary"]')?.dataset?.tab ?? "attributes");
-        this.changeTab(targetSecondaryTab, "secondary", { force: true });
+      // Replaced bodies need activation even when their tab id is unchanged.
+      // Avoid forcing visible panes or resizing the window during refresh.
+      for (const group of ["primary", "secondary"]) {
+        const buttons = Array.from(el.querySelectorAll(`.tabs [data-group="${group}"][data-tab]`));
+        if (!buttons.length) continue;
+        const target = buttons.find(button => button.dataset.tab === this.tabGroups[group]) ?? buttons[0];
+        const tab = target.dataset.tab;
+        const pane = el.querySelector(`.tab[data-group="${group}"][data-tab="${CSS.escape(tab)}"]`);
+        if (this.tabGroups[group] !== tab || !target.classList.contains("active") || !pane?.classList.contains("active")) {
+          super.changeTab(tab, group, { force: this.tabGroups[group] === tab, updatePosition: false });
+        }
       }
-
-      if (state) {
-        const restoreScrollTop = Number(state.windowContentScrollTop) || 0;
-        requestAnimationFrame(() => {
-          const windowContent = this.element?.querySelector(".window-content");
-          if (windowContent) windowContent.scrollTop = restoreScrollTop;
-        });
-        this._savedState = null;
-      }
-
       activateProseMirrorEditors(this, el);
-
+      const key = this.#tabScrollKey();
+      if (snapshot.revision === this.#uiRevision && snapshot.key === key) {
+        restoreRenderUiState(this, snapshot.state);
+      } else {
+        // A newer navigation wins; stale focus must not return to the old tab.
+        if (snapshot.revision === this.#uiRevision) {
+          restoreRenderUiState(this, { disclosures: snapshot.state?.disclosures });
+        }
+        this.#restoreTabScroll(key);
+      }
     } finally {
       traceSheetPerf({
         sheet: "SimpleItemSheetV2",
@@ -1470,7 +1548,6 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
         warnThresholdMs: 32,
       });
     }
-
   }
 
   /** @override */
@@ -1479,7 +1556,8 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   }
 
   /** @override */
-  _canDragStart(_selector) {
+  _canDragStart(selector) {
+    if (selector === ".uesrpg-effect-drag-source") return this.document.testUserPermission(game.user, "OBSERVER");
     return this.isEditable;
   }
 
@@ -1492,6 +1570,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     super._attachPartListeners(partId, htmlElement, options);
     const el = htmlElement;
     if (!el) return;
+    enableEffectDragSources(el, this.document);
 
     const type = this.document.type;
     if (type === "spell" && (partId === "header" || partId === "body")) this._registerSpellListeners(el);
@@ -1512,6 +1591,10 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   }
 
   _onClose(options) {
+    ++this.#uiRevision;
+    ++this.#renderRevision;
+    this.#tabScrollPositions.clear();
+    this.#renderUiStates = new WeakMap();
     clearItemDescriptionTooltip(this);
     clearSheetFormUpdateState(this);
     return super._onClose(options);
@@ -1526,6 +1609,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
    * @override
    */
   _onDragStart(event) {
+    if (writeEffectDragData(event, this.document)) return;
     if (this.document.type !== "container") return super._onDragStart(event);
 
     const existing = String(event?.dataTransfer?.getData?.("text/plain") ?? "").trim();

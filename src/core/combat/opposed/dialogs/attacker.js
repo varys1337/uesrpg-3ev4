@@ -1,4 +1,7 @@
-import { renderSpecialActionOption as renderSpecialOpt } from "./advantage-options.js";
+import { systemTooltipAttributes, setSystemOptionTooltip, setSystemTooltip } from "../../../../ui/shared/system-tooltips.js";
+import { buildCombatOptionTooltipText } from "../../../../data/tooltips/index.js";
+import { renderTNPill, updateTNPill } from "../../../../ui/shared/tn-presentation.js";
+import { renderAdvantageChoices, readAdvantageChoices, bindAdvantageChoices, getAdvantageChoiceLimit, isAdvantageSelectionValid } from "./advantage-options.js";
 import { escapeHtml as _escapeHtml } from '../../../../utils/html.js';
 /**
  * src/core/combat/opposed/dialogs/attacker.js
@@ -19,6 +22,8 @@ import {
   getContextAttackMode, 
   canUseExploitAdvantage as _canUseExploitAdvantage,
   getPendingAttackApCost,
+  collectAttackerDeclarationModifiers,
+  getTokenMovementAction,
   getPreferredWeaponUuid as _getPreferredWeaponUuid
 } from "../helpers/workflow.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
@@ -27,6 +32,11 @@ import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "../../
 import { buildCircumstanceOptionsHtml } from "../../../opposed/circumstance.js";
 import { t, tf } from "../../../../utils/i18n.js";
 import { isActorInStartedCombatEncounter } from "../../combat-scope.js";
+import { computeTN } from "../../tn.js";
+import { _resolveItemViaActor } from "../helpers/docs.js";
+import { computeRangedRangeContext } from "../helpers/combat.js";
+import { getWeaponCombatCapabilities } from "../../combat-utils.js";
+import { applyLengthPenaltyToTN } from "../../../homebrew/reach-length/weapon.js";
 
 
 const HIT_LOCATION_KEYS = Object.freeze({
@@ -48,7 +58,8 @@ function _hitLocationLabel(location) {
  * Returns selected options or null if canceled.
  */
 export async function attackerDeclareDialog(attackerActor, attackerLabel, { styles = [], selectedStyleUuid = null, defaultWeaponUuid = null,
-    defaultVariant = "normal", defaultManual = 0, defaultCirc = 0, attackerToken = null, defenderToken = null, prepaidBaseAttackAP = false } = {}) {
+    defaultVariant = "normal", defaultManual = 0, defaultCirc = 0, attackerToken = null, defenderToken = null,
+    defenderActor = null, opposedData = null, prepaidBaseAttackAP = false } = {}) {
   const showStyleSelect = Array.isArray(styles) && styles.length >= 2;
   const showEyeOfNight = Boolean(attackerActor && hasTalent(attackerActor, "eyeofnight") && hasCondition(attackerActor, "hidden"));
   const hasThunderCharge = Boolean(attackerActor && hasTalent(attackerActor, "thundercharge"));
@@ -99,74 +110,75 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
   const hasDeafened = hasCondition(attackerActor, "deafened");
   const sensoryControls = (hasBlinded || hasDeafened) ? `
     <div class="uesrpg-sensory-section">
-      ${hasBlinded ? `<label><input type="checkbox" name="applyBlinded" checked/> <span>${t("UESRPG.Dialogs.Opposed.ApplyBlinded", "Apply Blinded (-30, sight-based)")}</span></label>` : ""}
-      ${hasDeafened ? `<label><input type="checkbox" name="applyDeafened" checked/> <span>${t("UESRPG.Dialogs.Opposed.ApplyDeafened", "Apply Deafened (-30, hearing-based)")}</span></label>` : ""}
-      <p class="uesrpg-sensory-hint">${t("UESRPG.Dialogs.Opposed.SensoryHint", "RAW: these penalties apply only to tests benefiting from the relevant sense.")}</p>
+      ${hasBlinded ? `<label class="uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: buildCombatOptionTooltipText("blinded") })}><input type="checkbox" name="applyBlinded" checked/> <span class="uesrpg-adv-choice__label">${t("UESRPG.Dialogs.Opposed.BlindedShort", "Blinded (-30)")}</span></label>` : ""}
+      ${hasDeafened ? `<label class="uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: buildCombatOptionTooltipText("deafened") })}><input type="checkbox" name="applyDeafened" checked/> <span class="uesrpg-adv-choice__label">${t("UESRPG.Dialogs.Opposed.DeafenedShort", "Deafened (-30)")}</span></label>` : ""}
     </div>` : "";
 
   const content = `
-  <div class="uesrpg-attack-declare uesrpg-adv-dialog uesrpg-adv-dialog--attacker">
+  <div class="uesrpg-attack-declare uesrpg-dialog-stack uesrpg-adv-dialog uesrpg-adv-dialog--attacker uesrpg-adv-dialog--choice-bars">
     ${styleSelect}
     ${weaponSelect}
     <div class="uesrpg-dialog-section-header">${t("UESRPG.Dialogs.Opposed.AttackVariation", "Attack Variation")}</div>
     <div class="uesrpg-adv-grid uesrpg-attack-grid">
-      <label class="uesrpg-adv-choice">
+      <div class="uesrpg-adv-choice-group">
+      <label class="uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: buildCombatOptionTooltipText("attack") })}>
         <input type="radio" name="attackVariant" value="normal" ${defaultVariant === "normal" ? "checked" : ""} />
         <span class="uesrpg-adv-choice__label">
-          <span class="uesrpg-adv-choice__title">${t("UESRPG.Chat.Opposed.Attack", "Attack")}</span>
+          <span class="uesrpg-choice-card__head"><span class="uesrpg-adv-choice__title">${t("UESRPG.Chat.Opposed.Attack", "Attack")}</span>${renderTNPill("normal")}</span>
         </span>
       </label>
-      <label class="uesrpg-adv-choice">
+      </div>
+      <div class="uesrpg-adv-choice-group">
+      <label class="uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: buildCombatOptionTooltipText("allOut") })}>
         <input type="radio" name="attackVariant" value="allOut" ${defaultVariant === "allOut" ? "checked" : ""} />
         <span class="uesrpg-adv-choice__label">
-          <span class="uesrpg-adv-choice__title">${t("UESRPG.Dialogs.Opposed.AllOutAttack", "All Out Attack")}</span>
-          <span class="uesrpg-adv-choice__desc">${t("UESRPG.Dialogs.Opposed.AllOutAttackDesc", "Melee only; +1 AP to +20 TN")}</span>
+          <span class="uesrpg-choice-card__head"><span class="uesrpg-adv-choice__title">${t("UESRPG.Dialogs.Opposed.AllOutAttack", "All Out Attack")}</span>${renderTNPill("allOut")}</span>
+        </span>
+      </label>
           ${hasThunderCharge ? `
             <div class="uesrpg-adv-inline ps-location ${defaultVariant === "allOut" ? "" : "disabled"}">
-              <label class="uesrpg-inline-check">
+              <label class="uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: buildCombatOptionTooltipText("thunderCharge") })}>
                 <input type="checkbox" name="thunderChargeToggle" ${defaultVariant === "allOut" ? "" : "disabled"} />
-                <span>${t("UESRPG.Dialogs.Opposed.ThunderousCharge", "Thunderous Charge: waive All Out surcharge")}</span>
+                <span class="uesrpg-adv-choice__label">${t("UESRPG.Dialogs.Opposed.ThunderousChargeShort", "Thunderous Charge (-1 AP)")}</span>
               </label>
             </div>
           ` : ""}
-        </span>
-      </label>
-      <label class="uesrpg-adv-choice uesrpg-precision-option">
+      </div>
+      <div class="uesrpg-adv-choice-group uesrpg-precision-option">
+      <label class="uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: buildCombatOptionTooltipText("precisionAttack") })}>
         <input type="radio" name="attackVariant" value="precision" ${defaultVariant === "precision" ? "checked" : ""} />
         <span class="uesrpg-adv-choice__label">
-          <span class="uesrpg-adv-choice__title">${t("UESRPG.Dialogs.Opposed.PrecisionStrike", "Precision Strike")}</span>
-          <span class="uesrpg-adv-choice__desc">${t("UESRPG.Dialogs.Opposed.ChooseHitLocation", "Choose hit location")}</span>
+          <span class="uesrpg-choice-card__head"><span class="uesrpg-adv-choice__title">${t("UESRPG.Dialogs.Opposed.PrecisionStrike", "Precision Strike")}</span>${renderTNPill("precision")}</span>
+        </span>
+      </label>
           <div class="uesrpg-adv-inline ps-location ${defaultVariant === "precision" ? "" : "disabled"}">
-            <select name="precisionLocation" ${defaultVariant === "precision" ? "" : "disabled"}>
+            <select name="precisionLocation" aria-label="${t("UESRPG.UI.HitLocation", "Hit location")}" ${defaultVariant === "precision" ? "" : "disabled"}>
               ${locOptions}
             </select>
           </div>
-        </span>
-      </label>
-      <label class="uesrpg-adv-choice uesrpg-coup-option">
+      </div>
+      <div class="uesrpg-adv-choice-group uesrpg-coup-option">
+      <label class="uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: buildCombatOptionTooltipText("coup") })}>
         <input type="radio" name="attackVariant" value="coup" ${defaultVariant === "coup" ? "checked" : ""} />
         <span class="uesrpg-adv-choice__label">
-          <span class="uesrpg-adv-choice__title">${t("UESRPG.Dialogs.Opposed.CoupDeGrace", "Coup de Grace")}</span>
-          <span class="uesrpg-adv-choice__desc">${t("UESRPG.Dialogs.Opposed.HelplessTargetOnly", "Helpless target only")}</span>
-          <div class="uesrpg-adv-inline coup-mode ${defaultVariant === "coup" ? "" : "disabled"}">
-            <label class="uesrpg-inline-check">
-              <input type="radio" name="coupMode" value="lethal" ${defaultVariant === "coup" ? "checked" : ""} ${defaultVariant === "coup" ? "" : "disabled"} /> ${t("UESRPG.Dialogs.Opposed.CoupLethal", "Lethal (HP -> 0)")}
-            </label>
-            <label class="uesrpg-inline-check">
-              <input type="radio" name="coupMode" value="nonlethal" ${defaultVariant === "coup" ? "" : "disabled"} /> ${t("UESRPG.Dialogs.Opposed.CoupNonLethal", "Non-Lethal (-1 Stamina, +1 Fatigue)")}
-            </label>
-          </div>
+          <span class="uesrpg-choice-card__head"><span class="uesrpg-adv-choice__title">${t("UESRPG.Dialogs.Opposed.CoupDeGrace", "Coup de Grace")}</span>${renderTNPill("coup")}</span>
         </span>
       </label>
+          <div class="uesrpg-adv-inline coup-mode ${defaultVariant === "coup" ? "" : "disabled"}">
+            <select name="coupMode" aria-label="${t("UESRPG.Dialogs.Opposed.CoupMode", "Coup de Grace outcome")}" ${defaultVariant === "coup" ? "" : "disabled"} ${systemTooltipAttributes({ text: buildCombatOptionTooltipText("coup") })}>
+              <option value="lethal">${t("UESRPG.Dialogs.Opposed.CoupLethalShort", "Lethal")}</option>
+              <option value="nonlethal">${t("UESRPG.Dialogs.Opposed.CoupNonLethalShort", "Non-Lethal")}</option>
+            </select>
+          </div>
+      </div>
     </div>
 
     ${showEyeOfNight ? `
     <div class="uesrpg-eon-section">
-      <label>
+      <label class="uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: buildCombatOptionTooltipText("eyeOfNight") })}>
         <input type="checkbox" name="eyeOfNight" />
-        <span>${t("UESRPG.Dialogs.Opposed.EyeOfNight", "Eye of Night (night/darkness): Precision Strike without -20")}</span>
+        <span class="uesrpg-adv-choice__label">${t("UESRPG.Dialogs.Opposed.EyeOfNightShort", "Eye of Night (Precision)")}</span>
       </label>
-      <p class="uesrpg-eon-hint">${t("UESRPG.Dialogs.Opposed.EyeOfNightHint", "Chapter 4: applies to the first attack made while Hidden.")}</p>
     </div>` : ""}
 
     <div class="form-group">
@@ -213,7 +225,7 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
             const applyDeafened = Boolean(root.querySelector('input[name="applyDeafened"]')?.checked);
             const eyeOfNight = Boolean(root.querySelector('input[name="eyeOfNight"]')?.checked);
             const thunderChargeToggle = Boolean(root.querySelector('input[name="thunderChargeToggle"]')?.checked);
-            const coupMode = root.querySelector('input[name="coupMode"]:checked')?.value ?? "lethal";
+            const coupMode = root.querySelector('select[name="coupMode"]')?.value ?? "lethal";
 
             // AP calculation - will be validated and Thunder Charge applied in workflow
             const apCost = (variant === "allOut") ? 1 : 0;
@@ -268,7 +280,52 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
       const thunderToggle = form.querySelector('input[name="thunderChargeToggle"]');
       const thunderWrap = thunderToggle?.closest(".ps-location");
       const coupWrap = form.querySelector('.uesrpg-coup-option .coup-mode');
-      const coupModeRadios = form.querySelectorAll('input[name="coupMode"]');
+      const coupSelect = form.querySelector('select[name="coupMode"]');
+      const refreshCoupTooltip = () => {
+        if (!coupSelect) return;
+        const modeText = coupSelect.value === "nonlethal"
+          ? t("UESRPG.Dialogs.Opposed.CoupNonLethal", "Non-Lethal (-1 Stamina, +1 Fatigue)")
+          : t("UESRPG.Dialogs.Opposed.CoupLethal", "Lethal (HP -> 0)");
+        setSystemTooltip(coupSelect, { text: buildCombatOptionTooltipText("coup", modeText) });
+      };
+      coupSelect?.addEventListener("change", refreshCoupTooltip);
+
+      const refreshTN = () => {
+        const defender = defenderActor ?? defenderToken?.actor ?? null;
+        const styleUuid = form.querySelector('[name="styleUuid"]')?.value ?? selectedStyleUuid;
+        const weaponUuid = form.querySelector('[name="weaponUuid"]')?.value ?? preferredWeaponUuid;
+        const weapon = _resolveItemViaActor(weaponUuid, attackerActor);
+        const attackMode = getContextAttackMode(opposedData?.context);
+        const rangeContext = attackMode === "ranged"
+          ? computeRangedRangeContext({ attackerToken, defenderToken, weapon }) : null;
+        const context = {
+          opponentUuid: defender?.uuid ?? null,
+          opponentActor: defender,
+          opponentTokenUuid: defenderToken?.document?.uuid ?? opposedData?.defender?.tokenUuid ?? null,
+          actorTokenUuid: attackerToken?.document?.uuid ?? opposedData?.attacker?.tokenUuid ?? null,
+          opponentSize: defender?.system?.size ?? null,
+          selfSize: attackerActor?.system?.size ?? null,
+          attackMode, itemUuid: weaponUuid,
+          movementAction: getTokenMovementAction(attackerToken), rangeContext,
+        };
+        const manualMod = Number.parseInt(form.querySelector('[name="manualMod"]')?.value, 10) || 0;
+        const circumstanceMod = Number.parseInt(form.querySelector('[name="circMod"]')?.value, 10) || 0;
+        for (const variant of ["normal", "allOut", "precision", "coup"]) {
+          const declaration = {
+            variant,
+            applyBlinded: Boolean(form.querySelector('[name="applyBlinded"]')?.checked),
+            applyDeafened: Boolean(form.querySelector('[name="applyDeafened"]')?.checked),
+            eyeOfNight: variant === "precision" && Boolean(eon?.checked),
+          };
+          const situationalMods = collectAttackerDeclarationModifiers({ attacker: attackerActor, defender, declaration, weapon, data: opposedData });
+          const tn = computeTN({ actor: attackerActor, role: "attacker", styleUuid, variant, manualMod, circumstanceMod, situationalMods, context });
+          if (attackMode === "melee" && weapon?.type === "weapon" && getWeaponCombatCapabilities(weapon).meleeCapable) {
+            const opponentWeapon = Array.from(defender?.items ?? []).find(item => item.type === "weapon" && item.system?.equipped && getWeaponCombatCapabilities(item).meleeCapable);
+            applyLengthPenaltyToTN({ tn, ownWeapon: weapon, opponentWeapon, ownerToken: attackerToken, opponentToken: defenderToken, ownerActor: attackerActor, ownRole: "attacker" });
+          }
+          updateTNPill(form, variant, tn);
+        }
+      };
 
       const sync = () => {
         const variant = form.querySelector('input[name="attackVariant"]:checked')?.value ?? "normal";
@@ -279,6 +336,7 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
         if (eon) {
           eon.disabled = !precisionOn;
           if (!precisionOn) eon.checked = false;
+          setSystemOptionTooltip(eon, buildCombatOptionTooltipText("eyeOfNight", precisionOn ? "" : t("UESRPG.Dialogs.Opposed.SelectPrecisionHint", "Select Precision Strike to enable this option.")));
         }
         if (psWrap) {
           psWrap.classList.toggle("disabled", !precisionOn);
@@ -286,6 +344,7 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
         if (thunderToggle) {
           thunderToggle.disabled = !allOutOn;
           if (!allOutOn) thunderToggle.checked = false;
+          setSystemOptionTooltip(thunderToggle, buildCombatOptionTooltipText("thunderCharge", allOutOn ? "" : t("UESRPG.Dialogs.Opposed.SelectAllOutHint", "Select All Out Attack to enable this option.")));
         }
         if (thunderWrap) {
           thunderWrap.classList.toggle("disabled", !allOutOn);
@@ -293,23 +352,22 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
         if (coupWrap) {
           coupWrap.classList.toggle("disabled", !coupOn);
         }
-        for (const r of coupModeRadios) {
-          r.disabled = !coupOn;
-          if (!coupOn) r.checked = false;
+        if (coupSelect) {
+          coupSelect.disabled = !coupOn;
+          // Match the previous radio reset: re-entering Coup defaults to lethal.
+          if (!coupOn) coupSelect.value = "lethal";
+          refreshCoupTooltip();
         }
-        // Default lethal when coup is first selected
-        if (coupOn) {
-          const anyChecked = Array.from(coupModeRadios).some(r => r.checked);
-          if (!anyChecked) {
-            const lethalRadio = form.querySelector('input[name="coupMode"][value="lethal"]');
-            if (lethalRadio) lethalRadio.checked = true;
-          }
-        }
+        refreshTN();
       };
 
       for (const r of form.querySelectorAll('input[name="attackVariant"]')) {
         r.addEventListener("change", sync);
       }
+      for (const name of ["styleUuid", "weaponUuid", "circMod", "applyBlinded", "applyDeafened", "eyeOfNight"]) {
+        form.querySelector(`[name="${name}"]`)?.addEventListener("change", refreshTN);
+      }
+      form.querySelector('[name="manualMod"]')?.addEventListener("input", refreshTN);
       sync();
     },
   });
@@ -336,7 +394,7 @@ export async function promptWeaponAndAdvantages({
     return null;
   }
 
-  const max = Number(advantageCount || 0);
+  const max = getAdvantageChoiceLimit(advantageCount);
   const defaultWeapon = weapons.find(w => w.uuid === defaultWeaponUuid) ?? weapons[0] ?? null;
 
   const allowedLocs = ["Head", "Body", "Right Arm", "Left Arm", "Right Leg", "Left Leg"];
@@ -353,6 +411,16 @@ export async function promptWeaponAndAdvantages({
     actorTokenUuid: attackerTokenUuid,
     opponentTokenUuid: opponentTokenUuid
   }));
+  const optionHelp = {
+    precisionStrike: buildCombatOptionTooltipText("precisionStrike"),
+    penetrateArmor: buildCombatOptionTooltipText("penetrateArmor"),
+    forcefulImpact: buildCombatOptionTooltipText("forcefulImpact"),
+    pressAdvantage: buildCombatOptionTooltipText("pressAdvantage",
+      hasExploitTalent ? (exploitEligible
+        ? t("UESRPG.Dialogs.Opposed.ExploitAdvantageEligible", "Exploit Advantage: Press Advantage is doubled (+20) (isolated duel).")
+        : t("UESRPG.Dialogs.Opposed.ExploitAdvantageRequiresDuel", "Exploit Advantage: requires an isolated duel to double Press Advantage.")) : ""
+    )
+  };
 
   // Known Special Actions are derived from the provided style UUID (roll-selected style),
   // with backward-compatible fallback to default actor resolution when not provided.
@@ -390,83 +458,35 @@ const showWeaponSelect = allowNoWeapon || weapons.length >= 2;
     };
   }
 
+  const options = [
+    { id: "precisionStrike", title: t("UESRPG.Dialogs.Opposed.PrecisionStrike", "Precision Strike"), help: optionHelp.precisionStrike },
+    { id: "penetrateArmor", title: t("UESRPG.Dialogs.Opposed.PenetrateArmor", "Penetrate Armor"), help: optionHelp.penetrateArmor },
+    { id: "forcefulImpact", title: t("UESRPG.Dialogs.Opposed.ForcefulImpact", "Forceful Impact"), help: optionHelp.forcefulImpact },
+    ...(hasPressAdvantage ? [{ id: "pressAdvantage", title: t("UESRPG.Dialogs.Opposed.PressAdvantage", "Press Advantage"), help: optionHelp.pressAdvantage }] : []),
+    ...knownSpecial.map(special => ({ id: `sa:${special.id}`, special }))
+  ];
   const content = `
-    <div class="uesrpg-opp-dmg uesrpg-adv-dialog uesrpg-adv-dialog--attacker">
-      ${showWeaponSelect ? `
-      <div class="form-group uesrpg-adv-weapon">
+    <div class="uesrpg-opp-dmg uesrpg-dialog-stack uesrpg-adv-dialog uesrpg-adv-dialog--attacker uesrpg-adv-dialog--choice-bars">
+      ${showWeaponSelect ? `<div class="form-group uesrpg-adv-weapon">
         <label><b>${t("UESRPG.Dialogs.Opposed.Weapon", "Weapon")}</b></label>
         <select name="weaponUuid">${weaponOptions}</select>
-      </div>
-      ` : `<input type="hidden" name="weaponUuid" value="${_escapeHtml(resolvedWeaponUuid)}" />`}
-
-      ${max > 0 ? `
-        <hr class="uesrpg-dialog-divider" />
-        <div class="uesrpg-adv-summary">
-          <b>${t("UESRPG.Chat.Common.Advantage", "Advantage")}</b>: ${tf("UESRPG.Dialogs.Opposed.AvailableCount", { count: max }, `${max} available`)}
-          <div class="uesrpg-adv-count" aria-live="polite"></div>
-        </div>
-
-        <input type="hidden" name="defaultHitLocation" value="${safeDefaultLoc}" />
-
-        <div class="uesrpg-adv-grid">
-          <label class="uesrpg-adv-choice uesrpg-precision-option">
-            <input type="checkbox" name="precisionStrike" />
-            <span class="uesrpg-adv-choice__label">
-              <span class="uesrpg-adv-choice__title">${t("UESRPG.Dialogs.Opposed.PrecisionStrike", "Precision Strike")}</span>
-              <span class="uesrpg-adv-choice__desc">${t("UESRPG.Dialogs.Opposed.ChooseHitLocationSentence", "Choose a hit location.")}</span>
-              <span class="uesrpg-adv-inline ps-location disabled">
-                <select name="precisionLocation" disabled>${locOptions}</select>
-              </span>
-            </span>
+      </div>` : `<input type="hidden" name="weaponUuid" value="${_escapeHtml(resolvedWeaponUuid)}" />`}
+      <input type="hidden" name="defaultHitLocation" value="${safeDefaultLoc}" />
+      ${renderAdvantageChoices({ count: max, options, extraHtml: max ? `
+        <div class="uesrpg-adv-inline ps-location disabled">
+          <label class="uesrpg-dialog-row"><span>${t("UESRPG.UI.HitLocation", "Hit location")}</span>
+            <select name="precisionLocation" disabled>${locOptions}</select>
           </label>
-
-          <label class="uesrpg-adv-choice">
-            <input type="checkbox" name="penetrateArmor" />
-            <span class="uesrpg-adv-choice__label">
-              <span class="uesrpg-adv-choice__title">${t("UESRPG.Dialogs.Opposed.PenetrateArmor", "Penetrate Armor")}</span>
-            </span>
-          </label>
-
-          <label class="uesrpg-adv-choice">
-            <input type="checkbox" name="forcefulImpact" />
-            <span class="uesrpg-adv-choice__label">
-              <span class="uesrpg-adv-choice__title">${t("UESRPG.Dialogs.Opposed.ForcefulImpact", "Forceful Impact")}</span>
-            </span>
-          </label>
-
-          ${hasPressAdvantage ? `
-          <label class="uesrpg-adv-choice">
-            <input type="checkbox" name="pressAdvantage" />
-            <span class="uesrpg-adv-choice__label">
-              <span class="uesrpg-adv-choice__title">${t("UESRPG.Dialogs.Opposed.PressAdvantage", "Press Advantage")}</span>
-            </span>
-          </label>
-          ${hasExploitTalent ? `
-            <p class="hint uesrpg-dialog-note">${exploitEligible ? t("UESRPG.Dialogs.Opposed.ExploitAdvantageEligible", "Exploit Advantage: Press Advantage is doubled (+20) (isolated duel).") : t("UESRPG.Dialogs.Opposed.ExploitAdvantageRequiresDuel", "Exploit Advantage: requires an isolated duel to double Press Advantage.")}</p>
-          ` : ``}
-          ` : ``}
-
-        </div>
-        ${knownSpecial.length ? `
-          <section class="uesrpg-known-specials">
-            <div class="uesrpg-adv-section__title"><b>${t("UESRPG.Dialogs.Opposed.KnownSpecialActions", "Known Special Actions")}</b></div>
-            <div class="uesrpg-known-specials__grid">
-              ${knownSpecial.map(renderSpecialOpt).join("\n")}
-            </div>
-          </section>
-        ` : ``}
-        <p class="hint">${tf("UESRPG.Dialogs.Opposed.SelectUpToOptions", { count: max }, `Select up to ${max} option(s).`)}</p>
-      ` : ``}
-    </div>
-  `;
-  const resolveDamageWidth = Math.max(420, Math.min(620, (window?.innerWidth ?? 620) - 96));
+        </div>` : "" })}
+    </div>`;
 
   const tooltipScope = { kind: "adv-dialog", domain: "attacker-weapon-advantages" };
   try {
     return await customDialog({
       layout: "workflow",
       title: t("UESRPG.Dialogs.Opposed.ResolveDamage", "Resolve Damage"),
-      width: resolveDamageWidth,
+      width: 460,
+      classes: ["uesrpg-attack-declare", "uesrpg-adv-resolution-window"],
       content,
       buttons: {
         continue: {
@@ -479,29 +499,17 @@ const showWeaponSelect = allowNoWeapon || weapons.length >= 2;
             const q = (name) => form.querySelector(`[name="${name}"]`);
             const weaponUuid = String(q("weaponUuid")?.value ?? resolvedWeaponUuid);
 
-            const precisionStrike = Boolean(q("precisionStrike")?.checked);
+            const selected = readAdvantageChoices(form);
+            const precisionStrike = selected.includes("precisionStrike");
             const defaultLoc = String(q("defaultHitLocation")?.value ?? "Body");
-            const precisionLocation = precisionStrike
-              ? String(q("precisionLocation")?.value ?? defaultLoc)
-              : defaultLoc;
-
-            const penetrateArmor = Boolean(q("penetrateArmor")?.checked);
-            const forcefulImpact = Boolean(q("forcefulImpact")?.checked);
-            const pressAdvantage = Boolean(q("pressAdvantage")?.checked);
+            const precisionLocation = precisionStrike ? String(q("precisionLocation")?.value ?? defaultLoc) : defaultLoc;
+            const penetrateArmor = selected.includes("penetrateArmor");
+            const forcefulImpact = selected.includes("forcefulImpact");
+            const pressAdvantage = selected.includes("pressAdvantage");
             const pressAdvantageDouble = Boolean(pressAdvantage && exploitEligible);
-
-            const selectedSpecial = [];
-            for (const sa of knownSpecial) {
-              const id = String(sa?.id ?? "").trim();
-              if (!id) continue;
-              if (Boolean(q(`sa_${id}`)?.checked)) selectedSpecial.push(id);
-            }
-
-            const selectedCount = [precisionStrike, penetrateArmor, forcefulImpact, pressAdvantage].filter(Boolean).length + selectedSpecial.length;
-            if (max > 0 && selectedCount > max) {
-              ui.notifications.warn(tf("UESRPG.Notifications.Opposed.OnlyHaveAdvantage", { count: max }, `You only have ${max} Advantage to spend.`));
-              return null;
-            }
+            const selectedSpecial = knownSpecial.filter(sa => selected.includes(`sa:${sa.id}`)).map(sa => String(sa.id));
+            if (!isAdvantageSelectionValid({ precisionStrike, penetrateArmor, forcefulImpact, pressAdvantage,
+              specialActionsSelected: selectedSpecial }, max, { allowPress: hasPressAdvantage })) return null;
 
             return {
               weaponUuid,
@@ -525,48 +533,7 @@ const showWeaponSelect = allowNoWeapon || weapons.length >= 2;
       const form = root?.querySelector(".uesrpg-opp-dmg") ?? root;
       if (!form) return;
 
-      const precisionSelect = form.querySelector('select[name="precisionLocation"]');
-      const defaultLoc = String(form.querySelector('input[name="defaultHitLocation"]')?.value ?? "Body");
-
-      const listAllCheckboxes = () => [...form.querySelectorAll('input[type="checkbox"]')];
-      const computeSelectedCount = () => listAllCheckboxes().filter(el => el?.dataset?.free !== "true").filter(el => Boolean(el.checked)).length;
-
-      const updateUi = () => {
-        if (precisionSelect) {
-          const ps = form.querySelector('input[type="checkbox"][name="precisionStrike"]');
-          const psOn = Boolean(ps?.checked);
-          precisionSelect.disabled = !psOn;
-          const precisionWrap = precisionSelect.closest(".ps-location");
-          if (precisionWrap) precisionWrap.classList.toggle("disabled", !psOn);
-          if (!psOn) precisionSelect.value = defaultLoc;
-        }
-
-        const count = computeSelectedCount();
-        const c = form.querySelector(".uesrpg-adv-count");
-          if (c) c.textContent = tf("UESRPG.Dialogs.Opposed.SelectedCount", { count, max }, `${count} / ${max} selected`);
-
-        for (const el of listAllCheckboxes()) {
-          if (el?.dataset?.free === "true") continue;
-          if (Boolean(el.checked)) {
-            el.disabled = false;
-            continue;
-          }
-          el.disabled = (count >= max);
-        }
-      };
-
-      for (const el of listAllCheckboxes()) {
-        el.addEventListener("change", (ev) => {
-          const count = computeSelectedCount();
-          if (count > max) {
-            ev.currentTarget.checked = false;
-            ui.notifications.warn(tf("UESRPG.Notifications.Opposed.OnlyHaveAdvantage", { count: max }, `You only have ${max} Advantage to spend.`));
-          }
-          updateUi();
-        });
-      }
-
-      updateUi();
+      bindAdvantageChoices(root, { defaultLocation: safeDefaultLoc });
     },
   });
   } finally {

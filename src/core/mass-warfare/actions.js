@@ -1,3 +1,5 @@
+import { renderTNSummary, bindTNEstimates } from "../../ui/shared/tn-presentation.js";
+import { emitSuppressedSubRollDice } from "../../utils/dice-visualization.js";
 import { escapeHtml as esc } from "../../utils/html.js";
 import { SYSTEM_ID, FLAG_SCOPE, SYSTEM_ROLL_FORMULA } from "../constants.js";
 import { resolveWarfareProfile } from "./profile-registry.js";
@@ -103,11 +105,27 @@ async function _promptCommanderCommandRoll(commanderActor, targetActor) {
     return null;
   }
 
+  const computeDeclaredTN = (declaration) => computeSkillTN({
+    actor: commanderActor,
+    skillItem: commandItem,
+    difficultyKey: declaration.difficultyKey,
+    manualMod: declaration.manualMod,
+  });
+  const readDeclaration = (root) => {
+    return {
+      difficultyKey: String(root?.querySelector('[name="difficultyKey"]')?.value ?? "average"),
+      manualMod: Number(root?.querySelector('[name="manualMod"]')?.value ?? 0) || 0,
+      skillItem: commandItem,
+    };
+  };
+
   const declaration = await customDialog({
     layout: "workflow",
     title: `${commanderActor.name} - Command Test`,
+    render: (_event, dialog) => bindTNEstimates(dialog.element, () => computeDeclaredTN(readDeclaration(dialog.element))),
     content: `
       <div class="uesrpg-skill-roll">
+        ${renderTNSummary(commandItem.name)}
         <p>Resolve a <b>Command</b> test for <b>${esc(targetActor?.name ?? "the target unit")}</b>.</p>
         <div class="form-group">
           <label><b>Difficulty</b></label>
@@ -121,14 +139,7 @@ async function _promptCommanderCommandRoll(commanderActor, targetActor) {
     buttons: {
       roll: {
         label: "Roll",
-        callback: (html) => {
-          const root = html instanceof HTMLElement ? html : html?.[0];
-          return {
-            difficultyKey: String(root?.querySelector('[name="difficultyKey"]')?.value ?? "average"),
-            manualMod: Number(root?.querySelector('[name="manualMod"]')?.value ?? 0) || 0,
-            skillItem: commandItem,
-          };
-        },
+        callback: (html) => readDeclaration(html instanceof HTMLElement ? html : html?.[0]),
       },
       cancel: { label: "Cancel" },
     },
@@ -136,19 +147,13 @@ async function _promptCommanderCommandRoll(commanderActor, targetActor) {
   });
   if (!declaration) return null;
 
-  const tn = computeSkillTN({
-    actor: commanderActor,
-    skillItem: commandItem,
-    difficultyKey: declaration.difficultyKey,
-    manualMod: declaration.manualMod,
-  });
+  const tn = computeDeclaredTN(declaration);
   const result = await doTestRoll(commanderActor, {
     rollFormula: SYSTEM_ROLL_FORMULA,
     target: tn.finalTN,
     allowLucky: true,
     allowUnlucky: true,
   });
-  await showRoll3d(result?.roll);
   const outcome = formatResultOutcomeLabel(result);
   await result?.roll?.toMessage?.({
     speaker: ChatMessage.getSpeaker({ actor: commanderActor }),
@@ -271,25 +276,18 @@ function getGmRecipients() {
   return ChatMessage.getWhisperRecipients("GM") ?? [];
 }
 
-async function showRoll3d(roll) {
-  if (!roll || !game?.dice3d?.showForRoll) return;
-  try {
-    await game.dice3d.showForRoll(roll, game.user, true);
-  } catch (_err) {
-    try {
-      await game.dice3d.showForRoll(roll);
-    } catch (_err2) {
-      // no-op
-    }
-  }
+function showRoll3d(roll, actor, options = {}) {
+  void emitSuppressedSubRollDice(roll, { actor, ...options });
 }
 
-async function promptDisciplineModifier(title, baseTn, helperText) {
+async function promptDisciplineModifier(actor, title, baseTn, helperText, { extraBreakdown = [] } = {}) {
   return customDialog({
     layout: "workflow",
     title,
+    render: (_event, dialog) => bindTNEstimates(dialog.element, () => buildWarfareDisciplineTN(actor, { manualModifier: Number(dialog.element.querySelector('[name="modifier"]')?.value ?? 0) || 0, extraBreakdown })),
     content: `
       <div class="warfare-discipline-dialog">
+        ${renderTNSummary("Discipline")}
         <div class="form-group">
           <label>Modifier</label>
           <input type="number" name="modifier" value="0" style="width:90px;">
@@ -314,6 +312,8 @@ async function rollDiscipline(actor, {
   modifier = 0,
   joinFray = false,
   extraBreakdown = [],
+  whisper = null,
+  blind = false,
 } = {}) {
   const tnData = buildWarfareDisciplineTN(actor, {
     manualModifier: modifier,
@@ -325,7 +325,7 @@ async function rollDiscipline(actor, {
     allowLucky: false,
     allowUnlucky: false,
   });
-  await showRoll3d(result?.roll);
+  showRoll3d(result?.roll, actor, { messageMode: blind ? "blind" : whisper?.length ? "gm" : "public", whisper, blind });
   return {
     baseTn: tnData.baseTN,
     target: tnData.finalTN,
@@ -358,7 +358,7 @@ async function postDisciplineOutcomeCard(actor, entry, {
       <p><b>${esc(title)}</b></p>
       <p>TN: ${target}${modifier ? ` (base ${baseTn} ${modifier > 0 ? "+" : ""}${modifier})` : ""}</p>
       <p>Roll: ${result?.rollTotal ?? "?"} - ${esc(outcome)}${Number.isFinite(result?.degree) ? ` (${result.degree})` : ""}</p>
-      ${breakdownRows ? `<details style="margin-top:4px;"><summary style="cursor:pointer; user-select:none; white-space:nowrap;">TN breakdown</summary><div style="margin-top:4px; font-size:12px; opacity:0.9;">${breakdownRows}</div></details>` : ""}
+      ${breakdownRows ? `<details style="margin-top:4px;"><summary style="cursor:var(--uesrpg-cursor-pointer, pointer); user-select:none; white-space:nowrap;">TN breakdown</summary><div style="margin-top:4px; font-size:12px; opacity:0.9;">${breakdownRows}</div></details>` : ""}
       ${note ? `<p>${note}</p>` : ""}
     </div>`;
   await postActionCard(actor, entry, { actionType, extraHtml, whisper, blind });
@@ -559,34 +559,39 @@ function buildRangedDamageFormula(actor, { extraDie = false } = {}) {
 
 async function promptRangedAttackOptions(actor) {
   const baseRange = Number(actor?.system?._derived?.rangedRange ?? 8) || 8;
+  const readDeclaration = (root) => {
+    return {
+      modifier: Number(root?.querySelector('[name="modifier"]')?.value ?? 0) || 0,
+      longRange: Boolean(root?.querySelector('[name="longRange"]')?.checked),
+      spareAmmo: Boolean(root?.querySelector('[name="spareAmmo"]')?.checked),
+    };
+  };
   return customDialog({
     layout: "workflow",
+    render: (_event, dialog) => bindTNEstimates(dialog.element, () => {
+      const declaration = readDeclaration(dialog.element);
+      return buildWarfareDisciplineTN(actor, { manualModifier: declaration.modifier, extraBreakdown: buildRangedDisciplineModifiers(actor, declaration) });
+    }),
     title: `${actor?.name ?? "Unit"} - Ranged Attack`,
     content: `
       <div class="warfare-discipline-dialog">
+        ${renderTNSummary("Ranged Attack")}
         <div class="form-group">
           <label>Modifier</label>
           <input type="number" name="modifier" value="0" style="width:90px;">
         </div>
         <div class="form-group">
-          <label><input type="checkbox" name="longRange"> Long Range (-10 TN)</label>
+          <label class="uesrpg-adv-choice uesrpg-choice-bar"><input type="checkbox" name="longRange"><span class="uesrpg-adv-choice__label">Long Range (-10 TN)</span></label>
         </div>
         <div class="form-group">
-          <label><input type="checkbox" name="spareAmmo"> Use Spare Ammunition (extra die)</label>
+          <label class="uesrpg-adv-choice uesrpg-choice-bar"><input type="checkbox" name="spareAmmo"><span class="uesrpg-adv-choice__label">Use Spare Ammunition (extra die)</span></label>
         </div>
         <p class="notes">Base range: ${baseRange}. On success: DMG + DoS vs AR and the attacker becomes Suppressed. On failure: the target becomes Suppressed.</p>
       </div>`,
     buttons: {
       roll: {
         label: "Resolve",
-        callback: (html) => {
-          const root = html instanceof HTMLElement ? html : html?.[0];
-          return {
-            modifier: Number(root?.querySelector('[name="modifier"]')?.value ?? 0) || 0,
-            longRange: Boolean(root?.querySelector('[name="longRange"]')?.checked),
-            spareAmmo: Boolean(root?.querySelector('[name="spareAmmo"]')?.checked),
-          };
-        },
+        callback: (html) => readDeclaration(html instanceof HTMLElement ? html : html?.[0]),
       },
       cancel: { label: "Cancel" },
     },
@@ -610,9 +615,7 @@ export async function rollWarfareRangedAttack(actor) {
   const choices = await promptRangedAttackOptions(actor);
   if (!choices) return false;
 
-  const extraBreakdown = [];
-  if (choices.longRange) extraBreakdown.push({ label: "Long Range", value: -10 });
-  if (actor?.system?._derived?.traditionKey === "reach") extraBreakdown.push({ label: "Crag War", value: 10 });
+  const extraBreakdown = buildRangedDisciplineModifiers(actor, choices);
   const rollData = await rollDiscipline(actor, {
     modifier: choices.modifier,
     extraBreakdown,
@@ -623,7 +626,7 @@ export async function rollWarfareRangedAttack(actor) {
   if (rollData.result?.isSuccess) {
     const formula = `${buildRangedDamageFormula(actor, { extraDie: choices.spareAmmo })} + ${Math.max(0, Number(rollData.result?.degree ?? 0) || 0)}`;
     const dmgRoll = await (new Roll(formula)).evaluate();
-    await showRoll3d(dmgRoll);
+    showRoll3d(dmgRoll, actor, { messageMode: "public", damageType: "physical" });
     const rawTotal = Math.max(0, Number(dmgRoll.total ?? 0) || 0);
     const ar = Number(targetRef.actor?.system?.gear?.ar ?? 0) || 0;
     const loss = Math.max(0, rawTotal - ar);
@@ -674,11 +677,22 @@ async function promptSpellChoice(actor) {
     const count = Number(choice.entry?.count ?? 1) || 1;
     return `<option value="${optionIndex}">${name} (${family}, x${count})</option>`;
   }).join("");
+  const readDeclaration = (root) => {
+    return {
+      selectionIndex: Number(root?.querySelector('[name="entryIndex"]')?.value ?? -1),
+      modifier: Number(root?.querySelector('[name="modifier"]')?.value ?? 0) || 0,
+    };
+  };
   return customDialog({
     layout: "workflow",
+    render: (_event, dialog) => bindTNEstimates(dialog.element, () => {
+      const declaration = readDeclaration(dialog.element);
+      return buildWarfareDisciplineTN(actor, { manualModifier: declaration.modifier });
+    }),
     title: `${actor?.name ?? "Unit"} - Cast a Spell`,
     content: `
       <div class="warfare-discipline-dialog">
+        ${renderTNSummary("Cast a Spell")}
         <div class="form-group">
           <label>Spell Source</label>
           <select name="entryIndex">${options}</select>
@@ -691,13 +705,7 @@ async function promptSpellChoice(actor) {
     buttons: {
       cast: {
         label: "Cast",
-        callback: (html) => {
-          const root = html instanceof HTMLElement ? html : html?.[0];
-          return {
-            selectionIndex: Number(root?.querySelector('[name="entryIndex"]')?.value ?? -1),
-            modifier: Number(root?.querySelector('[name="modifier"]')?.value ?? 0) || 0,
-          };
-        },
+        callback: (html) => readDeclaration(html instanceof HTMLElement ? html : html?.[0]),
       },
       cancel: { label: "Cancel" },
     },
@@ -749,7 +757,7 @@ export async function castWarfareSpell(actor) {
       const targetRef = getTargetWarfareUnit(actor, { allowSelf: true });
       if (targetRef) {
         const healRoll = await (new Roll(formula)).evaluate();
-        await showRoll3d(healRoll);
+        showRoll3d(healRoll, actor, { messageMode: "public", damageType: "healing" });
         const healed = await applyWarfareConditionDelta({ actor: targetRef.actor }, Number(healRoll.total ?? 0) || 0);
         note = `Success - ${name} restored ${healed.restored} Resolve.`;
       }
@@ -757,7 +765,7 @@ export async function castWarfareSpell(actor) {
       const targetRef = getTargetWarfareUnit(actor, { allowSelf: true });
       if (targetRef) {
         const restoreRoll = await (new Roll(formula)).evaluate();
-        await showRoll3d(restoreRoll);
+        showRoll3d(restoreRoll, actor, { messageMode: "public" });
         const restore = applyDisciplineRestorePatch(targetRef.actor, Number(restoreRoll.total ?? 0) || 0);
         await requestUpdateDocument(targetRef.actor, {
           "system.modifiers.discipline.manual": Number(targetRef.actor?.system?.modifiers?.discipline?.manual ?? 0) + restore.restored,
@@ -768,7 +776,7 @@ export async function castWarfareSpell(actor) {
       const targetRef = getTargetWarfareUnit(actor);
       if (targetRef) {
         const dmgRoll = await (new Roll(formula)).evaluate();
-        await showRoll3d(dmgRoll);
+        showRoll3d(dmgRoll, actor, { messageMode: "public", damageType: key.replace("Channels", "") });
         const raw = Math.max(0, Number(dmgRoll.total ?? 0) || 0);
         const mar = Number(targetRef.actor?.system?.gear?.mar ?? 0) || 0;
         const loss = Math.max(0, raw - mar);
@@ -1172,12 +1180,12 @@ async function handleCharge(actor, entry, actionType) {
 
 async function handleAmbush(actor, entry, actionType) {
   const baseTn = Number(actor?.system?.stats?.discipline?.value ?? 0) || 0;
-  const modifier = await promptDisciplineModifier(`${actor.name} - Ambush`, baseTn, "Blind GM roll. On success, gain Hidden and Ambush Ready.");
-  if (modifier === null || modifier === undefined) return false;
   const extraBreakdown = [];
   if (actor?.system?._derived?.fieldcraftActive) extraBreakdown.push({ label: "Fieldcraft", value: 10 });
   if (actor?.system?._derived?.implementEntries?.some?.((item) => item.key === "veilChannel")) extraBreakdown.push({ label: "Veil Channel", value: 10 });
-  const rollData = await rollDiscipline(actor, { modifier, extraBreakdown });
+  const modifier = await promptDisciplineModifier(actor, `${actor.name} - Ambush`, baseTn, "Blind GM roll. On success, gain Hidden and Ambush Ready.", { extraBreakdown });
+  if (modifier === null || modifier === undefined) return false;
+  const rollData = await rollDiscipline(actor, { modifier, extraBreakdown, whisper: getGmRecipients(), blind: true });
   const whisper = getGmRecipients();
 
   if (rollData.result?.isSuccess) {
@@ -1219,14 +1227,14 @@ async function handleAmbush(actor, entry, actionType) {
 
 async function handleScout(actor, entry, actionType) {
   const baseTn = Number(actor?.system?.stats?.discipline?.value ?? 0) || 0;
-  const modifier = await promptDisciplineModifier(`${actor.name} - Scout`, baseTn, "Blind GM roll. Compare this unit's DoS against hostile ambushers.");
-  if (modifier === null || modifier === undefined) return false;
   const extraBreakdown = [];
   if (actor?.system?._derived?.fieldcraftActive) extraBreakdown.push({ label: "Fieldcraft", value: 10 });
   if (Number(actor?.system?._derived?.breakScoutBonus ?? 0) > 0) {
     extraBreakdown.push({ label: "Scout Bonus", value: Number(actor.system._derived.breakScoutBonus) || 0 });
   }
-  const rollData = await rollDiscipline(actor, { modifier, extraBreakdown });
+  const modifier = await promptDisciplineModifier(actor, `${actor.name} - Scout`, baseTn, "Blind GM roll. Compare this unit's DoS against hostile ambushers.", { extraBreakdown });
+  if (modifier === null || modifier === undefined) return false;
+  const rollData = await rollDiscipline(actor, { modifier, extraBreakdown, whisper: getGmRecipients(), blind: true });
   const note = rollData.result?.isSuccess
     ? `Success - compare ${rollData.result?.degree ?? 0} DoS against hostile ambush attempts. Hidden enemy units that do not beat this result are revealed.`
     : "Failure - the unit does not reveal hostile ambushers this movement.";
@@ -1248,6 +1256,7 @@ async function handleGeneric(actor, entry, actionType) {
 
 async function handleAdvance(actor, entry, actionType) {
   const modifier = await promptDisciplineModifier(
+    actor,
     `${actor.name} - Advance`,
     Number(actor?.system?.stats?.discipline?.value ?? 0) || 0,
     "On success, the unit may move up to double its current Speed this Activation."
@@ -1517,4 +1526,11 @@ export function registerWarfareAttachmentHooks() {
     _leaderToWarfare.clear();
     _tokenPositionCache.clear();
   });
+}
+
+function buildRangedDisciplineModifiers(actor, choices) {
+  const extraBreakdown = [];
+  if (choices.longRange) extraBreakdown.push({ label: "Long Range", value: -10 });
+  if (actor?.system?._derived?.traditionKey === "reach") extraBreakdown.push({ label: "Crag War", value: 10 });
+  return extraBreakdown;
 }

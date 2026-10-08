@@ -1,3 +1,4 @@
+import { renderTNSummary, bindTNEstimates } from "../../../../ui/shared/tn-presentation.js";
 /**
  * src/core/combat/opposed/actions/defender-roll.js
  * Defender No Defense and Defender Roll handlers for opposed workflow
@@ -323,14 +324,86 @@ export async function handleDefenderRoll(ctx) {
     choice.label = "Ward";
   }
 
+  const manualMod = _asNumber(choice.manualMod ?? 0);
+  const circumstanceMod = _asNumber(choice.circumstanceMod ?? 0);
+  const situationalMods = _collectDefenseSensorySituationalMods(choice, defender);
+  const computeDeclaredDefenseTN = (override = null) => {
+    const tn = computeTN({
+      actor: defender,
+      role: "defender",
+      defenseType: choice.defenseType,
+      styleUuid: choice.styleUuid ?? choice.styleId ?? null,
+      manualMod,
+      circumstanceMod,
+      situationalMods,
+      context: {
+        opponentUuid: attacker?.uuid ?? null,
+        attackMode: data.context?.attackMode ?? "melee",
+        movementAction: defenderMovementAction,
+        ...(choice.defenseType === "block"
+          ? {
+            blockSource: String(choice?.blockSource ?? "shield").toLowerCase(),
+            wardSpell: String(choice?.blockSource ?? "shield").toLowerCase() === "ward" ? getPreferredWardDefenseSpell(defender) : null
+          }
+          : {}),
+        ...(override ? { tnOverride: override } : {})
+      }
+    });
+  
+    // Combat talents that modify defender TN outside the base TN computation.
+    // (Lightning Reflexes: Parry vs ranged at -20)
+    applyDefenderTalentTNMods({
+      defender,
+      defenseType: choice.defenseType,
+      attackMode: data.context?.attackMode ?? "melee",
+      tn,
+      attackerWeaponTraits
+    });
+  
+    // ── Homebrew: Reach & Length — Length Penalty TN injection ────────────────
+    {
+      const attackerWeapon = (() => {
+        try {
+          const uuid = String(data?.context?.weaponUuid ?? "").trim();
+          if (!uuid) return null;
+          const doc = _resolveItemViaActor(uuid, attacker);
+          return doc?.type === "weapon" ? doc : null;
+        } catch { return null; }
+      })();
+      const defenderWeapon = _resolveDefenderWeapon(defender, choice);
+      const mode = String(data?.context?.attackMode ?? "melee").toLowerCase();
+      const attackerMelee = String(attackerWeapon?.system?.attackMode ?? "").toLowerCase() === "melee";
+      const defenderMelee = String(defenderWeapon?.system?.attackMode ?? "").toLowerCase() === "melee";
+      if (mode === "melee" && attackerMelee && defenderMelee) {
+        applyLengthPenaltyToTN({
+          tn,
+          ownWeapon: defenderWeapon,
+          opponentWeapon: attackerWeapon,
+          ownerToken: dToken ?? null,
+          opponentToken: aToken ?? null,
+          ownerActor: defender ?? null,
+          ownRole: "defender"
+        });
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+  
+    return tn;
+  };
+
   // Fearsome (OPTIONAL): if Evade was selected and Fearsome is available, prompt for which test to roll.
   let fearsomeTNOverride = null;
   if (choice.defenseType === "evade" && fearsomeContext?.fearsome?.available) {
     const usePersuade = await customDialog({
       layout: "workflow",
       title: t("UESRPG.Dialogs.Opposed.Fearsome", "Fearsome"),
+      render: (_event, dialog) => bindTNEstimates(dialog.element, () => [
+        { key: "evade", result: computeDeclaredDefenseTN() },
+        { key: "persuade", result: computeDeclaredDefenseTN(fearsomeContext.fearsome.payload) },
+      ]),
       content: `
         <div class="uesrpg">
+          ${renderTNSummary([{ key: "evade", label: "Evade" }, { key: "persuade", label: "Persuade (Strength)" }])}
           <p>${tf("UESRPG.Dialogs.Opposed.FearsomeBody", { defender: foundry.utils.escapeHTML(defender.name) }, `<b>${foundry.utils.escapeHTML(defender.name)}</b> may use <b>Persuade (Strength)</b> in place of <b>Evade</b> when taking an Evade reaction against melee attacks.`)}</p>
           <p>${t("UESRPG.Dialogs.Opposed.ChooseReactionTest", "Choose which test to roll for this reaction.")}</p>
         </div>
@@ -478,69 +551,7 @@ export async function handleDefenderRoll(ctx) {
     data.defender.testLabel = "(Combat Style)";
   }
 
-  const manualMod = _asNumber(choice.manualMod ?? 0);
-  const circumstanceMod = _asNumber(choice.circumstanceMod ?? 0);
-  const situationalMods = _collectDefenseSensorySituationalMods(choice, defender);
-  const tn = computeTN({
-    actor: defender,
-    role: "defender",
-    defenseType: choice.defenseType,
-    styleUuid: choice.styleUuid ?? choice.styleId ?? null,
-    manualMod,
-    circumstanceMod,
-    situationalMods,
-    context: {
-      opponentUuid: attacker?.uuid ?? null,
-      attackMode: data.context?.attackMode ?? "melee",
-      movementAction: defenderMovementAction,
-      ...(choice.defenseType === "block"
-        ? {
-          blockSource: data.defender.blockSource ?? "shield",
-          wardSpell: data.defender.blockSource === "ward" ? getPreferredWardDefenseSpell(defender) : null
-        }
-        : {}),
-      ...(fearsomeTNOverride ? { tnOverride: fearsomeTNOverride } : {})
-    }
-  });
-
-  // Combat talents that modify defender TN outside the base TN computation.
-  // (Lightning Reflexes: Parry vs ranged at -20)
-  applyDefenderTalentTNMods({
-    defender,
-    defenseType: choice.defenseType,
-    attackMode: data.context?.attackMode ?? "melee",
-    tn,
-    attackerWeaponTraits
-  });
-
-  // ── Homebrew: Reach & Length — Length Penalty TN injection ────────────────
-  {
-    const attackerWeapon = (() => {
-      try {
-        const uuid = String(data?.context?.weaponUuid ?? "").trim();
-        if (!uuid) return null;
-        const doc = _resolveItemViaActor(uuid, attacker);
-        return doc?.type === "weapon" ? doc : null;
-      } catch { return null; }
-    })();
-    const defenderWeapon = _resolveDefenderWeapon(defender, choice);
-    const mode = String(data?.context?.attackMode ?? "melee").toLowerCase();
-    const attackerMelee = String(attackerWeapon?.system?.attackMode ?? "").toLowerCase() === "melee";
-    const defenderMelee = String(defenderWeapon?.system?.attackMode ?? "").toLowerCase() === "melee";
-    if (mode === "melee" && attackerMelee && defenderMelee) {
-      applyLengthPenaltyToTN({
-        tn,
-        ownWeapon: defenderWeapon,
-        opponentWeapon: attackerWeapon,
-        ownerToken: dToken ?? null,
-        opponentToken: aToken ?? null,
-        ownerActor: defender ?? null,
-        ownRole: "defender"
-      });
-    }
-  }
-  // ─────────────────────────────────────────────────────────────────────────
-
+  const tn = computeDeclaredDefenseTN(fearsomeTNOverride);
   data.defender.target = tn.finalTN;
   const declaredMod = (Number(manualMod) || 0) + (Number(circumstanceMod) || 0);
   data.defender.targetLabel = declaredMod
@@ -603,7 +614,7 @@ export async function handleDefenderRoll(ctx) {
       console.warn("UESRPG | combat talent DoS adjustment (defender) failed", err);
     }
 
-    _emitSuppressedSubRollDice(res.roll, { rollMode: getCoreRollMode() });
+    _emitSuppressedSubRollDice(res.roll, { rollMode: getCoreRollMode(), actor: defender, message, user: game.user });
 
     data.defender.result = {
       rollTotal: res.rollTotal,

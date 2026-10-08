@@ -1,4 +1,5 @@
 import { escapeHtml } from "../../../../utils/html.js";
+import { renderTNPill, updateTNPill } from "../../../../ui/shared/tn-presentation.js";
 /**
  * @module magic/opposed/actions/attacker
  *
@@ -27,6 +28,8 @@ import { buildCircumstanceOptionsHtml } from "../../../opposed/circumstance.js";
 import { cloneFlagState } from "../../../../utils/clone.js";
 import { commitLaneToFreshCardState } from "../../../opposed/shared/fresh-commit.js";
 import { resolveSpellProfile } from "../../spell-profile.js";
+import { buildCastingOptionPresentation } from "../../dialogs/casting-option-presentation.js";
+import { systemTooltipAttributes, setSystemOptionTooltip, setSystemTooltip } from "../../../../ui/shared/system-tooltips.js";
 import { t, tf } from "../../../../utils/i18n.js";
 import {
   buildAutomaticEnchantmentCastResult,
@@ -193,6 +196,7 @@ async function _setEnchantmentUpkeepPointerIfNeeded(attacker, data, spell, origi
     item: itemCtx.item,
     sourceLane: itemCtx.sourceLane,
     slotId: itemCtx.slotId,
+    strict: true,
     excludeOriginUuid: originEffect?.uuid ?? originEffect?.id ?? ""
   });
 }
@@ -223,7 +227,7 @@ function _difficultyOptionsHtml(selectedKey = "average") {
   }).join("");
 }
 
-async function promptCastingCommitChoice(attacker, attackerState = {}) {
+async function promptCastingCommitChoice(attacker, attackerState = {}, targetActor = null) {
   const castActionType = String(attackerState?.castActionType ?? "primary");
   const spells = _buildCommitSpellPool(attacker, castActionType);
   if (!spells.length) {
@@ -244,11 +248,9 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
   const hasOverchargeTalent = Array.from(attacker?.items ?? []).some((i) => i?.type === "talent" && i?.name === "Overcharge");
   const hasMagickaCyclingTalent = Array.from(attacker?.items ?? []).some((i) => i?.type === "talent" && i?.name === "Magicka Cycling");
   const hasMasterOfMagickaTalent = Array.from(attacker?.items ?? []).some((i) => i?.type === "talent" && i?.name === "Master of Magicka");
-  const preferredRestraintProfile = resolveSpellProfile(preferredSpell, attacker, {
-    isRestrained: true,
-    isOverloaded: false
+  const initialPresentation = buildCastingOptionPresentation(attacker, preferredSpell, {
+    hasMasterOfMagicka: hasMasterOfMagickaTalent, useMagickaCycling: false,
   });
-  const preferredRestraintReduction = Number(preferredRestraintProfile?.cost?.effectiveRestraintReduction ?? preferredRestraintProfile?.cost?.restrained?.reduction ?? 0) || 0;
 
   const spellOptions = spells.map((s) => {
     const school = String(s?.system?.school ?? "");
@@ -261,8 +263,8 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
     layout: "workflow",
     title: t("UESRPG.Sheets.Combat.CastMagic", "Cast Magic"),
     content: `
-        <div class="uesrpg uesrpg-adv-dialog uesrpg-adv-dialog--magic-cast">
-          <div class="uesrpg-dialog-section-header">${t("UESRPG.Sheets.Combat.CastMagic", "Cast Magic")}</div>
+        <div class="uesrpg uesrpg-dialog-stack uesrpg-adv-dialog uesrpg-adv-dialog--magic-cast uesrpg-adv-dialog--choice-bars">
+          <div class="uesrpg-spell-options__head"><div class="uesrpg-dialog-section-header">${t("UESRPG.Sheets.Combat.CastMagic", "Cast Magic")}</div>${renderTNPill("casting")}</div>
           <div class="form-group">
             <label><b>${t("UESRPG.Dialogs.SpellOptions.SelectSpellToCommit", "Select Spell to Commit")}</b></label>
             <select name="spellId" style="width:100%;">${spellOptions}</select>
@@ -283,28 +285,26 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
             <label><b>${t("UESRPG.Chat.Common.ManualModifier", "Manual modifier")}</b></label>
             <input type="number" name="manualModifier" value="${startingManual}" step="1" />
           </div>
-          <div class="uesrpg-defense-flags">
-            <span class="uesrpg-defense-flags__label">${t("UESRPG.Dialogs.SpellOptions.CastingOptions", "Casting Options")}</span>
-            <div class="uesrpg-defense-flags__items">
-              <label class="uesrpg-inline-check" id="ues-restrain-group">
+          <div class="uesrpg-dialog-section-header">${t("UESRPG.Dialogs.SpellOptions.CastingOptions", "Casting Options")}</div>
+          <div class="uesrpg-spell-option-grid">
+              <label class="uesrpg-adv-choice uesrpg-choice-bar" id="ues-restrain-group" ${systemTooltipAttributes({ text: initialPresentation.restraintHelp })}>
                 <input type="checkbox" name="restrain" />
-                <span><b>${t("UESRPG.Dialogs.SpellOptions.SpellRestraint", "Spell Restraint")}</b> ${tf("UESRPG.Dialogs.SpellOptions.ReduceCostMin", { value: preferredRestraintReduction }, `(reduce cost by ${preferredRestraintReduction} to min 1)`)}</span>
+                <span class="uesrpg-adv-choice__label"><b data-ues-restraint-label>${escapeHtml(initialPresentation.restraintLabel)}</b></span>
               </label>
-              <label class="uesrpg-inline-check" id="ues-overload-group" style="display:none;">
+              <label class="uesrpg-adv-choice uesrpg-choice-bar" id="ues-overload-group" ${systemTooltipAttributes({ text: initialPresentation.overloadHelp })}>
                 <input type="checkbox" name="overload" />
-                <span><b>${t("UESRPG.Dialogs.SpellOptions.Overload", "Overload")}</b></span>
+                <span class="uesrpg-adv-choice__label"><b>${t("UESRPG.Dialogs.SpellOptions.Overload", "Overload")}</b></span>
               </label>
               ${hasOverchargeTalent ? `
-              <label class="uesrpg-inline-check">
+              <label class="uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: initialPresentation.overchargeHelp })}>
                 <input type="checkbox" name="overcharge" />
-                <span><b>${t("UESRPG.Dialogs.SpellOptions.Overcharge", "Overcharge")}</b> ${t("UESRPG.Dialogs.SpellOptions.TalentOption", "(talent option)")}</span>
+                <span class="uesrpg-adv-choice__label"><b>${t("UESRPG.Dialogs.SpellOptions.Overcharge", "Overcharge")}</b></span>
               </label>` : ""}
               ${hasMagickaCyclingTalent ? `
-              <label class="uesrpg-inline-check">
+              <label class="uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: initialPresentation.magickaCyclingHelp })}>
                 <input type="checkbox" name="magickaCycling" />
-                <span><b>${t("UESRPG.Dialogs.SpellOptions.MagickaCycling", "Magicka Cycling")}</b> ${t("UESRPG.Dialogs.SpellOptions.TalentOption", "(talent option)")}</span>
+                <span class="uesrpg-adv-choice__label"><b>${t("UESRPG.Dialogs.SpellOptions.MagickaCycling", "Magicka Cycling")}</b></span>
               </label>` : ""}
-            </div>
           </div>
         </div>
       `,
@@ -366,6 +366,41 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
         const restrainBox = root?.querySelector('input[name="restrain"]');
         const overloadGroup = root?.querySelector("#ues-overload-group");
         const overloadBox = root?.querySelector('input[name="overload"]');
+        const overchargeBox = root?.querySelector('input[name="overcharge"]');
+        const cyclingBox = root?.querySelector('input[name="magickaCycling"]');
+        const difficultySelect = root?.querySelector('select[name="difficultyKey"]');
+        const circumstanceSelect = root?.querySelector('select[name="circumstanceMod"]');
+        const manualInput = root?.querySelector('input[name="manualModifier"]');
+
+        const refreshPresentation = () => {
+          const selectedSpell = byId.get(String(spellSelect?.value ?? "")) ?? spells[0];
+          if (!selectedSpell) return;
+          const level = Number(castLevelSelect?.value) || null;
+          const tn = computeMagicCastingTN(attacker, selectedSpell, {
+            level,
+            difficultyKey: difficultySelect?.value ?? "average",
+            circumstanceMod: Number(circumstanceSelect?.value) || 0,
+            manualModifier: Number(manualInput?.value) || 0,
+            isRestrained: Boolean(restrainBox?.checked), isOverloaded: Boolean(overloadBox?.checked),
+            useOvercharge: Boolean(overchargeBox?.checked), useMagickaCycling: Boolean(cyclingBox?.checked),
+            opposingActor: targetActor, targetActor,
+          });
+          updateTNPill(root, "casting", tn);
+          const presentation = buildCastingOptionPresentation(attacker, selectedSpell, {
+            level, isRestrained: Boolean(restrainBox?.checked), isOverloaded: Boolean(overloadBox?.checked),
+            useOvercharge: Boolean(overchargeBox?.checked), useMagickaCycling: Boolean(cyclingBox?.checked),
+            hasMasterOfMagicka: hasMasterOfMagickaTalent,
+          });
+          const restraintLabel = root?.querySelector('[data-ues-restraint-label]');
+          if (restraintLabel) restraintLabel.textContent = presentation.restraintLabel;
+          setSystemOptionTooltip(restrainBox, presentation.restraintHelp);
+          setSystemOptionTooltip(overloadBox, presentation.overloadHelp);
+          setSystemOptionTooltip(overchargeBox, presentation.overchargeHelp);
+          setSystemOptionTooltip(cyclingBox, presentation.magickaCyclingHelp);
+          setSystemTooltip(spellSelect, { text: presentation.costHelp });
+          root?.querySelector('#ues-restrain-group')?.classList.toggle('is-incompatible', Boolean(overloadBox?.checked) && !hasMasterOfMagickaTalent);
+          overloadGroup?.classList.toggle('is-incompatible', Boolean(restrainBox?.checked) && !hasMasterOfMagickaTalent);
+        };
 
         const rebuildForSpell = () => {
           const selectedSpell = byId.get(String(spellSelect?.value ?? "")) ?? spells[0];
@@ -374,15 +409,6 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
           const rawScalingLevels = getKnownSpellScalingLevels(selectedSpell);
           const baseLevel = Number(rawScalingLevels[0]?.level ?? getSpellLevel(selectedSpell)) || 1;
           const baseCost = Number(getSpellCost(selectedSpell, baseLevel) ?? 0) || 0;
-          const restraintLabel = root?.querySelector('#ues-restrain-group span');
-          const restraintProfile = resolveSpellProfile(selectedSpell, attacker, {
-            isRestrained: true,
-            isOverloaded: false
-          });
-          const restraintReduction = Number(restraintProfile?.cost?.effectiveRestraintReduction ?? restraintProfile?.cost?.restrained?.reduction ?? 0) || 0;
-          if (restraintLabel) {
-            restraintLabel.innerHTML = `<b>${t("UESRPG.Dialogs.SpellOptions.SpellRestraint", "Spell Restraint")}</b> ${tf("UESRPG.Dialogs.SpellOptions.ReduceCostMin", { value: restraintReduction }, `(reduce cost by ${restraintReduction} to min 1)`)}`;
-          }
           
           // Filter and validate scaling levels
           const validScalingLevels = [];
@@ -435,6 +461,7 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
               restrainBox.checked = false;
             }
           }
+          refreshPresentation();
         };
 
         if (spellSelect) {
@@ -445,11 +472,20 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
         if (restrainBox && overloadBox) {
           restrainBox.addEventListener("change", () => {
             if (restrainBox.checked && !hasMasterOfMagickaTalent) overloadBox.checked = false;
+            refreshPresentation();
           });
           overloadBox.addEventListener("change", () => {
             if (overloadBox.checked && !hasMasterOfMagickaTalent) restrainBox.checked = false;
+            refreshPresentation();
           });
         }
+
+        castLevelSelect?.addEventListener("change", refreshPresentation);
+        overchargeBox?.addEventListener("change", refreshPresentation);
+        cyclingBox?.addEventListener("change", refreshPresentation);
+        difficultySelect?.addEventListener("change", refreshPresentation);
+        circumstanceSelect?.addEventListener("change", refreshPresentation);
+        manualInput?.addEventListener("input", refreshPresentation);
 
         rebuildForSpell();
       },
@@ -489,7 +525,9 @@ export async function handleAttackerCommit(ctx) {
   }
 
   if (data.attacker?.pendingSpellChoice === true || !data.attacker?.spellUuid || !data.attacker?.tn) {
-    const picked = await promptCastingCommitChoice(attacker, data.attacker ?? {});
+    const primaryDef = getDefenderEntries(data)[0] ?? null;
+    const targetActor = getActorFromResolvedDocument(resolveUuidSync(String(primaryDef?.actorUuid ?? "").trim()));
+    const picked = await promptCastingCommitChoice(attacker, data.attacker ?? {}, targetActor);
     if (!picked?.spell) return;
 
     const spell = picked.spell;
@@ -533,8 +571,6 @@ export async function handleAttackerCommit(ctx) {
       }
     }
 
-    const primaryDef = getDefenderEntries(data)[0] ?? null;
-    const targetActor = getActorFromResolvedDocument(resolveUuidSync(String(primaryDef?.actorUuid ?? "").trim()));
     const tn = computeMagicCastingTN(attacker, spell, { ...spellOptions, opposingActor: targetActor, targetActor });
     const targetToken = (() => {
       const tokenUuid = String(primaryDef?.tokenUuid ?? "").trim();
@@ -866,9 +902,13 @@ export async function handleAttackerRoll(ctx) {
       try {
         const defUuids = defenders.map((d) => d?.actorUuid).filter(Boolean);
         originAE = await createOriginAE(attacker, spell, {
+          strict: true,
+          isCritical: Boolean(result.isCriticalSuccess),
           costPaid: Number(workingData.attacker.mpSpent ?? magickaSpend?.consumed ?? 0) || 0,
           scalingChoices: (workingData.attacker?.spellOptions?.castLevel) ? { level: workingData.attacker.spellOptions.castLevel } : null,
           spellOptions: workingData.attacker?.spellOptions ?? {},
+          castContext: workingData.attacker?.castContext ?? null,
+          message,
           targetUuids: defUuids,
           castWorldTime: Number(game.time?.worldTime ?? 0) || 0,
           castSource: workingData.attacker?.castSource ?? null,
@@ -892,21 +932,33 @@ export async function handleAttackerRoll(ctx) {
                 type: areaType,
                 uuid: areaUuid,
                 label: `${spell.name} AoE`
-              });
+              }, { strict: true });
             } catch (_tplErr) {
+              workingData.context.automationCompletion = { status: "partial", failed: [{ stage: "areaLink", message: String(_tplErr.message ?? _tplErr) }] };
               console.warn("UESRPG | Failed to link AoE area to Origin AE", _tplErr);
             }
           }
         }
       } catch (_e) {
+        originAE = _e.originEffect ?? null;
+        workingData.context.automationCompletion = { status: "partial", failed: [{ stage: "origin", message: String(_e.message ?? _e) }] };
         console.warn("UESRPG | Failed to create Origin AE for opposed spell", _e);
       }
     }
 
+    if (originAE?.flags?.[FLAG_SCOPE]?.castContext?.spellStrengthResolved) {
+      workingData.attacker.castContext = originAE.flags[FLAG_SCOPE].castContext;
+    }
     workingData.attacker.result = result;
     workingData.attacker.backfire = needsBackfire;
     if (result.isSuccess) {
-      await _setEnchantmentUpkeepPointerIfNeeded(attacker, workingData, spell, originAE);
+      try { await _setEnchantmentUpkeepPointerIfNeeded(attacker, workingData, spell, originAE); }
+      catch (error) {
+        const completion = workingData.context.automationCompletion ?? { failed: [] };
+        completion.status = "partial";
+        completion.failed.push({ stage: "upkeep", message: String(error.message ?? error) });
+        workingData.context.automationCompletion = completion;
+      }
     }
 
   // Direct and healing spells skip the standard Block/Evade/Ward defense step

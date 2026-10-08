@@ -9,6 +9,7 @@ import { registerWarfareBattlefieldHooks } from "../../core/mass-warfare/battlef
 import { registerWarfareCampaignHooks } from "../../core/mass-warfare/campaign/hooks.js";
 import { registerOnce } from "../_internal/hook-registry.js";
 import { registerGenericAELifecycleHooks } from "../../core/active-effects/lifecycle.js";
+import { registerEffectDrops } from "./register-effect-drops.js";
 
 export function registerCoreSubsystems() {
   registerOnce("hooks:core-subsystems", () => {
@@ -21,6 +22,7 @@ export function registerCoreSubsystems() {
     registerWarfareBattlefieldHooks();
     registerWarfareCampaignHooks();
     registerGenericAELifecycleHooks();
+    registerEffectDrops();
 
     try {
       registerFrenzied();

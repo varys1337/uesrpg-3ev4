@@ -1,3 +1,5 @@
+import { computeCharacteristicTN } from "./helpers.js";
+import { renderTNSummary, bindTNEstimates } from "../../../ui/shared/tn-presentation.js";
 /**
  * src/core/characteristics/opposed/dialogs.js
  * Dialog UI for characteristic opposed tests
@@ -22,6 +24,8 @@ import { t } from "../../../utils/i18n.js";
  */
 export async function _charTestDialog({
   title = t("UESRPG.Dialogs.CharacteristicTest.Title"),
+  actor = null,
+  ssModifier = 0,
   defaultCharKey = "wp",
   defaultCircumstanceMod = 0,
   defaultManualMod = 0,
@@ -40,8 +44,20 @@ export async function _charTestDialog({
       </div>`
     : `<input type="hidden" name="charKey" value="${_esc(defaultCharKey)}" />`;
 
+  const readDeclaration = (root) => {
+    const charKey = root?.querySelector('select[name="charKey"]')?.value
+      ?? root?.querySelector('input[name="charKey"]')?.value
+      ?? defaultCharKey;
+    const rawCircumstance = root?.querySelector('select[name="circumstanceMod"]')?.value ?? "0";
+    const circumstanceMod = Number.parseInt(String(rawCircumstance), 10) || 0;
+    const rawManual = root?.querySelector('input[name="manualMod"]')?.value ?? "0";
+    const manualMod = Number.parseInt(String(rawManual), 10) || 0;
+    return { charKey, circumstanceMod, manualMod };
+  };
+
   const content = `
     <div class="uesrpg-char-declare">
+      ${renderTNSummary(CHARACTERISTICS[defaultCharKey] ?? title)}
       ${charSelect}
       <div class="form-group" style="margin-top:8px;">
         <label><b>${t("UESRPG.Dialogs.CharacteristicTest.CircumstanceModifier")}</b></label>
@@ -58,21 +74,17 @@ export async function _charTestDialog({
       layout: "workflow",
       title,
       content,
+      render: (_event, dialog) => bindTNEstimates(dialog.element, () => {
+        const declaration = readDeclaration(dialog.element);
+        return [{ key: "test", label: CHARACTERISTICS[declaration.charKey] ?? title,
+          result: actor ? computeCharacteristicTN(actor, declaration.charKey, declaration.manualMod, declaration.circumstanceMod, ssModifier) : null,
+          reason: actor ? null : "Actor context is unavailable." }];
+      }),
       classes: ["uesrpg-attack-declare"],
       buttons: {
         ok: {
           label: t("UESRPG.Buttons.Roll"),
-          callback: (html) => {
-            const root = html instanceof HTMLElement ? html : html?.[0];
-            const charKey = root?.querySelector('select[name="charKey"]')?.value
-              ?? root?.querySelector('input[name="charKey"]')?.value
-              ?? defaultCharKey;
-            const rawCircumstance = root?.querySelector('select[name="circumstanceMod"]')?.value ?? "0";
-            const circumstanceMod = Number.parseInt(String(rawCircumstance), 10) || 0;
-            const rawManual = root?.querySelector('input[name="manualMod"]')?.value ?? "0";
-            const manualMod = Number.parseInt(String(rawManual), 10) || 0;
-            return { charKey, circumstanceMod, manualMod };
-          }
+          callback: (html) => readDeclaration(html instanceof HTMLElement ? html : html?.[0])
         },
         cancel: { label: t("UESRPG.Buttons.Cancel"), callback: () => null }
       },

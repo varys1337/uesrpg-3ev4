@@ -152,6 +152,20 @@ export function setSystemTooltip(element, { key = "", text = "", ariaLabel = "",
   return element;
 }
 
+/** Refresh an option's explanation after its native availability changes. */
+export function setSystemOptionTooltip(input, text) {
+  if (!_isElement(input)) return;
+  const label = input.closest("label");
+  if (!label) return;
+  const description = String(text ?? "").trim();
+  setSystemTooltip(label, { text: description });
+  if (description) input.setAttribute("aria-description", description);
+  else input.removeAttribute("aria-description");
+  // Disabled native inputs cannot receive focus; their label exposes the help.
+  if (input.disabled && description) label.setAttribute("tabindex", "0");
+  else label.removeAttribute("tabindex");
+}
+
 /**
  * Build tooltip attributes for system-owned HTML assembled before a DOM node
  * exists. Attribute values are escaped here so callers cannot accidentally

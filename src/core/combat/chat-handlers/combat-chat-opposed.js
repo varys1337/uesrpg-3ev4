@@ -1,3 +1,5 @@
+import { getPendingDefenseState, reconcileUnavailableDefenses } from "../../opposed/shared/automatic-no-defense.js";
+import { _resolveActorViaToken } from "../opposed/helpers/docs.js";
 /**
  * src/core/combat/chat-handlers/combat-chat-opposed.js
  *
@@ -21,6 +23,27 @@ async function _getMagicOpposedWorkflow() {
       .catch((_err) => null);
   }
   return await _magicOpposedWorkflowModulePromise;
+}
+
+async function reconcilePendingMessage(message) {
+  const pending = getPendingDefenseState(message);
+  if (!pending) return;
+  const workflow = pending.mode === "combat" ? OpposedWorkflow : await _getMagicOpposedWorkflow();
+  await reconcileUnavailableDefenses(message, workflow);
+}
+
+/** AP changes affect only unresolved cards involving this exact Actor/synthetic Actor. */
+export async function onUpdateActorOpposedDefenses(actor, changed) {
+  if (!foundry.utils.hasProperty(changed ?? {}, "system.action_points.value")) return;
+  const activeGM = game.users?.activeGM;
+  if (activeGM && game.user?.id !== activeGM.id) return;
+  for (const message of game.messages?.contents ?? []) {
+    const pending = getPendingDefenseState(message);
+    if (!pending) continue;
+    const affected = pending.defenders.some(lane => !lane?.banked?.committed && !lane?.result && !lane?.noDefense
+      && _resolveActorViaToken(lane?.actorUuid, lane?.tokenUuid)?.uuid === actor?.uuid);
+    if (affected) await reconcilePendingMessage(message);
+  }
 }
 
 // ── State readers ─────────────────────────────────────────────────────────────
@@ -135,6 +158,7 @@ export async function onMagicOpposedAction(ev, message) {
 // ── createChatMessage hook body ───────────────────────────────────────────────
 
 export function onCreateChatMessageOpposed(message) {
+  reconcilePendingMessage(message).catch(err => console.error("UESRPG | Pending defense reconciliation failed", err));
   maybeConsumeAmmoFromMessage(message).catch((err) =>
     console.error("UESRPG | Ammo consumption hook failed", err)
   );
@@ -204,8 +228,9 @@ export function onCreateChatMessageOpposed(message) {
 
 // ── updateChatMessage hook body ───────────────────────────────────────────────
 
-export function onUpdateChatMessageOpposed(message, changes) {
+export async function onUpdateChatMessageOpposed(message, changes) {
   try {
+    if (isRelevantOpposedUpdate(changes)) await reconcilePendingMessage(message);
     // Combat opposed workflow.
     const opposed = message?.flags?.["uesrpg-3ev4"]?.opposed ?? null;
     if (opposed) {

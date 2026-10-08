@@ -1,3 +1,5 @@
+import { acquireLock, releaseLock, lockKeyForDoc } from "../../utils/authority-proxy/shared.js";
+import { measurePerfStage } from "../../utils/perf-tracker.js";
 import {
   requestCreateEmbeddedDocuments,
   requestDeleteEmbeddedDocuments,
@@ -14,43 +16,58 @@ export function updateAlchemyChatMessage(message, payload = {}) {
   return requestUpdateChatMessage(message, payload);
 }
 
-export async function consumeOwnedItem(item) {
-  if (!item) {
-    return createAlchemyOperationResult({ reason: "Missing item." });
-  }
+const _pendingActivations = new Map();
 
-  const quantity = Number(item.system?.quantity ?? 1);
-  if (quantity <= 1) {
-    if (item.parent?.documentName === "Actor") {
-      await requestDeleteEmbeddedDocuments(item.parent, "Item", [item.id]);
-    } else {
-      await item.delete();
+/** Join pending use of one owned Item, including activations from different UI entry points. */
+export function runAlchemyItemActivation(item, run) {
+  const key = item?.uuid;
+  if (!key) return Promise.resolve(createAlchemyOperationResult({ reason: "Missing owned Item." }));
+  if (_pendingActivations.has(key)) return _pendingActivations.get(key);
+  const pending = measurePerfStage("consumption", "settlement", { itemUuid: key }, async () => {
+    const fresh = await fromUuid(key);
+    if (!fresh || !(Number(fresh.system?.quantity ?? 1) > 0)) {
+      ui.notifications?.warn?.("This Item is deleted or exhausted.");
+      return createAlchemyOperationResult({ reason: "This Item is deleted or exhausted.", execution: { status: "failed", committed: false } });
     }
-    return createAlchemyOperationResult({ ok: true, data: { deleted: true } });
-  }
+    return run(fresh);
+  }).catch(error => {
+    const reason = String(error.message ?? error);
+    ui.notifications?.warn?.(reason);
+    return createAlchemyOperationResult({ reason, execution: { status: "failed", committed: false } });
+  }).finally(() => _pendingActivations.delete(key));
+  _pendingActivations.set(key, pending);
+  return pending;
+}
 
-  await requestUpdateDocument(item, { "system.quantity": quantity - 1 });
-  return createAlchemyOperationResult({ ok: true, data: { deleted: false, quantity: quantity - 1 } });
+export function consumeOwnedItem(item) {
+  return consumeOwnedItemQuantity(item, 1);
 }
 
 export async function consumeOwnedItemQuantity(item, amount = 1) {
-  if (!item) return createAlchemyOperationResult({ reason: "Missing item." });
+  if (!item?.uuid) return createAlchemyOperationResult({ reason: "Missing item." });
   const requested = Math.max(1, Math.floor(Number(amount) || 1));
-  const quantity = Math.max(0, Number(item.system?.quantity ?? 1) || 0);
-  if (quantity < requested) {
-    return createAlchemyOperationResult({ reason: `Insufficient quantity: requires ${requested}, has ${quantity}.` });
+  const lockKey = lockKeyForDoc(item);
+  let acquired = false;
+  try {
+    await measurePerfStage("consumption", "queueWait", { itemUuid: item.uuid }, () => acquireLock(lockKey));
+    acquired = true;
+    const fresh = await fromUuid(item.uuid);
+    if (!fresh) return createAlchemyOperationResult({ reason: "The Item no longer exists." });
+    const quantity = Math.max(0, Number(fresh.system?.quantity ?? 1) || 0);
+    if (quantity < requested) return createAlchemyOperationResult({ reason: `Insufficient quantity: requires ${requested}, has ${quantity}.` });
+    const next = quantity - requested;
+    const confirmed = await measurePerfStage("consumption", "persistence", { itemUuid: item.uuid, writeCount: 1 }, () => next === 0
+      ? (fresh.parent?.documentName === "Actor" ? requestDeleteEmbeddedDocuments(fresh.parent, "Item", [fresh.id]) : fresh.delete().then(Boolean))
+      : requestUpdateDocument(fresh, { "system.quantity": next }));
+    return createAlchemyOperationResult({
+      ok: confirmed, reason: confirmed ? "" : "Item consumption was not confirmed.",
+      data: confirmed ? { deleted: next === 0, consumed: requested, quantity: next } : null,
+    });
+  } catch (error) {
+    return createAlchemyOperationResult({ reason: error?.message ?? String(error) });
+  } finally {
+    if (acquired) releaseLock(lockKey);
   }
-  if (quantity === requested) {
-    const deleted = item.parent?.documentName === "Actor"
-      ? await requestDeleteEmbeddedDocuments(item.parent, "Item", [item.id])
-      : Boolean(await item.delete());
-    if (!deleted) return createAlchemyOperationResult({ reason: "Ingredient deletion was rejected." });
-    return createAlchemyOperationResult({ ok: true, data: { deleted: true, consumed: requested } });
-  }
-  const next = quantity - requested;
-  const updated = await requestUpdateDocument(item, { "system.quantity": next });
-  if (!updated) return createAlchemyOperationResult({ reason: "Ingredient quantity update was rejected." });
-  return createAlchemyOperationResult({ ok: true, data: { deleted: false, consumed: requested, quantity: next } });
 }
 
 export async function createOwnedItem(actor, itemData) {
@@ -79,8 +96,8 @@ export async function createCarrierEffect(carrierItem, effectData) {
 }
 
 export async function clearLegacyAlchemyCarrierFlag(item, flagPath) {
-  await requestUpdateDocument(item, { [flagPath]: null });
-  return createAlchemyOperationResult({ ok: true });
+  const confirmed = await requestUpdateDocument(item, { [flagPath]: null }, { render: false });
+  return createAlchemyOperationResult({ ok: confirmed, reason: confirmed ? "" : "Carrier metadata cleanup failed." });
 }
 
 export async function updateAlchemyDocument(document, updateData) {

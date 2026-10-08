@@ -1,3 +1,5 @@
+import { isActiveGMUser } from "../../../utils/users.js";
+import { FLAG_SCOPE } from "../../constants.js";
 import {
   getDistanceToBattlefieldEdge,
   getNearestBattlefieldEdge,
@@ -25,7 +27,7 @@ function _previewTokenDoc(tokenDoc, changed) {
 function _shouldSyncBattlefieldToken(tokenDoc, changed) {
   if (tokenDoc?.actor?.type !== "Warfare Unit") return false;
   if (!changed || typeof changed !== "object") return false;
-  return "x" in changed || "y" in changed || "disposition" in changed;
+  return ["x", "y", "width", "height", "elevation", "disposition", "actorId", "actorLink"].some(key => key in changed);
 }
 
 export function registerWarfareBattlefieldHooks() {
@@ -54,39 +56,55 @@ export function registerWarfareBattlefieldHooks() {
     return undefined;
   });
 
-  Hooks.on("updateToken", (tokenDoc, changed) => {
-    if (!isMassCombatEnabled()) return;
-    if (!game.user?.isGM || !_shouldSyncBattlefieldToken(tokenDoc, changed)) return;
-    void synchronizeWarfareEncounter(tokenDoc?.parent ?? game?.scenes?.current ?? null);
+  Hooks.on("updateScene", (scene, changed) => {
+    if (!isMassCombatEnabled() || !isActiveGMUser(game.user)) return;
+    const keys = Object.keys(foundry.utils.flattenObject(changed ?? {}));
+    if (!keys.some(key => key.startsWith(`flags.${FLAG_SCOPE}.warfareEncounter`) || ["width", "height", "grid.size"].includes(key))) return;
+    void synchronizeWarfareEncounter(scene).catch(error => console.error("UESRPG | Battlefield synchronization failed", error));
   });
 
-  Hooks.on("updateActor", (actor) => {
+  Hooks.on("updateToken", (tokenDoc, changed) => {
     if (!isMassCombatEnabled()) return;
-    if (!game.user?.isGM || actor?.type !== "Warfare Unit") return;
+    if (!isActiveGMUser(game.user) || !_shouldSyncBattlefieldToken(tokenDoc, changed)) return;
+    void synchronizeWarfareEncounter(tokenDoc?.parent ?? game?.scenes?.current ?? null).catch(error => console.error("UESRPG | Battlefield synchronization failed", error));
+  });
+
+  for (const event of ["createToken", "deleteToken"]) Hooks.on(event, token => {
+    if (!isMassCombatEnabled() || !isActiveGMUser(game.user) || token.actor?.type !== "Warfare Unit") return;
+    void synchronizeWarfareEncounter(token.parent).catch(error => console.error("UESRPG | Battlefield synchronization failed", error));
+  });
+
+  Hooks.on("updateActor", (actor, changed) => {
+    if (!isMassCombatEnabled()) return;
+    if (!isActiveGMUser(game.user) || actor?.type !== "Warfare Unit") return;
+    const keys = Object.keys(foundry.utils.flattenObject(changed ?? {}));
+    if (!keys.some(key => key.startsWith("system.status.battle") || key.startsWith("system.stats.speed") || ["name", "type"].includes(key))) return;
     const scenes = Array.from(game?.scenes?.contents ?? []);
     for (const scene of scenes) {
-      const hasToken = Array.from(scene?.tokens?.contents ?? []).some((tokenDoc) => String(tokenDoc?.actor?.id ?? "") === String(actor?.id ?? ""));
+      const hasToken = Array.from(scene?.tokens?.contents ?? []).some((tokenDoc) => String(tokenDoc?.actor?.uuid ?? "") === String(actor?.uuid ?? ""));
       if (!hasToken) continue;
-      void synchronizeWarfareEncounter(scene);
+      void synchronizeWarfareEncounter(scene).catch(error => console.error("UESRPG | Battlefield synchronization failed", error));
     }
   });
 
-  Hooks.on("updateRegion", (region) => {
+  Hooks.on("updateRegion", (region, changed) => {
     if (!isMassCombatEnabled()) return;
-    if (!game.user?.isGM) return;
-    void synchronizeWarfareEncounter(region?.parent ?? null);
+    if (!isActiveGMUser(game.user)) return;
+    const keys = Object.keys(foundry.utils.flattenObject(changed ?? {}));
+    if (!keys.some(key => key.startsWith("shapes") || key.startsWith("elevation") || key.startsWith(`flags.${FLAG_SCOPE}.warfareTerrain`) || key.startsWith(`flags.${FLAG_SCOPE}.warfareFeature`))) return;
+    void synchronizeWarfareEncounter(region?.parent ?? null).catch(error => console.error("UESRPG | Battlefield synchronization failed", error));
   });
 
   Hooks.on("createRegion", (region) => {
     if (!isMassCombatEnabled()) return;
-    if (!game.user?.isGM) return;
-    void synchronizeWarfareEncounter(region?.parent ?? null);
+    if (!isActiveGMUser(game.user)) return;
+    void synchronizeWarfareEncounter(region?.parent ?? null).catch(error => console.error("UESRPG | Battlefield synchronization failed", error));
   });
 
   Hooks.on("deleteRegion", (region) => {
     if (!isMassCombatEnabled()) return;
-    if (!game.user?.isGM) return;
-    void synchronizeWarfareEncounter(region?.parent ?? null);
+    if (!isActiveGMUser(game.user)) return;
+    void synchronizeWarfareEncounter(region?.parent ?? null).catch(error => console.error("UESRPG | Battlefield synchronization failed", error));
   });
 }
 

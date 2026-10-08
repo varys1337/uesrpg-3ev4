@@ -19,11 +19,11 @@
  *      e. Register the created item with Origin AE as type `"boundItem"` for synchronized teardown
  *   2. `_deleteLinkedEntity` handles type `"boundItem"` — deletes the item from the actor
  *
- * Target: Foundry VTT v13.351
+ * Target: Foundry VTT v14.368+
  */
 
 import { registerLinkedEntity } from "../effects/origin-effect.js";
-import { requestCreateEmbeddedDocuments } from "../../../utils/authority-proxy.js";
+import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { createDebugLogger } from "../_primitives.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { ensureIndex, getDocumentById, normalizeCompendiumName } from "../../compendium/access-service.js";
@@ -84,98 +84,63 @@ async function _resolveProfileFromCompendium(profileName, conjureType) {
  * @param {string} conjureType - "weapon" or "armor"
  * @returns {Promise<Item|null>}
  */
-async function _createBoundItem(casterActor, originAE, spell, profileName, conjureType) {
-  // Try to find the item in compendiums
+async function _createBoundItem(casterActor, originAE, spell, profileName, conjureType, { strict = false } = {}) {
   const templateItem = await _resolveProfileFromCompendium(profileName, conjureType);
-
-  if (!templateItem) {
-    // No compendium item found — create a placeholder and notify GM
-    _debug(`No compendium item found for "${profileName}" (${conjureType}) — creating placeholder`);
-
-    const placeholderData = {
-      name: `Bound ${profileName}`,
-      type: conjureType === "armor" ? "armor" : "weapon",
-      img: conjureType === "armor"
-        ? "icons/magic/defensive/shield-barrier-flaming-pentagon-blue-yellow.webp"
-        : "icons/magic/fire/dagger-rune-enchant-flame-purple.webp",
-      system: {},
-      flags: {
-        [_FLAG_NS]: {
-          isBoundItem: true,
-          conjureType,
-          spellUuid: spell.uuid,
-          spellName: spell.name,
-          originAEId: originAE.id,
-          profileName
-        }
-      }
-    };
-
-    try {
-      const results = await requestCreateEmbeddedDocuments(casterActor, "Item", [placeholderData]);
-      const created = Array.isArray(results) ? results[0] : (results ?? null);
-
-      if (created) {
-        // Post GM notification about manual configuration needed
-        try {
-          await ChatMessage.create({
-            content: `<div class="uesrpg"><h3>Bound Item Created (Placeholder)</h3>
-              <p><strong>${casterActor.name}</strong> conjures <strong>Bound ${profileName}</strong> (${conjureType}).</p>
-              <p><em>No matching item found in compendia. A placeholder has been created on the actor — the GM should configure its stats manually.</em></p></div>`,
-            speaker: ChatMessage.getSpeaker({ actor: casterActor }),
-            style: CONST.CHAT_MESSAGE_STYLES.OTHER,
-            whisper: game.users?.filter(u => u.isGM)?.map(u => u.id) ?? []
-          });
-        } catch (_e) { /* non-blocking */ }
-      }
-
-      return created;
-    } catch (err) {
-      console.error("[UESRPG][BoundItem] Failed to create placeholder", err);
-      return null;
-    }
-  }
-
-  // Clone the compendium item to the caster's inventory
-  const itemData = templateItem.toObject();
+  const placeholder = !templateItem;
+  const itemData = templateItem ? templateItem.toObject() : {
+    name: profileName,
+    type: conjureType === "armor" ? "armor" : "weapon",
+    img: conjureType === "armor"
+      ? "icons/magic/defensive/shield-barrier-flaming-pentagon-blue-yellow.webp"
+      : "icons/magic/fire/dagger-rune-enchant-flame-purple.webp",
+    system: {},
+  };
   itemData.name = `Bound ${itemData.name}`;
-  itemData.flags = itemData.flags ?? {};
-  itemData.flags[_FLAG_NS] = itemData.flags[_FLAG_NS] ?? {};
-  itemData.flags[_FLAG_NS].isBoundItem = true;
-  itemData.flags[_FLAG_NS].conjureType = conjureType;
-  itemData.flags[_FLAG_NS].spellUuid = spell.uuid;
-  itemData.flags[_FLAG_NS].spellName = spell.name;
-  itemData.flags[_FLAG_NS].originAEId = originAE.id;
-  itemData.flags[_FLAG_NS].profileName = profileName;
+  itemData.flags ??= {};
+  itemData.flags[_FLAG_NS] ??= {};
+  Object.assign(itemData.flags[_FLAG_NS], {
+    isBoundItem: true, conjureType, spellUuid: spell.uuid, spellName: spell.name,
+    originAEId: originAE.id, profileName,
+  });
+  if (templateItem && itemData.system) itemData.system.equipped = true;
 
-  // Auto-equip bound items
-  if (itemData.system) {
-    itemData.system.equipped = true;
-  }
-
-  try {
-    const results = await requestCreateEmbeddedDocuments(casterActor, "Item", [itemData]);
-    const created = Array.isArray(results) ? results[0] : (results ?? null);
-
-    if (created) {
-      _debug(`Created bound item: ${created.name}`, { id: created.id });
-
-      try {
-        await ChatMessage.create({
-          content: `<div class="uesrpg"><h3>Bound Item Conjured</h3>
-            <p><strong>${casterActor.name}</strong> conjures <strong>${created.name}</strong>.</p>
-            <p><em>The ${conjureType} has the Bound and Summoned traits and will vanish when the spell ends.</em></p></div>`,
-          speaker: ChatMessage.getSpeaker({ actor: casterActor }),
-          style: CONST.CHAT_MESSAGE_STYLES.OTHER
-        });
-      } catch (_e) { /* non-blocking */ }
-    }
-
-    return created;
-  } catch (err) {
-    console.error("[UESRPG][BoundItem] Failed to create bound item", err);
+  const results = await requestCreateEmbeddedDocuments(casterActor, "Item", [itemData]);
+  const created = Array.isArray(results) ? results[0] : (results ?? null);
+  if (!created) {
+    if (strict) throw new Error("Bound Item creation was not confirmed.");
     return null;
   }
+  // Establish cleanup ownership before presentation can fail.
+  const linked = await registerLinkedEntity(originAE, {
+    type: "boundItem", uuid: created.uuid ?? `${casterActor.uuid}.Item.${created.id}`,
+    actorUuid: casterActor.uuid, label: `${created.name} on ${casterActor.name}`,
+  });
+  if (!linked) {
+    const removed = await requestDeleteEmbeddedDocuments(casterActor, "Item", [created.id]);
+    const error = new Error(`Bound Item linking failed.${removed ? " The new Item was removed." : " Item cleanup also failed."}`);
+    error.committed = !removed;
+    throw error;
+  }
+  _debug("Registered bound item with Origin AE", { originId: originAE.id });
+  try {
+    const createdMessage = await ChatMessage.create({
+      content: placeholder
+        ? `<div class="uesrpg"><h3>Bound Item Created (Placeholder)</h3>
+            <p><strong>${casterActor.name}</strong> conjures <strong>Bound ${profileName}</strong> (${conjureType}).</p>
+            <p><em>No matching item found in compendia. A placeholder has been created on the actor — the GM should configure its stats manually.</em></p></div>`
+        : `<div class="uesrpg"><h3>Bound Item Conjured</h3>
+            <p><strong>${casterActor.name}</strong> conjures <strong>${created.name}</strong>.</p>
+            <p><em>The ${conjureType} has the Bound and Summoned traits and will vanish when the spell ends.</em></p></div>`,
+      speaker: ChatMessage.getSpeaker({ actor: casterActor }),
+      style: CONST.CHAT_MESSAGE_STYLES.OTHER,
+      ...(placeholder ? { whisper: game.users?.filter(u => u.isGM)?.map(u => u.id) ?? [] } : {}),
+    });
+    if (!createdMessage) throw new Error("Bound Item summary creation was not confirmed.");
+  } catch (error) {
+    if (strict) { error.committed = true; throw error; }
+    console.warn("UESRPG | Bound Item summary failed", error);
+  }
+  return created;
 }
 
 /* ── Hook Handler ─────────────────────────────────────────────────────────── */
@@ -187,12 +152,15 @@ async function _createBoundItem(casterActor, originAE, spell, profileName, conju
  * @param {object} payload - { casterActor, spell, originEffect, options }
  * @returns {Promise<void>}
  */
-async function _onOriginCreated(payload) {
+export async function applyBoundItemCreation(payload, { strict = false } = {}) {
   const { casterActor, spell, originEffect } = payload;
   if (!casterActor || !spell || !originEffect) return;
 
   // Only GM processes item creation
-  if (!game.user.isGM) return;
+  if (!game.user.isGM) {
+    if (strict) throw new Error("GM authority is required for bound Item creation.");
+    return;
+  }
 
   // Check if this is a Conjure spell with item profiles
   const spellFlags = spell.flags?.[_FLAG_NS] ?? {};
@@ -205,8 +173,9 @@ async function _onOriginCreated(payload) {
   // Determine current spell strength (from origin AE flags or spell data)
   const originFlags = originEffect.flags?.[_FLAG_NS] ?? {};
   const spellStr = Number(
+    originFlags.spellStrengthValue ??
+    originFlags.castContext?.spellStrengthValue ??
     originFlags.spellOptions?.selectedSpellStr ??
-    originFlags.costPaid ??
     spell.system?.spell_str ??
     1
   ) || 1;
@@ -225,19 +194,7 @@ async function _onOriginCreated(payload) {
     caster: casterActor.name
   });
 
-  // Create the bound item
-  const item = await _createBoundItem(casterActor, originEffect, spell, profileName, conjureType);
-
-  if (item) {
-    // Register with Origin AE for synchronized teardown
-    await registerLinkedEntity(originEffect, {
-      type: "boundItem",
-      uuid: item.uuid ?? `${casterActor.uuid}.Item.${item.id}`,
-      actorUuid: casterActor.uuid,
-      label: `${item.name} on ${casterActor.name}`
-    });
-    _debug("Registered bound item with Origin AE", { originId: originEffect.id });
-  }
+  await _createBoundItem(casterActor, originEffect, spell, profileName, conjureType, { strict });
 }
 
 /* ── Initialization ───────────────────────────────────────────────────────── */
@@ -252,6 +209,9 @@ export function initializeBoundItemService() {
   if (_initialized) return;
   _initialized = true;
 
-  Hooks.on("uesrpg.spell.originCreated", _onOriginCreated);
+  Hooks.on("uesrpg.spell.originCreated", payload => {
+    if (payload?.handledDomains?.includes("boundItem")) return;
+    void applyBoundItemCreation(payload).catch(error => console.error("UESRPG | Bound Item creation failed", error));
+  });
   _debug("Bound item service hook registered");
 }

@@ -4,8 +4,11 @@
 
 import { doTestRoll } from "../../../utils/degree-roll-helper.js";
 import { requireMassCombatEnabled } from "../../homebrew/settings.js";
-import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
-import { buildWarfareDisciplineTN } from "../tn.js";
+import { requestAtomicUpdateDocument } from "../../../utils/authority-proxy.js";
+import { createChatOutcome } from "../../config/outcome-application-policy.js";
+import { persistChatOutcomes } from "../../../application/combat/chat-outcome-application-service.js";
+import { resolveActorFromUuidSync } from "../../../utils/uuid-cache.js";
+import { buildWarfareClashTN } from "../tn.js";
 import { hasHoldNextDefend } from "../actions.js";
 import { resolveWarfareConditionTarget, markWarfareConditionInitialized } from "../condition-target.js";
 
@@ -37,27 +40,6 @@ function _bulkLossFromSingleSource(actor, damage) {
   return 1 + Math.floor((appliedDamage - db) / db);
 }
 
-function _buildTnData(actor, {
-  modifier = 0,
-  joinFray = false,
-  charged = false,
-  incomingChargeSide = "none",
-  opponentContactSide = "front",
-  opponentHolding = false,
-} = {}) {
-  const extraBreakdown = [];
-  const traditionKey = _traditionKey(actor);
-  if (opponentHolding) extraBreakdown.push({ label: "Opponent Holding", value: -20 });
-  if (opponentContactSide === "flank") extraBreakdown.push({ label: "Flanked", value: -20 });
-  if (incomingChargeSide === "rear") extraBreakdown.push({ label: "Charged in the Rear", value: -10 });
-  if (traditionKey === "orc-strongholds" && incomingChargeSide !== "none") extraBreakdown.push({ label: "Relentless Endurance", value: 10 });
-  if (traditionKey === "hammerfell" && charged) extraBreakdown.push({ label: "Warrior Wave", value: 10 });
-  return buildWarfareDisciplineTN(actor, {
-    manualModifier: modifier,
-    joinFray,
-    extraBreakdown,
-  });
-}
 
 function _buildDamagePlan(side) {
   if (side.role === "none") return { formula: "0", entries: [] };
@@ -175,7 +157,7 @@ function _buildSideState(actor, {
 }) {
   const holdApplied = hasHoldNextDefend(actor) && opponentContactSide === "front";
   const effectiveRole = skipTest ? "none" : (holdApplied && role === "none" ? "defend" : role);
-  const tnData = _buildTnData(actor, {
+  const tnData = buildWarfareClashTN(actor, {
     modifier,
     joinFray,
     charged,
@@ -231,6 +213,42 @@ async function _resolveBreakTest(side, currentResolveAfterDamage) {
     result,
     broken: !result?.isSuccess,
   };
+}
+
+export async function executeChatOutcome(outcome, context) {
+  if (!requireMassCombatEnabled()) throw Object.assign(new Error("Mass Warfare is disabled."), { committed: false });
+  const payload = outcome.payload;
+  await context.stage("warfareLoss", async () => {
+    const updated = await requestAtomicUpdateDocument(context.actor, fresh => {
+      const before = _currentResolve(fresh);
+      const after = Math.max(0, before - _num(payload.resolveLoss));
+      const currentBulk = Math.max(0, _num(fresh.system?.stats?.bulk?.value, _num(fresh.system?.stats?.bulk?.max)));
+      const nextBulk = Math.max(0, currentBulk - _num(payload.bulkLoss));
+      const patch = {
+        "system.stats.resolve.value": after, "system.stats.condition.value": after,
+        "system.stats.resolve.lossTotal": _num(fresh.system?.stats?.resolve?.lossTotal, Math.max(0, _baseResolve(fresh) - before)) + _num(payload.resolveLoss),
+      };
+      if (payload.bulkLoss > 0) {
+        patch["system.stats.bulk.value"] = nextBulk;
+        patch["system.stats.bulk.lossTotal"] = Math.max(0, _num(fresh.system?.stats?.bulk?.lossTotal,
+          Math.max(0, _num(fresh.system?.stats?.bulk?.max, currentBulk) - currentBulk))) + payload.bulkLoss;
+      }
+      if (payload.broken) patch["system.status.battle.broken"] = true;
+      if (nextBulk <= 0) patch["system.status.battle.defeated"] = true;
+      if (payload.enemyBecameBroken) patch["system.modifiers.discipline.battle.enemyBrokenBonus"] = true;
+      return patch;
+    });
+    if (!updated) throw new Error("Warfare losses were not confirmed.");
+    return { ok: true };
+  });
+  const original = resolveActorFromUuidSync(payload.actorUuid);
+  if (original && original.uuid !== context.actor.uuid) {
+    await context.stage("warfareInitialization", async () => {
+      await markWarfareConditionInitialized(original);
+      return { ok: true };
+    }, { documents: [original] });
+  }
+  return { ok: true };
 }
 
 export async function resolveClash({
@@ -352,37 +370,18 @@ export async function resolveClash({
   const winner = loser === side1 ? side2 : loser === side2 ? side1 : null;
   if (winner && loser?.broken) winner.enemyBecameBroken = true;
 
-  if (applyDamage) {
-    const updates = [];
-    for (const side of [side1, side2]) {
-      if (!side.conditionTarget?.updateTarget) continue;
-      const currentLossTotal = _num(side.conditionTarget.updateTarget?.system?.stats?.resolve?.lossTotal, Math.max(0, _baseResolve(side.actor) - side.resolveBefore));
-      const nextLossTotal = currentLossTotal + side.resolveLoss;
-      const currentBulk = Math.max(0, _num(side.conditionTarget.updateTarget?.system?.stats?.bulk?.value, _num(side.conditionTarget.updateTarget?.system?.stats?.bulk?.max, 0)));
-      const currentBulkLossTotal = Math.max(0, _num(side.conditionTarget.updateTarget?.system?.stats?.bulk?.lossTotal, Math.max(0, _num(side.conditionTarget.updateTarget?.system?.stats?.bulk?.max, currentBulk) - currentBulk)));
-      const nextBulk = Math.max(0, currentBulk - side.bulkLoss);
-      const patch = {
-        "system.stats.resolve.value": side.resolveAfter,
-        "system.stats.resolve.lossTotal": nextLossTotal,
-        "system.stats.condition.value": side.resolveAfter,
-      };
-      if (side.bulkLoss > 0) {
-        patch["system.stats.bulk.value"] = nextBulk;
-        patch["system.stats.bulk.lossTotal"] = currentBulkLossTotal + side.bulkLoss;
-      }
-      if (side.broken) patch["system.status.battle.broken"] = true;
-      if (nextBulk <= 0) patch["system.status.battle.defeated"] = true;
-      if (side.enemyBecameBroken) patch["system.modifiers.discipline.battle.enemyBrokenBonus"] = true;
-      updates.push(requestUpdateDocument(side.conditionTarget.updateTarget, patch));
-      if (side.conditionTarget.actor && side.conditionTarget.actor !== side.conditionTarget.updateTarget) {
-        updates.push(markWarfareConditionInitialized(side.conditionTarget.actor));
-      }
-    }
-    await Promise.all(updates);
-  }
+  const outcomes = [side1, side2].filter(side => side.conditionTarget?.updateTarget).map((side, index) => createChatOutcome({
+    adapter: "warfare.clash", kind: "damage", targetUuid: side.conditionTarget.updateTarget.uuid,
+    sourceActorUuid: (index === 0 ? side2.actor : side1.actor)?.uuid ?? "", label: side.actor.name,
+    payload: { actorUuid: side.actor.uuid, resolveLoss: side.resolveLoss, bulkLoss: side.bulkLoss,
+      broken: Boolean(side.broken), enemyBecameBroken: Boolean(side.enemyBecameBroken) },
+  }));
+  if (applyDamage) await persistChatOutcomes({ actor: attacker, entries: outcomes,
+    content: `<div class="uesrpg"><b>Warfare Clash</b><p>${foundry.utils.escapeHTML(attacker.name)} / ${foundry.utils.escapeHTML(defender.name)}</p></div>` });
 
   return {
     unit1: side1,
     unit2: side2,
+    outcomes,
   };
 }

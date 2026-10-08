@@ -305,26 +305,29 @@ export async function handleBrewChatAction(messageId) {
   const useNothingVentured = Boolean(flags.nothingVentured && talents.hasNothingVentured);
   const trialBonus = talents.hasTrialAndError ? await _getTrialAndErrorBonus(actor, flags.recipe) : 0;
 
-  const rollDeclaration = await promptCraftingSkillRollDeclaration(actor, skill);
+  const { recipe } = flags;
+  const resolveModifiers = () => computeBrewModifiers(actor, recipe, {
+    nothingVentured: useNothingVentured,
+    trialAndErrorBonus: trialBonus,
+    skill,
+  });
+  const rollDeclaration = await promptCraftingSkillRollDeclaration(actor, skill, {
+    estimateTests: [{ key: "test", label: skill.name, resolve: (tn) => computeBrewTestTN(tn, resolveModifiers()) }],
+  });
   if (!rollDeclaration?.tn) {
     await message.update({ [`flags.${FLAG_NS}.alchemy.resolving`]: false });
     return;
   }
 
-  const { recipe } = flags;
-  const mods = computeBrewModifiers(actor, recipe, {
-    nothingVentured: useNothingVentured,
-    trialAndErrorBonus: trialBonus,
-    skill,
-  });
-  const adjustedTN = Math.max(0, Number(rollDeclaration.tn?.finalTN ?? 0) + Number(mods.totalMod ?? 0));
+  const mods = resolveModifiers();
+  const adjustedTN = computeBrewTestTN(rollDeclaration.tn, mods).finalTN;
   const rollResult = await doTestRoll(actor, {
     target: adjustedTN,
     allowLucky: true,
     allowUnlucky: true,
   });
   const roll = rollResult.roll;
-  _emitAlchemyRoll3d(roll);
+  _emitAlchemyRoll3d(roll, { actor });
   const rollTotal = Number(rollResult.rollTotal ?? roll?.total ?? 0) || 0;
   const success = Boolean(rollResult.isSuccess);
   const criticalSuccess = Boolean(rollResult.isCriticalSuccess);
@@ -400,8 +403,8 @@ export async function resolveBrew(actor, recipe, rollCtx) {
 
   if (backfires) {
     backfireResult = await rollCreationBackfire(highestSL);
-    _emitAlchemyRoll3d(backfireResult?.d4Roll ?? null);
-    _emitAlchemyRoll3d(backfireResult?.minorEffect?.rollObject ?? null);
+    _emitAlchemyRoll3d(backfireResult?.d4Roll ?? null, { actor });
+    _emitAlchemyRoll3d(backfireResult?.minorEffect?.rollObject ?? null, { actor });
     if ((backfireResult.entry?.outcome ?? "lost") !== "lost") {
       createdItem = await _createAlchemyItem(actor, recipe, { backfired: true, backfireResult, skill, talents });
     }
@@ -601,4 +604,10 @@ async function _postBrewResultMessage(actor, recipe, roll, rollTotal, adjustedTN
     content,
     style: CONST.CHAT_MESSAGE_STYLES.OTHER,
   });
+}
+
+/** The declaration TN and the brewing adjustments share this final clamp. */
+function computeBrewTestTN(tn, mods) {
+  return { ...tn, finalTN: Math.max(0, Number(tn?.finalTN ?? 0) + Number(mods.totalMod ?? 0)),
+    breakdown: [...(tn?.breakdown ?? []), ...(mods.breakdown ?? [{ label: "Brewing adjustments", value: mods.totalMod }])] };
 }

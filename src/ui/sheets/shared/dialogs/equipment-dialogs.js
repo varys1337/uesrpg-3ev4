@@ -19,6 +19,7 @@ import {
 } from "../../../../core/religion/ritual-domains.js";
 import { RELIGION_INVOCATION_DOMAIN_UNIVERSAL } from "../../../../core/religion/constants.js";
 import { t, tf } from "../../../../utils/i18n.js";
+import { isHumanoidActorType } from "../../../../core/actors/types.js";
 
 /**
  * Handle item creation from sheet "+" buttons.
@@ -54,10 +55,15 @@ export async function onItemCreate(sheet, event, {
 
   // Special case: createSelect opens a type picker dialog
   if (type === "createSelect") {
+    const inventoryDialog = isHumanoidActorType(sheet.actor?.type);
     await customDialog({
       layout: "choices",
       title: t("UESRPG.Dialogs.CharGen.CreateItemTitle"),
-      content: `<div style="padding: 10px 0;">
+      classes: inventoryDialog ? ["uesrpg-inventory-dialog"] : [],
+      content: inventoryDialog ? `<div class="uesrpg-inventory-dialog-body uesrpg-dialog-intro">
+                  <h2>${t("UESRPG.Dialogs.CharGen.SelectItemType")}</h2>
+                  <p>${t("UESRPG.Dialogs.CharGen.CreateItemOnSheet")}</p>
+                </div>` : `<div style="padding: 10px 0;">
                   <h2>${t("UESRPG.Dialogs.CharGen.SelectItemType")}</h2>
                   <label>${t("UESRPG.Dialogs.CharGen.CreateItemOnSheet")}</label>
                 </div>`,
@@ -342,7 +348,7 @@ export async function onEquipItems(sheet, event) {
                             <td style="text-align: center;">${item.system.magic_brEffective ?? item.system.magic_br ?? 0}</td>
                             <td style="text-align: center;">${item.system.shieldType ?? "normal"}</td>
                             <td style="text-align: center;">
-                                <input type="checkbox" class="itemSelect" data-item-id="${item._id}" ${item.system.equipped ? "checked" : ""}>
+                                <label class="uesrpg-adv-choice uesrpg-choice-bar"><input type="checkbox" class="itemSelect" data-item-id="${item._id}" ${item.system.equipped ? "checked" : ""}><span class="uesrpg-adv-choice__label">${t("UESRPG.UI.Equip")}</span></label>
                             </td>
                         </tr>`;
         break;
@@ -360,7 +366,7 @@ export async function onEquipItems(sheet, event) {
                             <td style="text-align: center;">${item.system.magic_ar}</td>
                             <td style="text-align: center;">${item.system.blockRating}</td>
                             <td style="text-align: center;">
-                                <input type="checkbox" class="itemSelect" data-item-id="${item._id}" ${item.system.equipped ? "checked" : ""}>
+                                <label class="uesrpg-adv-choice uesrpg-choice-bar"><input type="checkbox" class="itemSelect" data-item-id="${item._id}" ${item.system.equipped ? "checked" : ""}><span class="uesrpg-adv-choice__label">${t("UESRPG.UI.Equip")}</span></label>
                             </td>
                         </tr>`;
         break;
@@ -377,7 +383,7 @@ export async function onEquipItems(sheet, event) {
                             <td style="text-align: center;">${item.system.damage2}</td>
                             <td style="text-align: center;">${item.system.reach}</td>
                             <td style="text-align: center;">
-                                <input type="checkbox" class="itemSelect" data-item-id="${item._id}" ${item.system.equipped ? "checked" : ""}>
+                                <label class="uesrpg-adv-choice uesrpg-choice-bar"><input type="checkbox" class="itemSelect" data-item-id="${item._id}" ${item.system.equipped ? "checked" : ""}><span class="uesrpg-adv-choice__label">${t("UESRPG.UI.Equip")}</span></label>
                             </td>
                         </tr>`;
         break;
@@ -394,7 +400,7 @@ export async function onEquipItems(sheet, event) {
                             <td style="text-align: center;">${item.system.damage}</td>
                             <td style="text-align: center;">${item.system.enchant_level}</td>
                             <td style="text-align: center;">
-                                <input type="checkbox" class="itemSelect" data-item-id="${item._id}" ${item.system.equipped ? "checked" : ""}>
+                                <label class="uesrpg-adv-choice uesrpg-choice-bar"><input type="checkbox" class="itemSelect" data-item-id="${item._id}" ${item.system.equipped ? "checked" : ""}><span class="uesrpg-adv-choice__label">${t("UESRPG.UI.Equip")}</span></label>
                             </td>
                         </tr>`;
         break;

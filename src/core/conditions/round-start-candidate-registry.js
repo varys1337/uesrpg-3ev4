@@ -3,7 +3,7 @@
  *
  * Authoritative registry for round-start candidate discovery.
  *
- * Maintains two candidate maps keyed by actor id:
+ * Maintains two candidate maps keyed by Actor UUID:
  *  - actorsWithRegeneration
  *  - actorsSilencedInCombat
  *
@@ -25,7 +25,7 @@ const _actorsWithRegeneration = new Map();
 /** @type {Map<string, CandidateEntry>} */
 const _actorsSilencedInCombat = new Map();
 /** @type {Map<string, Set<string>>} */
-const _combatActorIds = new Map();
+const _combatActorUuids = new Map();
 
 let _registered = false;
 
@@ -57,7 +57,8 @@ function _resolveActor(entry, { cache } = {}) {
   const fromUuid = resolveUuidSync(entry.actorUuid, { cache });
   if (fromUuid?.documentName === "Actor") return fromUuid;
 
-  return game?.actors?.get?.(entry.actorId) ?? null;
+  // An unresolved synthetic Actor must use the caller's combatant-scan fallback.
+  return null;
 }
 
 function _hasRegeneration(actor) {
@@ -70,66 +71,49 @@ function _hasRegenerationFlag(actor) {
 }
 
 function _refreshActorCandidates(actor) {
-  const actorId = String(actor?.id ?? "");
-  if (!actorId) return;
-
+  const uuid = String(actor?.uuid ?? "");
+  if (!uuid) return;
   const regenValue = _hasRegeneration(actor) || _hasRegenerationFlag(actor);
-  if (regenValue > 0) {
-    const entry = _makeEntry(actor, regenValue);
-    if (entry) _actorsWithRegeneration.set(actorId, entry);
-  } else {
-    _actorsWithRegeneration.delete(actorId);
-  }
-
-  const silenced = hasCondition(actor, "silenced");
-  if (silenced) {
-    const entry = _makeEntry(actor, regenValue);
-    if (entry) _actorsSilencedInCombat.set(actorId, entry);
-  } else {
-    _actorsSilencedInCombat.delete(actorId);
-  }
+  const entry = _makeEntry(actor, regenValue);
+  if (regenValue > 0 && entry) _actorsWithRegeneration.set(uuid, entry);
+  else _actorsWithRegeneration.delete(uuid);
+  if (hasCondition(actor, "silenced") && entry) _actorsSilencedInCombat.set(uuid, entry);
+  else _actorsSilencedInCombat.delete(uuid);
 }
 
-function _removeActorEverywhere(actorId) {
-  const id = String(actorId ?? "");
-  if (!id) return;
-
-  _actorsWithRegeneration.delete(id);
-  _actorsSilencedInCombat.delete(id);
-  for (const actorIdSet of _combatActorIds.values()) {
-    actorIdSet.delete(id);
-  }
+function _removeActorEverywhere(actorUuid) {
+  if (!actorUuid) return;
+  _actorsWithRegeneration.delete(actorUuid);
+  _actorsSilencedInCombat.delete(actorUuid);
+  for (const uuids of _combatActorUuids.values()) uuids.delete(actorUuid);
 }
 
 function _rebuildActorCandidates() {
   _actorsWithRegeneration.clear();
   _actorsSilencedInCombat.clear();
-
-  for (const actor of (game?.actors?.contents ?? [])) {
-    _refreshActorCandidates(actor);
+  for (const actor of (game?.actors?.contents ?? [])) _refreshActorCandidates(actor);
+  for (const combat of (game?.combats?.contents ?? [])) {
+    for (const combatant of _toCollectionArray(combat.combatants)) _refreshActorCandidates(combatant.actor);
   }
-}
-
-function _buildCombatActorIdSet(combat) {
-  const ids = new Set();
-  for (const combatant of _toCollectionArray(combat?.combatants)) {
-    const actorId = String(combatant?.actor?.id ?? combatant?.actorId ?? "");
-    if (actorId) ids.add(actorId);
-  }
-  return ids;
+  for (const combatant of _toCollectionArray(game?.combat?.combatants)) _refreshActorCandidates(combatant.actor);
 }
 
 function _setCombatCache(combat) {
   const combatId = String(combat?.id ?? "");
   if (!combatId) return;
-  _combatActorIds.set(combatId, _buildCombatActorIdSet(combat));
+  const uuids = new Set();
+  for (const combatant of _toCollectionArray(combat.combatants)) {
+    const actor = combatant?.actor;
+    if (!actor?.uuid) continue;
+    uuids.add(actor.uuid);
+    _refreshActorCandidates(actor);
+  }
+  _combatActorUuids.set(combatId, uuids);
 }
 
 function _rebuildCombatMembershipCaches() {
-  _combatActorIds.clear();
-  for (const combat of (game?.combats?.contents ?? [])) {
-    _setCombatCache(combat);
-  }
+  _combatActorUuids.clear();
+  for (const combat of (game?.combats?.contents ?? [])) _setCombatCache(combat);
   if (game?.combat?.id) _setCombatCache(game.combat);
 }
 
@@ -167,7 +151,7 @@ function _queryCandidates(mapRef, combat, type) {
     };
   }
 
-  const actorIdSet = _combatActorIds.get(combatId);
+  const actorIdSet = _combatActorUuids.get(combatId);
   if (!(actorIdSet instanceof Set)) {
     return {
       candidates: [],
@@ -229,7 +213,7 @@ export function initializeRoundStartCandidateRegistry() {
   });
 
   Hooks.on("deleteActor", (actor) => {
-    _removeActorEverywhere(actor?.id);
+    _removeActorEverywhere(actor?.uuid);
   });
 
   Hooks.on("createItem", (item) => {
@@ -272,7 +256,7 @@ export function initializeRoundStartCandidateRegistry() {
   });
 
   Hooks.on("deleteCombat", (combat) => {
-    _combatActorIds.delete(String(combat?.id ?? ""));
+    _combatActorUuids.delete(String(combat?.id ?? ""));
   });
 
   Hooks.on("createCombatant", (combatant) => {
@@ -308,6 +292,7 @@ export function getRoundStartCandidateRegistryState() {
   return {
     actorsWithRegeneration: _actorsWithRegeneration,
     actorsSilencedInCombat: _actorsSilencedInCombat,
-    combatActorIds: _combatActorIds
+    combatActorIds: _combatActorUuids, // Compatibility diagnostic alias; entries now contain UUIDs.
+    combatActorUuids: _combatActorUuids
   };
 }

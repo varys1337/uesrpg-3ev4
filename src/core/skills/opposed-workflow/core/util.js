@@ -1,3 +1,4 @@
+import { emitSuppressedSubRollDice } from "../../../../utils/dice-visualization.js";
 import { escapeHtml as _esc } from '../../../../utils/html.js';
 export { _esc };
 /**
@@ -7,7 +8,7 @@ export { _esc };
 
 import { doesUserOwnActor } from "../../../../utils/authority-proxy.js";
 import { formatResultSummary } from "../../../../utils/degree-roll-helper.js";
-import { getCoreRollMode, isPublicChatMessageMode } from "../../../../utils/chat-roll-mode.js";
+import { getCoreRollMode } from "../../../../utils/chat-roll-mode.js";
 
 
 
@@ -47,30 +48,7 @@ export function _isQuickShiftRequested(event) {
   return Boolean(event?.shiftKey) && Boolean(_safeGetSetting("skillRollQuickShift", false));
 }
 
-export function _emitSuppressedSubRollDice(roll, { rollMode = null } = {}) {
-  if (!roll) return null;
-  const dsn = game?.dice3d;
-  if (!dsn || typeof dsn.showForRoll !== "function") return null;
-
-  const sync = isPublicChatMessageMode(rollMode ?? _getCoreRollMode("roll"));
-
-  try {
-    const primary = dsn.showForRoll(roll, game.user, sync);
-    Promise.resolve(primary).catch(() => {
-      try {
-        const fallback = dsn.showForRoll(roll);
-        Promise.resolve(fallback).catch(() => {});
-      } catch (_err2) {
-        // no-op
-      }
-    });
-  } catch (_err) {
-    try {
-      const fallback = dsn.showForRoll(roll);
-      Promise.resolve(fallback).catch(() => {});
-    } catch (_err2) {
-      // no-op
-    }
-  }
+export function _emitSuppressedSubRollDice(roll, options = {}) {
+  void emitSuppressedSubRollDice(roll, options);
   return null;
 }

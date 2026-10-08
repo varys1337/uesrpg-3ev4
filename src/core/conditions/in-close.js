@@ -66,7 +66,7 @@ export async function activateInClose(tokenPlaceable, tokenDoc, actor) {
     } else {
       // Show chooser dialog
       const rows = candidates
-        .map(c => `<div class="in-close-choice"><label><input type="radio" name="inClosePartner" value="${c.token.id}"> ${c.token.name} (${c.dist} m)</label></div>`)
+        .map(c => `<div class="in-close-choice"><label class="uesrpg-adv-choice uesrpg-choice-bar"><input type="radio" name="inClosePartner" value="${c.token.id}"><span class="uesrpg-adv-choice__label">${c.token.name} (${c.dist} m)</span></label></div>`)
         .join("");
       const content = `<p>Select the token to enter In Close with:</p>${rows}`;
       const chosen = await customDialog({

@@ -26,13 +26,13 @@
  * the normal pipeline doesn't deal HP damage, so we only need to apply the
  * item quality degradation.
  *
- * Target: Foundry VTT v13.351
+ * Target: Foundry VTT v14.368+
  */
 
 import { _num, _str, createDebugLogger } from "../_primitives.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { listEquippedShields, isShieldItem } from "../../items/shield-utils.js";
-import { resolveSpellStrengthFormulaForActor } from "../magicka-utils.js";
+import { resolveMagicCastContext } from "../opposed/cast-context.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
@@ -87,10 +87,11 @@ export async function applyDamagedQuality(item, magnitude, opts = {}) {
   // Permission-safe update
   const { requestUpdateEmbeddedDocuments } = await import("../../../utils/authority-proxy.js");
   try {
-    await requestUpdateEmbeddedDocuments(actor, "Item", [{
+    const confirmed = await requestUpdateEmbeddedDocuments(actor, "Item", [{
       _id: item.id,
       "system.qualitiesStructured": qualitiesStructured
-    }]);
+    }], { requireUpdated: opts.strict === true });
+    if (!confirmed) throw new Error("Damaged quality update was not confirmed.");
 
     _debug("applyDamagedQuality: updated", {
       item: item.name,
@@ -179,10 +180,11 @@ function _findEquippedWeapon(actor) {
  * @param {Actor|null} [caster]
  * @returns {number}
  */
-function _resolveSpellStrength(spell, caster = null) {
-  const formula = _str(resolveSpellStrengthFormulaForActor(spell, null, caster ?? spell?.actor ?? null));
-  const n = Number(formula);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 1;
+async function _resolveSpellStrength(spell, caster = null, payload = {}) {
+  const context = await resolveMagicCastContext({ castContext: payload.castContext }, spell, {
+    actor: caster, message: payload.message, parentMessageId: payload.parentMessageId,
+  });
+  return Math.max(0, Math.floor(context.spellStrengthValue));
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -196,7 +198,7 @@ function _resolveSpellStrength(spell, caster = null) {
  * @param {object} payload - { caster, target, spell, effects, originEffect }
  * @returns {Promise<void>}
  */
-async function _onEffectApplied(payload) {
+export async function applyDisintegrateConsequences(payload, { strict = false, hit = false } = {}) {
   const { caster, target, spell } = payload;
   if (!caster || !target || !spell) return;
 
@@ -205,10 +207,14 @@ async function _onEffectApplied(payload) {
   if (!disintConfig?.enabled) return;
 
   // Only GM processes disintegrate (item mutation requires authority)
-  if (!game.user.isGM) return;
+  if (!game.user.isGM) {
+    if (strict) throw new Error("GM authority is required for disintegration.");
+    return;
+  }
 
+  if (hit && ((spell.effects ?? []).some(effect => !effect.disabled) || payload.effectsApplied)) return;
   const targetType = _str(disintConfig.target).toLowerCase() || "armor";
-  const ss = _resolveSpellStrength(spell, caster);
+  const ss = await _resolveSpellStrength(spell, caster, payload);
 
   _debug("Disintegrate triggered:", {
     spell: spell.name,
@@ -228,13 +234,13 @@ async function _onEffectApplied(payload) {
     // Armor: check for shield block first
     // TODO: When the opposed workflow provides block info, use it to determine shield vs armor
     // For now, default to armor unless the target's last defense was a shield block
-    const lastDefense = target.getFlag?.(_FLAG_NS, "lastDefenseType");
+    const lastDefense = hit ? payload.defenseType : target.getFlag?.(_FLAG_NS, "lastDefenseType");
     if (lastDefense === "block" || lastDefense === "ward") {
       targetItem = _findEquippedShield(target);
       itemDesc = "shield";
     }
     if (!targetItem) {
-      targetItem = _findEquippedArmor(target);
+      targetItem = _findEquippedArmor(target, hit ? payload.hitLocation : undefined);
       itemDesc = "armor";
     }
   }
@@ -249,16 +255,19 @@ async function _onEffectApplied(payload) {
         speaker: ChatMessage.getSpeaker({ actor: caster }),
         style: CONST.CHAT_MESSAGE_STYLES.OTHER
       });
-    } catch (_e) { /* non-blocking */ }
+    } catch (_e) { if (strict) throw _e; }
     return;
   }
 
+  if (ss <= 0) return;
   // Apply Damaged(SS)
   const result = await applyDamagedQuality(targetItem, ss, {
     sourceSpell: spell.name,
-    workflowId: `disintegrate-${caster.uuid}-${Date.now()}`
+    workflowId: `disintegrate-${caster.uuid}-${Date.now()}`,
+    strict
   });
 
+  if (strict && !result?.success) throw new Error("Disintegration was not confirmed.");
   if (result?.success) {
     const valueText = result.oldValue > 0
       ? `Damaged (${result.oldValue}) → Damaged (${result.newValue})`
@@ -273,7 +282,7 @@ async function _onEffectApplied(payload) {
         speaker: ChatMessage.getSpeaker({ actor: caster }),
         style: CONST.CHAT_MESSAGE_STYLES.OTHER
       });
-    } catch (_e) { /* non-blocking */ }
+    } catch (_e) { if (strict) throw _e; }
   }
 }
 
@@ -319,85 +328,12 @@ export function initializeDisintegrateService() {
  * @param {object} payload - { caster, target, spell, hitLocation, defenseType }
  * @returns {Promise<void>}
  */
-async function _onSpellHitTarget(payload) {
-  const { caster, target, spell, hitLocation, defenseType } = payload;
-  if (!caster || !target || !spell) return;
+function _onEffectApplied(payload) {
+  if (payload?.handledDomains?.includes("disintegrate")) return;
+  void applyDisintegrateConsequences(payload).catch(error => console.error("UESRPG | Disintegrate failed", error));
+}
 
-  const disintConfig = spell.system?.engine?.disintegrate;
-  if (!disintConfig?.enabled) return;
-
-  // Only GM processes
-  if (!game.user.isGM) return;
-
-  // Avoid double-processing if effectApplied already handled it
-  // (effectApplied fires only if spellNeedsEffectApplication is true)
-  // spellHitTarget fires for ALL non-damaging hits
-  // Check if the spell has any enabled effects — if so, effectApplied will handle it
-  const hasEnabledEffects = (spell.effects ?? []).some(e => !e.disabled);
-  if (hasEnabledEffects) return;
-
-  const targetType = _str(disintConfig.target).toLowerCase() || "armor";
-  const ss = _resolveSpellStrength(spell, caster);
-
-  _debug("Disintegrate (via spellHitTarget):", {
-    spell: spell.name,
-    target: target.name,
-    targetType,
-    spellStrength: ss,
-    hitLocation,
-    defenseType
-  });
-
-  let targetItem = null;
-  let itemDesc = "";
-
-  if (targetType === "weapon") {
-    targetItem = _findEquippedWeapon(target);
-    itemDesc = "weapon";
-  } else {
-    // Use defenseType from the opposed test to determine if shield was used
-    if (defenseType === "block" || defenseType === "ward") {
-      targetItem = _findEquippedShield(target);
-      itemDesc = "shield";
-    }
-    if (!targetItem) {
-      targetItem = _findEquippedArmor(target, hitLocation);
-      itemDesc = "armor";
-    }
-  }
-
-  if (!targetItem) {
-    _debug("Disintegrate (spellHitTarget): no eligible", itemDesc, "on", target.name);
-    try {
-      await ChatMessage.create({
-        content: `<div class="uesrpg"><h3>Disintegrate — No Target Found</h3>
-          <p><strong>${caster.name}</strong>'s <strong>${spell.name}</strong> hit <strong>${target.name}</strong>,
-          but no equipped ${itemDesc} was found to degrade.</p></div>`,
-        speaker: ChatMessage.getSpeaker({ actor: caster }),
-        style: CONST.CHAT_MESSAGE_STYLES.OTHER
-      });
-    } catch (_e) { /* non-blocking */ }
-    return;
-  }
-
-  const result = await applyDamagedQuality(targetItem, ss, {
-    sourceSpell: spell.name
-  });
-
-  if (result?.success) {
-    const valueText = result.oldValue > 0
-      ? `Damaged (${result.oldValue}) → Damaged (${result.newValue})`
-      : `Damaged (${result.newValue})`;
-
-    try {
-      await ChatMessage.create({
-        content: `<div class="uesrpg"><h3>Disintegrate — ${targetType === "weapon" ? "Weapon" : "Armor"} Degraded</h3>
-          <p><strong>${caster.name}</strong>'s <strong>${spell.name}</strong> applies <strong>${valueText}</strong>
-          to <strong>${target.name}</strong>'s <strong>${targetItem.name}</strong>.</p>
-          <p><em>Spell Strength: ${ss}</em></p></div>`,
-        speaker: ChatMessage.getSpeaker({ actor: caster }),
-        style: CONST.CHAT_MESSAGE_STYLES.OTHER
-      });
-    } catch (_e) { /* non-blocking */ }
-  }
+function _onSpellHitTarget(payload) {
+  if (payload?.handledDomains?.includes("disintegrate")) return;
+  void applyDisintegrateConsequences(payload, { hit: true }).catch(error => console.error("UESRPG | Disintegrate hit failed", error));
 }

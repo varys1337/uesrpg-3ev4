@@ -278,6 +278,8 @@ export const CharOpposedWorkflow = {
       const ssModifier = side === "defender" ? Number(data.context?.ssModifier ?? 0) : 0;
       const titleSuffix = side === "defender" ? " (Defender)" : "";
       const choices = await _charTestDialog({
+        actor,
+        ssModifier,
         title: `${actor.name} — ${data.context?.label ?? "Characteristic Test"}${titleSuffix}`,
         defaultCharKey: sideData.charKey ?? data.context?.charKey ?? "wp",
         defaultCircumstanceMod: 0,

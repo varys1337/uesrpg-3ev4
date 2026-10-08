@@ -2,6 +2,7 @@ import { SYSTEM_ID } from "../../../core/system/namespace.js";
 import { invalidateCachedSetting } from "../../../core/config/settings-cache.js";
 import { createSystemSettingRegistrar } from "../../../utils/settings-registration.js";
 import { renderSystemSheets } from "../../../ui/shared/rendered-applications.js";
+import { _bool } from "../../../utils/coerce.js";
 
 const _reg = createSystemSettingRegistrar("UI");
 
@@ -35,6 +36,12 @@ function _invalidateEnableLoadoutsAndReRenderSheets() {
 function _applyCustomJournalStyling(enabled = null) {
   const shouldEnable = enabled ?? game.settings.get(SYSTEM_ID, "enableCustomJournalStyling");
   document.body?.classList?.toggle("uesrpg-custom-journals-enabled", Boolean(shouldEnable));
+}
+
+/** Apply at setup or onChange; CSS preserves the native editor and any draft. */
+export function applyChatComposerPreference(enabled = null) {
+  const shouldHide = enabled ?? game.settings.get(SYSTEM_ID, "hideChatFormattingToolbar");
+  document.body?.classList.toggle("uesrpg-hide-chat-formatting-toolbar", _bool(shouldHide));
 }
 
 export function registerUiSettings() {
@@ -96,6 +103,17 @@ export function registerUiSettings() {
     type: Boolean,
     default: true,
     onChange: _applyCustomJournalStyling,
+  });
+
+  _reg("hideChatFormattingToolbar", {
+    name: "Chat: Hide Formatting Toolbar",
+    hint: "Hide the chat formatting controls and compact the input for your user. Formatting keyboard shortcuts remain available. Changes apply when you save, without reloading.",
+    scope: "user",
+    config: false,
+    type: Boolean,
+    default: false,
+    requiresReload: false,
+    onChange: applyChatComposerPreference,
   });
 
   _reg("encumbranceUiEnhanced", {

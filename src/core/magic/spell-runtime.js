@@ -1,3 +1,4 @@
+import { createDamageAftermathBundle } from "../combat/damage/aftermath-bundle.js";
 /**
  * @module spell-runtime
  * src/core/magic/spell-runtime.js
@@ -24,6 +25,40 @@ import { createUuidResolver, resolveUuidSync } from "../../utils/uuid-cache.js";
 import { getLinkedAreaEntities, getLinkedAreaUuids, getLinkedRegionUuids, buildRegionLink, resolveLinkedArea } from "./region-links.js";
 import { testAreaPoint } from "../aoe/containment.js";
 import { getSpellDamageType, getSpellLevel } from "./magicka-utils.js";
+
+import { isActiveGMUser, getActiveGMUser } from "../../utils/users.js";
+import { requestUpdateDocument, doesUserOwnActor } from "../../utils/authority-proxy.js";
+import { createMessageQueue } from "../opposed/shared/message-queue.js";
+import { AUTHORITY_RESULT_CODES, registerAuthorityIntentCommand, registerAuthorityIntentService, requestAuthorityIntent } from "../../utils/authority-intents.js";
+
+const _ownedSpellQueue = createMessageQueue();
+let _ownedAuthorityRegistered = false;
+
+export function registerSpellOwnedAuthority() {
+  if (_ownedAuthorityRegistered) return;
+  registerAuthorityIntentService();
+  const registered = registerAuthorityIntentCommand("spell.settleOwned", async ({ requester, data }) => {
+    if (Object.keys(data ?? {}).some(key => !["kind", "effectUuid"].includes(key)) || !["origin", "effects"].includes(data?.kind)) return { ok: false, code: AUTHORITY_RESULT_CODES.INVALID_REQUEST };
+    const effect = await fromUuid(String(data.effectUuid ?? ""));
+    const flags = effect?.flags?.[FLAG_SCOPE];
+    if (effect?.documentName !== "ActiveEffect" || !flags?.spellEffect || (data.kind === "origin" && !flags.isOriginAE)) return { ok: false, code: AUTHORITY_RESULT_CODES.INVALID_REQUEST };
+    const caster = await fromUuid(String(flags.casterUuid ?? ""));
+    const spell = await fromUuid(String(flags.spellUuid ?? ""));
+    if (caster?.documentName !== "Actor" || spell?.documentName !== "Item" || (!requester.isGM && !caster.testUserPermission(requester, CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER))) return { ok: false, code: AUTHORITY_RESULT_CODES.UNAUTHORIZED };
+    const target = effect.parent;
+    const effects = data.kind === "effects" ? Array.from(target.effects ?? []).filter(candidate => {
+      const f = candidate.flags?.[FLAG_SCOPE];
+      return f?.spellEffect && !f.isOriginAE && f.casterUuid === flags.casterUuid && f.spellUuid === flags.spellUuid && f.originalCastWorldTime === flags.originalCastWorldTime && f.originAEUuid === flags.originAEUuid;
+    }) : [];
+    const origin = flags.isOriginAE ? effect : resolveUuidSync(flags.originAEUuid);
+    const payload = { caster, casterActor: caster, target, spell, effects, originEffect: origin,
+      castContext: flags.castContext, options: { spellOptions: flags.spellOptions, castContext: flags.castContext, targetUuids: flags.targetUuids } };
+    const completion = await settleSpellOwnedStages(payload, { kind: data.kind });
+    return { ok: !completion.failed.length, data: completion };
+  });
+  if (!registered) throw new Error("UESRPG | Spell settlement authority command registration failed.");
+  _ownedAuthorityRegistered = true;
+}
 
 // ── Shared Private Helpers ───────────────────────────────────────────────────
 
@@ -100,18 +135,107 @@ export function emitCastResolved(payload) {
  * @param {ActiveEffect[]} payload.effects - The AEs created on the target
  * @param {ActiveEffect} [payload.originEffect] - The Origin AE on the caster (if any)
  */
-export function emitEffectApplied(payload) {
+/** System-owned spell stages are awaited; external hooks remain observations. */
+export function getSpellConsequenceDocuments({ caster, target, spell }) {
+  const crossActor = spell?.system?.engine?.drain?.enabled
+    || (String(spell?.system?.school).toLowerCase() === "mysticism" && /^Absorb (?!Life$|Magicka$)/.test(spell?.name ?? ""));
+  return crossActor ? [target, caster] : [target];
+}
+
+export async function settleSpellOwnedStages(payload, { kind = "effects", claimKey = kind } = {}) {
+  const spell = payload.spell;
+  const needsAuthority = kind === "origin"
+    ? ["item", "creature"].includes(String(spell?.system?.engine?.conjure?.mode)) || ["weapon", "armor"].includes(spell?.flags?.[FLAG_SCOPE]?.conjureType)
+    : (spell?.system?.engine?.drain?.enabled && ["health", "magicka"].includes(spell.system.engine.drain.type)) || spell?.system?.engine?.disintegrate?.enabled ||
+      (String(spell?.system?.school).toLowerCase() === "mysticism" && /^Absorb (?!Life$|Magicka$)/.test(spell?.name ?? ""));
+  if (!needsAuthority) return { operationCount: 0, committed: [], failed: [], handledDomains: [] };
+  const anchor = kind === "origin" ? payload.originEffect : payload.effects?.[0];
+  const offlineOwner = !getActiveGMUser() && kind !== "origin"
+    && getSpellConsequenceDocuments({ caster: payload.caster ?? payload.casterActor, target: payload.target, spell })
+      .every(actor => doesUserOwnActor(game.user, actor));
+  if (!isActiveGMUser(game.user) && !offlineOwner) {
+    const result = anchor?.uuid && kind !== "hit"
+      ? await requestAuthorityIntent("spell.settleOwned", { kind, effectUuid: anchor.uuid }, { timeout: 60_000 }) : null;
+    return result?.data ?? { operationCount: 0, committed: [], handledDomains: ["conjuration", "boundItem", "paired", "drain", "disintegrate"],
+      failed: [{ key: "authority", label: "Spell authority", message: result?.code ?? "A canonical spell effect and active GM are required." }] };
+  }
+  if (!anchor?.uuid) return _settleSpellOwnedStages(payload, { kind }); // A canonical chat workflow owns instant-hit claims.
+  return _ownedSpellQueue(anchor.uuid, async () => {
+    const live = anchor.parent?.effects?.get?.(anchor.id);
+    if (!live) return { operationCount: 0, committed: [], handledDomains: [], failed: [{ key: "source", message: "Spell effect disappeared before settlement." }] };
+    const prior = live.flags?.[FLAG_SCOPE]?.ownedStages?.[claimKey];
+    if (prior) return prior.summary ?? { operationCount: 0, committed: [], handledDomains: ["conjuration", "boundItem", "paired", "drain", "disintegrate"],
+      failed: [{ key: "interrupted", message: "Spell consequences started previously; consequential stages were not repeated." }] };
+    const path = `flags.${FLAG_SCOPE}.ownedStages.${claimKey}`;
+    if (!await requestUpdateDocument(live, { [path]: { status: "started" } }, { render: false })) throw new Error("Spell consequence claim was not confirmed.");
+    const summary = await _settleSpellOwnedStages(payload, { kind });
+    // Drain can deliberately remove its own max-reduction effect. The absent
+    // anchor cannot be submitted again; no replacement receipt is invented.
+    const surviving = live.parent?.effects?.get?.(live.id);
+    if (surviving && !await requestUpdateDocument(surviving, { [path]: { status: summary.failed.length ? "partial" : "completed", summary } }, { render: false })) {
+      summary.failed.push({ key: "receipt", message: "Spell completion metadata was not confirmed." });
+    }
+    return summary;
+  });
+}
+
+async function _settleSpellOwnedStages(payload, { kind = "effects" } = {}) {
+  const caster = payload.caster ?? payload.casterActor;
+  const target = payload.target ?? caster;
+  const spell = payload.spell;
+  const bundle = createDamageAftermathBundle({ targetActor: target, applicationId: payload.message?.id ?? payload.originEffect?.uuid, source: spell?.name, kind: "spellLifecycle" });
+  const handledDomains = [];
+  const stage = (key, label, run) => { handledDomains.push(key); bundle.stage({ key, label, run }); };
+  if (kind === "origin") {
+    const mode = String(spell?.system?.engine?.conjure?.mode ?? "none");
+    if (mode === "item" || mode === "creature") stage("conjuration", "Conjuration creation", async () =>
+      (await import("./conjuration/conjuration-runtime.js")).applyConjurationCreation(payload, { strict: true }));
+    if (["weapon", "armor"].includes(spell?.flags?.[FLAG_SCOPE]?.conjureType)) stage("boundItem", "Bound Item creation", async () =>
+      (await import("./conjuration/bound-item-service.js")).applyBoundItemCreation(payload, { strict: true }));
+  } else {
+    const hit = kind === "hit";
+    const hitAlreadyHandled = hit && (payload.effectsApplied || (spell?.effects ?? []).some(effect => !effect.disabled));
+    if (!hitAlreadyHandled && spell?.system?.engine?.drain?.enabled && ["health", "magicka"].includes(spell.system.engine.drain.type)) stage("drain", "Spell resource drain", async () =>
+      (await import("./services/drain-service.js")).applyDrainConsequences(payload, { strict: true, hit }));
+    if (!hitAlreadyHandled && spell?.system?.engine?.disintegrate?.enabled) stage("disintegrate", "Spell disintegration", async () =>
+      (await import("./services/disintegrate-service.js")).applyDisintegrateConsequences(payload, { strict: true, hit }));
+    if (!hit) stage("paired", "Paired caster effects", async () =>
+      (await import("./effects/origin-effect.js")).applyPairedCasterEffects(payload, { strict: true }));
+  }
+  const summary = await bundle.commit();
+  return { ...summary, handledDomains };
+}
+
+export async function emitEffectApplied(payload, { strict = false, deferOwnedStages = false } = {}) {
+  let completion;
+  try { completion = deferOwnedStages
+    ? { operationCount: 0, committed: [], failed: [], handledDomains: ["drain", "disintegrate", "paired"] }
+    : await settleSpellOwnedStages(payload); }
+  catch (error) { completion = { operationCount: 0, committed: [], handledDomains: ["drain", "disintegrate", "paired"], failed: [{ key: "settlement", error: String(error.message ?? error) }] }; }
+
   try {
     Hooks.callAll("uesrpg.spell.effectApplied", {
       caster: payload.caster,
       target: payload.target,
       spell: payload.spell,
       effects: payload.effects ?? [],
-      originEffect: payload.originEffect ?? null
+      castContext: payload.castContext ?? null,
+      message: payload.message ?? null,
+      parentMessageId: payload.parentMessageId ?? null,
+      originEffect: payload.originEffect ?? null,
+      handledDomains: completion.handledDomains,
+      completion,
     });
   } catch (err) {
     console.error("UESRPG | spell-hooks | effectApplied hook error", err);
   }
+  if (strict && completion.failed.length) {
+    const error = new Error("Spell owned consequences only partially completed.");
+    error.committed = Boolean(payload.effects?.length);
+    error.aftermathSummary = completion;
+    throw error;
+  }
+  return completion;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

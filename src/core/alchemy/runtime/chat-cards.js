@@ -47,17 +47,18 @@ export function alchemyNoteHtml(label, text, extraClass = "") {
   `;
 }
 
-export async function postAlchemyUseMessage(actor, item, title, bodyHtml) {
+export async function postAlchemyUseMessage(actor, item, title, bodyHtml, flags = {}) {
   const content = renderAlchemyUseCard({
     actorImg: actor.img ?? "icons/svg/mystery-man.svg",
     actorName: actor.name,
     title,
     bodyHtml,
   });
-  await createAlchemyChatMessage({
+  return createAlchemyChatMessage({
     user: game.user.id,
     speaker: ChatMessage.getSpeaker({ actor }),
     content,
+    flags,
     style: CONST.CHAT_MESSAGE_STYLES.OTHER,
   });
 }

@@ -1,3 +1,4 @@
+import { TimeService } from "../time/time-service.js";
 /**
  * src/core/combat/activation-state-flags.js
  *
@@ -11,6 +12,7 @@ import { _num } from "../../utils/coerce.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
 import { getFlagValueWithFallback } from "../system/flags.js";
 import { registerCombatBoundaryConsumer } from "../time/combat-boundary-orchestrator.js";
+import { resolveUuidSync } from "../../utils/uuid-cache.js";
 import { isActiveGMUser } from "../../utils/users.js";
 
 const FLAG_FREE_DEFENSE = `flags.${FLAG_SCOPE}.combat.freeNextDefenseCommit`;
@@ -46,13 +48,13 @@ function _readFlagByPath(actor, path) {
 }
 
 function _trackActorForActivationCleanup(actor) {
-  const actorId = String(actor?.id ?? "").trim();
+  const actorId = String(actor?.uuid ?? "").trim();
   if (!actorId) return;
   _activationFlagActors.add(actorId);
 }
 
 function _untrackActorIfNoActivationFlags(actor) {
-  const actorId = String(actor?.id ?? "").trim();
+  const actorId = String(actor?.uuid ?? "").trim();
   if (!actorId) return;
   const hasFree = Boolean(_readFlagByPath(actor, FLAG_FREE_DEFENSE));
   const hasThunder = Boolean(_readFlagByPath(actor, FLAG_THUNDER_CHARGE));
@@ -193,7 +195,7 @@ async function _cleanupActorActivationFlags(actor, { combat = null, worldTime = 
   }
 
   if (Object.keys(updates).length) {
-    await requestUpdateDocument(actor, updates);
+    if (!await requestUpdateDocument(actor, updates, { render: false })) throw new Error("Activation cleanup was not confirmed.");
   }
 }
 
@@ -210,9 +212,9 @@ async function _handleCombatBoundaryActivationCleanup(payload) {
   const wt = _num(payload?.worldTime, _worldTimeSeconds());
   for (const combatant of combat.combatants ?? []) {
     const actor = combatant?.actor ?? null;
-    if (!actor?.id) continue;
-    if (!_activationFlagActors.has(String(actor.id))) continue;
-    await _cleanupActorActivationFlags(actor, { combat, worldTime: wt });
+    if (!actor?.uuid) continue;
+    if (!_activationFlagActors.has(actor.uuid)) continue;
+    await _cleanupActorActivationFlags(actor, { combat: { id: combat.id, started: combat.started, ...payload.combat.current }, worldTime: wt });
     _untrackActorIfNoActivationFlags(actor);
   }
 }
@@ -224,13 +226,26 @@ export function registerActivationStateHooks() {
   globalThis.__UESRPG_ACTIVATION_STATE_HOOKS__ = true;
 
   if (isActiveGMUser(game.user)) {
-    const actors = Array.from(game?.actors?.contents ?? []);
-    for (const actor of actors) {
+    const actors = new Map((game?.actors?.contents ?? []).map(actor => [actor.uuid, actor]));
+    for (const combat of game?.combats ?? []) {
+      for (const combatant of combat.combatants ?? []) if (combatant.actor?.uuid) actors.set(combatant.actor.uuid, combatant.actor);
+    }
+    for (const actor of actors.values()) {
       const hasFree = Boolean(_readFlagByPath(actor, FLAG_FREE_DEFENSE));
       const hasThunder = Boolean(_readFlagByPath(actor, FLAG_THUNDER_CHARGE));
       if (hasFree || hasThunder) _trackActorForActivationCleanup(actor);
     }
   }
+  const trackChanges = actor => {
+    if (_readFlagByPath(actor, FLAG_FREE_DEFENSE) || _readFlagByPath(actor, FLAG_THUNDER_CHARGE)) _trackActorForActivationCleanup(actor);
+    else _untrackActorIfNoActivationFlags(actor);
+  };
+  Hooks.on("updateActor", (actor, changed) => {
+    const keys = Object.keys(foundry.utils.flattenObject(changed ?? {}));
+    if (keys.some(key => key.startsWith(FLAG_FREE_DEFENSE) || key.startsWith(FLAG_THUNDER_CHARGE))) trackChanges(actor);
+  });
+  Hooks.on("createCombatant", combatant => trackChanges(combatant.actor));
+  Hooks.on("deleteActor", actor => _activationFlagActors.delete(actor.uuid));
   registerCombatBoundaryConsumer({
     id: "activation-state-flags",
     // Cleanup runs after core rules/effect consumers so transient combat flags settle last.
@@ -249,13 +264,15 @@ export function registerActivationStateHooks() {
     }
   });
 
-  Hooks.on("uesrpg.timeChanged", async (payload) => {
+  TimeService.registerOwnedWorldTimeStage({ id: "activation-cleanup", order: 400, handle: async (payload) => {
     if (!isActiveGMUser(game.user)) return;
     const source = String(payload?.source ?? "");
     if (source !== "worldTime" && source !== "calendaria") return;
     const wt = _num(payload?.worldTime, _worldTimeSeconds());
     for (const actorId of Array.from(_activationFlagActors)) {
-      const actor = game?.actors?.get?.(actorId) ?? null;
+      const actor = resolveUuidSync(actorId) ?? Array.from(game?.combats ?? [])
+        .flatMap(combat => Array.from(combat.combatants ?? []))
+        .find(combatant => combatant.actor?.uuid === actorId)?.actor ?? null;
       if (!actor) {
         _activationFlagActors.delete(actorId);
         continue;
@@ -263,5 +280,5 @@ export function registerActivationStateHooks() {
       await _cleanupActorActivationFlags(actor, { combat: game?.combat ?? null, worldTime: wt });
       _untrackActorIfNoActivationFlags(actor);
     }
-  });
+  } });
 }

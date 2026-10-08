@@ -1,3 +1,4 @@
+import { emitSuppressedSubRollDice } from "../../../utils/dice-visualization.js";
 /** Alchemy Workshop — ApplicationV2, catalog-first RAW workflow. */
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -473,11 +474,10 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
       return;
     }
     const esc = (value) => foundry.utils.escapeHTML(String(value ?? ""));
-    const rows = candidates.map((entry, index) => `<label class="alchemy-picker-row">
-      <input type="radio" name="ingredientUuid" value="${esc(entry.uuid)}" ${index === 0 ? "checked" : ""}>
-      <img src="${esc(entry.item?.img ?? "icons/svg/item-bag.svg")}" alt="">
-      <span><strong>${esc(entry.name)}</strong><small>${esc(this._ingredientMeta(entry, actor))}</small></span>
-    </label>`).join("");
+    const rows = candidates.map((entry, index) => `<label class="alchemy-picker-row uesrpg-adv-choice uesrpg-choice-bar">
+      <input type="radio" name="ingredientUuid" value="${esc(entry.uuid)}" ${index === 0 ? "checked" : ""}><span class="uesrpg-adv-choice__label"><img src="${esc(entry.item?.img ?? "icons/svg/item-bag.svg")}" alt="">
+      <span><strong>${esc(entry.name)}</strong><small>${esc(this._ingredientMeta(entry, actor))}</small></span></span>
+</label>`).join("");
     const uuid = await customDialog({
       title: t("UESRPG.Apps.AlchemyWorkshop.Dropzones.ChooseIngredient", "Choose Ingredient"),
       content: `<div class="alchemy-picker-list">${rows}</div>`,
@@ -598,7 +598,7 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
     const skill = getAlchemySkillSnapshot(actor);
     if (!skill.found) return ui.notifications.warn(t("UESRPG.Notifications.Alchemy.NoValidSkillToRoll"));
     const result = await doTestRoll(actor, { target: skill.tn, allowLucky: true, allowUnlucky: true });
-    if (game.dice3d?.showForRoll) Promise.resolve(game.dice3d.showForRoll(result.roll)).catch(() => {});
+    void emitSuppressedSubRollDice(result.roll, { actor });
     if (!result.isSuccess) {
       await this._postGatherMessage(actor, result, null);
       return;

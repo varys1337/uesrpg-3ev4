@@ -1,0 +1,83 @@
+<section class="uesrpg-wounds-panel uesrpg-collapsible">
+    <div class="section-header uesrpg-combat-section-header">
+        <button type="button" data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle uesrpg-semantic-control uesrpg-plain-control" data-group="combat-wounds" data-tooltip="UESRPG.UI.CollapseExpand" aria-label="{{localize "UESRPG.Sheets.Wounds.Title"}}: {{localize "UESRPG.UI.CollapseExpand"}}" aria-expanded="true"></button>
+        <span class="section-header__label">{{localize "UESRPG.Sheets.Wounds.Title"}}</span>
+    </div>
+    <div class="uesrpg-wounds-table-wrap uesrpg-wounds-table-wrap--compact uesrpg-sheet-table-frame uesrpg-collapse-body">
+        <table class="uesrpg-wounds-table uesrpg-wounds-table--compact uesrpg-sheet-table">
+            <thead>
+                <tr>
+                    <th>{{localize "UESRPG.UI.Location"}}</th>
+                    <th>{{localize "UESRPG.Sheets.Wounds.Progress"}}</th>
+                    <th>{{localize "UESRPG.Sheets.Wounds.State"}}</th>
+                    <th class="right-align-cell">{{localize "UESRPG.Sheets.Wounds.Actions"}}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{#if woundsInjuriesUi.hasRows}}
+                {{#each woundsInjuriesUi.rows as |row|}}
+                <tr class="uesrpg-wounds-row">
+                    <td class="uesrpg-wounds-location"><span class="uesrpg-wounds-cell-label" aria-hidden="true">{{localize "UESRPG.UI.Location"}}</span>{{row.hitLocation}}</td>
+                    <td class="uesrpg-wounds-progress"><span class="uesrpg-wounds-cell-label" aria-hidden="true">{{localize "UESRPG.Sheets.Wounds.Progress"}}</span>
+                        {{#if row.wound}}
+                        {{#if row.wound.canEditProgress}}
+                        <span class="uesrpg-wounds-progress-inline">
+                            <input
+                                type="number"
+                                min="0"
+                                value="{{row.wound.progressInputValue}}"
+                                data-wi-action="setProgress"
+                                data-effect-id="{{row.wound.id}}"
+                                data-wi-progress-input="{{row.wound.id}}"
+                                class="uesrpg-wounds-progress-input-plain"
+                                data-tooltip="UESRPG.Sheets.Wounds.PressEnterToApply"
+                             aria-label="{{localize "UESRPG.Sheets.Wounds.ProgressForLocation" location=row.hitLocation}}"/> /
+                            <input
+                                type="number"
+                                min="0"
+                                value="{{row.wound.damage}}"
+                                data-wi-action="setDamage"
+                                data-effect-id="{{row.wound.id}}"
+                                data-wi-damage-input="{{row.wound.id}}"
+                                class="uesrpg-wounds-progress-input-plain"
+                                data-tooltip="UESRPG.Sheets.Wounds.PressEnterToApply"
+                             aria-label="{{localize "UESRPG.Sheets.Wounds.DamageForLocation" location=row.hitLocation}}"/>
+                        </span>
+                        {{else}}
+                        {{row.wound.progress}} / {{row.wound.damage}}
+                        {{/if}}
+                        {{else}}
+                        -
+                        {{/if}}
+                    </td>
+                    <td class="uesrpg-wounds-state"><span class="uesrpg-wounds-cell-label" aria-hidden="true">{{localize "UESRPG.Sheets.Wounds.State"}}</span>
+                        <div class="uesrpg-wounds-chips">
+                            {{#each row.chips as |chip|}}
+                            <span class="uesrpg-wound-chip uesrpg-wound-chip--{{chip.tone}}">{{chip.label}}</span>
+                            {{/each}}
+                        </div>
+                    </td>
+                    <td class="right-align-cell uesrpg-wounds-actions"><span class="uesrpg-wounds-cell-label" aria-hidden="true">{{localize "UESRPG.Sheets.Wounds.Actions"}}</span>
+                        <div class="uesrpg-wounds-row-actions">
+                            {{#each row.actions as |action|}}
+                            <button
+                                type="button"
+                                class="uesrpg-quick-action uesrpg-quick-action--tiny uesrpg-styled-action"
+                                data-action="woundsInjuriesControl"
+                                data-wi-action="{{action.wiAction}}"
+                                data-effect-id="{{action.effectId}}"
+                                {{#if action.disabled}}disabled="disabled"{{/if}}
+                                {{#if action.title}}data-tooltip-text="{{action.title}}"{{/if}}
+                             aria-label="{{action.label}}: {{row.hitLocation}}{{#if action.title}} — {{action.title}}{{/if}}">{{action.label}}</button>
+                            {{/each}}
+                        </div>
+                    </td>
+                </tr>
+                {{/each}}
+                {{else}}
+                <tr><td colspan="4" class="actions-help-small">{{localize "UESRPG.Sheets.Wounds.NoneRecorded"}}</td></tr>
+                {{/if}}
+            </tbody>
+        </table>
+    </div>
+</section>

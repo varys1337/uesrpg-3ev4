@@ -11,10 +11,8 @@ export async function postMagicOpposedSubRoll({
 }) {
   if (!roll) return;
 
-  void actor;
   void flavor;
-  void parentMessageId;
   void stage;
   void defenderIndex;
-  emitSuppressedOpposedSubRollDice(roll, { rollMode: getMagicSubRollMode() });
+  emitSuppressedOpposedSubRollDice(roll, { rollMode: getMagicSubRollMode(), actor, parentMessageId, user: game.user });
 }

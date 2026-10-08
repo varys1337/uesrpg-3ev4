@@ -1,3 +1,4 @@
+import { systemTooltipAttributes } from "../../../shared/system-tooltips.js";
 ﻿import { requestCreateActor, requestCreateEmbeddedDocuments, requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import { RaceMenuAppV2, BirthSignMenuAppV2, rollBirthsignSelection, applyBirthsignSelection } from "../character-creation-menus.js";
 import { onSetBaseCharacteristics, onLuckyMenu } from "../../../sheets/shared/listeners/characteristics-handlers.js";
@@ -690,9 +691,9 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
             <option value="thief">${t("UESRPG.Dialogs.CharGen.ChargeThief")}</option>
           </select>
         </label>
-        <label class="uesrpg-cg-check">
+        <label class="uesrpg-cg-check uesrpg-adv-choice uesrpg-choice-bar">
           <input type="checkbox" data-role="luck-cost-toggle">
-          <span>${t("UESRPG.Dialogs.CharGen.OptionalLuckRule")}</span>
+          <span class="uesrpg-adv-choice__label">${t("UESRPG.Dialogs.CharGen.OptionalLuckRule")}</span>
         </label>
       </div>`,
       buttons: {
@@ -871,9 +872,9 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       const label = foundry.utils.escapeHTML(t(TRAINING_RANK_LABELS[rank] ?? rank));
       return `<option value="${rank}" ${rank === "novice" ? "selected" : ""}>${label}</option>`;
     }).join("");
-    const saChecks = SPECIAL_ACTIONS.map((sa) => `<label class="uesrpg-cg-check">
+    const saChecks = SPECIAL_ACTIONS.map((sa) => `<label class="uesrpg-cg-check uesrpg-adv-choice uesrpg-choice-bar">
       <input type="checkbox" class="cg-sa" value="${foundry.utils.escapeHTML(sa.id)}">
-      <span>${foundry.utils.escapeHTML(sa.name)}</span>
+      <span class="uesrpg-adv-choice__label">${foundry.utils.escapeHTML(sa.name)}</span>
     </label>`).join("");
 
     const computeCombatSetupCost = (input) => {
@@ -993,13 +994,13 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
           ${saChecks}
         </div>
         <div class="uesrpg-cg-dialog__note"><b>${t("UESRPG.Dialogs.CharGen.EstimatedCost")}:</b> <span data-role="combat-style-cost">0</span> ${t("UESRPG.UI.XP")} <span data-role="combat-style-cost-breakdown"></span></div>
-        <label class="uesrpg-cg-check">
+        <label class="uesrpg-cg-check uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: administrativeReason || t("UESRPG.Dialogs.CharGen.FreeCombatStyle") })} ${administrativeReason ? 'tabindex="0"' : ""}>
           <input type="checkbox" data-role="free-combat-style" ${administrativeReason ? "checked disabled" : ""}>
-          <span>${t("UESRPG.Dialogs.CharGen.FreeCombatStyle")}</span>
+          <span class="uesrpg-adv-choice__label">${t("UESRPG.Dialogs.CharGen.FreeCombatStyle")}</span>
         </label>
-        <label class="uesrpg-cg-check">
+        <label class="uesrpg-cg-check uesrpg-adv-choice uesrpg-choice-bar">
           <input type="checkbox" data-role="set-active-style" checked>
-          <span>${t("UESRPG.Dialogs.CharGen.SetActiveCombatStyle")}</span>
+          <span class="uesrpg-adv-choice__label">${t("UESRPG.Dialogs.CharGen.SetActiveCombatStyle")}</span>
         </label>
       </div>`,
       buttons: {

@@ -7,7 +7,10 @@ import { createSeverityDebugLogger } from "../../../utils/debug.js";
 import { createUuidResolver } from "../../../utils/uuid-cache.js";
 import { getFeatureConfig } from "../../traits/features/feature-config.js";
 import { runFeatureAutomation, prepareFeatureActivation } from "../../traits/features/feature-dispatcher.js";
-import { featureNeedsEffectTransfer, applyFeatureEffectsToTargets } from "./feature-effects.js";
+import { featureNeedsEffectTransfer } from "./feature-effects.js";
+import { createChatOutcome } from "../../config/outcome-application-policy.js";
+import { persistChatOutcomes } from "../../../application/combat/chat-outcome-application-service.js";
+import { captureItemOutcomeContext } from "../../../utils/item-outcome-snapshot.js";
 import { SYSTEM_ID } from "../system-id.js";
 import {
   buildActivationActorSnapshot,
@@ -31,7 +34,7 @@ function resolveTargetActors(actor, context = {}) {
   return getTargetsFromContext(context)
     .map((target) => target?.actor ?? target?.document?.actor ?? null)
     .filter(Boolean)
-    .filter((targetActor) => targetActor.id !== actor?.id);
+    .filter((targetActor) => targetActor.uuid !== actor?.uuid);
 }
 
 async function maybeTransferFeatureEffects({
@@ -40,10 +43,6 @@ async function maybeTransferFeatureEffects({
   context,
   featureConfig,
   activationMessage,
-  activation,
-  label,
-  includeImage,
-  usageResult
 } = {}) {
   if (!FEATURE_TYPES.has(item?.type)) return;
   if (!featureNeedsEffectTransfer(item)) return;
@@ -52,30 +51,15 @@ async function maybeTransferFeatureEffects({
   const rawTargets = getTargetsFromContext(context);
   if (targetActors.length) {
     try {
-      const result = await applyFeatureEffectsToTargets(actor, item, targetActors, { featureConfig });
-      if (!result.targets.length) return result;
-      const note = `Applied ${result.applied} effect(s) to ${result.targets.join(", ")}.`;
-      const updated = activationMessage
-        ? await appendActivationResultToMessage(activationMessage, {
-            item,
-            actor,
-            activation,
-            label,
-            includeImage,
-            usageOverride: usageResult,
-            note
-          })
-        : false;
-      if (!updated) {
-        await ChatMessage.create({
-          user: game.user.id,
-          speaker: ChatMessage.getSpeaker({ actor }),
-          content: `<div class="uesrpg"><b>${escapeHtml(item.name)}</b>: ${escapeHtml(note)}</div>`,
-          whisper: featureConfig?.visibility === "gmOnly" ? game.users.filter((user) => user.isGM).map((user) => user.id) : [],
-          style: CONST.CHAT_MESSAGE_STYLES.OTHER
-        });
-      }
-      return result;
+      const entries = targetActors.map(target => createChatOutcome({
+        adapter: "ability.effects", kind: "effect", sourceActorUuid: actor.uuid, targetUuid: target.uuid,
+        label: item.name, payload: { itemSnapshot: item.toObject(), itemSnapshotContext: captureItemOutcomeContext(item), featureConfig },
+      }));
+      await persistChatOutcomes({ message: activationMessage, actor, entries,
+        content: `<div class="uesrpg"><b>${escapeHtml(item.name)}</b></div>`,
+        whisper: featureConfig?.visibility === "gmOnly" ? game.users.filter(user => user.isGM).map(user => user.id) : [],
+      });
+      return { applied: 0, targets: targetActors.map(target => target.name), failed: [], pending: true };
     } catch (err) {
       console.warn(`${SYSTEM_ID} | Feature effect transfer failed`, { item: item?.name, err });
       return { failed: targetActors.map((target) => target.name) };
@@ -140,6 +124,8 @@ export async function executeItemActivation({
   registerActivationStateHooks();
   if (!item) return { ok: false };
 
+  // Keep the selected targets stable through confirmation, costs, and effects.
+  context = { ...context, targets: [...getTargetsFromContext(context)] };
   const resolver = createUuidResolver();
   const actorSnapshot = buildActivationActorSnapshot(actor);
 
@@ -211,7 +197,14 @@ export async function executeItemActivation({
       console.warn(`${SYSTEM_ID} | Racial activation preflight failed`, err);
       return { ok: false, status: "failed", reason: "Activation requirements could not be checked." };
     }
+  }
 
+  if (featureNeedsEffectTransfer(item) && !resolveTargetActors(actor, mergedContext).length) {
+    ui.notifications?.warn?.(`${item.name}: select target token(s) other than the activating actor to receive its activation effects.`);
+    return { ok: false, status: "failed", reason: "requiresEffectTarget" };
+  }
+
+  if (activationEnabled) {
     usageResult = await consumeActivationUsage({ item, activation });
     if (!usageResult.ok) return { ok: false };
 
@@ -292,7 +285,9 @@ export async function executeItemActivation({
     }
   }
   const status = failures.length ? 'partial' : 'applied';
-  if (activationMessage) {
+  // Feature cards report concrete effects and failures; successful activation
+  // does not need a generic Result block beneath the feature description.
+  if (activationMessage && (failures.length || !isFeatureType)) {
     const reported = await appendActivationResultToMessage(activationMessage, {
       item, actor, activation, label, includeImage, usageOverride: usageResult,
       note: failures.length ? failures.join(' ') + ' Costs already paid are retained; review before retrying.' : 'Activation completed.',

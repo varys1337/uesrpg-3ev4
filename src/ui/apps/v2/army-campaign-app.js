@@ -1,6 +1,7 @@
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
 import { templatePath } from "../../constants.js";
+import { isDamageReceiptOnlyUpdate } from "../../../core/combat/damage/receipt-metadata.js";
 import { confirmDialog, customDialog } from "../../../utils/dialog-v2-helper.js";
 import { requestBatchUpdateDocuments } from "../../../utils/authority-proxy.js";
 import {
@@ -73,6 +74,7 @@ function _registerHooks() {
   if (_hookIds.length) return;
   _hookIds.push(["updateActor", Hooks.on("updateActor", (actor, changed) => {
     if (!isMassCombatEnabled()) return;
+    if (isDamageReceiptOnlyUpdate(changed)) return;
     if (String(actor?.type ?? "") === "Group") {
       const stateChanged = changed?.flags?.["uesrpg-3ev4"]?.massWarfareArmy !== undefined
         || foundry.utils.hasProperty(changed, "flags.uesrpg-3ev4.massWarfareArmy")
@@ -363,7 +365,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
       next.marshalActorUuid = marshal.uuid;
       next.history.unshift(createArmyCampaignHistoryEntry("Marshal Assigned", marshal.name, { consumesAction: false }));
       return next;
-    });
+    }, { strict: true });
     await this.render();
   }
 
@@ -391,7 +393,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
         { consumesAction: false },
       ));
       return next;
-    });
+    }, { strict: true });
     await this.render();
   }
 
@@ -453,7 +455,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
         <div class="form-group"><label><b>${t("UESRPG.UI.HP")}</b></label><input type="number" name="hp" value="${Number(current.hp ?? 0)}" min="0"></div>
         <div class="form-group"><label><b>${t("UESRPG.Dialogs.ArmyCampaign.HPMax")}</b></label><input type="number" name="hpMax" value="${Number(current.hpMax ?? 0)}" min="0"></div>
         <div class="form-group"><label><b>${t("UESRPG.Dialogs.ArmyCampaign.MovementCost")}</b></label><input type="number" name="movementCost" value="${Number(current.movementCost ?? 1)}" min="1"></div>
-        <div class="form-group"><label><input type="checkbox" name="blocksCharge" ${current.blocksCharge ? "checked" : ""}> ${t("UESRPG.Dialogs.ArmyCampaign.BlocksCharge")}</label></div>
+        <div class="form-group"><label class="uesrpg-adv-choice uesrpg-choice-bar"><input type="checkbox" name="blocksCharge" ${current.blocksCharge ? "checked" : ""}><span class="uesrpg-adv-choice__label">${t("UESRPG.Dialogs.ArmyCampaign.BlocksCharge")}</span></label></div>
         <div class="form-group"><label><b>${t("UESRPG.Dialogs.ArmyCampaign.CoverBonus")}</b></label><input type="number" name="coverBonus" value="${Number(current.coverBonus ?? 0)}"></div>
         <div class="form-group"><label><b>${t("UESRPG.Dialogs.ArmyCampaign.DefenseBonus")}</b></label><input type="number" name="defenseBonus" value="${Number(current.defenseBonus ?? 0)}"></div>
       `,
@@ -489,7 +491,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
       blocksCharge: picked.blocksCharge,
       coverBonus: picked.coverBonus,
       defenseBonus: picked.defenseBonus,
-    });
+    }, { strict: true });
     await this.render();
   }
 
@@ -500,7 +502,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
     if (!actor) return;
     try {
       const rolled = await performArmySkillTest(actor, skillNames);
-      await updateArmyCampaignState(group, (next) => applyResult(next, rolled, actor));
+      await updateArmyCampaignState(group, (next) => applyResult(next, rolled, actor), { strict: true });
       await this.render();
     } catch (err) {
       ui.notifications?.warn?.(String(err?.message ?? err));
@@ -516,7 +518,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
       content: `
         <div class="form-group"><label><b>${t("UESRPG.Dialogs.ArmyCampaign.LocationNote")}</b></label><input type="text" name="locationNote" value="${esc(getArmyCampaignState(group).locationNote || "")}"></div>
         <div class="form-group"><label><b>${t("UESRPG.Dialogs.ArmyCampaign.SupplySourceNote")}</b></label><input type="text" name="sourceNote" value="${esc(getArmyCampaignState(group).supply?.sourceNote || "")}"></div>
-        <div class="form-group"><label><input type="checkbox" name="forcedMarch"> ${t("UESRPG.Dialogs.ArmyCampaign.ApplyForcedMarch")}</label></div>
+        <div class="form-group"><label class="uesrpg-adv-choice uesrpg-choice-bar"><input type="checkbox" name="forcedMarch"><span class="uesrpg-adv-choice__label">${t("UESRPG.Dialogs.ArmyCampaign.ApplyForcedMarch")}</span></label></div>
       `,
       buttons: {
         confirm: {
@@ -546,7 +548,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
         next.supply.sourceNote = picked.sourceNote;
         next.campaignState.forcedMarchUsed = Boolean(picked.forcedMarch);
         return this._spendAction(next, "March", picked.locationNote || "Army marched.");
-      });
+      }, { strict: true });
       await this.render();
     } catch (err) {
       ui.notifications?.warn?.(String(err?.message ?? err));
@@ -560,8 +562,8 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
       layout: "workflow",
       title: t("UESRPG.Dialogs.ArmyCampaign.ReinforceTitle"),
       content: `
-        <div class="form-group"><label><input type="checkbox" name="clearForcedMarch" checked> ${t("UESRPG.Dialogs.ArmyCampaign.ClearForcedMarch")}</label></div>
-        <div class="form-group"><label><input type="checkbox" name="clearPoorClimate" checked> ${t("UESRPG.Dialogs.ArmyCampaign.ClearPoorClimate")}</label></div>
+        <div class="form-group"><label class="uesrpg-adv-choice uesrpg-choice-bar"><input type="checkbox" name="clearForcedMarch" checked><span class="uesrpg-adv-choice__label">${t("UESRPG.Dialogs.ArmyCampaign.ClearForcedMarch")}</span></label></div>
+        <div class="form-group"><label class="uesrpg-adv-choice uesrpg-choice-bar"><input type="checkbox" name="clearPoorClimate" checked><span class="uesrpg-adv-choice__label">${t("UESRPG.Dialogs.ArmyCampaign.ClearPoorClimate")}</span></label></div>
       `,
       buttons: {
         confirm: {
@@ -587,7 +589,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
     })).filter((entry) => Object.keys(entry.updateData).length);
     if (updates.length) await requestBatchUpdateDocuments(updates);
     try {
-      await updateArmyCampaignState(group, (next) => this._spendAction(next, "Reinforce / Muster", "Temporary campaign penalties reviewed."));
+      await updateArmyCampaignState(group, (next) => this._spendAction(next, "Reinforce / Muster", "Temporary campaign penalties reviewed."), { strict: true });
       await this.render();
     } catch (err) {
       ui.notifications?.warn?.(String(err?.message ?? err));
@@ -618,13 +620,13 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
       else next.defenderArmyUuid = group.uuid;
       next.history.unshift(createArmyCampaignHistoryEntry("Siege Linked", `${group.name} joined as ${role}.`));
       return next;
-    });
+    }, { strict: true });
     try {
       await updateArmyCampaignState(group, (next) => {
         next.siege.activeSiegeSceneUuid = scene.uuid;
         next.siege.role = role;
         return this._spendAction(next, "Besiege", `${scene.name} linked as ${role}.`);
-      });
+      }, { strict: true });
       await this.render();
     } catch (err) {
       ui.notifications?.warn?.(String(err?.message ?? err));
@@ -656,7 +658,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
     });
     if (!picked) return;
     try {
-      await updateArmyCampaignState(group, (next) => this._spendAction(next, "Special Operation", picked.note || `Outcome: ${picked.outcome}`));
+      await updateArmyCampaignState(group, (next) => this._spendAction(next, "Special Operation", picked.note || `Outcome: ${picked.outcome}`), { strict: true });
       await this.render();
     } catch (err) {
       ui.notifications?.warn?.(String(err?.message ?? err));
@@ -703,7 +705,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
       await updateArmyCampaignState(group, (next) => {
         next.campaignState.contactState = rolled?.result?.isSuccess ? picked.contactState : "avoiding";
         return this._spendAction(next, "Resolve Contact", `Contact with ${opposingArmy?.name ?? "Unknown"}: ${next.campaignState.contactState}.`);
-      });
+      }, { strict: true });
       await this.render();
     } catch (err) {
       ui.notifications?.warn?.(String(err?.message ?? err));
@@ -739,7 +741,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
       next.supplyPressure = picked.supplyPressure;
       next.history.unshift(createArmyCampaignHistoryEntry("Blockade", `${scene.name}: ${picked.blockadeState} blockade.`));
       return next;
-    });
+    }, { strict: true });
     await this.render();
   }
 
@@ -764,14 +766,14 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
       next.repairProgress = Math.max(0, Number(next.repairProgress ?? 0) || 0) + amount;
       next.history.unshift(createArmyCampaignHistoryEntry("Repair", `Fortification HP restored by ${amount}.`));
       return next;
-    });
+    }, { strict: true });
     if (region) {
       await updateRegionWarfareFeatureState(region, (next) => {
         next.hp = Math.min(Number(next.hpMax ?? next.hp ?? 0) || 0, Math.max(0, Number(next.hp ?? 0) || 0) + amount);
         next.intact = next.hp > 0;
         if (next.hp > 0) next.breached = false;
         return next;
-      });
+      }, { strict: true });
     }
     await this.render();
   }
@@ -798,14 +800,14 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
       next.fortificationHp = Math.max(0, (Number(next.fortificationHp ?? 0) || 0) - amount);
       next.history.unshift(createArmyCampaignHistoryEntry("Sap / Breach", `Fortification damaged by ${amount}.`));
       return next;
-    });
+    }, { strict: true });
     if (region) {
       await updateRegionWarfareFeatureState(region, (next) => {
         next.hp = Math.max(0, (Number(next.hp ?? 0) || 0) - amount);
         next.intact = next.hp > 0;
         next.breached = next.hp <= 0;
         return next;
-      });
+      }, { strict: true });
     }
     await this.render();
   }
@@ -830,11 +832,11 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
       next.supply.reserve = Math.max(0, Math.min(Number(next.supply.capacity ?? 1) || 1, Number(next.supply.reserve ?? 0) + amount));
       next.history.unshift(createArmyCampaignHistoryEntry("Smuggle / Supply", `Supply reserve adjusted by ${amount}.`, { consumesAction: false }));
       return next;
-    });
+    }, { strict: true });
     await updateSceneWarfareSiegeState(scene, (next) => {
       next.history.unshift(createArmyCampaignHistoryEntry("Smuggle / Supply", `Supply change ${amount >= 0 ? "+" : ""}${amount}.`));
       return next;
-    });
+    }, { strict: true });
     await this.render();
   }
 

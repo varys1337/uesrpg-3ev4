@@ -1,18 +1,18 @@
 <div class="tab effects" data-group="primary" data-tab="effects" data-ues-section="effects-tab">
   <div class="effectsTabContainer">
-    <div class="uesrpg-panel uesrpg-panel--subtle uesrpg-equipment-effects-section">
-      <header class="effects-header flexrow">
-        <h3>{{localize "UESRPG.Sheets.Equipment.Effects"}}</h3>
-        <button type="button" data-action="effectControl" class="effect-control uesrpg-semantic-control uesrpg-plain-control" data-effect-action="create" data-tooltip="UESRPG.Sheets.Equipment.CreateEffect" aria-label="{{localize "UESRPG.Sheets.Equipment.CreateEffect"}}">
-          <i class="fas fa-plus"></i>
+    <section class="uesrpg-actor-effects-section">
+      <header class="section-header uesrpg-effects-section-header">
+        <h3 class="section-header__label">{{localize "UESRPG.Sheets.Equipment.Effects"}} <span class="uesrpg-effects-count" aria-label="{{localize "UESRPG.Sheets.Effects.EffectCount" count=effects.length}}">({{effects.length}})</span></h3>
+        <button type="button" data-action="effectControl" class="effect-control section-header__action uesrpg-semantic-control uesrpg-styled-action uesrpg-icon-action" data-effect-action="create" data-tooltip="UESRPG.Sheets.Equipment.CreateEffect" aria-label="{{localize "UESRPG.Sheets.Equipment.CreateEffect"}}">
+          <i class="fas fa-plus" aria-hidden="true"></i>
         </button>
       </header>
-      <ol class="effects-list uesrpg-equipment-effects-list">
+      <ol class="effects-list uesrpg-actor-effects-list" aria-label="{{localize "UESRPG.Sheets.Equipment.Effects"}}">
         {{#each effects as |effect|}}
-          <li class="effect flexrow" data-effect-id="{{effect._id}}">
-            <img class="effect-icon" src="{{effect.img}}" alt="{{effect.name}}" />
+          <li class="effect{{#if effect.disabled}} is-disabled{{/if}}" data-effect-id="{{effect._id}}">
+            {{> "systems/uesrpg-3ev4/templates/partials/sheets/effect-edit-icon.hbs" effect=effect}}
             <div class="effect-summary">
-              <h4 class="effect-name">{{effect.name}}</h4>
+              <h4 class="effect-name">{{> "systems/uesrpg-3ev4/templates/partials/sheets/effect-edit-name.hbs" effect=effect}}</h4>
               {{#if effect.badges.length}}
                 <div class="effect-badges">
                   {{#each effect.badges as |badge|}}
@@ -21,19 +21,20 @@
                 </div>
               {{/if}}
             </div>
-            <div class="effect-controls flexrow">
-              <button type="button" data-action="effectControl" class="effect-control uesrpg-semantic-control uesrpg-plain-control" data-effect-action="toggle" data-effect-id="{{effect._id}}" data-tooltip="UESRPG.Sheets.Equipment.ToggleEffect" aria-label="{{localize "UESRPG.Sheets.Equipment.ToggleEffect"}}">
-                <i class="fas {{#if effect.disabled}}fa-toggle-off{{else}}fa-toggle-on{{/if}}"></i>
+            <div class="effect-controls">
+              {{> "systems/uesrpg-3ev4/templates/partials/sheets/effect-post-control.hbs" effect=effect}}
+              <button type="button" data-action="effectControl" class="effect-control uesrpg-semantic-control uesrpg-styled-action uesrpg-icon-action" data-effect-action="toggle" data-effect-id="{{effect._id}}" data-tooltip-text="{{#if effect.disabled}}{{localize "UESRPG.Sheets.Effects.EnableEffect"}}{{else}}{{localize "UESRPG.Sheets.Effects.DisableEffect"}}{{/if}}: {{effect.name}}" aria-label="{{#if effect.disabled}}{{localize "UESRPG.Sheets.Effects.EnableEffect"}}{{else}}{{localize "UESRPG.Sheets.Effects.DisableEffect"}}{{/if}}: {{effect.name}}" aria-pressed="{{#if effect.disabled}}false{{else}}true{{/if}}">
+                <i class="fas {{#if effect.disabled}}fa-toggle-off{{else}}fa-toggle-on{{/if}}" aria-hidden="true"></i>
               </button>
-              <button type="button" data-action="effectControl" class="effect-control uesrpg-semantic-control uesrpg-plain-control" data-effect-action="edit" data-effect-id="{{effect._id}}" data-tooltip="UESRPG.Sheets.Equipment.EditEffect" aria-label="{{localize "UESRPG.Sheets.Equipment.EditEffect"}}"><i class="fas fa-edit"></i></button>
-              <button type="button" data-action="effectControl" class="effect-control uesrpg-semantic-control uesrpg-plain-control" data-effect-action="delete" data-effect-id="{{effect._id}}" data-tooltip="UESRPG.Sheets.Equipment.DeleteEffect" aria-label="{{localize "UESRPG.Sheets.Equipment.DeleteEffect"}}"><i class="fas fa-trash"></i></button>
+              <button type="button" data-action="effectControl" class="effect-control uesrpg-semantic-control uesrpg-styled-action uesrpg-icon-action" data-effect-action="edit" data-effect-id="{{effect._id}}" data-tooltip-text="{{localize "UESRPG.Sheets.Equipment.EditEffect"}}: {{effect.name}}" aria-label="{{localize "UESRPG.Sheets.Equipment.EditEffect"}}: {{effect.name}}"><i class="fas fa-edit" aria-hidden="true"></i></button>
+              <button type="button" data-action="effectControl" class="effect-control uesrpg-semantic-control uesrpg-styled-action uesrpg-icon-action" data-effect-action="delete" data-effect-id="{{effect._id}}" data-tooltip-text="{{localize "UESRPG.Sheets.Equipment.DeleteEffect"}}: {{effect.name}}" aria-label="{{localize "UESRPG.Sheets.Equipment.DeleteEffect"}}: {{effect.name}}"><i class="fas fa-trash" aria-hidden="true"></i></button>
             </div>
           </li>
         {{/each}}
       </ol>
       {{#unless effects.length}}
-        <p class="effects-empty-msg">{{localize "UESRPG.Sheets.Equipment.NoActiveEffects"}}</p>
+        <p class="effects-empty-msg">{{localize "UESRPG.Sheets.Effects.NoneRecorded"}}</p>
       {{/unless}}
-    </div>
+    </section>
   </div>
 </div>

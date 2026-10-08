@@ -13,7 +13,7 @@ export async function openTravelPlanner(opts = {}) {
       next.ui.lastOpenedAt = Date.now();
       next.ui.lastOpenedBy = String(game.user?.id ?? "");
       return next;
-    });
+    }, { strict: true });
   } catch (_e) {
     // Non-blocking metadata stamp.
   }

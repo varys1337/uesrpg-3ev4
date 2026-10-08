@@ -62,7 +62,8 @@ export function registerWoundSocket(handlers = {}) {
       return { ok: false, code: AUTHORITY_RESULT_CODES.UNAUTHORIZED };
     }
 
-    await handler(actor, data?.data ?? {});
+    const result = await handler(actor, data?.data ?? {});
+    if (result === false || result?.failed === true) return { ok: false, code: AUTHORITY_RESULT_CODES.FAILED };
     return { ok: true };
   });
 }

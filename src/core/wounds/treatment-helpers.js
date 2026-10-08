@@ -1,3 +1,4 @@
+import { renderTNSummary, bindTNEstimates } from "../../ui/shared/tn-presentation.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
 import { SKILL_DIFFICULTIES } from "../skills/skill-tn.js";
 import { buildDifficultyOptionsHtml } from "./shared.js";
@@ -116,8 +117,21 @@ export async function promptTreatWoundRollOptions(healer, candidates = []) {
     return `<option value="${c.id}" ${selected}>${esc(c.label)} (TN ${Number(c.tn) || 0})</option>`;
   }).join("\n");
 
+  const readDeclaration = (root) => {
+    const candidateId = String(root?.querySelector('select[name="candidateId"]')?.value ?? "").trim();
+    const difficultyKey = String(root?.querySelector('select[name="difficultyKey"]')?.value ?? "average");
+    const manualMod = Number.parseInt(String(root?.querySelector('input[name="manualMod"]')?.value ?? "0"), 10) || 0;
+    return { candidateId, difficultyKey, manualMod };
+  };
+  const computeDeclaredTN = (declaration) => {
+    const selected = candidates.find((c) => c.id === String(declaration.candidateId ?? "").trim()) ?? candidates[0];
+    const diff = SKILL_DIFFICULTIES.find((d) => d.key === String(declaration.difficultyKey ?? "average")) ?? SKILL_DIFFICULTIES.find((d) => d.key === "average");
+    const finalTN = Math.max(0, (Number(selected?.tn ?? 0) || 0) + (Number(diff?.mod ?? 0) || 0) + (Number(declaration.manualMod ?? 0) || 0));
+    return { finalTN, selected, difficulty: diff, breakdown: [{ key: "base", label: selected?.label, value: Number(selected?.tn ?? 0) || 0 }, { label: diff?.label, value: diff?.mod }, { label: "Manual Modifier", value: declaration.manualMod }] };
+  };
   const content = `
     <div class="uesrpg-skill-roll">
+      ${renderTNSummary("Treat Wound")}
       <div class="form-group">
         <label><b>Skill Lane</b></label>
         <select name="candidateId" style="width:100%;">${candidateOptions}</select>
@@ -137,16 +151,11 @@ export async function promptTreatWoundRollOptions(healer, candidates = []) {
     layout: "workflow",
     title: `Treat Wound - ${esc(healer?.name ?? "Healer")} Roll Options`,
     content,
+    render: (_event, dialog) => bindTNEstimates(dialog.element, () => { const tn = computeDeclaredTN(readDeclaration(dialog.element)); return [{ key: "test", result: tn, label: tn.selected?.label ?? "Treat Wound" }]; }),
     buttons: {
       roll: {
         label: "Roll",
-        callback: (html) => {
-          const root = html instanceof HTMLElement ? html : html?.[0];
-          const candidateId = String(root?.querySelector('select[name="candidateId"]')?.value ?? "").trim();
-          const difficultyKey = String(root?.querySelector('select[name="difficultyKey"]')?.value ?? "average");
-          const manualMod = Number.parseInt(String(root?.querySelector('input[name="manualMod"]')?.value ?? "0"), 10) || 0;
-          return { candidateId, difficultyKey, manualMod };
-        },
+        callback: (html) => readDeclaration(html instanceof HTMLElement ? html : html?.[0]),
       },
       cancel: { label: "Cancel", callback: () => null },
     },
@@ -154,9 +163,7 @@ export async function promptTreatWoundRollOptions(healer, candidates = []) {
     width: 420,
   });
   if (!result) return null;
-  const selected = candidates.find((c) => c.id === String(result.candidateId ?? "").trim()) ?? candidates[0];
-  const diff = SKILL_DIFFICULTIES.find((d) => d.key === String(result.difficultyKey ?? "average")) ?? SKILL_DIFFICULTIES.find((d) => d.key === "average");
-  const finalTN = Math.max(0, (Number(selected?.tn ?? 0) || 0) + (Number(diff?.mod ?? 0) || 0) + (Number(result.manualMod ?? 0) || 0));
+  const { finalTN, selected, difficulty: diff } = computeDeclaredTN(result);
   return {
     candidate: selected,
     difficulty: diff,

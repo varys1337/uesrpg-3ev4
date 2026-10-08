@@ -12,6 +12,9 @@ import { canUseWardDefense, getPreferredWardDefenseSpell } from "./ward-defense.
 import { customDialog } from "../../utils/dialog-v2-helper.js";
 import { buildCircumstanceOptionsHtml } from "../opposed/circumstance.js";
 import { t } from "../../utils/i18n.js";
+import { systemTooltipAttributes, setSystemOptionTooltip } from "../../ui/shared/system-tooltips.js";
+import { buildCombatOptionTooltipText } from "../../data/tooltips/index.js";
+import { renderTNPill } from "../../ui/shared/tn-presentation.js";
 
 function asNumber(v) {
   if (v == null) return 0;
@@ -21,18 +24,19 @@ function asNumber(v) {
 }
 
 function _renderDefenseChoice({ value, title, checked, disabled, tnKey, desc = "", fullWidth = false, extraHtml = "" } = {}) {
+  const help = buildCombatOptionTooltipText(value, desc);
   return `
-    <label class="uesrpg-adv-choice def-opt ${disabled ? "is-disabled" : ""} ${fullWidth ? "uesrpg-defense-grid__full" : ""}">
+    <div class="uesrpg-adv-choice-group ${fullWidth ? "uesrpg-defense-grid__full" : ""}">
+    <label class="uesrpg-adv-choice uesrpg-choice-bar def-opt ${disabled ? "is-disabled" : ""}" ${systemTooltipAttributes({ text: help })} ${disabled ? 'tabindex="0"' : ""}>
       <input type="radio" name="defenseType" value="${value}" ${checked ? "checked" : ""} ${disabled ? "disabled" : ""}/>
       <span class="uesrpg-adv-choice__label def-opt__card">
         <span class="uesrpg-defense-card__head">
           <span class="uesrpg-adv-choice__title">${title}</span>
-          <span class="tn-pill">${t("UESRPG.Chat.Common.TN", "TN")}: <span data-tn-for="${tnKey}">\u2014</span></span>
+          ${renderTNPill(tnKey)}
         </span>
-        ${desc ? `<span class="uesrpg-adv-choice__desc">${Handlebars.escapeExpression(String(desc))}</span>` : ``}
-        ${extraHtml || ""}
       </span>
-    </label>
+    </label>${extraHtml || ""}
+    </div>
   `;
 }
 
@@ -90,15 +94,9 @@ function _renderContent({
   const blockSourceWard = Boolean(gates?.blockSources?.ward);
   const showBlockSourceSelect = blockSourceShield && blockSourceWard;
 
-  const notes = [];
-  if (gates.isRangedAttack) notes.push(`<p class="notes uesrpg-dialog-note"><b>${t("UESRPG.UI.Ranged", "Ranged")}:</b> ${t("UESRPG.Dialogs.Opposed.RangedDefenseNote", "Ranged attacks cannot be parried or counter-attacked.")}</p>`);
-  if (gates.attackerHasFlail) notes.push(`<p class="notes uesrpg-dialog-note"><b>${t("UESRPG.Dialogs.Opposed.Flail", "Flail")}:</b> ${t("UESRPG.Dialogs.Opposed.FlailDefenseNote", "Attacks with a flail cannot be parried or counter-attacked.")}</p>`);
-  if (gates.attackerHasEntangling) notes.push(`<p class="notes uesrpg-dialog-note"><b>${t("UESRPG.Dialogs.Opposed.Entangling", "Entangling")}:</b> ${t("UESRPG.Dialogs.Opposed.EntanglingDefenseNote", "Attacks with an entangling weapon cannot be parried or blocked.")}</p>`);
-  if (gates.smallVsTwoHandedGate) notes.push(`<p class="notes uesrpg-dialog-note"><b>${t("UESRPG.Dialogs.Opposed.Small", "Small")}:</b> ${t("UESRPG.Dialogs.Opposed.SmallWeaponDefenseNote", "A Small weapon cannot be used to Parry or Counter-Attack against a two-handed weapon.")}</p>`);
-
   const sensoryFlags = [
-    hasBlinded ? `<label class="uesrpg-inline-check"><input type="checkbox" name="applyBlinded" ${defaultApplyBlinded ? "checked" : ""} /> <span>${t("UESRPG.Dialogs.Opposed.BlindedPenalty", "Blinded (-30, sight-based)")}</span></label>` : ``,
-    hasDeafened ? `<label class="uesrpg-inline-check"><input type="checkbox" name="applyDeafened" ${defaultApplyDeafened ? "checked" : ""} /> <span>${t("UESRPG.Dialogs.Opposed.DeafenedPenalty", "Deafened (-30, hearing-based)")}</span></label>` : ``
+    hasBlinded ? `<label class="uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: buildCombatOptionTooltipText("blinded") })}><input type="checkbox" name="applyBlinded" ${defaultApplyBlinded ? "checked" : ""} /> <span class="uesrpg-adv-choice__label">${t("UESRPG.Dialogs.Opposed.BlindedShort", "Blinded (-30)")}</span></label>` : ``,
+    hasDeafened ? `<label class="uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: buildCombatOptionTooltipText("deafened") })}><input type="checkbox" name="applyDeafened" ${defaultApplyDeafened ? "checked" : ""} /> <span class="uesrpg-adv-choice__label">${t("UESRPG.Dialogs.Opposed.DeafenedShort", "Deafened (-30)")}</span></label>` : ``
   ].filter(Boolean);
   const sensoryRow = sensoryFlags.length ? `
   <div class="uesrpg-defense-flags">
@@ -118,11 +116,10 @@ function _renderContent({
     <div class="uesrpg-defense-flags__items">
       ${gladiatorMode === "updated"
         ? `
-        <label class="uesrpg-inline-check">
+        <label class="uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: buildCombatOptionTooltipText("gladiator", gladiatorAvailable ? t("UESRPG.Dialogs.Opposed.DefenseIsFree", "This defense is free (1/round).") : t("UESRPG.Dialogs.Opposed.AlreadyUsedThisRound", "Already used this round.")) })} ${gladiatorAvailable ? "" : 'tabindex="0"'}>
           <input type="checkbox" name="gladiatorFree" ${gladiatorAvailable ? "" : "disabled"} />
-          <span>${t("UESRPG.Dialogs.Opposed.MakeDefenseFree", "Make this defense free (1/round)")}</span>
+          <span class="uesrpg-adv-choice__label">${t("UESRPG.Dialogs.Opposed.GladiatorFreeShort", "Gladiator (0 AP)")}</span>
         </label>
-        ${gladiatorAvailable ? `` : `<span class="uesrpg-sensory-hint">${t("UESRPG.Dialogs.Opposed.AlreadyUsedThisRound", "Already used this round.")}</span>`}
         `
         : `
         <span class="uesrpg-sensory-hint">${gladiatorAvailable ? t("UESRPG.Dialogs.Opposed.DefenseIsFree", "This defense is free (1/round).") : t("UESRPG.Dialogs.Opposed.AlreadyUsedThisRound", "Already used this round.")}</span>
@@ -131,7 +128,7 @@ function _renderContent({
   </div>` : ``;
 
   return `
-<div class="uesrpg defense-dialog uesrpg-adv-dialog uesrpg-adv-dialog--defense">
+<div class="uesrpg defense-dialog uesrpg-dialog-stack uesrpg-adv-dialog uesrpg-adv-dialog--defense uesrpg-adv-dialog--choice-bars">
   <div class="uesrpg-dialog-section-header">${t("UESRPG.Dialogs.Opposed.DefenseResponse", "Defense Response")}</div>
   <div class="uesrpg-adv-grid uesrpg-defense-grid">
     ${_renderDefenseChoice({
@@ -189,7 +186,6 @@ function _renderContent({
 
   ${sensoryRow}
   ${gladiatorBlock}
-  ${notes.join("")}
 </div>`;
 }
 
@@ -267,6 +263,7 @@ export async function showDefenseDialog(defender, options = {}) {
       if (radio) radio.disabled = !currentAvailability.allowed[name];
       const opt = radio?.closest(".def-opt");
       if (opt) opt.classList.toggle("is-disabled", Boolean(radio?.disabled));
+      if (radio) setSystemOptionTooltip(radio, buildCombatOptionTooltipText(name, (currentAvailability.reasons?.[name] ?? []).join(" ")));
     }
 
     const blockSourceSelect = root.querySelector('select[name="blockSource"]');
@@ -297,6 +294,10 @@ export async function showDefenseDialog(defender, options = {}) {
     const styleUuid = getSelectedStyleUuid();
     const blockSource = _normalizeBlockSource(blockSourceSelect?.value, currentAvailability);
     const wardSpell = (blockSource === "ward") ? getPreferredWardDefenseSpell(defender) : null;
+    if (blockSource === "ward") {
+      const radio = root.querySelector('input[name="defenseType"][value="block"]');
+      if (radio) setSystemOptionTooltip(radio, buildCombatOptionTooltipText("ward", (currentAvailability.reasons?.block ?? []).join(" ")));
+    }
     const evadeTN = computeTN({ actor: defender, role: "defender", defenseType: "evade", manualMod, circumstanceMod, situationalMods, context }).finalTN;
     const parryTN = computeTN({ actor: defender, role: "defender", defenseType: "parry", styleUuid, manualMod, circumstanceMod, situationalMods, context }).finalTN;
     const counterTN = computeTN({ actor: defender, role: "defender", defenseType: "counter", styleUuid, manualMod, circumstanceMod, situationalMods, context }).finalTN;

@@ -44,6 +44,7 @@
  * Target: Foundry VTT v14 runtime
  */
 
+import { emitSuppressedSubRollDice } from "../../../utils/dice-visualization.js";
 import { registerSpellTickHandler } from "./spell-tick-engine.js";
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { _num, _numOrNull, _str, createDebugLogger, isDebugEnabled } from "../_primitives.js";
@@ -55,7 +56,7 @@ import { resolveActorFromUuidSync } from "../../../utils/uuid-cache.js";
 import { isMissingDocError as _isMissingDocError } from "../../../utils/ae-helpers.js";
 import { buildEffectChange, getEffectChanges } from "../../../utils/compat.js";
 import { isEffectCurrentlyApplicable } from "../../active-effects/collect.js";
-import { isGenericAESuppressed } from "../../active-effects/metadata.js";
+import { isGenericAESuppressed, isOverTimeTickStateOnlyUpdate } from "../../active-effects/metadata.js";
 import { deleteSpellEffectWithLifecycle } from "../effects/spell-effect-expiration.js";
 import {
   doesCadenceMatch,
@@ -235,11 +236,16 @@ function _installIndexHooks() {
 
   const markDirty = () => { _indexDirty = true; };
   Hooks.on("createActiveEffect", markDirty);
-  Hooks.on("updateActiveEffect", markDirty);
+  Hooks.on("updateActiveEffect", (_effect, changed) => {
+    if (isOverTimeTickStateOnlyUpdate(changed)) return;
+    markDirty();
+  });
   Hooks.on("deleteActiveEffect", markDirty);
 
   // Also dirty on scene/token changes that affect synthetic actors
   Hooks.on("canvasReady", markDirty);
+  Hooks.on("createCombatant", markDirty);
+  Hooks.on("deleteCombatant", markDirty);
 }
 
 /**
@@ -301,6 +307,13 @@ function _rebuildIndex() {
     for (const token of canvas.tokens.placeables) {
       if (token.document?.actorLink) continue; // Linked — already covered
       if (token.actor) indexActor(token.actor);
+    }
+  }
+
+  for (const combat of (game.combats ?? [])) {
+    for (const combatant of (combat.combatants ?? [])) {
+      const actor = combatant.actor;
+      if (actor?.uuid && !_effectIndex.has(actor.uuid)) indexActor(actor);
     }
   }
 
@@ -548,6 +561,7 @@ async function _onTick(ctx) {
   const trigger = ctx.trigger;
   if (!VALID_TRIGGERS.has(trigger)) return;
 
+  const failures = [];
   const debug = isDebugEnabled("overTimeDebug");
   const _perf = isPerfEnabled();
   const _t0 = _perf ? monoMs() : 0;
@@ -601,6 +615,7 @@ async function _onTick(ctx) {
       await _processEffect(actor, effect, config, cadence, tickState, ctx, debug);
       _processedCount++;
     } catch (err) {
+      failures.push(err);
       _error(`Failed to process effect "${effect.name}" on ${actor.name}`, err);
     }
     if (_perf) {
@@ -631,6 +646,7 @@ async function _onTick(ctx) {
       durationMs: monoMs() - _t0,
     });
   }
+  if (failures.length) throw new AggregateError(failures, "Over-time automation only partially completed.");
 }
 
 // ─── Composite Boundary Handler ──────────────────────────────────────────────
@@ -648,6 +664,7 @@ async function _onTick(ctx) {
 async function _onBoundaryTick(boundaryCtx) {
   if (!game.user?.isGM) return;
 
+  const failures = [];
   const debug = isDebugEnabled("overTimeDebug");
   const _perf = isPerfEnabled();
   const _t0 = _perf ? monoMs() : 0;
@@ -724,6 +741,7 @@ async function _onBoundaryTick(boundaryCtx) {
         if (debug) _debug(`├─ Processing: "${effect.name}" on ${actor.name}`);
         await _processEffect(actor, effect, config, cadence, tickState, phaseCtx, debug);
       } catch (err) {
+        failures.push(err);
         _error(`Failed to process effect "${effect.name}" on ${actor.name}`, err);
       }
       if (_perf) {
@@ -761,6 +779,7 @@ async function _onBoundaryTick(boundaryCtx) {
       durationMs: monoMs() - _t0,
     });
   }
+  if (failures.length) throw new AggregateError(failures, "Over-time automation only partially completed.");
 }
 
 // ─── Effect Collection (Index-Accelerated) ───────────────────────────────────
@@ -1135,6 +1154,7 @@ async function _processEffect(actor, effect, config, cadence, tickState, ctx, de
   // Execute payload for each target
   /** @type {string[]} */
   const chatParts = [];
+  const failures = [];
 
   for (const target of targets) {
     if (debug) _debug(`    │   ├─ Executing payload for ${target.name}...`);
@@ -1157,6 +1177,8 @@ async function _processEffect(actor, effect, config, cadence, tickState, ctx, de
         });
       }
     } catch (err) {
+      failures.push(err);
+      chatParts.push(`<p>${foundry.utils.escapeHTML(String(err.message ?? err))} Confirmed changes were retained.</p>`);
       _error(`Failed to execute ${payloadType} payload for ${target.name}`, err);
       _trace(debug, "payloadSkipped", {
         ...base,
@@ -1176,7 +1198,10 @@ async function _processEffect(actor, effect, config, cadence, tickState, ctx, de
   if (effectAlive) {
     // Update tick state (single batched write)
     if (debug) _debug(`    │   Updating tick state...`);
-    const stateResult = await _updateTickState(effect, config, tickState, ctx);
+    let stateResult;
+    try { stateResult = await _updateTickState(effect, config, tickState, ctx); }
+    catch (error) { failures.push(error); stateResult = { updated: false, reason: "stateUpdateFailed" }; }
+
     _trace(debug, stateResult?.updated ? "stateUpdated" : "stateSkipped", {
       ...base,
       ...(stateResult ?? { updated: false, reason: "stateUpdateUnknown" })
@@ -1188,7 +1213,7 @@ async function _processEffect(actor, effect, config, cadence, tickState, ctx, de
 
   // Post chat message (chat is always safe even if effect was deleted)
   if (config.chatLog !== false && chatParts.length) {
-    await _postChatMessage(actor, effect, config, chatParts);
+    try { await _postChatMessage(actor, effect, config, chatParts); } catch (error) { failures.push(error); }
   }
 
   if (debug) _debug(`    └── Effect processing complete`);
@@ -1200,9 +1225,11 @@ async function _processEffect(actor, effect, config, cadence, tickState, ctx, de
       trigger: ctx.trigger,
       round: ctx.round,
       tickCount: _num(tickState.tickCount, 0) + 1,
-      effectDeleted: !effectAlive
+      effectDeleted: !effectAlive,
+      completion: { status: failures.length ? "partial" : "completed" }
     });
   } catch (_e) { /* no-op */ }
+  if (failures.length) throw new AggregateError(failures, "Over-time payload or checkpoint did not completely settle.");
 }
 
 // ─── Payload Dispatch ────────────────────────────────────────────────────────
@@ -1300,6 +1327,8 @@ async function _executeDamagePayload(actor, effect, config, ctx) {
 
   const roll = new Roll(formula);
   await roll.evaluate();
+  const caster = resolveActorFromUuidSync(effect?.flags?.[FLAG_SCOPE]?.casterUuid) ?? actor;
+  void emitSuppressedSubRollDice(roll, { actor: caster, messageMode: "public", damageType: damageType });
   const damage = _num(roll.total, 0);
 
   if (damage <= 0) return `<p>No damage dealt.</p>`;
@@ -1315,6 +1344,9 @@ async function _executeDamagePayload(actor, effect, config, ctx) {
       skipChatMessage: true, // OT engine posts its own chat card
     });
 
+    if (result && (result.execution?.status === "partial" || result.execution?.status === "failed" || result.aftermathSummary?.failed?.length)) {
+      throw new Error(`Damage confirmed ${Number(result.healing ?? result.damage ?? result.granted ?? 0)}; owned consequences remain incomplete for ${actor.name}.`);
+    }
     if (result) {
       const oldHP = _num(result.oldHP, 0);
       const newHP = _num(result.newHP, 0);
@@ -1325,11 +1357,11 @@ async function _executeDamagePayload(actor, effect, config, ctx) {
       if (isHealRedirect) {
         const healed = _num(result.healing ?? result.effectiveHealed ?? applied, 0);
         _debug(`Damage→Heal redirect: ${actor.name} heals ${healed} (${oldHP} → ${newHP})`);
-        return `<p><strong>${actor.name}</strong> heals <strong>${healed}</strong> HP. (HP: ${oldHP} → ${newHP})</p>`;
+        return `<p><strong>${actor.name}</strong> heals <strong>${healed}</strong> HP.</p>`;
       }
 
       // Standard damage result
-      const parts = [`<p><strong>${actor.name}</strong> takes <strong>${applied}</strong> ${damageType} damage. (HP: ${oldHP} → ${newHP})</p>`];
+      const parts = [`<p><strong>${actor.name}</strong> takes <strong>${applied}</strong> ${damageType} damage.</p>`];
       if (result.immunity?.isImmune) {
         parts.push(`<p><em>Immune to ${damageType} — no damage dealt.</em></p>`);
       }
@@ -1347,9 +1379,10 @@ async function _executeDamagePayload(actor, effect, config, ctx) {
     }
   } catch (err) {
     _error(`Failed to apply damage to ${actor.name}`, err);
+    throw err;
   }
 
-  return `<p>Damage application failed for <strong>${actor.name}</strong>.</p>`;
+  throw new Error(`Damage application was not confirmed for ${actor.name}.`);
 }
 
 /**
@@ -1369,6 +1402,8 @@ async function _executeHealPayload(actor, effect, config, ctx) {
 
   const roll = new Roll(formula);
   await roll.evaluate();
+  const caster = resolveActorFromUuidSync(effect?.flags?.[FLAG_SCOPE]?.casterUuid) ?? actor;
+  void emitSuppressedSubRollDice(roll, { actor: caster, messageMode: "public", damageType: damageType });
   const healing = _num(roll.total, 0);
 
   if (healing <= 0) return `<p>No healing applied.</p>`;
@@ -1383,25 +1418,29 @@ async function _executeHealPayload(actor, effect, config, ctx) {
       skipChatMessage: true, // OT engine posts its own chat card
     });
 
+    if (result && (result.execution?.status === "partial" || result.execution?.status === "failed" || result.aftermathSummary?.failed?.length)) {
+      throw new Error(`Healing confirmed ${Number(result.healing ?? result.damage ?? result.granted ?? 0)}; owned consequences remain incomplete for ${actor.name}.`);
+    }
     if (result) {
       if (isTemporary) {
         const granted = _num(result.granted, 0);
         const totalTemp = _num(result.tempHP, 0);
         _debug(`TempHeal: ${actor.name} gains ${granted} temp HP (total: ${totalTemp})`);
-        return `<p><strong>${actor.name}</strong> gains <strong>${granted}</strong> temporary HP. (Temp HP: ${totalTemp})</p>`;
+        return `<p><strong>${actor.name}</strong> gains <strong>${granted}</strong> temporary HP.</p>`;
       }
 
       const oldHP = _num(result.oldHP, 0);
       const newHP = _num(result.newHP, 0);
       const healed = _num(result.healing ?? result.effectiveHealed, 0);
       _debug(`Heal: ${actor.name} heals ${healed} (${oldHP} → ${newHP})`);
-      return `<p><strong>${actor.name}</strong> heals <strong>${healed}</strong> HP. (HP: ${oldHP} → ${newHP})</p>`;
+      return `<p><strong>${actor.name}</strong> heals <strong>${healed}</strong> HP.</p>`;
     }
   } catch (err) {
     _error(`Failed to apply healing to ${actor.name}`, err);
+    throw err;
   }
 
-  return `<p>Healing application failed for <strong>${actor.name}</strong>.</p>`;
+  throw new Error(`Healing application was not confirmed for ${actor.name}.`);
 }
 
 /**
@@ -1421,7 +1460,7 @@ async function _executeEndEffectPayload(actor, effect, config, ctx) {
     return `<p><strong>${effect.name}</strong> ends on <strong>${actor.name}</strong>.</p>`;
   }
 
-  await _deleteEffectIfAlive(actor, effect, { context: `EndEffect on ${actor.name}` });
+  if (!await _deleteEffectIfAlive(actor, effect, { context: `EndEffect on ${actor.name}` }) && _isEffectAlive(actor, effect)) throw new Error("Over-time effect deletion was not confirmed.");
 
   return `<p><strong>${effect.name}</strong> ends on <strong>${actor.name}</strong>.</p>`;
 }
@@ -1446,6 +1485,7 @@ async function _executeSaveThenApplyPayload(actor, effect, config, ctx) {
 
   const roll = new Roll("1d100");
   await roll.evaluate();
+  void emitSuppressedSubRollDice(roll, { actor, messageMode: "public" });
   const rollResult = _num(roll.total, 100);
 
   // Resolve characteristic bonus
@@ -1478,6 +1518,8 @@ async function _executeSaveThenApplyPayload(actor, effect, config, ctx) {
         // (The previous Math.floor() wrapper produced invalid Roll expressions.)
         const halveRoll = new Roll(_str(config.formula || "0"));
         await halveRoll.evaluate();
+        const caster = resolveActorFromUuidSync(effect?.flags?.[FLAG_SCOPE]?.casterUuid) ?? actor;
+        void emitSuppressedSubRollDice(halveRoll, { actor: caster, messageMode: "public", damageType: config.damageType });
         const halvedValue = Math.max(0, Math.floor(_num(halveRoll.total, 0) / 2));
         const halfConfig = { ...config, formula: String(halvedValue) };
         actionChat = await _executeDamagePayload(actor, effect, halfConfig, ctx);
@@ -1519,13 +1561,15 @@ async function _postChatMessage(actor, effect, config, chatParts) {
   const content = `<div class="uesrpg"><h4>${label}</h4>${chatParts.join("")}</div>`;
 
   try {
-    await ChatMessage.create({
+    const created = await ChatMessage.create({
       content,
       speaker: ChatMessage.getSpeaker({ actor }),
       style: CONST.CHAT_MESSAGE_STYLES.OTHER
     });
+    if (!created) throw new Error("Over-time summary creation was not confirmed.");
   } catch (err) {
     _error("Failed to post chat message", err);
+    throw err;
   }
 }
 
@@ -1561,6 +1605,7 @@ async function _updateTickState(effect, config, tickState, ctx) {
     // Max ticks reached — delete effect directly, no need to update state first
     _debug(`Max ticks reached for "${effect.name}" (${newTickCount}/${maxTicks}), auto-ending`);
     const deleted = await _deleteEffectIfAlive(parent, effect, { context: `MaxTicks auto-end on ${parent?.name ?? "actor"}` });
+    if (!deleted && _isEffectAlive(parent, effect)) throw new Error("Over-time max-tick cleanup was not confirmed.");
     return {
       updated: false,
       reason: "maxTicks",
@@ -1578,39 +1623,12 @@ async function _updateTickState(effect, config, tickState, ctx) {
     [`flags.${_FLAG_NS}.overTimeState.tickCount`]: newTickCount
   };
 
-  try {
-    await requestUpdateDocument(effect, updates);
-    return {
-      updated: true,
-      reason: "stateUpdated",
-      tickCount: newTickCount,
-      updates
-    };
-  } catch (err) {
-    if (_isMissingDocError(err) || !_isEffectAlive(parent, effect)) {
-      return { updated: false, reason: "effectMissingDuringStateUpdate", tickCount: newTickCount };
-    }
-    // Fallback: direct update (if authority proxy fails for owned effects)
-    if (_isEffectAlive(parent, effect)) {
-      try {
-        await effect.update(updates);
-        return {
-          updated: true,
-          reason: "stateUpdatedFallback",
-          tickCount: newTickCount,
-          updates
-        };
-      }
-      catch (_e) {
-        if (_isMissingDocError(_e) || !_isEffectAlive(parent, effect)) {
-          return { updated: false, reason: "effectMissingDuringStateUpdate", tickCount: newTickCount };
-        }
-        _warn(`Failed to update tick state for "${effect.name}"`, _e);
-        return { updated: false, reason: "stateUpdateFailed", tickCount: newTickCount };
-      }
-    }
+  const confirmed = await requestUpdateDocument(effect, updates, { render: false });
+  if (!confirmed) {
+    if (!_isEffectAlive(parent, effect)) return { updated: false, reason: "effectMissingDuringStateUpdate", tickCount: newTickCount };
+    throw new Error("Over-time checkpoint was not confirmed. Committed payloads were not repeated.");
   }
-  return { updated: false, reason: "stateUpdateFailed", tickCount: newTickCount };
+  return { updated: true, reason: "stateUpdated", tickCount: newTickCount, updates };
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────

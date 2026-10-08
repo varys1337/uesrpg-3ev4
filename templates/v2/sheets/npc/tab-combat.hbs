@@ -11,9 +11,9 @@
                             <div class="combat-stat">
                                 <div class="stat-value-label">
                                     <div class="flex-container-input">
-                                        <input type="number" name="system.action_points.value" value="{{actor.system.action_points.value}}">
+                                        <input type="number" name="system.action_points.value" aria-label="{{localize "UESRPG.Sheets.Combat.CurrentAP"}}" value="{{actor.system.action_points.value}}">
                                         /
-                                        <input type="number" name="system.action_points.max" value="{{actor.system.action_points.max}}">
+                                        <input type="number" name="system.action_points.max" aria-label="{{localize "UESRPG.Sheets.Combat.MaximumAP"}}" value="{{actor.system.action_points.max}}">
                                     </div>
                                 </div>
                                 <div class="flex-container">
@@ -25,9 +25,9 @@
                                     {{#if actor.attackTrackerUi.authoritative}}
                                     {{#if isGM}}
                                     <div class="flex-container-input">
-                                        <input type="number" class="uesrpg-attack-input" name="flags.uesrpg-3ev4.combat.attackTrackerOverrides.current" data-kind="current" value="{{actor.attackTrackerUi.current}}" min="0" step="1">
+                                        <input type="number" class="uesrpg-attack-input" name="flags.uesrpg-3ev4.combat.attackTrackerOverrides.current" data-kind="current" aria-label="{{localize "UESRPG.Sheets.Combat.CurrentAttacks"}}" value="{{actor.attackTrackerUi.current}}" min="0" step="1">
                                         /
-                                        <input type="number" class="uesrpg-attack-input" name="flags.uesrpg-3ev4.combat.attackTrackerOverrides.max" data-kind="max" value="{{actor.attackTrackerUi.max}}" min="1" step="1">
+                                        <input type="number" class="uesrpg-attack-input" name="flags.uesrpg-3ev4.combat.attackTrackerOverrides.max" data-kind="max" aria-label="{{localize "UESRPG.Sheets.Combat.MaximumAttacks"}}" value="{{actor.attackTrackerUi.max}}" min="1" step="1">
                                     </div>
                                     {{else}}
                                     {{actor.attackTrackerUi.current}}/{{actor.attackTrackerUi.max}}
@@ -130,13 +130,13 @@
                                 </div>
                                 <div class="flex-container">
                                     <div>{{localize "UESRPG.Sheets.Combat.Size"}}</div>
-                                    <select name="system.size" data-type="String">
+                                    <select name="system.size" data-type="String" aria-label="{{localize "UESRPG.Sheets.Combat.Size"}}">
                                         {{selectOptions sizeOptions selected=actor.system.size localize=true}}
                                     </select>
                                 </div>
                                 <div class="flex-container">
                                     <div>{{localize "UESRPG.Sheets.Equipment.AC"}}</div>
-                                    <select name="system.armor_class" data-type="String">
+                                    <select name="system.armor_class" data-type="String" aria-label="{{localize "UESRPG.Sheets.Equipment.AC"}}">
                                         {{selectOptions armorClassOptions selected=actor.system.armor_class localize=true}}
                                     </select>
                                 </div>
@@ -154,37 +154,41 @@
 
                     <!-- Combat Equipped Summary removed — Quick Info bar was unused -->
 
-                    <div class="combat-item-container uesrpg-sheet-table-frame">
-                        <table class="combat-style-table uesrpg-sheet-table">
-                            <thead>
-                                <tr>
-                                    <th class="item-name-cell item-create"><button type="button" class="uesrpg-semantic-control uesrpg-plain-control" data-action="itemCreate" data-item-type="combatStyle">+ {{localize "UESRPG.Sheets.Combat.CombatStyle"}}</button></th>
-                                    <th>%</th>
-                                    <th>{{localize "UESRPG.UI.Rank"}}</th>
-                                    <th class="right-align-cell"><i class="fas fa-trash"></i></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {{#each actor.combatStyle as |item id|}}
-                                    <tr class="item" data-item-id="{{item._id}}">
-                                        <td class="item-name-cell">
-                                            <div class="flex-container">
-                                                <button type="button" class="uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="combatRoll" aria-label="{{localize "UESRPG.UI.Roll"}}"><i class="fas fa-dice-d20 combat-roll" aria-hidden="true"></i></button>
-                                                <img class="item-img" src="{{item.img}}" alt="{{item.name}}">
-                                            <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control" data-tooltip-text="{{item.name}}" aria-label="{{item.name}}">{{item.name}}</button>
-                                            </div>
-                                        </td>
-                                        <td>{{item.system.value}}%</td>
-                                        <td>{{item.system.rank}}</td>
-                                        <td class="right-align-cell"><button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></button></td>
-                                    </tr>
-                                {{/each}}
-                            </tbody>
-                        </table>
-                    </div>
+                    <section class="uesrpg-combat-styles uesrpg-collapsible">
+    <div class="section-header uesrpg-combat-section-header">
+        <button type="button" data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle uesrpg-semantic-control uesrpg-plain-control" data-group="combat-styles" data-tooltip="UESRPG.UI.CollapseExpand" aria-label="{{localize "UESRPG.Sheets.Combat.CombatStyle"}}: {{localize "UESRPG.UI.CollapseExpand"}}" aria-expanded="true"></button>
+        <span class="section-header__label">{{localize "UESRPG.Sheets.Combat.CombatStyle"}}</span>
+        <button type="button" class="section-header__action uesrpg-semantic-control uesrpg-plain-control" data-action="itemCreate" data-item-type="combatStyle" data-tooltip="UESRPG.Sheets.Combat.AddCombatStyle" aria-label="{{localize "UESRPG.Sheets.Combat.AddCombatStyle"}}">+</button>
+    </div>
+    {{#if actor.combatStyle.length}}
+    <div class="combat-item-container uesrpg-sheet-table-frame uesrpg-collapse-body">
+        <table class="combat-style-table uesrpg-sheet-table">
+            <thead><tr>
+                <th class="item-name-cell">{{localize "UESRPG.UI.Name"}}</th>
+                <th>%</th>
+                <th>{{localize "UESRPG.UI.Rank"}}</th>
+                <th class="right-align-cell"><i class="fas fa-trash" aria-hidden="true"></i><span class="u-sr-only">{{localize "UESRPG.UI.Delete"}}</span></th>
+            </tr></thead>
+            <tbody>
+                {{#each actor.combatStyle as |item|}}
+                <tr class="item" data-item-id="{{item._id}}">
+                    <td class="item-name-cell"><div class="flex-container">
+                        {{> "systems/uesrpg-3ev4/templates/partials/sheets/skill-roll-icon.hbs" action="combatRoll" rollTargetClass="uesrpg-combat-roll-icon" img=item.img label=item.name}}
+                        <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control" data-tooltip-text="{{localize "UESRPG.ModernUI.OpenItemSheet"}}: {{item.name}}" aria-label="{{localize "UESRPG.ModernUI.OpenItemSheet"}}: {{item.name}}">{{item.name}}</button>
+                    </div></td>
+                    <td>{{item.system.value}}%</td>
+                    <td>{{#with (lookup @root.skillRankOptions item.system.rank) as |rankLabel|}}{{localize rankLabel}}{{else}}{{item.system.rank}}{{/with}}</td>
+                    <td class="right-align-cell"><button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}: {{item.name}}"><i class="fas fa-trash" aria-hidden="true"></i></button></td>
+                </tr>
+                {{/each}}
+            </tbody>
+        </table>
+    </div>
+    {{/if}}
+</section>
 
 <div class="uesrpg-actions-section uesrpg-panel uesrpg-panel--subtle" data-actions-root>
-    <nav class="uesrpg-actions-tabs tabs">
+    <nav class="uesrpg-actions-tabs tabs" data-group="actions" role="tablist" aria-label="{{localize "UESRPG.Sheets.Combat.Actions"}}">
         <button type="button" data-action="tab" class="uesrpg-actions-subtab uesrpg-semantic-control uesrpg-plain-control" data-group="actions" data-tab="primary" role="tab">{{localize "UESRPG.Sheets.Combat.Primary"}}</button>
         <button type="button" data-action="tab" class="uesrpg-actions-subtab uesrpg-semantic-control uesrpg-plain-control" data-group="actions" data-tab="secondary" role="tab">{{localize "UESRPG.Sheets.Combat.Secondary"}}</button>
         <button type="button" data-action="tab" class="uesrpg-actions-subtab uesrpg-semantic-control uesrpg-plain-control" data-group="actions" data-tab="reactions" role="tab">{{localize "UESRPG.Sheets.Combat.Reactions"}}</button>
@@ -192,17 +196,16 @@
     </nav>
 
     <div class="uesrpg-actions-panels">
-        <div class="tab uesrpg-actions-panel" data-group="actions" data-tab="primary">
-            <div class="uesrpg-actions-card uesrpg-panel uesrpg-panel--alt">
-                <div class="quickbar-title">{{localize "UESRPG.Sheets.Combat.Primary"}}</div>
+        <div class="tab uesrpg-actions-panel" role="tabpanel" data-group="actions" data-tab="primary">
+            <div class="uesrpg-actions-card">
                 <div class="quickbar-buttons quickbar-buttons--compact">
                     {{#if actor.sheetCombatQuick.meleeWeaponId}}
-                        <button type="button" class="uesrpg-quick-action uesrpg-styled-action" data-action="combatQuickAction" data-combat-action="attack" data-weapon-id="{{actor.sheetCombatQuick.meleeWeaponId}}" data-attack-mode="melee" data-label="{{localize "UESRPG.Sheets.Combat.AttackMelee"}}" {{#if actor.sheetCombatQuick.quickAttacksDisabled}}disabled="disabled" data-tooltip-text="{{actor.sheetCombatQuick.quickAttacksDisabledReason}}"{{/if}} aria-label="{{actor.sheetCombatQuick.quickAttacksDisabledReason}}">{{localize "UESRPG.Sheets.Combat.AttackMelee"}}</button>
+                        <button type="button" class="uesrpg-quick-action uesrpg-styled-action" data-action="combatQuickAction" data-combat-action="attack" data-weapon-id="{{actor.sheetCombatQuick.meleeWeaponId}}" data-attack-mode="melee" data-label="{{localize "UESRPG.Sheets.Combat.AttackMelee"}}" {{#if actor.sheetCombatQuick.quickAttacksDisabled}}disabled="disabled" data-tooltip-text="{{actor.sheetCombatQuick.quickAttacksDisabledReason}}"{{/if}} aria-label="{{localize "UESRPG.Sheets.Combat.AttackMelee"}}{{#if actor.sheetCombatQuick.quickAttacksDisabled}} — {{actor.sheetCombatQuick.quickAttacksDisabledReason}}{{/if}}">{{localize "UESRPG.Sheets.Combat.AttackMelee"}}</button>
                     {{/if}}
                     {{#if actor.sheetCombatQuick.rangedWeaponId}}
-                        <button type="button" class="uesrpg-quick-action uesrpg-styled-action" data-action="combatQuickAction" data-combat-action="attack" data-weapon-id="{{actor.sheetCombatQuick.rangedWeaponId}}" data-attack-mode="ranged" data-label="{{localize "UESRPG.Sheets.Combat.AttackRanged"}}" {{#if actor.sheetCombatQuick.quickAttacksDisabled}}disabled="disabled" data-tooltip-text="{{actor.sheetCombatQuick.quickAttacksDisabledReason}}"{{/if}} aria-label="{{actor.sheetCombatQuick.quickAttacksDisabledReason}}">{{localize "UESRPG.Sheets.Combat.AttackRanged"}}</button>
+                        <button type="button" class="uesrpg-quick-action uesrpg-styled-action" data-action="combatQuickAction" data-combat-action="attack" data-weapon-id="{{actor.sheetCombatQuick.rangedWeaponId}}" data-attack-mode="ranged" data-label="{{localize "UESRPG.Sheets.Combat.AttackRanged"}}" {{#if actor.sheetCombatQuick.quickAttacksDisabled}}disabled="disabled" data-tooltip-text="{{actor.sheetCombatQuick.quickAttacksDisabledReason}}"{{/if}} aria-label="{{localize "UESRPG.Sheets.Combat.AttackRanged"}}{{#if actor.sheetCombatQuick.quickAttacksDisabled}} — {{actor.sheetCombatQuick.quickAttacksDisabledReason}}{{/if}}">{{localize "UESRPG.Sheets.Combat.AttackRanged"}}</button>
                     {{/if}}
-                    <button type="button" class="uesrpg-cast-magic uesrpg-styled-action" data-action="castMagic" data-action-type="primary" {{#unless actor.sheetCombatActions.canCastMagic}}disabled="disabled" data-tooltip="UESRPG.Sheets.Combat.NoCastableSourcesOnSheet"{{/unless}} aria-label="{{localize "UESRPG.Sheets.Combat.NoCastableSourcesOnSheet"}}">{{localize "UESRPG.Sheets.Combat.CastMagic"}}</button>
+                    <button type="button" class="uesrpg-cast-magic uesrpg-styled-action" data-action="castMagic" data-action-type="primary" {{#unless actor.sheetCombatActions.canCastMagic}}disabled="disabled" data-tooltip="UESRPG.Sheets.Combat.NoCastableSourcesOnSheet"{{/unless}} aria-label="{{localize "UESRPG.Sheets.Combat.CastMagic"}}{{#unless actor.sheetCombatActions.canCastMagic}} — {{localize "UESRPG.Sheets.Combat.NoCastableSourcesOnSheet"}}{{/unless}}">{{localize "UESRPG.Sheets.Combat.CastMagic"}}</button>
 
                     
                     <button type="button" class="uesrpg-quick-action uesrpg-styled-action" data-action="combatQuickAction" data-combat-action="disengage" data-label="{{localize "UESRPG.Sheets.Combat.Disengage"}}">{{localize "UESRPG.Sheets.Combat.Disengage"}}</button>
@@ -216,9 +219,8 @@
             </div>
         </div>
 
-        <div class="tab uesrpg-actions-panel" data-group="actions" data-tab="secondary">
-            <div class="uesrpg-actions-card uesrpg-panel uesrpg-panel--alt">
-                <div class="quickbar-title">{{localize "UESRPG.Sheets.Combat.Secondary"}}</div>
+        <div class="tab uesrpg-actions-panel" role="tabpanel" data-group="actions" data-tab="secondary">
+            <div class="uesrpg-actions-card">
                 <div class="quickbar-buttons quickbar-buttons--compact">
                     <button type="button" class="uesrpg-quick-action uesrpg-styled-action" data-action="combatQuickAction" data-combat-action="aim" data-label="{{localize "UESRPG.Sheets.Combat.Aim"}}">{{localize "UESRPG.Sheets.Combat.Aim"}}</button>
                     <button type="button" class="uesrpg-quick-action uesrpg-styled-action" data-action="combatQuickAction" data-combat-action="dash" data-label="{{localize "UESRPG.Sheets.Combat.Dash"}}">{{localize "UESRPG.Sheets.Combat.Dash"}}</button>
@@ -233,12 +235,11 @@
             </div>
         </div>
 
-        <div class="tab uesrpg-actions-panel" data-group="actions" data-tab="reactions">
+        <div class="tab uesrpg-actions-panel" role="tabpanel" data-group="actions" data-tab="reactions">
             {{> "systems/uesrpg-3ev4/templates/partials/sheets/combat-reactions.hbs" isNpc=true}}
         </div>
-        <div class="tab uesrpg-actions-panel" data-group="actions" data-tab="special">
-            <div class="uesrpg-actions-card uesrpg-panel uesrpg-panel--alt">
-                <div class="quickbar-title">{{localize "UESRPG.Sheets.Combat.Special"}}</div>
+        <div class="tab uesrpg-actions-panel" role="tabpanel" data-group="actions" data-tab="special">
+            <div class="uesrpg-actions-card">
 
                 <div class="actions-help u-mb-sm">{{localize "UESRPG.Sheets.Combat.SpecialActionsHelp"}}</div>
 
@@ -251,7 +252,7 @@
                                     data-action-type="{{sa.actionType}}"
                                     data-tooltip-text="{{sa.description}}"
                                     {{#if (eq sa.actionType "primary")}}{{#unless sa.usableNow}}disabled="disabled"{{/unless}}{{/if}}
-                             aria-label="{{sa.description}}">{{sa.name}}</button>
+                             aria-label="{{sa.name}}{{#if sa.description}}: {{sa.description}}{{/if}}">{{sa.name}}</button>
                         {{/each}}
                     </div>
                 {{else}}
@@ -264,86 +265,7 @@
 </div>
 
 {{#if woundsInjuriesUi.enabled}}
-<div class="uesrpg-panel uesrpg-panel--subtle uesrpg-wounds-panel">
-    <div class="section-header"><span class="section-header__label">{{localize "UESRPG.Sheets.Wounds.Title"}}</span></div>
-    <div class="uesrpg-wounds-table-wrap uesrpg-wounds-table-wrap--compact uesrpg-sheet-table-frame">
-        <table class="uesrpg-wounds-table uesrpg-wounds-table--compact uesrpg-sheet-table">
-            <thead>
-                <tr>
-                    <th>{{localize "UESRPG.UI.Location"}}</th>
-                    <th>{{localize "UESRPG.Sheets.Wounds.Progress"}}</th>
-                    <th>{{localize "UESRPG.Sheets.Wounds.State"}}</th>
-                    <th class="right-align-cell">{{localize "UESRPG.Sheets.Wounds.Actions"}}</th>
-                </tr>
-            </thead>
-            <tbody>
-                {{#if woundsInjuriesUi.hasRows}}
-                {{#each woundsInjuriesUi.rows as |row|}}
-                <tr class="uesrpg-wounds-row">
-                    <td>{{row.hitLocation}}</td>
-                    <td>
-                        {{#if row.wound}}
-                        {{#if row.wound.canEditProgress}}
-                        <span class="uesrpg-wounds-progress-inline">
-                            <input
-                                type="number"
-                                min="0"
-                                value="{{row.wound.progressInputValue}}"
-                                data-wi-action="setProgress"
-                                data-effect-id="{{row.wound.id}}"
-                                data-wi-progress-input="{{row.wound.id}}"
-                                class="uesrpg-wounds-progress-input-plain"
-                                data-tooltip="UESRPG.Sheets.Wounds.PressEnterToApply"
-                             aria-label="{{localize "UESRPG.Sheets.Wounds.PressEnterToApply"}}"/> /
-                            <input
-                                type="number"
-                                min="0"
-                                value="{{row.wound.damage}}"
-                                data-wi-action="setDamage"
-                                data-effect-id="{{row.wound.id}}"
-                                data-wi-damage-input="{{row.wound.id}}"
-                                class="uesrpg-wounds-progress-input-plain"
-                                data-tooltip="UESRPG.Sheets.Wounds.PressEnterToApply"
-                             aria-label="{{localize "UESRPG.Sheets.Wounds.PressEnterToApply"}}"/>
-                        </span>
-                        {{else}}
-                        {{row.wound.progress}} / {{row.wound.damage}}
-                        {{/if}}
-                        {{else}}
-                        -
-                        {{/if}}
-                    </td>
-                    <td>
-                        <div class="uesrpg-wounds-chips">
-                            {{#each row.chips as |chip|}}
-                            <span class="uesrpg-wound-chip uesrpg-wound-chip--{{chip.tone}}">{{chip.label}}</span>
-                            {{/each}}
-                        </div>
-                    </td>
-                    <td class="right-align-cell uesrpg-wounds-actions">
-                        <div class="uesrpg-wounds-row-actions">
-                            {{#each row.actions as |action|}}
-                            <button
-                                type="button"
-                                class="uesrpg-quick-action uesrpg-quick-action--tiny uesrpg-styled-action"
-                                data-action="woundsInjuriesControl"
-                                data-wi-action="{{action.wiAction}}"
-                                data-effect-id="{{action.effectId}}"
-                                {{#if action.disabled}}disabled="disabled"{{/if}}
-                                {{#if action.title}}data-tooltip-text="{{action.title}}"{{/if}}
-                             aria-label="{{action.title}}">{{action.label}}</button>
-                            {{/each}}
-                        </div>
-                    </td>
-                </tr>
-                {{/each}}
-                {{else}}
-                <tr><td colspan="4" class="actions-help-small">{{localize "UESRPG.Sheets.Wounds.NoneRecorded"}}</td></tr>
-                {{/if}}
-            </tbody>
-        </table>
-    </div>
-</div>
+{{> "systems/uesrpg-3ev4/templates/partials/sheets/combat-wounds.hbs"}}
 {{/if}}
 
 {{#if sheetUi.showDiagnostics}}

@@ -51,7 +51,7 @@ export function sanitizeChatMessageUpdatePayload(payload) {
 
   if (typeof payload.content === "string") out.content = payload.content;
 
-  const flags = payload.flags;
+  const flags = foundry.utils.expandObject(payload).flags;
   const sysFlags = (flags && typeof flags === "object") ? flags[sysId] : null;
   if (sysFlags && typeof sysFlags === "object") {
     const cleanedSysFlags = {};
@@ -66,6 +66,9 @@ export function sanitizeChatMessageUpdatePayload(payload) {
     if (Object.prototype.hasOwnProperty.call(sysFlags, "magicOpposed")) cleanedSysFlags.magicOpposed = deepClonePlain(sysFlags.magicOpposed);
     if (Object.prototype.hasOwnProperty.call(sysFlags, "charOpposed")) cleanedSysFlags.charOpposed = deepClonePlain(sysFlags.charOpposed);
     if (Object.prototype.hasOwnProperty.call(sysFlags, "warfareClash")) cleanedSysFlags.warfareClash = deepClonePlain(sysFlags.warfareClash);
+    for (const key of ["chatOutcomes", "regenerationPrompt", "regenerationPromptBatch", "specialActionOpposed", "alchemyPoisonCard", "alchemyToxinCard"]) {
+      if (Object.prototype.hasOwnProperty.call(sysFlags, key)) cleanedSysFlags[key] = deepClonePlain(sysFlags[key]);
+    }
     if (Object.keys(cleanedSysFlags).length > 0) out.flags = { [sysId]: cleanedSysFlags };
   }
 
@@ -202,13 +205,14 @@ export function sanitizeGenericUpdatePayload(doc, payload) {
   }
 
   if (docName === "ActiveEffect") {
-    const allowed = new Set(["changes", "duration", "disabled", "name", "img", "icon", "flags", "statuses", "tint", "origin", "transfer"]);
+    const allowed = new Set(["changes", "duration", "disabled", "name", "img", "icon", "flags", "statuses", "tint", "origin", "transfer", "description", "start", "showIcon", "sort", "type"]);
     for (const [k, v] of Object.entries(payload)) {
       if (k === "changes" || k === "system.changes") {
         assignActiveEffectChangesForUpdate(out, Array.isArray(v) ? v : []);
         continue;
       }
       if (k === "system" && v && typeof v === "object") {
+        out.system = deepClonePlain(v);
         assignActiveEffectChangesForUpdate(out, { system: v });
         continue;
       }
@@ -218,7 +222,7 @@ export function sanitizeGenericUpdatePayload(doc, payload) {
         else out[k] = deepClonePlain(v);
         continue;
       }
-      if (k.startsWith("flags.") || k.startsWith("duration.")) {
+      if (k.startsWith("flags.") || k.startsWith("duration.") || k.startsWith("start.")) {
         out[k] = deepClonePlain(v);
       }
     }
@@ -246,7 +250,7 @@ export function sanitizeEmbeddedDocData(embeddedName, data) {
   if (!data || typeof data !== "object") return null;
 
   if (embeddedName === "ActiveEffect") {
-    const allowed = new Set(["name", "img", "icon", "origin", "disabled", "duration", "changes", "flags", "statuses", "tint", "transfer"]);
+    const allowed = new Set(["name", "img", "icon", "origin", "disabled", "duration", "changes", "flags", "statuses", "tint", "transfer", "description", "start", "showIcon", "sort", "type"]);
     const out = {};
     for (const [k, v] of Object.entries(data)) {
       if (k === "changes" || k === "system.changes") {
@@ -254,10 +258,11 @@ export function sanitizeEmbeddedDocData(embeddedName, data) {
         continue;
       }
       if (k === "system" && v && typeof v === "object") {
+        out.system = deepClonePlain(v);
         assignActiveEffectChangesForCreate(out, { system: v });
         continue;
       }
-      if (!allowed.has(k) && !k.startsWith("flags.") && !k.startsWith("duration.")) continue;
+      if (!allowed.has(k) && !k.startsWith("flags.") && !k.startsWith("duration.") && !k.startsWith("start.")) continue;
       if (k === "icon") {
         if (out.img === undefined && data.img === undefined) out.img = deepClonePlain(v);
         continue;

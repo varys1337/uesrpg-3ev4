@@ -7,7 +7,7 @@ export function registerInterfaceSettingsMenu() {
     label: "Configure Interface",
     hint: "Interface and sheet presentation settings.",
     icon: "fas fa-desktop",
-    restricted: true,
+    restricted: false,
     type: InterfaceSettingsAppV2,
   });
 }

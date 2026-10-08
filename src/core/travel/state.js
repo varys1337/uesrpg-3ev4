@@ -1,4 +1,4 @@
-import { requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { requestAtomicUpdateDocument } from "../../utils/authority-proxy.js";
 import { cloneFlagState, clonePlain } from "../../utils/clone.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
 const FLAG_KEY = "travelPlanner";
@@ -114,35 +114,35 @@ export function getTravelPlannerState(groupActor) {
   return migrateTravelPlannerState(raw);
 }
 
-export async function updateTravelPlannerState(groupActor, updater) {
+export async function updateTravelPlannerState(groupActor, updater, { strict = false } = {}) {
   if (!groupActor) throw new Error("Missing Group actor for travel planner update.");
-  const current = getTravelPlannerState(groupActor);
-  const next = typeof updater === "function"
-    ? updater(clonePlain(current))
-    : foundry.utils.mergeObject(current, clonePlain(updater ?? {}), {
-      inplace: false,
-      overwrite: true,
-      insertKeys: true,
-      insertValues: true,
-    });
-  const migrated = migrateTravelPlannerState(next);
-  await requestUpdateDocument(groupActor, {
-    [`flags.${FLAG_SCOPE}.${FLAG_KEY}`]: migrated,
-  });
-  return migrated;
+  let calculated = false;
+  let changed = false;
+  let calculationError = null;
+  const confirmed = await requestAtomicUpdateDocument(groupActor, async fresh => {
+    try {
+      const current = getTravelPlannerState(fresh);
+      const next = typeof updater === "function" ? await updater(clonePlain(current))
+        : foundry.utils.mergeObject(current, clonePlain(updater ?? {}), { inplace: false, overwrite: true, insertKeys: true, insertValues: true });
+      const migrated = migrateTravelPlannerState(next);
+      changed = JSON.stringify(foundry.utils.getProperty(fresh, `flags.${FLAG_SCOPE}.${FLAG_KEY}`)) !== JSON.stringify(migrated);
+      calculated = true;
+      return changed ? { [`flags.${FLAG_SCOPE}.${FLAG_KEY}`]: migrated } : {};
+    } catch (error) { calculationError = error; throw error; }
+  }, { perfKind: "travel" });
+  if (strict && !confirmed && (!calculated || changed)) throw calculationError ?? new Error("Travel state was not saved.");
+  return getTravelPlannerState((groupActor.uuid ? await fromUuid(groupActor.uuid) : null) ?? groupActor);
 }
 
-export async function resetTravelPlannerState(groupActor, { keepTables = true } = {}) {
-  const existing = getTravelPlannerState(groupActor);
-  const fresh = createDefaultTravelPlannerState();
-  if (keepTables) {
-    fresh.travel.eventTablesByTerrain = clonePlain(existing.travel.eventTablesByTerrain ?? {});
-    fresh.camping.eventTablesByTerrain = clonePlain(existing.camping.eventTablesByTerrain ?? {});
-  }
-  await requestUpdateDocument(groupActor, {
-    [`flags.${FLAG_SCOPE}.${FLAG_KEY}`]: fresh,
-  });
-  return fresh;
+export async function resetTravelPlannerState(groupActor, { keepTables = true, strict = false } = {}) {
+  return updateTravelPlannerState(groupActor, existing => {
+    const fresh = createDefaultTravelPlannerState();
+    if (keepTables) {
+      fresh.travel.eventTablesByTerrain = clonePlain(existing.travel.eventTablesByTerrain ?? {});
+      fresh.camping.eventTablesByTerrain = clonePlain(existing.camping.eventTablesByTerrain ?? {});
+    }
+    return fresh;
+  }, { strict });
 }
 
 export function getTravelPlannerFlagPath() {

@@ -1,7 +1,7 @@
 import { variantLabel as sharedVariantLabel } from "../../../opposed/shared/card-rendering.js";
 import { _isIsolatedDuelByTokens as isIsolatedDuelByTokens, _resolveItemViaActor } from './docs.js';
 export { isIsolatedDuelByTokens };
-import { _safeGetSetting as safeGetSetting, _opposedFlags as opposedFlags } from './util.js';
+import { _safeGetSetting as safeGetSetting, _opposedFlags as opposedFlags, _findEnabledEffectByUesrpgKey } from './util.js';
 export { safeGetSetting };
 
 export { opposedFlags };
@@ -32,7 +32,11 @@ import { hasTalent } from "../../../traits/talents-api.js";
 import { getMeleeReachMeters } from "../../../traits/combat-proximity.js";
 import { canTokenEscapeArea } from "../../../../utils/aoe-utils.js";
 import { getAttackModeFromWeapon, getEffectiveWeaponHands, getTokenDashContext, getWeaponCombatCapabilities } from "../../combat-utils.js";
-import { isActorUndead } from "../../../traits/trait-registry.js";
+import { isActorUndead, isActorSkeletal } from "../../../traits/trait-registry.js";
+import { applyAttackerTalentPreTN } from "../../../traits/combat-talents.js";
+import { applyRacialTalentAttackPreTN } from "../../../traits/racial-talents.js";
+import { applyWeaponExpertiseAttackerPreTN } from "../../../traits/weapon-expertise/index.js";
+import { applyHybridAttackerTnPenalty } from "../hybrid.js";
 import { getWeaponReachBoundsEffective } from "../../../homebrew/reach-length/weapon.js";
 
 import { doesUserOwnActor, requestUpdateDocument } from "../../../../utils/authority-proxy.js";
@@ -54,6 +58,25 @@ export function collectSensorySituationalMods(decl, actor = null) {
   if (decl.applyDeafened) out.push({ key: "deafened", conditionKey: "deafened", label: "Deafened (hearing)", value: -30, source: "sense-loss" });
   applySenseLossPenaltyAdjustments(out, actor);
   return out;
+}
+
+/** Pure declaration modifiers, shared by the estimate and committed attack. */
+export function collectAttackerDeclarationModifiers({ attacker, defender, declaration, weapon, data } = {}) {
+  const situationalMods = collectSensorySituationalMods(declaration, attacker);
+  applyHybridAttackerTnPenalty(data, situationalMods);
+  if (data?.context?.followUpStrike?.active) {
+    situationalMods.push({ key: "talent:followupstrike", label: "Follow-up Strike", value: -20, source: "talent" });
+  }
+  if (String(data?.context?.attackMode ?? "melee") === "ranged" && defender) {
+    if (isActorSkeletal(defender)) situationalMods.push({ key: "skeletal", label: "Skeletal (ranged)", value: -20 });
+    if (_findEnabledEffectByUesrpgKey(defender, "hardTarget")) {
+      situationalMods.push({ key: "talent:hardtarget", label: "Hard Target", value: -20, source: "talent" });
+    }
+  }
+  applyAttackerTalentPreTN({ attacker, declaration, situationalMods });
+  applyRacialTalentAttackPreTN({ attacker, declaration, situationalMods });
+  applyWeaponExpertiseAttackerPreTN({ attacker, declaration, situationalMods, weapon });
+  return situationalMods;
 }
 
 /**
@@ -574,7 +597,12 @@ export function circumstanceLabel(mod) {
 /**
  * Get defense gating context (weapon traits that restrict defense options).
  */
-export async function getDefenseGatingContext({ attacker, defender, data }) {
+export async function getDefenseGatingContext(options) {
+  return getDefenseGatingContextSync(options);
+}
+
+/** The same embedded-item rules, available to synchronous render and commit gates. */
+export function getDefenseGatingContextSync({ attacker, defender, data }) {
   const attackerWeaponTraits = { flail: false, entangling: false, isTwoHanded: false };
   let defenderHasSmallWeapon = false;
 
@@ -790,4 +818,3 @@ export async function _maybeGrantConcussiveNextBash(attacker, data, advantage) {
     console.warn("UESRPG | Concussive bonus grant failed", err);
   }
 }
-

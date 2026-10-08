@@ -1,3 +1,4 @@
+import { renderTNSummary, bindTNEstimates } from "../../ui/shared/tn-presentation.js";
 import { escapeHtml } from "../../utils/html.js";
 /**
  * @module traits/social-talents
@@ -9,7 +10,7 @@ import { escapeHtml } from "../../utils/html.js";
  * here via `runTalentActivationAutomation()`.
  */
 
-import { createOrUpdateStatusEffect } from "../active-effects/status-effect.js";
+import { queueStatusEffect } from "../system/activation/feature-effects.js";
 import { buildEffectDuration } from "../time/effect-duration.js";
 import { getActorCanvasToken } from "./combat-proximity.js";
 import { computeSkillTN, SKILL_DIFFICULTIES } from "../skills/skill-tn.js";
@@ -20,6 +21,7 @@ import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
 import { SYSTEM_ID } from "../system/namespace.js";
 import { buildEffectChange } from "../../utils/compat.js";
+import { getTargetsFromContext } from "../system/activation/helpers.js";
 
 const EFFECT_KEY_INSPIRE_HEROISM = "talent:inspireHeroism";
 
@@ -69,9 +71,10 @@ export function validateInspireHeroismAvailability({ actor } = {}) {
  * @param {object} params
  * @param {Actor} params.actor - The inspiring actor
  * @param {Item} params.item - The Inspire Heroism talent item
+ * @param {object} [params.context] - Activation context with the selected targets
  * @returns {Promise<boolean>} true if the effect was successfully applied
  */
-export async function handleInspireHeroismActivation({ actor, item } = {}) {
+export async function handleInspireHeroismActivation({ actor, item, context = {} } = {}) {
   if (!actor || !item) return false;
 
   // --- Gate: combat check ---
@@ -82,7 +85,7 @@ export async function handleInspireHeroismActivation({ actor, item } = {}) {
   }
 
   // --- Gate: target validation ---
-  const targets = [...(game.user?.targets ?? [])];
+  const targets = getTargetsFromContext(context);
   if (targets.length === 0) {
     ui.notifications?.warn?.("Inspire Heroism: select exactly one allied target.");
     return false;
@@ -131,13 +134,29 @@ export async function handleInspireHeroismActivation({ actor, item } = {}) {
     return `<option value="${d.key}" ${sel}>${escapeHtml(d.label)} (${sign}${d.mod})</option>`;
   }).join("\n");
 
+  const readDeclaration = (root) => {
+    const difficultyKey = root?.querySelector('select[name="difficultyKey"]')?.value ?? "average";
+    const rawManual = root?.querySelector('input[name="manualMod"]')?.value ?? "0";
+    const manualMod = Number.parseInt(String(rawManual), 10) || 0;
+    return { difficultyKey, manualMod };
+  };
+
+  const computeDeclaredTN = (decl) => computeSkillTN({
+    actor,
+    skillItem: commandItem,
+    difficultyKey: decl.difficultyKey,
+    manualMod: decl.manualMod
+  });
+
   let decl = null;
   try {
     decl = await customDialog({
       layout: "workflow",
       title: "Inspire Heroism — Command Test",
+      render: (_event, dialog) => bindTNEstimates(dialog.element, () => computeDeclaredTN(readDeclaration(dialog.element))),
       content: `
         <div class="uesrpg-skill-roll">
+          ${renderTNSummary(commandItem.name)}
           <p>Make a <b>Command</b> test to inspire <b>${foundry.utils.escapeHTML(targetActor.name)}</b>.</p>
           <div class="form-group">
             <label><b>Difficulty</b></label>
@@ -151,13 +170,7 @@ export async function handleInspireHeroismActivation({ actor, item } = {}) {
       buttons: {
         ok: {
           label: "Roll",
-          callback: (html) => {
-            const root = html instanceof HTMLElement ? html : html?.[0];
-            const difficultyKey = root?.querySelector('select[name="difficultyKey"]')?.value ?? "average";
-            const rawManual = root?.querySelector('input[name="manualMod"]')?.value ?? "0";
-            const manualMod = Number.parseInt(String(rawManual), 10) || 0;
-            return { difficultyKey, manualMod };
-          }
+          callback: (html) => readDeclaration(html instanceof HTMLElement ? html : html?.[0])
         },
         cancel: { label: "Cancel", callback: () => null }
       },
@@ -171,12 +184,7 @@ export async function handleInspireHeroismActivation({ actor, item } = {}) {
   if (!decl) return false;
 
   // --- Compute TN and roll ---
-  const tn = computeSkillTN({
-    actor,
-    skillItem: commandItem,
-    difficultyKey: decl.difficultyKey,
-    manualMod: decl.manualMod
-  });
+  const tn = computeDeclaredTN(decl);
 
   const res = await doTestRoll(actor, {
     rollFormula: SYSTEM_ROLL_FORMULA,
@@ -205,7 +213,7 @@ export async function handleInspireHeroismActivation({ actor, item } = {}) {
     </div>`;
 
   const rollMode = getCoreRollMode();
-  await res.roll.toMessage({
+  const resultMessage = await res.roll.toMessage({
     user: game.user.id,
     speaker: ChatMessage.getSpeaker({ actor }),
     flavor,
@@ -232,7 +240,7 @@ export async function handleInspireHeroismActivation({ actor, item } = {}) {
     // Fallback expiry only: the effect is primarily consumed on the target's next combat test.
     const duration = buildEffectDuration({ actor: targetActor, rounds: 1, seconds: 6, preferCombat: true });
 
-    await createOrUpdateStatusEffect(targetActor, {
+    await queueStatusEffect(targetActor, {
       name: "Inspired (Heroism)",
       img: item?.img ?? "icons/skills/social/diplomacy-handshake.webp",
       duration,
@@ -248,7 +256,7 @@ export async function handleInspireHeroismActivation({ actor, item } = {}) {
         buildEffectChange({ key: "system.modifiers.combat.attackTN", type: "add", value: "10", priority: 20 }),
         buildEffectChange({ key: "system.modifiers.combat.defenseTN.total", type: "add", value: "10", priority: 20 })
       ]
-    });
+    }, { sourceActor: actor, message: resultMessage });
   }
 
   return res.isSuccess;

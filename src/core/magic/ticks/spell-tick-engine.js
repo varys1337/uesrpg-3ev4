@@ -1,3 +1,4 @@
+import { TimeService } from "../../time/time-service.js";
 /**
  * @module magic/ticks/spell-tick-engine
  *
@@ -207,7 +208,7 @@ export function initializeSpellTickEngine() {
 
 
 // Out-of-combat world time tick
-  Hooks.on("uesrpg.timeChanged", async (payload) => {
+  TimeService.registerOwnedWorldTimeStage({ id: "spell-ticks", order: 100, handle: async (payload) => {
     if (!isActiveGMUser(game.user)) return;
     // Skip combat-sourced time changes (already handled above)
     const source = String(payload?.source ?? "");
@@ -231,7 +232,7 @@ export function initializeSpellTickEngine() {
       dtSeconds: dt,
       combat: null
     });
-  });
+  } });
 
   _debug("Spell tick engine initialized");
 }
@@ -401,6 +402,7 @@ async function _dispatchTick(ctx) {
     return;
   }
 
+  const failures = [];
   for (const handler of _handlers) {
     if (handler.hasWork && !handler.hasWork(ctx)) {
       _debug(`  ⟳ Handler "${handler.id}" skipped (hasWork=false for ${ctx.trigger})`);
@@ -412,6 +414,7 @@ async function _dispatchTick(ctx) {
       await handler.fn(ctx);
       _debug(`  ✓ Handler "${handler.id}" completed`);
     } catch (err) {
+      failures.push(err);
       console.error(`UESRPG | spell-tick-engine | Handler "${handler.id}" failed`, err);
     }
     if (_perf) {
@@ -442,6 +445,7 @@ async function _dispatchTick(ctx) {
       durationMs: monoMs() - _t0,
     });
   }
+  if (failures.length) throw new AggregateError(failures, "Spell tick stages only partially completed.");
 }
 
 /**
@@ -463,6 +467,7 @@ async function _dispatchTickComposite(boundaryCtx) {
     return;
   }
 
+  const failures = [];
   for (const handler of _handlers) {
     const _th0 = _perf ? monoMs() : 0;
 
@@ -473,6 +478,7 @@ async function _dispatchTickComposite(boundaryCtx) {
         await handler.fnBoundary(boundaryCtx);
         _debug(`  ✓ Composite handler "${handler.id}" completed`);
       } catch (err) {
+        failures.push(err);
         console.error(`UESRPG | spell-tick-engine | Composite handler "${handler.id}" failed`, err);
       }
       if (_perf) {
@@ -500,6 +506,7 @@ async function _dispatchTickComposite(boundaryCtx) {
           await handler.fn(phaseCtx);
           _debug(`  ✓ Shim handler "${handler.id}" / "${phase}" completed`);
         } catch (err) {
+          failures.push(err);
           console.error(`UESRPG | spell-tick-engine | Shim handler "${handler.id}" / "${phase}" failed`, err);
         }
         if (_perf) {
@@ -540,4 +547,5 @@ async function _dispatchTickComposite(boundaryCtx) {
       durationMs: monoMs() - _t0,
     });
   }
+  if (failures.length) throw new AggregateError(failures, "Spell tick stages only partially completed.");
 }

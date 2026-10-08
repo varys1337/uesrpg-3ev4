@@ -389,6 +389,17 @@ export async function prepareItemSheetData(sheet, data) {
     temporaryhealing: "Temporary Healing"
   };
 
+  if (itemType === "ammunition") {
+    // Retain the exact source value, including blank and legacy custom types.
+    // The dropdown must not normalize data merely by rendering the sheet.
+    const selected = String(data.item?.system?.damageType ?? "");
+    data.ammunitionDamageTypeOptions = Object.entries({ "": "—", ...data.damageTypeOptions })
+      .map(([value, label]) => ({ value, label, selected: value === selected }));
+    if (selected && !Object.hasOwn(data.damageTypeOptions, selected)) {
+      data.ammunitionDamageTypeOptions.push({ value: selected, label: selected, selected: true });
+    }
+  }
+
   // Normalize damageInstances for rendering (spells only)
   if (itemType === "spell") {
     const rawInstances = data.item?.system?.damageInstances;

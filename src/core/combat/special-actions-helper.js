@@ -1,3 +1,6 @@
+import { computeSkillTN } from "../skills/skill-tn.js";
+import { computeTN } from "./tn.js";
+import { renderTNSummary, bindTNEstimates } from "../../ui/shared/tn-presentation.js";
 /**
  * src/core/combat/special-actions-helper.js
  * 
@@ -28,6 +31,8 @@ import { SYSTEM_ID, FLAG_SCOPE } from "../system/namespace.js";
 import { getFlagValueWithFallback } from "../system/flags.js";
 import { resolveUnusualCombatSkillLimit } from "./unusual-combat.js";
 import { tf } from "../../utils/i18n.js";
+import { createChatOutcome, chatOutcomeFlags } from "../config/outcome-application-policy.js";
+import { resolveActorFromUuidSync } from "../../utils/uuid-cache.js";
 const HOOKED_ACTION_IDS = new Set(["disarm", "trip", "takeWeapon", "take-weapon"]);
 const _GRAPPLE_ACTION_LOCKS = new Set();
 const _GRAPPLE_OWNER_PREFIX = "grappleOwner:";
@@ -180,22 +185,24 @@ export async function showSpecialAdvantageDialog(specialActionId) {
   return customDialog({
     layout: "workflow",
     title: `Special Advantage: ${def.name}`,
+    render: (_event, dialog) => bindTNEstimates(dialog.element, () => [{ key: "test",
+      status: dialog.element.querySelector('[name="advMode"]:checked')?.value === "autowin" ? "Auto-Win" : null,
+      reason: "The test is selected in the next step." }]),
     content: `
       <div style="padding: 10px;">
+        ${renderTNSummary(def.name)}
         <p>You are using <strong>${def.name}</strong> as a Special Advantage.</p>
         <p>Choose how to use it:</p>
         <div>
           <div style="margin: 10px 0;">
-            <label>
-              <input type="radio" name="advMode" value="free" checked>
-              <strong>Free Action</strong> - No AP cost, but roll opposed test normally
-            </label>
+            <label class="uesrpg-adv-choice uesrpg-choice-bar">
+              <input type="radio" name="advMode" value="free" checked><span class="uesrpg-adv-choice__label"><strong>Free Action</strong> - No AP cost, but roll opposed test normally</span>
+</label>
           </div>
           <div style="margin: 10px 0;">
-            <label>
-              <input type="radio" name="advMode" value="autowin">
-              <strong>Auto-Win</strong> - Automatically win the opposed test (still costs AP if not using as advantage)
-            </label>
+            <label class="uesrpg-adv-choice uesrpg-choice-bar">
+              <input type="radio" name="advMode" value="autowin"><span class="uesrpg-adv-choice__label"><strong>Auto-Win</strong> - Automatically win the opposed test (still costs AP if not using as advantage)</span>
+</label>
           </div>
         </div>
       </div>
@@ -224,7 +231,7 @@ export async function showSpecialAdvantageDialog(specialActionId) {
  * @param {boolean} options.isDefender - Whether this is for the defender
  * @returns {Promise<{testType: string, skillUuid: string}|null>}
  */
-export async function showPreTestChoiceDialog({ specialActionId, actor, isDefender = false }) {
+export async function showPreTestChoiceDialog({ specialActionId, actor, opponentActor = null, attackerActor = null, isDefender = false }) {
   const def = getSpecialActionById(specialActionId);
   if (!def) return null;
 
@@ -253,13 +260,14 @@ export async function showPreTestChoiceDialog({ specialActionId, actor, isDefend
 
   const content = `
     <div class="uesrpg-special-action-test-choice">
+      ${renderTNSummary(choices.map((choice, index) => ({ key: `special-${index}`, label: choice.label })))}
       <p><b>Special Action: ${_escapeHtml(def.name)}</b></p>
       <p>Choose your ${isDefender ? 'defense' : 'test'}:</p>
       <div style="margin: 12px 0;">
         ${choices.map(opt => `
-          <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+          <label class="uesrpg-adv-choice uesrpg-choice-bar">
             <input type="radio" name="testChoice" value="${_escapeHtml(opt.value)}" data-skill-uuid="${_escapeHtml(opt.skillUuid)}" ${opt.checked ? 'checked' : ''} />
-            <span><b>${_escapeHtml(opt.label)}</b></span>
+            <span class="uesrpg-adv-choice__label"><b>${_escapeHtml(opt.label)}</b></span>
           </label>
         `).join('')}
       </div>
@@ -271,6 +279,11 @@ export async function showPreTestChoiceDialog({ specialActionId, actor, isDefend
       layout: "workflow",
       title: `Special Action: ${def.name}`,
       content,
+      render: (_event, dialog) => bindTNEstimates(dialog.element, () => choices.map((choice, index) => {
+        if (specialActionId === "grapple" && !opponentActor) return { key: `special-${index}`, reason: "Select an opponent to estimate Grapple." };
+        const computed = computeSpecialActionChoiceTN({ actor, opponentActor, attackerActor, specialActionId, isAttacker: !isDefender, choice: { testType: choice.value, skillUuid: choice.skillUuid } });
+        return { key: `special-${index}`, result: computed.tn, reason: computed.reason };
+      })),
       buttons: {
         ok: {
           label: "Confirm",
@@ -479,7 +492,11 @@ export async function handleSpecialActionCardAction(message, action) {
     }
 
     // Show legal test choice dialog for this side.
+    const attackerActor = _resolveActorViaToken(attacker.actorUuid, attacker.tokenUuid);
+    const opponentActor = _resolveActorViaToken(isAttacker ? defender.actorUuid : attacker.actorUuid, isAttacker ? defender.tokenUuid : attacker.tokenUuid);
     const choice = await showPreTestChoiceDialog({
+      opponentActor,
+      attackerActor,
       specialActionId,
       actor,
       isDefender: !isAttacker
@@ -491,108 +508,11 @@ export async function handleSpecialActionCardAction(message, action) {
     let rollResult;
     let testLabel;
     let consumeConcussiveAfterRoll = false;
-    const attackerActor = _resolveActorViaToken(attacker.actorUuid, attacker.tokenUuid);
-    let specialActionTNMod = 0;
-    if (isAttacker && specialActionId === "bash") {
-      const bonus = _getConcussiveNextBashBonus(actor);
-      if (bonus > 0) {
-        specialActionTNMod += bonus;
-        consumeConcussiveAfterRoll = true;
-      }
-    }
-    if (isAttacker && specialActionId === "grapple") {
-      const defenderActor = _resolveActorViaToken(defender.actorUuid, defender.tokenUuid);
-      const sizeRule = _getGrappleSizeResult(actor, defenderActor);
-      if (sizeRule.blocked) {
-        ui.notifications?.warn?.("Grapple failed: target is two or more size categories larger.");
-        return;
-      }
-      specialActionTNMod += Number(sizeRule.modifier ?? 0) || 0;
-    }
-    if (!isAttacker && HOOKED_ACTION_IDS.has(specialActionId)) {
-      const atkWeapon = _getPreferredWeapon(attackerActor);
-      if (atkWeapon && _itemHasQualityToken(atkWeapon, "hooked")) {
-        specialActionTNMod -= 10;
-      }
-    }
-    const selectedSkillUuid = String(choice.skillUuid ?? "").trim();
-    const selectedItem = (actor?.items ?? []).find(i => String(i?.uuid ?? "") === selectedSkillUuid || String(i?.id ?? "") === selectedSkillUuid) ?? null;
-    const isCombatStyleTest = selectedSkillUuid.startsWith("prof:combat") || selectedItem?.type === "combatStyle";
-
-    if (isCombatStyleTest) {
-      const { computeTN } = await import("./tn.js");
-      // Chapter 5: Size-to-hit modifier should apply to the attacker side of Special Actions.
-      // This helper uses computeTN as a generic "Combat Style TN" resolver for both sides.
-      // To avoid incorrectly applying size-to-hit to the defender roll, only pass opponent size
-      // when the current side is the attacker.
-      const opponentActor = isAttacker
-        ? _resolveActorViaToken(defender.actorUuid, defender.tokenUuid)
-        : null;
-
-      const tn = computeTN({
-        actor,
-        role: "attacker",
-        styleUuid: selectedSkillUuid,
-        variant: "normal",
-        manualMod: 0,
-        circumstanceMod: 0,
-        situationalMods: [],
-        context: {
-          attackMode: "melee",
-          opponentActor: isAttacker ? (opponentActor ?? null) : null,
-          opponentUuid: isAttacker ? (opponentActor?.uuid ?? null) : null,
-          selfSize: actor?.system?.size,
-          opponentSize: (isAttacker && specialActionId !== "grapple") ? (opponentActor?.system?.size ?? null) : null
-        }
-      });
-      tn.finalTN = Math.max(0, Number(tn.finalTN ?? 0) + specialActionTNMod);
-      tn.totalMod = Number(tn.totalMod ?? 0) + specialActionTNMod;
-
-      rollResult = await doTestRoll(actor, {
-        rollFormula: "1d100",
-        target: tn.finalTN,
-        allowLucky: true,
-        allowUnlucky: true
-      });
-      testLabel = String(choice.testType || "Combat Style");
-    } else {
-      let tn = null;
-
-      if (selectedSkillUuid.startsWith("prof:")) {
-        const key = selectedSkillUuid.slice(5);
-        const sys = actor?.system ?? {};
-        const base = Number(sys?.professions?.[key] ?? sys?.professionsWound?.[key] ?? 0) || 0;
-        const fatiguePenalty = Number(sys?.fatigue?.penalty ?? 0) || 0;
-        const carryPenalty = Number(sys?.carry_rating?.penalty ?? 0) || 0;
-        const woundPenalty = Number(sys?.woundPenalty ?? 0) || 0;
-        const finalTN = Math.max(0, base + fatiguePenalty + carryPenalty + woundPenalty);
-        tn = { finalTN, baseTN: base, totalMod: fatiguePenalty + carryPenalty + woundPenalty, breakdown: [] };
-      } else {
-        const skillItem = selectedItem?.type === "skill" ? selectedItem : null;
-        if (!skillItem) {
-          ui.notifications.warn(`${actor.name} has no legal skill selection for ${def.name}.`);
-          return;
-        }
-
-        const { computeSkillTN } = await import("../skills/skill-tn.js");
-        tn = computeSkillTN({
-          actor,
-          skillItem,
-          difficultyKey: "average",
-          manualMod: 0
-        });
-        tn.finalTN = Math.max(0, Number(tn.finalTN ?? 0) + specialActionTNMod);
-        tn.totalMod = Number(tn.totalMod ?? 0) + specialActionTNMod;
-      }
-
-      rollResult = await doTestRoll(actor, {
-        rollFormula: "1d100",
-        target: tn.finalTN,
-        allowLucky: true,
-        allowUnlucky: true
-      });
-      testLabel = String(choice.testType || selectedItem?.name || "Skill");
-    }
+    const computed = computeSpecialActionChoiceTN({ actor, opponentActor, attackerActor, specialActionId, isAttacker, choice });
+    if (!computed.tn) { ui.notifications?.warn?.(computed.reason); return; }
+    consumeConcussiveAfterRoll = computed.consumeConcussiveAfterRoll;
+    testLabel = computed.testLabel;
+    rollResult = await doTestRoll(actor, { rollFormula: "1d100", target: computed.tn.finalTN, allowLucky: true, allowUnlucky: true });
 
     // Update side with result
     side.result = rollResult;
@@ -630,7 +550,7 @@ export async function handleSpecialActionCardAction(message, action) {
           effectMessage: "Error: Could not resolve actors"
         };
       } else if (opposedResult.winner === "attacker") {
-        const executionResult = await executeSpecialAction({
+        const prepared = await prepareSpecialActionOutcome({
           specialActionId,
           actor: attackerActor,
           target: defenderActor,
@@ -641,8 +561,9 @@ export async function handleSpecialActionCardAction(message, action) {
         data.outcome = {
           ...opposedResult,
           text: outcomeText,
-          effectMessage: executionResult.success ? executionResult.message : null
+          effectMessage: "Outcome resolved; application pending."
         };
+        data.applicationOutcome = prepared;
       } else {
         data.outcome = {
           ...opposedResult,
@@ -655,6 +576,7 @@ export async function handleSpecialActionCardAction(message, action) {
     // Update message
     await safeUpdateChatMessage(message, {
       content: _renderSpecialActionCard(data, message.id),
+      ...(data.applicationOutcome ? { [`flags.${SYSTEM_ID}.chatOutcomes`]: { version: 1, entries: [data.applicationOutcome] } } : {}),
       [`flags.${SYSTEM_ID}.specialActionOpposed.state`]: data
     });
 
@@ -674,12 +596,41 @@ export async function handleSpecialActionCardAction(message, action) {
  * @param {Object} options.opposedResult
  * @returns {Promise<{success: boolean, message: string}>}
  */
+export async function prepareSpecialActionOutcome({ specialActionId, actor, target, isAutoWin = false, opposedResult = null }) {
+  const prepared = {};
+  if (specialActionId === "grapple" && _isTargetGrappledByActor(target, actor)) prepared.grappleChoice = await _showGrappleFollowUpChoice();
+  if (specialActionId === "bash") prepared.bashResult = await _createBashAcrobaticsTest(target);
+  return createChatOutcome({ adapter: "combat.special", kind: "effect", sourceActorUuid: actor.uuid,
+    targetUuid: ["arise", "resist"].includes(specialActionId) ? actor.uuid : target?.uuid ?? actor.uuid,
+    label: getSpecialActionById(specialActionId)?.name ?? specialActionId,
+    payload: { specialActionId, actorUuid: actor.uuid, targetUuid: target?.uuid ?? null, isAutoWin, opposedResult, prepared } });
+}
+
+export async function postSpecialActionOutcome(options) {
+  const outcome = await prepareSpecialActionOutcome(options);
+  await ChatMessage.create({ speaker: ChatMessage.getSpeaker({ actor: options.actor }),
+    content: `<div class="uesrpg-special-action-outcome"><b>Special Action:</b><p>${getSpecialActionById(options.specialActionId)?.name ?? "Special Action"}</p></div>`,
+    style: CONST.CHAT_MESSAGE_STYLES.OTHER, flags: chatOutcomeFlags([outcome]) });
+  return { success: true, message: "Special Action resolved; application pending." };
+}
+
+export async function executeChatOutcome(outcome, context) {
+  const payload = outcome.payload;
+  const actor = resolveActorFromUuidSync(payload.actorUuid);
+  const target = resolveActorFromUuidSync(payload.targetUuid);
+  if (!actor || (payload.targetUuid && !target)) throw Object.assign(new Error("The Special Action actors are unavailable."), { committed: false });
+  return context.stage("specialAction", () => executeSpecialAction({ ...payload, actor, target }), {
+    documents: payload.specialActionId === "inClose" ? [actor, target] : [context.actor],
+  });
+}
+
 export async function executeSpecialAction({
   specialActionId,
   actor,
   target,
   isAutoWin = false,
-  opposedResult = null
+  opposedResult = null,
+  prepared = null
 } = {}) {
   const def = getSpecialActionById(specialActionId);
   if (!def) {
@@ -694,7 +645,7 @@ export async function executeSpecialAction({
     case "arise":
       return await _executeArise({ actor, winner, actorName, isAutoWin });
     case "bash":
-      return await _executeBash({ actor, target, winner, actorName, targetName, isAutoWin });
+      return await _executeBash({ actor, target, winner, actorName, targetName, isAutoWin, prepared });
     case "blindOpponent":
       return await _executeBlindOpponent({ actor, target, winner, actorName, targetName, isAutoWin });
     case "disarm":
@@ -704,7 +655,7 @@ export async function executeSpecialAction({
     case "forceMovement":
       return await _executeForceMovement({ actor, target, winner, actorName, targetName, isAutoWin });
     case "grapple":
-      return await _executeGrapple({ actor, target, winner, actorName, targetName, isAutoWin });
+      return await _executeGrapple({ actor, target, winner, actorName, targetName, isAutoWin, prepared });
     case "resist":
       return await _executeResist({ actor, target, winner, actorName, targetName, isAutoWin });
     case "trip":
@@ -741,7 +692,7 @@ export async function initiateSpecialActionFromSheet({
 
   // Arise doesn't need a target
   if (specialActionId === "arise") {
-    const result = await executeSpecialAction({
+    const result = await postSpecialActionOutcome({
       specialActionId,
       actor,
       target: null,
@@ -749,14 +700,6 @@ export async function initiateSpecialActionFromSheet({
       opposedResult: { winner: "attacker" }
     });
 
-    if (result.success) {
-      await ChatMessage.create({
-        user: game.user.id,
-        speaker: ChatMessage.getSpeaker({ actor, token: actorToken?.document ?? null }),
-        content: `<div class="uesrpg-special-action-outcome"><b>Special Action:</b><p>${result.message}</p></div>`,
-        style: CONST.CHAT_MESSAGE_STYLES.OTHER
-      });
-    }
     return result;
   }
 
@@ -787,7 +730,7 @@ async function _createBashAcrobaticsTest(target) {
   if (!(Number(acrobatics?.tn) > 0)) {
     const warning = tf("UESRPG.DefectUpdate.BashNoAcrobatics", { actor: target.name }, `${target.name} has no Acrobatics skill or NPC physical profession. Apply Prone manually if they fail.`);
     ui.notifications.warn(warning);
-    return warning;
+    return { prone: false, message: warning };
   }
 
   // Find target's token
@@ -809,10 +752,9 @@ async function _createBashAcrobaticsTest(target) {
 
   // Apply Prone if they failed
   if (!result.isSuccess) {
-    await applyCondition(target, "prone", { source: "bash-failed-acrobatics" });
-    return tf("UESRPG.DefectUpdate.BashFailure", { actor: target.name }, `${target.name} fails the Acrobatics test and falls Prone.`);
+    return { prone: true, message: tf("UESRPG.DefectUpdate.BashFailure", { actor: target.name }, `${target.name} fails the Acrobatics test and falls Prone.`) };
   }
-  return tf("UESRPG.DefectUpdate.BashSuccess", { actor: target.name }, `${target.name} passes the Acrobatics test and avoids falling Prone.`);
+  return { prone: false, message: tf("UESRPG.DefectUpdate.BashSuccess", { actor: target.name }, `${target.name} passes the Acrobatics test and avoids falling Prone.`) };
 }
 
 // ============================================================================
@@ -830,17 +772,18 @@ async function _executeArise({ actor, winner, actorName, isAutoWin }) {
   return { success: false, message: `${actorName} fails to arise.` };
 }
 
-async function _executeBash({ actor, target, winner, actorName, targetName, isAutoWin }) {
+async function _executeBash({ actor, target, winner, actorName, targetName, isAutoWin, prepared }) {
   if (winner === "attacker" || isAutoWin) {
     // Remove 1 AP
     await ActionEconomy.spendAP(target, 1, { reason: "bashed", silent: true });
 
     // Create Acrobatics test card for target (RAW: must pass to avoid Prone)
-    const bashFollowUp = await _createBashAcrobaticsTest(target);
+    const bashFollowUp = prepared?.bashResult ?? await _createBashAcrobaticsTest(target);
+    if (bashFollowUp.prone) await applyCondition(target, "prone", { source: "bash-failed-acrobatics" });
 
     return {
       success: true,
-      message: `${actorName} bashes ${targetName}! Knocked back 1m, loses 1 AP. ${bashFollowUp} (Manual: move token back 1m)`
+      message: `${actorName} bashes ${targetName}! Knocked back 1m, loses 1 AP. ${bashFollowUp.message} (Manual: move token back 1m)`
     };
   }
   return { success: false, message: `${actorName}'s bash fails.` };
@@ -933,7 +876,7 @@ async function _executeForceMovement({ actor, target, winner, actorName, targetN
   return { success: false, message: `${actorName} fails to force movement.` };
 }
 
-async function _executeGrapple({ actor, target, winner, actorName, targetName, isAutoWin }) {
+async function _executeGrapple({ actor, target, winner, actorName, targetName, isAutoWin, prepared }) {
   if (!(winner === "attacker" || isAutoWin)) {
     return { success: false, message: `${actorName} fails to grapple ${targetName}.` };
   }
@@ -954,7 +897,7 @@ async function _executeGrapple({ actor, target, winner, actorName, targetName, i
     const ownerTag = _grappleOwnerTag(actor);
 
     if (alreadyControlled) {
-      const followUp = await _showGrappleFollowUpChoice();
+      const followUp = prepared ? prepared.grappleChoice ?? "" : await _showGrappleFollowUpChoice();
       if (followUp === "takedown") {
         await applyCondition(target, "prone", { source: "Grapple: Takedown" });
         return {
@@ -1034,4 +977,88 @@ async function _executeInClose({ actor, target, actorName, targetName, isAutoWin
     success: true,
     message: `${actorName} ${isAutoWin ? "automatically enters" : "enters"} In Close with ${targetName}.`
   };
+}
+
+/** Pure resolver shared by the legacy test-choice prompt and its roll. */
+function computeSpecialActionChoiceTN({ actor, opponentActor, attackerActor, specialActionId, isAttacker, choice }) {
+  let consumeConcussiveAfterRoll = false;
+  let tn;
+    let specialActionTNMod = 0;
+    if (isAttacker && specialActionId === "bash") {
+      const bonus = _getConcussiveNextBashBonus(actor);
+      if (bonus > 0) {
+        specialActionTNMod += bonus;
+        consumeConcussiveAfterRoll = true;
+      }
+    }
+    if (isAttacker && specialActionId === "grapple") {
+      const sizeRule = _getGrappleSizeResult(actor, opponentActor);
+      if (sizeRule.blocked) {
+        return { reason: "Grapple failed: target is two or more size categories larger." };
+      }
+      specialActionTNMod += Number(sizeRule.modifier ?? 0) || 0;
+    }
+    if (!isAttacker && HOOKED_ACTION_IDS.has(specialActionId)) {
+      const atkWeapon = _getPreferredWeapon(attackerActor);
+      if (atkWeapon && _itemHasQualityToken(atkWeapon, "hooked")) {
+        specialActionTNMod -= 10;
+      }
+    }
+    const selectedSkillUuid = String(choice.skillUuid ?? "").trim();
+    const selectedItem = (actor?.items ?? []).find(i => String(i?.uuid ?? "") === selectedSkillUuid || String(i?.id ?? "") === selectedSkillUuid) ?? null;
+    const isCombatStyleTest = selectedSkillUuid.startsWith("prof:combat") || selectedItem?.type === "combatStyle";
+
+    if (isCombatStyleTest) {
+      // Chapter 5: Size-to-hit modifier should apply to the attacker side of Special Actions.
+      // This helper uses computeTN as a generic "Combat Style TN" resolver for both sides.
+      // To avoid incorrectly applying size-to-hit to the defender roll, only pass opponent size
+      // when the current side is the attacker.
+
+      tn = computeTN({
+        actor,
+        role: "attacker",
+        styleUuid: selectedSkillUuid,
+        variant: "normal",
+        manualMod: 0,
+        circumstanceMod: 0,
+        situationalMods: [],
+        context: {
+          attackMode: "melee",
+          opponentActor: isAttacker ? (opponentActor ?? null) : null,
+          opponentUuid: isAttacker ? (opponentActor?.uuid ?? null) : null,
+          selfSize: actor?.system?.size,
+          opponentSize: (isAttacker && specialActionId !== "grapple") ? (opponentActor?.system?.size ?? null) : null
+        }
+      });
+      tn.finalTN = Math.max(0, Number(tn.finalTN ?? 0) + specialActionTNMod);
+      tn.totalMod = Number(tn.totalMod ?? 0) + specialActionTNMod;
+
+    } else {
+      if (selectedSkillUuid.startsWith("prof:")) {
+        const key = selectedSkillUuid.slice(5);
+        const sys = actor?.system ?? {};
+        const base = Number(sys?.professions?.[key] ?? sys?.professionsWound?.[key] ?? 0) || 0;
+        const fatiguePenalty = Number(sys?.fatigue?.penalty ?? 0) || 0;
+        const carryPenalty = Number(sys?.carry_rating?.penalty ?? 0) || 0;
+        const woundPenalty = Number(sys?.woundPenalty ?? 0) || 0;
+        const finalTN = Math.max(0, base + fatiguePenalty + carryPenalty + woundPenalty);
+        tn = { finalTN, baseTN: base, totalMod: fatiguePenalty + carryPenalty + woundPenalty, breakdown: [] };
+      } else {
+        const skillItem = selectedItem?.type === "skill" ? selectedItem : null;
+        if (!skillItem) {
+          return { reason: "Select a legal skill for this Special Action." };
+        }
+
+        tn = computeSkillTN({
+          actor,
+          skillItem,
+          difficultyKey: "average",
+          manualMod: 0
+        });
+        tn.finalTN = Math.max(0, Number(tn.finalTN ?? 0) + specialActionTNMod);
+        tn.totalMod = Number(tn.totalMod ?? 0) + specialActionTNMod;
+      }
+
+    }
+    return { tn, consumeConcussiveAfterRoll, testLabel: String(choice.testType || selectedItem?.name || (isCombatStyleTest ? "Combat Style" : "Skill")) };
 }

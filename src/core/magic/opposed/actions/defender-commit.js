@@ -1,3 +1,7 @@
+import { computeMagicDefenseTN } from "./defender-roll.js";
+import { renderTNPill, bindTNEstimates } from "../../../../ui/shared/tn-presentation.js";
+import { systemTooltipAttributes } from "../../../../ui/shared/system-tooltips.js";
+import { buildCombatOptionTooltipText } from "../../../../data/tooltips/index.js";
 /**
  * src/core/magic/opposed/actions/defender-commit.js
  *
@@ -7,7 +11,7 @@
 
 import { hasEquippedShield } from "../../../combat/tn.js";
 import { hasActiveWard } from "../../../combat/ward-defense.js";
-import { ensureBankedScaffold, resolveToken } from "../schema.js";
+import { ensureBankedScaffold, resolveToken, getDefenderOutcome } from "../schema.js";
 import { cloneFlagState } from "../../../../utils/clone.js";
 import { FLAG_SCOPE } from "../../../system/namespace.js";
 import { commitLaneToFreshCardState } from "../../../opposed/shared/fresh-commit.js";
@@ -25,7 +29,15 @@ import { buildCircumstanceOptionsHtml } from "../../../opposed/circumstance.js";
 import { hasCondition } from "../../../conditions/condition-engine.js";
 import { markDefenderNoDefense } from "../../../combat/opposed/actions/eligibility.js";
 import { t } from "../../../../utils/i18n.js";
-import { isActorInStartedCombatEncounter } from "../../../combat/combat-scope.js";
+import { getDefenderCommitAvailability } from "../../../opposed/shared/defense-availability.js";
+
+/** Match the existing magic No Defense result; weapon No Defense uses 1 DoF. */
+function setMagicNoDefense(defender) {
+  defender.defenseType = "none";
+  defender.noDefense = true;
+  defender.tn = { finalTN: 0, baseTN: 0, totalMod: 0, breakdown: [{ key: "base", label: "No Defense", value: 0, source: "base" }] };
+  defender.result = { rollTotal: 0, isSuccess: false, degree: 0, isCriticalSuccess: false, isCriticalFailure: false };
+}
 
 /** @private */
 function syncDefenderToData(data, defender, defenderIndex) {
@@ -43,35 +55,32 @@ async function promptDefenseCommitChoice(defenderActor) {
     layout: "workflow",
     title: t("UESRPG.Dialogs.Opposed.CommitDefense", "Commit Defense"),
     content: `
-      <div class="uesrpg defense-dialog uesrpg-adv-dialog uesrpg-adv-dialog--magic-commit">
+      <div class="uesrpg defense-dialog uesrpg-dialog-stack uesrpg-adv-dialog uesrpg-adv-dialog--magic-commit uesrpg-adv-dialog--choice-bars">
         <div class="uesrpg-dialog-section-header">${t("UESRPG.Dialogs.Opposed.DefenseResponse", "Defense Response")}</div>
         <div class="uesrpg-adv-grid uesrpg-defense-grid">
-          <label class="uesrpg-adv-choice def-opt">
+          <label class="uesrpg-adv-choice def-opt uesrpg-choice-bar" ${systemTooltipAttributes({ text: buildCombatOptionTooltipText("evade") })}>
             <input type="radio" name="defenseType" value="evade" checked/>
             <span class="uesrpg-adv-choice__label def-opt__card">
               <span class="uesrpg-defense-card__head">
-                <span class="uesrpg-adv-choice__title">${t("UESRPG.Chat.Opposed.Evade", "Evade")}</span>
+                <span class="uesrpg-adv-choice__title">${t("UESRPG.Chat.Opposed.Evade", "Evade")}</span>${renderTNPill("evade")} 
               </span>
-              <span class="uesrpg-adv-choice__desc">${t("UESRPG.Dialogs.Opposed.UseEvadeTN", "Use Evade TN.")}</span>
             </span>
           </label>
-          <label class="uesrpg-adv-choice def-opt ${canBlock ? "" : "is-disabled"}"${canBlock ? "" : ' style="pointer-events:none;"'}>
+          <label class="uesrpg-adv-choice uesrpg-choice-bar def-opt ${canBlock ? "" : "is-disabled"}" ${canBlock ? "" : 'tabindex="0"'} ${systemTooltipAttributes({ text: buildCombatOptionTooltipText("block", canBlock ? "" : t("UESRPG.Dialogs.Opposed.RequiresEquippedShield", "Requires equipped shield.")) })}>
             <input type="radio" name="defenseType" value="block" ${canBlock ? "" : "disabled"}/>
             <span class="uesrpg-adv-choice__label def-opt__card">
               <span class="uesrpg-defense-card__head">
-                <span class="uesrpg-adv-choice__title">${t("UESRPG.Chat.Opposed.Block", "Block")}</span>
+                <span class="uesrpg-adv-choice__title">${t("UESRPG.Chat.Opposed.Block", "Block")}</span>${renderTNPill("block")} 
               </span>
-              <span class="uesrpg-adv-choice__desc">${canBlock ? t("UESRPG.Dialogs.Opposed.UseBlockTN", "Use Block TN.") : t("UESRPG.Dialogs.Opposed.RequiresEquippedShield", "Requires equipped shield.")}</span>
             </span>
           </label>
           ${canWard ? `
-          <label class="uesrpg-adv-choice def-opt uesrpg-defense-grid__full">
+          <label class="uesrpg-adv-choice def-opt uesrpg-defense-grid__full uesrpg-choice-bar" ${systemTooltipAttributes({ text: buildCombatOptionTooltipText("ward") })}>
             <input type="radio" name="defenseType" value="ward"/>
             <span class="uesrpg-adv-choice__label def-opt__card">
               <span class="uesrpg-defense-card__head">
-                <span class="uesrpg-adv-choice__title">${t("UESRPG.Chat.Opposed.Ward", "Ward")}</span>
+                <span class="uesrpg-adv-choice__title">${t("UESRPG.Chat.Opposed.Ward", "Ward")}</span>${renderTNPill("ward")} 
               </span>
-              <span class="uesrpg-adv-choice__desc">${t("UESRPG.Dialogs.Opposed.WardDefenseDesc", "BR = Spell Strength. Power Block incompatible.")}</span>
             </span>
           </label>` : ""}
         </div>
@@ -87,6 +96,12 @@ async function promptDefenseCommitChoice(defenderActor) {
         </div>
       </div>
     `,
+    render: (_event, dialog) => bindTNEstimates(dialog.element, () => {
+      const root = dialog.element;
+      const declaration = { manualMod: Number(root.querySelector('[name="manualMod"]')?.value ?? 0) || 0,
+        circumstanceMod: Number(root.querySelector('[name="circumstanceMod"]')?.value ?? 0) || 0 };
+      return ["evade", "block", ...(canWard ? ["ward"] : [])].map(key => ({ key, result: computeMagicDefenseTN(defenderActor, key, declaration) }));
+    }),
     classes: ["uesrpg-attack-declare"],
     buttons: {
       confirm: {
@@ -126,7 +141,7 @@ export async function handleDefenderCommit(ctx, action) {
   const { message, data, attacker, defender, defenderActor, bankMode, _updateCard } = ctx;
 
   if (!bankMode) return;
-  if (defender?.result || defender?.noDefense) return;
+  if (defender?.result || defender?.noDefense || defender?.banked?.committed) return;
 
   let selectedDefense = null;
   let selectedManualMod = 0;
@@ -191,24 +206,14 @@ export async function handleDefenderCommit(ctx, action) {
 
   let commitAsNoDefense = action === "defender-commit-nodefense";
   if (!commitAsNoDefense && !isCharacteristicAction) {
-    const apCost = Number(defender?.apCost ?? 1) || 1;
-    const currentAP = Number(foundry.utils.getProperty(defenderActor, "system.action_points.value") ?? 0);
-    if (isActorInStartedCombatEncounter(defenderActor, {
-      tokenUuid: defender?.tokenUuid ?? null,
-      combatantId: defender?.combatantId ?? null
-    }) && currentAP < apCost) {
-      ui.notifications.info(`Not enough Action Points for defense (${currentAP}/${apCost}); committing No Defense.`);
-      commitAsNoDefense = true;
-    }
+    const gate = getDefenderCommitAvailability({ data, defenderData: defender, defenderActor, messageId: message.id, mode: "magic", defenseType: selectedDefense });
+    if (gate.insufficientAP) commitAsNoDefense = true;
   }
 
   ensureBankedScaffold(data);
 
   if (commitAsNoDefense) {
-    defender.defenseType = "none";
-    defender.noDefense = true;
-    defender.tn = { finalTN: 0, baseTN: 0, totalMod: 0, breakdown: [{ key: "base", label: "No Defense", value: 0, source: "base" }] };
-    defender.result = { rollTotal: 0, isSuccess: false, degree: 0, isCriticalSuccess: false, isCriticalFailure: false };
+    setMagicNoDefense(defender);
   } else {
     const defenseType = selectedDefense ?? ((action === "defender-commit-block") ? "block" : "evade");
     defender.defenseType = defenseType;
@@ -231,6 +236,20 @@ export async function handleDefenderCommit(ctx, action) {
     message,
     readState: _readMagicOpposedFlagState,
     mutate: (_t) => {
+      const liveDefender = Array.isArray(_t.defenders) && _t.defenders.length
+        ? _t.defenders[Number(defenderIndex ?? 0)] : _t.defender;
+      if (!liveDefender || liveDefender.result || liveDefender.noDefense || liveDefender.banked?.committed
+        || _t.status === "resolved" || getDefenderOutcome(_t, liveDefender)
+        || _t.context?.autoRollStarted || _t.context?.autoRollAborted) return;
+      if (ctx.opts?.automaticNoDefense || (commitAsNoDefense && action !== "defender-commit-nodefense")) {
+        const gate = getDefenderCommitAvailability({ data: _t, defenderData: liveDefender, defenderActor, messageId: message.id, mode: "magic", defenseType: selectedDefense });
+        if (!gate.insufficientAP) return;
+        setMagicNoDefense(liveDefender);
+        liveDefender.banked = { ...liveDefender.banked, committed: true, committedAt: Date.now(), committedBy: game.user.id, forced: true, reason: "insufficient-ap" };
+        _t.defender = liveDefender;
+        return;
+      }
+
       _t.defender = foundry.utils.mergeObject(_t.defender ?? {}, data.defender ?? {}, { overwrite: true, insertKeys: true });
       _t.context = foundry.utils.mergeObject(_t.context ?? {}, data.context ?? {}, { overwrite: true, insertKeys: true });
       const _di = Number(defenderIndex ?? 0);

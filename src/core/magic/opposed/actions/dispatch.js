@@ -1,3 +1,4 @@
+import { _resolveActorViaToken } from "../../../combat/opposed/helpers/docs.js";
 /**
  * src/core/magic/opposed/actions/dispatch.js
  *
@@ -37,9 +38,9 @@ export async function dispatchAction(message, action, opts, workflow, renderCard
   const data = overrideData ?? getMessageState(message);
   if (!data) return;
 
-  const attacker = resolveActor(data.attacker.actorUuid);
+  const attacker = _resolveActorViaToken(data.attacker.actorUuid, data.attacker.tokenUuid);
   const { defender, defenderIndex, defenders } = selectDefenderEntry(data, opts);
-  const defenderActor = resolveActor(defender?.actorUuid);
+  const defenderActor = _resolveActorViaToken(defender?.actorUuid, defender?.tokenUuid);
 
   if (!attacker || !defenderActor) {
     ui.notifications.warn("Could not resolve actors.");

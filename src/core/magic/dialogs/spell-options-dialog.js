@@ -3,13 +3,16 @@ import { escapeHtml as _escapeHtml } from '../../../utils/html.js';
  * Canonical spell options dialog used by core and UI casting flows.
  */
 
-import { getKnownSpellScalingLevels, getSpellCost, getSpellLevel } from "../magicka-utils.js";
+import { getKnownSpellScalingLevels, getSpellCost, getSpellLevel, computeMagicCastingTN } from "../magicka-utils.js";
 import { SKILL_DIFFICULTIES } from "../../skills/skill-tn.js";
 import { resolveSpellProfile } from "../spell-profile.js";
+import { buildCastingOptionPresentation } from "./casting-option-presentation.js";
 import { hasTalent } from "../../traits/talents-api.js";
 import { customDialog } from "../../../utils/dialog-v2-helper.js";
 import { t, tf } from "../../../utils/i18n.js";
 import { createLogger } from "../../../utils/debug.js";
+import { systemTooltipAttributes, setSystemOptionTooltip, setSystemTooltip } from "../../../ui/shared/system-tooltips.js";
+import { renderTNPill, updateTNPill } from "../../../ui/shared/tn-presentation.js";
 
 const LOG = createLogger("UESRPG | Spell options dialog |", {
   debugSettingKey: "spellCastingDebug",
@@ -83,8 +86,6 @@ export async function showSpellOptionsDialog(actor, spell, castContext = null) {
   const learnedScalingLevels = getKnownSpellScalingLevels(spell);
   const baseLevel = Number(learnedScalingLevels[0]?.level ?? getSpellLevel(spell)) || 1;
   const baseCost = Number(resourcePresentation.baseCost ?? getSpellCost(spell, baseLevel) ?? 0);
-  const overloadEffect = String(spell.system?.overloadEffect ?? "").trim();
-  const overloadDescription = overloadEffect && overloadEffect.length <= 64 ? overloadEffect : "";
 
   const scalingLevels = (Array.isArray(learnedScalingLevels) ? learnedScalingLevels : [])
     .filter(entry => {
@@ -94,7 +95,13 @@ export async function showSpellOptionsDialog(actor, spell, castContext = null) {
     });
 
   const hasScaling = scalingLevels.length > 0;
-  const baseProfile = resolveSpellProfile(spell, actor, { level: baseLevel });
+  const initialPresentation = buildCastingOptionPresentation(actor, spell, {
+    level: baseLevel, isRestrained: !hasOverload,
+    hasMasterOfMagicka: hasMasterOfMagickaTalent,
+    fixedCost: resourcePresentation.fixedCost,
+    resourceLabel: resourcePresentation.fixedCost != null ? resourcePresentation.label : "MP",
+  });
+  const baseProfile = initialPresentation.profile;
   const formatPreviewCostValue = (cost) => {
     const safeCost = Math.max(0, Number(cost ?? 0) || 0);
     if (resourcePresentation.fixedCost != null) {
@@ -103,17 +110,7 @@ export async function showSpellOptionsDialog(actor, spell, castContext = null) {
     }
     return `${safeCost} MP`;
   };
-  const buildPreviewCostHtml = (cost, notes = []) => {
-    const noteItems = notes
-      .map((note) => String(note ?? "").trim())
-      .filter(Boolean)
-      .map((note) => `<span class="uesrpg-spell-profile-card__note">${_escapeHtml(note)}</span>`)
-      .join("");
-    return `
-      <span class="uesrpg-spell-profile-card__value-main">${_escapeHtml(formatPreviewCostValue(cost))}</span>
-      ${noteItems ? `<span class="uesrpg-spell-profile-card__notes">${noteItems}</span>` : ""}
-    `;
-  };
+  const buildPreviewCostHtml = (cost) => `<span class="uesrpg-spell-profile-card__value-main">${_escapeHtml(formatPreviewCostValue(cost))}</span>`;
   const formatLevelCostText = (cost) => {
     if (resourcePresentation.fixedCost != null) {
       return resourcePresentation.mode === "none"
@@ -124,12 +121,12 @@ export async function showSpellOptionsDialog(actor, spell, castContext = null) {
   };
 
   const content = `
-    <div class="uesrpg uesrpg-spell-options uesrpg-adv-dialog uesrpg-adv-dialog--spell-options">
-      <h3 class="uesrpg-spell-options__title">${_escapeHtml(spell.name)}</h3>
+    <div class="uesrpg uesrpg-spell-options uesrpg-dialog-stack uesrpg-adv-dialog uesrpg-adv-dialog--spell-options uesrpg-adv-dialog--choice-bars">
+      <div class="uesrpg-spell-options__head"><h3 class="uesrpg-spell-options__title">${_escapeHtml(spell.name)}</h3>${renderTNPill("casting")}</div>
       <div id="profilePreview" class="uesrpg-spell-profile-card">
         <div class="uesrpg-spell-profile-card__item">
           <span class="uesrpg-spell-profile-card__label">${t("UESRPG.Dialogs.SpellOptions.Cost", "Cost")}</span>
-          <span id="previewCost" class="uesrpg-spell-profile-card__value">${buildPreviewCostHtml(baseCost)}</span>
+          <span id="previewCost" class="uesrpg-spell-profile-card__value" tabindex="0" ${systemTooltipAttributes({ text: initialPresentation.costHelp })}>${buildPreviewCostHtml(baseCost)}</span>
         </div>
         <div class="uesrpg-spell-profile-card__item">
           <span class="uesrpg-spell-profile-card__label">${t("UESRPG.Dialogs.SpellOptions.SpellStrength", "Spell Strength")}</span>
@@ -169,37 +166,28 @@ export async function showSpellOptionsDialog(actor, spell, castContext = null) {
         <input type="number" name="manualModifier" value="0" />
       </div>
       <div class="uesrpg-dialog-section-header">${t("UESRPG.Dialogs.SpellOptions.CastingOptions", "Casting Options")}</div>
-      <div class="uesrpg-spell-option-grid ${hasOverload ? "" : "uesrpg-spell-option-grid--single"}">
-        <label class="uesrpg-adv-choice" id="restrainGroup">
+      <div class="uesrpg-spell-option-grid ${hasOverload || hasOverchargeTalent ? "" : "uesrpg-spell-option-grid--single"}">
+        <label class="uesrpg-adv-choice uesrpg-choice-bar" id="restrainGroup" ${systemTooltipAttributes({ text: initialPresentation.restraintHelp })}>
           <input type="checkbox" name="restrain" id="restrainCheckbox" ${!hasOverload ? "checked" : ""} />
           <span class="uesrpg-adv-choice__label">
-            <span class="uesrpg-adv-choice__title">${t("UESRPG.Dialogs.SpellOptions.SpellRestraint", "Spell Restraint")}</span>
-            <span class="uesrpg-adv-choice__desc" id="restrainStateText"></span>
+            <span class="uesrpg-adv-choice__title" data-ues-restraint-label>${_escapeHtml(initialPresentation.restraintLabel)}</span>
           </span>
         </label>
         ${hasOverload ? `
-        <label class="uesrpg-adv-choice" id="overloadGroup">
+        <label class="uesrpg-adv-choice uesrpg-choice-bar" id="overloadGroup" ${systemTooltipAttributes({ text: initialPresentation.overloadHelp })}>
           <input type="checkbox" name="overload" id="overloadCheckbox" />
           <span class="uesrpg-adv-choice__label">
             <span class="uesrpg-adv-choice__title">${t("UESRPG.Dialogs.SpellOptions.Overload", "Overload")}</span>
-            <span class="uesrpg-adv-choice__desc" id="overloadStateText">${overloadDescription ? _escapeHtml(overloadDescription) : ""}</span>
           </span>
         </label>
         ` : ""}
-      </div>
-      ${hasOverload && hasMasterOfMagickaTalent ? `
-      <div class="uesrpg-spell-option-note">${t("UESRPG.Dialogs.SpellOptions.MasterOfMagickaAllowsBoth", "Master of Magicka allows Restraint and Overload together.")}</div>
-      ` : ""}
       ${hasOverchargeTalent ? `
-      <div class="uesrpg-defense-flags">
-        <span class="uesrpg-defense-flags__label">${t("UESRPG.Dialogs.SpellOptions.TalentOption", "Talent option")}</span>
-        <div class="uesrpg-defense-flags__items">
-          <label class="uesrpg-inline-check">
+          <label class="uesrpg-adv-choice uesrpg-choice-bar ${hasOverload ? "uesrpg-defense-grid__full" : ""}" ${systemTooltipAttributes({ text: initialPresentation.overchargeHelp })}>
           <input type="checkbox" name="overcharge" />
-          <span><b>${t("UESRPG.Dialogs.SpellOptions.Overcharge", "Overcharge")}</b> ${t("UESRPG.Dialogs.SpellOptions.TalentOption", "(talent option)")}</span>
+          <span class="uesrpg-adv-choice__label"><b>${t("UESRPG.Dialogs.SpellOptions.Overcharge", "Overcharge")}</b></span>
           </label>
-        </div>
-      </div>` : ""}
+      ` : ""}
+      </div>
     </div>
   `;
 
@@ -259,21 +247,18 @@ export async function showSpellOptionsDialog(actor, spell, castContext = null) {
       const overloadCheckbox = root?.querySelector("#overloadCheckbox");
       const restrainGroup = root?.querySelector("#restrainGroup");
       const overloadGroup = root?.querySelector("#overloadGroup");
-      const restrainStateText = root?.querySelector("#restrainStateText");
-      const overloadStateText = root?.querySelector("#overloadStateText");
       const overchargeCheckbox = root?.querySelector('input[name="overcharge"]');
       const previewCost = root?.querySelector("#previewCost");
       const previewDamage = root?.querySelector("#previewDamage");
       const previewDuration = root?.querySelector("#previewDuration");
-      const defaultOverloadText = overloadStateText?.textContent ?? "";
+      const difficultySelect = root?.querySelector('[name="difficultyKey"]');
+      const manualInput = root?.querySelector('[name="manualModifier"]');
 
       const syncCastingOptionState = (changed = null) => {
         if (!hasOverload || !restrainCheckbox || !overloadCheckbox) return;
         if (hasMasterOfMagickaTalent) {
           restrainGroup?.classList.remove("is-incompatible");
           overloadGroup?.classList.remove("is-incompatible");
-          if (restrainStateText) restrainStateText.textContent = "";
-          if (overloadStateText) overloadStateText.textContent = defaultOverloadText;
           return;
         }
 
@@ -284,16 +269,6 @@ export async function showSpellOptionsDialog(actor, spell, castContext = null) {
         const restrainBlocked = overloadCheckbox.checked;
         overloadGroup?.classList.toggle("is-incompatible", overloadBlocked);
         restrainGroup?.classList.toggle("is-incompatible", restrainBlocked);
-        if (restrainStateText) {
-          restrainStateText.textContent = restrainBlocked
-            ? t("UESRPG.Dialogs.SpellOptions.UnavailableWithOverload", "Unavailable with Overload")
-            : "";
-        }
-        if (overloadStateText) {
-          overloadStateText.textContent = overloadBlocked
-            ? t("UESRPG.Dialogs.SpellOptions.UnavailableWithRestraint", "Unavailable with Spell Restraint")
-            : defaultOverloadText;
-        }
       };
 
       const updatePreview = () => {
@@ -302,25 +277,40 @@ export async function showSpellOptionsDialog(actor, spell, castContext = null) {
         const isOverloaded = overloadCheckbox?.checked ?? false;
         const useOvercharge = overchargeCheckbox?.checked ?? false;
 
+        const tn = computeMagicCastingTN(actor, spell, {
+          ...castContext,
+          castLevel: selectedLevel, level: selectedLevel,
+          difficultyKey: difficultySelect?.value ?? "average",
+          circumstanceMod: 0,
+          manualModifier: Number.parseInt(manualInput?.value, 10) || 0,
+          isRestrained, isOverloaded, useOvercharge,
+          useMagickaCycling: hasMagickaCyclingTalent,
+        });
+        updateTNPill(root, "casting", tn, { automatic: castContext?.castSource?.skipCastingTest === true });
+
         try {
-          const profile = resolveSpellProfile(spell, actor, {
+          const presentation = buildCastingOptionPresentation(actor, spell, {
             level: selectedLevel,
             isRestrained,
             isOverloaded,
-            useOvercharge
+            useOvercharge,
+            hasMasterOfMagicka: hasMasterOfMagickaTalent,
+            fixedCost: resourcePresentation.fixedCost,
+            resourceLabel: resourcePresentation.fixedCost != null ? resourcePresentation.label : "MP",
           });
-
-          const refundValue = Number(profile?.cost?.effectiveRestraintReduction ?? profile?.cost?.restrained?.reduction ?? 0) || 0;
+          const { profile } = presentation;
+          const restraintLabel = restrainGroup?.querySelector("[data-ues-restraint-label]");
+          if (restraintLabel) restraintLabel.textContent = presentation.restraintLabel;
+          setSystemOptionTooltip(restrainCheckbox, presentation.restraintHelp);
+          setSystemOptionTooltip(overloadCheckbox, presentation.overloadHelp);
+          setSystemOptionTooltip(overchargeCheckbox, presentation.overchargeHelp);
           if (previewCost) {
             if (resourcePresentation.fixedCost != null) {
               previewCost.innerHTML = buildPreviewCostHtml(resourcePresentation.fixedCost);
             } else {
-              const notes = [];
-              if (isRestrained) notes.push(tf("UESRPG.Dialogs.SpellOptions.RefundOnSuccessShort", { value: refundValue }, `refund ${refundValue} MP`));
-              if (isOverloaded) notes.push(t("UESRPG.Dialogs.SpellOptions.OverloadCostShort", "x2 overload"));
-              if (profile?.cost?.overcharge?.enabled) notes.push(t("UESRPG.Dialogs.SpellOptions.OverchargeCostShort", "x2 overcharge"));
-              previewCost.innerHTML = buildPreviewCostHtml(profile.cost.attempt, notes);
+              previewCost.innerHTML = buildPreviewCostHtml(profile.cost.attempt);
             }
+            setSystemTooltip(previewCost, { text: presentation.costHelp });
           }
           if (previewDamage) previewDamage.textContent = profile.damage.formula || t("UESRPG.UI.NotAvailable", "N/A");
           if (previewDuration) previewDuration.textContent = tf("UESRPG.Dialogs.SpellOptions.DurationValue", { value: profile.duration.value || 0, unit: profile.duration.unit || t("UESRPG.Dialogs.SpellOptions.Instant", "instant") }, `${profile.duration.value || 0} ${profile.duration.unit || "instant"}`);
@@ -335,6 +325,8 @@ export async function showSpellOptionsDialog(actor, spell, castContext = null) {
       };
 
       if (castLevelSelect) castLevelSelect.addEventListener("change", updatePreview);
+      difficultySelect?.addEventListener("change", updatePreview);
+      manualInput?.addEventListener("input", updatePreview);
       if (restrainCheckbox) {
         restrainCheckbox.addEventListener("change", () => {
           syncCastingOptionState("restrain");

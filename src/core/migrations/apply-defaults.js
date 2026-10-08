@@ -1,5 +1,5 @@
 /**
- * applyDefaults(target, defaults, { coerce=true, ignorePaths=[], clone=true })
+ * applyDefaults(target, defaults, { coerce=true, ignorePaths=[], clone=true, strict=false })
  *
  * Idempotently applies a "defaults object" onto a target object:
  * - Missing keys (undefined/null) are set from defaults
@@ -7,6 +7,7 @@
  * - Arrays are ensured to be arrays (defaulting to [])
  * - Objects are ensured to be plain objects; nested defaults are applied recursively
  * - Null defaults fill only missing values and never overwrite meaningful existing data
+ * - Strict mode rejects unrecognized shapes instead of replacing them with defaults
  *
  * This utility is intentionally conservative to avoid breaking existing worlds:
  * it never deletes keys and never overwrites values that already match the expected type.
@@ -57,7 +58,7 @@ function _coerceString(value) {
 }
 
 function _deepClone(obj) {
-  // Foundry utility (preferred) - available in v13.
+  // Foundry's documented cloning utility.
   if (globalThis.foundry?.utils?.deepClone) return globalThis.foundry.utils.deepClone(obj);
   // Native structuredClone where available.
   if (globalThis.structuredClone) return globalThis.structuredClone(obj);
@@ -69,12 +70,13 @@ function _deepClone(obj) {
  * @template T
  * @param {T} target
  * @param {object} defaults
- * @param {{coerce?: boolean, ignorePaths?: string[], clone?: boolean}} [options]
+ * @param {{coerce?: boolean, ignorePaths?: string[], clone?: boolean, strict?: boolean}} [options]
  * @returns {{ result: T, changed: boolean }}
  */
 export function applyDefaults(target, defaults, options = {}) {
   const coerce = options.coerce !== false;
   const clone = options.clone !== false;
+  const strict = options.strict === true;
   const ignore = new Set(Array.isArray(options.ignorePaths) ? options.ignorePaths : []);
   const root = (target && typeof target === "object")
     ? (clone ? _deepClone(target) : target)
@@ -114,6 +116,7 @@ export function applyDefaults(target, defaults, options = {}) {
         changed = true;
         return coerced;
       }
+      if (strict) throw new Error(`Invalid legacy numeric field: system.${pathKey}`);
       changed = true;
       return def;
     }
@@ -129,6 +132,7 @@ export function applyDefaults(target, defaults, options = {}) {
         changed = true;
         return coerced;
       }
+      if (strict) throw new Error(`Invalid legacy Boolean field: system.${pathKey}`);
       changed = true;
       return def;
     }
@@ -144,12 +148,23 @@ export function applyDefaults(target, defaults, options = {}) {
         changed = true;
         return coerced;
       }
+      if (strict) throw new Error(`Invalid legacy string field: system.${pathKey}`);
       changed = true;
       return def;
     }
 
     if (defType === "array") {
       if (!Array.isArray(node)) {
+        // Older forms saved numeric-keyed records instead of arrays. Only
+        // this recognized representation is convertible without dropping data.
+        if (strict && _isPlainObject(node)) {
+          const keys = Object.keys(node).sort((a, b) => Number(a) - Number(b));
+          if (keys.every((key, index) => /^(0|[1-9]\d*)$/.test(key) && Number(key) === index)) {
+            changed = true;
+            return keys.map((key) => _deepClone(node[key]));
+          }
+        }
+        if (strict && node !== undefined && node !== null) throw new Error(`Invalid legacy array field: system.${pathKey}`);
         changed = true;
         return _deepClone(def);
       }
@@ -158,6 +173,7 @@ export function applyDefaults(target, defaults, options = {}) {
 
     if (defType === "object") {
       if (!_isPlainObject(node)) {
+        if (strict && node !== undefined && node !== null) throw new Error(`Invalid legacy object field: system.${pathKey}`);
         changed = true;
         node = _deepClone(def);
       }

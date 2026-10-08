@@ -307,9 +307,10 @@
           <div class="effects-grid">
             {{#each effects as |effect id|}}
             <div class="effect-row" data-effect-id="{{effect._id}}">
-              <img class="effect-icon" src="{{effect.img}}" data-tooltip-text="{{effect.name}}" alt="{{effect.name}}"/>
-              <span class="effect-name">{{effect.name}}</span>
+              {{> "systems/uesrpg-3ev4/templates/partials/sheets/effect-edit-icon.hbs" effect=effect}}
+              <span class="effect-name" data-tooltip-text="{{effect.name}}">{{> "systems/uesrpg-3ev4/templates/partials/sheets/effect-edit-name.hbs" effect=effect}}</span>
               <div class="effect-controls">
+                {{> "systems/uesrpg-3ev4/templates/partials/sheets/effect-post-control.hbs" effect=effect}}
                 <button type="button" class="effect-control uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="effectControl" data-effect-action="edit" data-effect-id="{{effect._id}}" data-tooltip-text="{{localize 'UESRPG.Sheets.Equipment.EditEffect'}}" aria-label="{{localize 'UESRPG.Sheets.Equipment.EditEffect'}}"><i class="fas fa-edit" aria-hidden="true"></i></button>
                 <button type="button" class="effect-control uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="effectControl" data-effect-action="delete" data-effect-id="{{effect._id}}" data-tooltip-text="{{localize 'UESRPG.Sheets.Equipment.DeleteEffect'}}" aria-label="{{localize 'UESRPG.Sheets.Equipment.DeleteEffect'}}"><i class="fas fa-trash" aria-hidden="true"></i></button>
                 <button type="button" class="effect-control uesrpg-semantic-control uesrpg-plain-control uesrpg-icon-action" data-action="effectControl" data-effect-action="toggle" data-effect-id="{{effect._id}}" data-tooltip-text="{{#if effect.disabled}}{{localize 'UESRPG.Sheets.Item.Enable'}}{{else}}{{localize 'UESRPG.Sheets.Item.Disable'}}{{/if}}" aria-label="{{#if effect.disabled}}{{localize 'UESRPG.Sheets.Item.Enable'}}{{else}}{{localize 'UESRPG.Sheets.Item.Disable'}}{{/if}}">

@@ -1,6 +1,7 @@
 
 import { invalidateCachedSetting } from "../../../core/config/settings-cache.js";
 import { createSystemSettingRegistrar } from "../../../utils/settings-registration.js";
+import { refreshChatOutcomeMessages } from "../../../application/combat/chat-outcome-application-service.js";
 
 const _reg = createSystemSettingRegistrar("Combat");
 
@@ -29,6 +30,17 @@ export function registerCombatSettings() {
     config: false,
     default: false,
     type: Boolean,
+  });
+
+  _reg("combatOutcomeApplicationMode", {
+    name: "Damage, Healing, and Effects Application",
+    hint: "Choose who confirms resolved outcomes. Automatic application affects newly resolved outcomes only. Changing this setting never reverses applied results.",
+    scope: "world",
+    config: false,
+    type: String,
+    default: "gm",
+    choices: { gm: "GM Gated", owners: "GM and Player", automatic: "Everything Automated" },
+    onChange: () => refreshChatOutcomeMessages(),
   });
 
   _reg("tokenRangeMeasurement", {

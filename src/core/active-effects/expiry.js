@@ -1,6 +1,7 @@
 import { requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { createDebugLogger } from "../../utils/debug.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
+import { MagicTimekeeping } from "../magic/timekeeping-helper.js";
 import {
   buildGenericAEMetadata,
   getGenericAEMetadata,
@@ -186,6 +187,15 @@ export function getEffectGenericExpiry(effect, { includeLegacy = true } = {}) {
   return includeLegacy ? _legacyStartTurnExpiry(effect) : null;
 }
 
+/** Reuse the effect actor collector, including synthetic combat actors outside the viewed scene. */
+export function getGenericAEExpiryActors(combat) {
+  const actors = new Map();
+  for (const actor of [...MagicTimekeeping.relevantActorsArray(), ...Array.from(combat?.combatants ?? [], combatant => combatant.actor)]) {
+    if (actor?.uuid) actors.set(actor.uuid, actor);
+  }
+  return Array.from(actors.values());
+}
+
 export function effectMatchesGenericExpiry(effect, {
   mode,
   combat = globalThis.game?.combat ?? null,
@@ -214,6 +224,8 @@ export function effectMatchesGenericExpiry(effect, {
 
 export async function applyGenericAEExpiryAction(actor, effect, {
   reason = "expired",
+  strict = false,
+  round = null,
   combat = globalThis.game?.combat ?? null,
   worldTime = globalThis.game?.time?.worldTime ?? null,
 } = {}) {
@@ -221,19 +233,21 @@ export async function applyGenericAEExpiryAction(actor, effect, {
 
   const action = getEffectExpiryAction(effect);
   if (action !== "suppress") {
-    await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [effect.id]);
+    const deleted = await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [effect.id]);
+    if (strict && !deleted) throw new Error("Expired effect deletion was not confirmed.");
     return true;
   }
 
   const atWorldTime = Number(worldTime);
-  const atCombatRound = Number(combat?.round);
-  await requestUpdateDocument(effect, {
+  const atCombatRound = Number(round ?? combat?.round);
+  const updated = await requestUpdateDocument(effect, {
     disabled: true,
     [`flags.${FLAG_SCOPE}.ae.suppressed.expired`]: true,
     [`flags.${FLAG_SCOPE}.ae.suppressed.atWorldTime`]: Number.isFinite(atWorldTime) ? atWorldTime : null,
     [`flags.${FLAG_SCOPE}.ae.suppressed.atCombatRound`]: Number.isFinite(atCombatRound) ? atCombatRound : null,
     [`flags.${FLAG_SCOPE}.ae.suppressed.reason`]: String(reason ?? "expired"),
   });
+  if (strict && !updated) throw new Error("Effect suppression was not confirmed.");
   _debug("Suppressed expired generic ActiveEffect", { actor: actor?.uuid ?? null, effect: effect?.uuid ?? effect?.id });
   return true;
 }

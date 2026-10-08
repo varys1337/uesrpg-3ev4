@@ -1,6 +1,15 @@
 import { SYSTEM_ID, FLAG_SCOPE } from "../system/namespace.js";
 import { getSystemFlagsWithFallback } from "../system/flags.js";
 
+const OVERTIME_TICK_PATHS = new Set(["lastTickRound", "lastTickTurn", "lastTickWorldTime", "tickCount"]
+  .map(key => `flags.${FLAG_SCOPE}.overTimeState.${key}`));
+
+/** Only known tick bookkeeping may retain configuration-dependent caches. */
+export function isOverTimeTickStateOnlyUpdate(changed) {
+  const keys = Object.keys(foundry.utils.flattenObject(changed ?? {}));
+  return keys.length > 0 && keys.every(key => OVERTIME_TICK_PATHS.has(key));
+}
+
 export const GENERIC_AE_KIND = "generic";
 
 const EXPIRY_MODES = new Set(["turn-start", "turn-end", "combat-end", "point"]);

@@ -8,7 +8,6 @@ const { getReleaseMetadata } = require("./release-metadata.js");
  * -------
  * This script is executed by the npm "version" lifecycle hook.
  * It updates system.json to the correct version and sets Foundry package URLs:
- *  - version: v-prefixed Foundry version used by the permanent update channel
  *  - manifest: stable URL pointing to the latest release asset system.json
  *  - download: tag-specific URL pointing to the release ZIP uploaded by GitHub Actions
  *
@@ -27,13 +26,7 @@ if (!rawVersion) {
   process.exit(1);
 }
 
-let release;
-try {
-  release = getReleaseMetadata(rawVersion);
-} catch (err) {
-  console.error("ERROR: Invalid production release version.", err.message);
-  process.exit(1);
-}
+const releaseMetadata = getReleaseMetadata(rawVersion);
 
 // Read current system.json
 let systemObj;
@@ -45,15 +38,19 @@ try {
   process.exit(1);
 }
 
-// The v prefix is intentionally permanent. It preserves Foundry's automatic
-// upgrade path from the historical v14.0.0 manifest as well as 14.0.7.
-systemObj.version = release.systemVersion;
-systemObj.manifest = release.manifestUrl;
-systemObj.download = release.downloadUrl;
+// Set version and Foundry URLs
+// - manifest should be stable so Foundry can always find the newest release metadata.
+// - download must match the exact ZIP filename uploaded as a Release asset by your workflow.
+const manifestUrl = releaseMetadata.manifestUrl;
+const downloadUrl = releaseMetadata.downloadUrl;
 
-console.log(`Updating system.json with Foundry version '${release.systemVersion}'`);
-console.log(`Setting manifest: ${release.manifestUrl}`);
-console.log(`Setting download: ${release.downloadUrl}`);
+systemObj.version = rawVersion;
+systemObj.manifest = manifestUrl;
+systemObj.download = downloadUrl;
+
+console.log(`Updating system.json with version '${rawVersion}'`);
+console.log(`Setting manifest: ${manifestUrl}`);
+console.log(`Setting download: ${downloadUrl}`);
 
 // Write system.json back (pretty-printed, 2 spaces)
 try {

@@ -1,3 +1,4 @@
+import { reconcileUnavailableDefenses } from "../opposed/shared/automatic-no-defense.js";
 /**
  * @module magic/opposed-workflow
  *
@@ -51,7 +52,7 @@ import {
 } from "./opposed/cast-source.js";
 import { createAttackTraceId } from "../combat/attack-tracker-diagnostics.js";
 import { resolveCombatantForActor } from "../../utils/document-resolution.js";
-import { buildMagicCastContext } from "./opposed/cast-context.js";
+import { buildMagicCastContext, resolveMagicCastContext } from "./opposed/cast-context.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 const _FLAG_KEY = "magicOpposed";
@@ -157,6 +158,7 @@ async function _syncEnchantmentUpkeepPointer(attacker, castSource = null, itemCa
     item: itemCtx.item,
     sourceLane: itemCtx.sourceLane,
     slotId: itemCtx.slotId,
+    strict: true,
     excludeOriginUuid: originEffect?.uuid ?? originEffect?.id ?? ""
   });
 }
@@ -376,7 +378,8 @@ export const MagicOpposedWorkflow = {
       style: CONST.CHAT_MESSAGE_STYLES.OTHER
     });
 
-    await safeUpdateChatMessage(message, { content: renderCard(data, message.id) });
+    await magicUpdateCard(message, liveState => liveState, renderCard, { renderIfUnchanged: true });
+    await reconcileUnavailableDefenses(message, this);
     return message;
   },
 
@@ -622,15 +625,18 @@ export const MagicOpposedWorkflow = {
     } catch (_e) { /* no-op */ }
 
     // Create Origin AE on the caster for persistent spells (only on success)
+    const automationFailures = [];
     let originEffect = null;
     if (result.isSuccess && spellRequiresOriginAE(spell)) {
       const castContext = buildMagicCastContext({
         spellLevel: Number(spell?.system?.level ?? 1),
         spellOptions,
         scalingChoices: spellOptions?.castLevel ? { level: spellOptions.castLevel } : null
-      }, spell);
+      }, spell, { actor: attacker });
       try {
         originEffect = await createOriginAE(attacker, spell, {
+          strict: true,
+          isCritical: Boolean(result.isCriticalSuccess),
           costPaid: Number(refundInfo?.finalCost ?? magickaSpend?.consumed ?? 0) || 0,
           scalingChoices: spellOptions?.castLevel ? { level: spellOptions.castLevel } : null,
           spellOptions,
@@ -643,11 +649,14 @@ export const MagicOpposedWorkflow = {
           casterTokenUuid: aToken?.document?.uuid ?? aToken?.uuid ?? cfg.attackerTokenUuid ?? null
         });
       } catch (_e) {
+        originEffect = _e.originEffect ?? null;
+        automationFailures.push({ stage: "origin", message: String(_e.message ?? _e) });
         console.warn("UESRPG | Failed to create Origin AE for direct spell", _e);
       }
     }
     if (result.isSuccess) {
-      await _syncEnchantmentUpkeepPointer(attacker, castSource, itemCastContext, spell, originEffect);
+      try { await _syncEnchantmentUpkeepPointer(attacker, castSource, itemCastContext, spell, originEffect); }
+      catch (error) { automationFailures.push({ stage: "upkeep", message: String(error.message ?? error) }); }
     }
 
     const directRollContext = buildRollContext({
@@ -665,6 +674,7 @@ export const MagicOpposedWorkflow = {
         createdAt: Date.now(),
         createdBy: game.user.id,
         originalCastWorldTime: Number(game.time?.worldTime ?? 0) || 0,
+        automationCompletion: { status: automationFailures.length ? "partial" : "completed", failed: automationFailures },
         phase: "resolved",
         directUndefendable: true,
         noDefenseUnopposed: true,
@@ -675,6 +685,7 @@ export const MagicOpposedWorkflow = {
       status: "resolved",
       mode: "magic",
       attacker: {
+        castContext: originEffect?.flags?.[_FLAG_NS]?.castContext ?? null,
         actorUuid: attacker.uuid,
         name: attacker.name,
         tokenUuid: aToken?.document?.uuid ?? aToken?.uuid ?? cfg.attackerTokenUuid ?? null,
@@ -969,15 +980,18 @@ export const MagicOpposedWorkflow = {
     }
 
     // Create Origin AE on the caster for persistent spells (only on success)
+    const automationFailures = [];
     let originEffect = null;
     if (result.isSuccess && spellRequiresOriginAE(spell)) {
       const castContext = buildMagicCastContext({
         spellLevel: _getResolvedSpellLevel(spell),
         spellOptions,
         scalingChoices: spellOptions?.castLevel ? { level: spellOptions.castLevel } : null
-      }, spell);
+      }, spell, { actor: attacker });
       try {
         originEffect = await createOriginAE(attacker, spell, {
+          strict: true,
+          isCritical: Boolean(result.isCriticalSuccess),
           costPaid: Number(magickaSpend?.consumed ?? 0) || 0,
           scalingChoices: spellOptions?.castLevel ? { level: spellOptions.castLevel } : null,
           spellOptions,
@@ -990,11 +1004,14 @@ export const MagicOpposedWorkflow = {
           casterTokenUuid: aToken?.document?.uuid ?? aToken?.uuid ?? null
         });
       } catch (_e) {
+        originEffect = _e.originEffect ?? null;
+        automationFailures.push({ stage: "origin", message: String(_e.message ?? _e) });
         console.warn("UESRPG | Failed to create Origin AE for unopposed spell", _e);
       }
     }
     if (result.isSuccess) {
-      await _syncEnchantmentUpkeepPointer(attacker, castSource, itemCastContext, spell, originEffect);
+      try { await _syncEnchantmentUpkeepPointer(attacker, castSource, itemCastContext, spell, originEffect); }
+      catch (error) { automationFailures.push({ stage: "upkeep", message: String(error.message ?? error) }); }
     }
 
     const targetingMode = String(spell?.system?.engine?.targeting?.mode ?? "").trim().toLowerCase();
@@ -1017,6 +1034,7 @@ export const MagicOpposedWorkflow = {
           createdAt: Date.now(),
           createdBy: game.user.id,
           originalCastWorldTime: Number(game.time?.worldTime ?? 0) || 0,
+        automationCompletion: { status: automationFailures.length ? "partial" : "completed", failed: automationFailures },
           updatedAt: Date.now(),
           updatedBy: game.user.id,
           phase: "resolved",
@@ -1031,6 +1049,7 @@ export const MagicOpposedWorkflow = {
         status: "resolved",
         mode: "magic",
         attacker: {
+          castContext: originEffect?.flags?.[_FLAG_NS]?.castContext ?? null,
           actorUuid: attacker.uuid,
           tokenUuid: aToken?.document?.uuid ?? aToken?.uuid ?? null,
           tokenName: aToken?.name ?? null,
@@ -1098,6 +1117,7 @@ export const MagicOpposedWorkflow = {
     // (spells with embedded AEs, upkeep, finite duration, or buffers)
     // For conjure-item spells, route effects to the same targets that
     // will receive the conjured items, so AEs and items land on the same actor.
+    let appliedCastContext = originEffect?.flags?.[_FLAG_NS]?.castContext ?? null;
     if (result.isSuccess) {
       const { spellNeedsEffectApplication } = await import("./opposed/spell-helpers.js");
       const hasBuffer = Boolean(spell.system?.hasBuffer && spell.system?.buffer?.type && spell.system.buffer.type !== "none");
@@ -1117,13 +1137,16 @@ export const MagicOpposedWorkflow = {
         }
 
         for (const effectTarget of effectTargets) {
-          const castContext = buildMagicCastContext({
+          const castContext = await resolveMagicCastContext({
             spellLevel: _getResolvedSpellLevel(spell),
             spellOptions,
-            scalingChoices: spellOptions?.castLevel ? { level: spellOptions.castLevel } : null
-          }, spell);
+            scalingChoices: spellOptions?.castLevel ? { level: spellOptions.castLevel } : null,
+            castContext: originEffect?.flags?.[_FLAG_NS]?.castContext ?? null,
+          }, spell, { actor: attacker });
+          appliedCastContext = castContext;
           try {
             await applyResolvedSpellEffects({
+              strict: true,
               casterActor: attacker,
               targetActor: effectTarget,
               spell,
@@ -1140,6 +1163,7 @@ export const MagicOpposedWorkflow = {
               }
             });
           } catch (err) {
+            automationFailures.push({ stage: "effects", actorUuid: effectTarget?.uuid, message: String(err.message ?? err) });
             console.error("UESRPG | Failed to apply spell effects to", effectTarget?.name ?? "unknown", err);
           }
         }
@@ -1161,6 +1185,7 @@ export const MagicOpposedWorkflow = {
         createdAt: Date.now(),
         createdBy: game.user.id,
         originalCastWorldTime: Number(game.time?.worldTime ?? 0) || 0,
+        automationCompletion: { status: automationFailures.length ? "partial" : "completed", failed: automationFailures },
         updatedAt: Date.now(),
         updatedBy: game.user.id,
         phase: "resolved",
@@ -1173,6 +1198,7 @@ export const MagicOpposedWorkflow = {
       status: "resolved",
       mode: "magic",
       attacker: {
+        castContext: appliedCastContext,
         actorUuid: attacker.uuid,
         tokenUuid: aToken?.document?.uuid ?? aToken?.uuid ?? null,
         tokenName: aToken?.name ?? null,

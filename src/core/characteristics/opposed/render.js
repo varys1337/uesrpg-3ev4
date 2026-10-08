@@ -1,10 +1,10 @@
-import { renderTargetNumberLine } from "../../opposed/shared/card-rendering.js";
+import { renderTargetNumberLine, renderRollSummary, renderOpposedParticipant, renderParticipantContext, renderOpposedLayout, renderOpposedOutcome } from "../../opposed/shared/card-rendering.js";
 /**
  * src/core/characteristics/opposed/render.js
  * Card HTML rendering for characteristic opposed workflow
  */
 
-import { _esc, _fmtDegree } from "./util.js";
+import { _esc } from "./util.js";
 import { CHARACTERISTICS } from "./constants.js";
 import { t } from "../../../utils/i18n.js";
 
@@ -40,7 +40,7 @@ function _renderRollLine(result) {
   if (!result) return "";
   const total = _extractRollTotal(result);
   const totalText = total == null ? "??" : String(total);
-  return `<div><b>${t("UESRPG.Chat.Common.Roll", "Roll")}:</b> ${totalText} - ${_fmtDegree(result)}</div>`;
+  return renderRollSummary(totalText, result);
 }
 
 function _charLabel(key) {
@@ -50,10 +50,10 @@ function _charLabel(key) {
 export function _renderCard(data, messageId) {
   const a = data.attacker;
   const d = data.defender;
-  const aName = _esc(a.tokenName ?? a.name ?? "");
-  const dName = _esc(d.tokenName ?? d.name ?? "");
-  const aCharLabel = _esc(_charLabel(a.charKey));
-  const dCharLabel = _esc(_charLabel(d.charKey ?? "(choose)"));
+  const aName = a.tokenName ?? a.name ?? "";
+  const dName = d.tokenName ?? d.name ?? "";
+  const aCharLabel = _charLabel(a.charKey);
+  const dCharLabel = _charLabel(d.charKey ?? "(choose)");
 
   // Banked mode: hide details until both committed
   const bothCommitted = Boolean(a?.committedAt) && Boolean(d?.committedAt);
@@ -64,14 +64,14 @@ export function _renderCard(data, messageId) {
 
   const attackerActions = (() => {
     if (a.result) return "";
-    if (!a.committedAt) return `<div style="margin-top:6px;">${_btn(t("UESRPG.Chat.Opposed.CommitChoices", "Commit Choices"), "attacker-roll")}</div>`;
-    return `<div style="margin-top:6px; opacity:0.85;"><i>${t("UESRPG.Chat.Opposed.ChoicesCommitted", "Choices committed")}</i></div>`;
+    if (!a.committedAt) return `<div class="uesrpg-opposed-action-row">${_btn(t("UESRPG.Chat.Opposed.CommitChoices", "Commit Choices"), "attacker-roll")}</div>`;
+    return `<div class="uesrpg-chat-status-note"><i>${t("UESRPG.Chat.Opposed.ChoicesCommitted", "Choices committed")}</i></div>`;
   })();
 
   const defenderActions = (() => {
     if (d.result) return "";
-    if (!d.committedAt) return `<div style="margin-top:6px;">${_btn(t("UESRPG.Chat.Opposed.CommitChoices", "Commit Choices"), "defender-roll")}</div>`;
-    return `<div style="margin-top:6px; opacity:0.85;"><i>${t("UESRPG.Chat.Opposed.ChoicesCommitted", "Choices committed")}</i></div>`;
+    if (!d.committedAt) return `<div class="uesrpg-opposed-action-row">${_btn(t("UESRPG.Chat.Opposed.CommitChoices", "Commit Choices"), "defender-roll")}</div>`;
+    return `<div class="uesrpg-chat-status-note"><i>${t("UESRPG.Chat.Opposed.ChoicesCommitted", "Choices committed")}</i></div>`;
   })();
 
   const beginRollActions = (bothCommitted && !data.outcome && !data.status && !a.result && !d.result)
@@ -79,48 +79,29 @@ export function _renderCard(data, messageId) {
     : "";
 
   const outcomeLine = data.outcome
-    ? `<div style="margin-top:10px;"><b>${t("UESRPG.Chat.Common.Outcome", "Outcome")}:</b> ${_esc(data.outcome.text ?? "")}</div>`
+    ? renderOpposedOutcome(_esc(data.outcome.text ?? ""))
     : (() => {
         if (!bothCommitted) {
-          return `<div style="margin-top:10px;"><i>${t("UESRPG.Chat.Opposed.WaitingBothCommit", "Waiting for both sides to commit choices...")}</i></div>`;
+          return `<div class="uesrpg-chat-status-note"><i>${t("UESRPG.Chat.Opposed.WaitingBothCommit", "Waiting for both sides to commit choices...")}</i></div>`;
         }
-        return `<div style="margin-top:10px;"><i>${t("UESRPG.Chat.Status.Pending", "Pending")}</i></div>`;
+        return `<div class="uesrpg-chat-status-note"><i>${t("UESRPG.Chat.Status.Pending", "Pending")}</i></div>`;
       })();
 
   const contextLabel = data.context?.label ? `<div style="margin-bottom:6px; font-size:13px; opacity:0.85;"><b>${t("UESRPG.Chat.Common.Context", "Context")}:</b> ${_esc(data.context.label)}</div>` : "";
 
-  return `
-  <div class="ues-char-opposed-card" data-message-id="${messageId}" style="padding:6px 6px;">
-    ${contextLabel}
-    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; align-items:start;">
-      <div style="padding-right:10px; border-right:1px solid rgba(0,0,0,0.12);">
-        <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px;">
-          <div style="font-size:16px; font-weight:700; flex-shrink:0;">${t("UESRPG.Chat.Opposed.Initiator", "Initiator")}</div>
-          <div style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;"><b>${aName}</b></div>
-        </div>
-        <div style="margin-top:4px; font-size:13px; line-height:1.25;">
-          <div><b>${t("UESRPG.Chat.Common.Char", "Char")}:</b> ${aCharLabel}</div>
-          ${_renderTNLine(aTNLabel, revealDetails ? a.tn : null)}
-          ${_renderRollLine(a.result)}
-          ${revealDetails && a.declared?.manualMod ? `<div style="font-size:12px; opacity:0.85;">${t("UESRPG.Chat.Common.Manual", "Manual")} ${Number(a.declared.manualMod) >= 0 ? "+" : ""}${a.declared.manualMod}</div>` : ""}
-        </div>
-        ${attackerActions}
-      </div>
-      <div>
-        <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px;">
-          <div style="font-size:16px; font-weight:700; flex-shrink:0;">${t("UESRPG.Chat.Common.Target", "Target")}</div>
-          <div style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;"><b>${dName}</b></div>
-        </div>
-        <div style="margin-top:4px; font-size:13px; line-height:1.25;">
-          <div><b>${t("UESRPG.Chat.Common.Char", "Char")}:</b> ${dCharLabel}</div>
-          ${_renderTNLine(dTNLabel, revealDetails ? d.tn : null)}
-          ${_renderRollLine(d.result)}
-          ${revealDetails && d.declared?.manualMod ? `<div style="font-size:12px; opacity:0.85;">${t("UESRPG.Chat.Common.Manual", "Manual")} ${Number(d.declared.manualMod) >= 0 ? "+" : ""}${d.declared.manualMod}</div>` : ""}
-        </div>
-        ${defenderActions}
-      </div>
-    </div>
-    ${beginRollActions}
-    ${outcomeLine}
+  const manualNote = participant => revealDetails && participant.declared?.manualMod
+    ? `<div class="uesrpg-chat-secondary">${t("UESRPG.Chat.Common.Manual", "Manual")} ${Number(participant.declared.manualMod) >= 0 ? "+" : ""}${participant.declared.manualMod}</div>` : "";
+  return `<div class="ues-char-opposed-card uesrpg-chat-surface" data-message-id="${messageId}">${contextLabel}
+    ${renderOpposedLayout({
+      attacker: renderOpposedParticipant({ name: aName, title: t("UESRPG.Chat.Opposed.Initiator", "Initiator"),
+        context: renderParticipantContext([{ label: t("UESRPG.Chat.Common.Char", "Char"), value: aCharLabel }]),
+        tn: _renderTNLine(aTNLabel, revealDetails ? a.tn : null), roll: _renderRollLine(a.result),
+        extra: manualNote(a), actions: attackerActions, compactActions: !a.result }),
+      defender: renderOpposedParticipant({ role: "defender", name: dName, title: t("UESRPG.Chat.Common.Target", "Target"),
+        context: renderParticipantContext([{ label: t("UESRPG.Chat.Common.Char", "Char"), value: dCharLabel }]),
+        tn: _renderTNLine(dTNLabel, revealDetails ? d.tn : null), roll: _renderRollLine(d.result),
+        extra: manualNote(d), actions: defenderActions, compactActions: !d.result }),
+      after: beginRollActions + outcomeLine
+    })}
   </div>`;
 }

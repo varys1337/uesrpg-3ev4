@@ -53,6 +53,7 @@ export function normalizeScalingEntry(entry, fallbackDurationUnit = "instant") {
   const rawDuration = entry?.duration;
   if (rawDuration && typeof rawDuration === "object") {
     normalized.duration = {
+      ...rawDuration,
       value: Number(rawDuration.value) || 0,
       unit: String(rawDuration.unit ?? fallbackDurationUnit)
     };

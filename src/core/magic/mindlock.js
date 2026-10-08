@@ -56,7 +56,7 @@ export function spellHasMindlock(spell) {
  * @param {number}           [params.context.mindlockOverride] - Override mindlock value
  * @returns {Promise<ActiveEffect|null>}
  */
-export async function applyMindlockEffects({ caster, spell, originAE = null, context = {} } = {}) {
+export async function applyMindlockEffects({ caster, spell, originAE = null, context = {}, strict = false } = {}) {
   if (!caster || !spell) return null;
 
   const mindlockValue = context.mindlockOverride ?? (Number(spell.system?.mindlockValue ?? 0) || 0);
@@ -121,6 +121,7 @@ export async function applyMindlockEffects({ caster, spell, originAE = null, con
     const created = Array.isArray(results) ? results[0] : (results ?? null);
 
     if (!created) {
+      if (strict) throw new Error("Mindlock creation was not confirmed.");
       _debug("Failed to create Mindlock AE (null result)");
       return null;
     }
@@ -133,12 +134,13 @@ export async function applyMindlockEffects({ caster, spell, originAE = null, con
         uuid: created.uuid ?? `${caster.uuid}.ActiveEffect.${created.id}`,
         actorUuid: caster.uuid,
         label: `Mindlock (${spell.name}) on ${caster.name}`
-      });
+      }, { strict });
       _debug("Registered Mindlock AE with Origin AE");
     }
 
     return created;
   } catch (err) {
+    if (strict) throw err;
     console.error("[UESRPG][Mindlock] Failed to create Mindlock AE", err);
     return null;
   }

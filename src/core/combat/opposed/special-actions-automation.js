@@ -44,7 +44,7 @@ export async function executeAdvantageSpecialActions({
   if (!actor) return;
 
   try {
-    const { showSpecialAdvantageDialog, executeSpecialAction } = await import("../special-actions-helper.js");
+    const { showSpecialAdvantageDialog, postSpecialActionOutcome } = await import("../special-actions-helper.js");
     
     for (const saId of specialActionIds) {
       const choice = await showSpecialAdvantageDialog(saId);
@@ -62,23 +62,11 @@ export async function executeAdvantageSpecialActions({
 
       if (choice.mode === "autowin") {
         // Auto-Win: consume 1 AP, skip test, auto-succeed
-        const result = await executeSpecialAction({
-          specialActionId: saId,
-          actor: actor,
-          target: opponent ?? null,
-          isAutoWin: true,
-          opposedResult: { winner: role }
+        const result = await postSpecialActionOutcome({
+          specialActionId: saId, actor, target: opponent ?? null,
+          isAutoWin: true, opposedResult: { winner: role },
         });
-
-        if (result.success) {
-          if (onAutoWinSuccess) await onAutoWinSuccess(result);
-          else await ChatMessage.create({
-            user: game.user.id,
-            speaker: ChatMessage.getSpeaker({ actor: actor }),
-            content: `<div class="uesrpg-special-action-advantage"><b>Special Advantage (Auto-Win):</b><p>${result.message}</p></div>`,
-            style: CONST.CHAT_MESSAGE_STYLES.OTHER
-          });
-        }
+        if (result.success && onAutoWinSuccess) await onAutoWinSuccess(result);
       } else if (choice.mode === "free") {
         // Free Action: 0 AP, initiate test with dropdown selection
         const actorToken = actorTokenUuid ? _resolveDoc(actorTokenUuid)?.object : null;

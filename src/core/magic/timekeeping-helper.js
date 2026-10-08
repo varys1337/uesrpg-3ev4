@@ -195,6 +195,14 @@ export const MagicTimekeeping = {
       /* no-op */
     }
 
+    // TokenDocument.actor preserves the distinct ActorDelta of off-scene tokens.
+    for (const scene of (game.scenes ?? [])) {
+      for (const token of (scene.tokens ?? [])) if (token.actor) out.add(token.actor);
+    }
+    for (const combat of (game.combats ?? [])) {
+      for (const combatant of (combat.combatants ?? [])) if (combatant.actor) out.add(combatant.actor);
+    }
+
     return out;
   },
 

@@ -16,6 +16,7 @@ import {
 import { setGroupCollapsedInDom } from "./collapsed-group-dom.js";
 import { getCachedSetting } from "../../../../core/config/settings-cache.js";
 import { promptDialog, confirmDialog } from "../../../../utils/dialog-v2-helper.js";
+import { isHumanoidActorType } from "../../../../core/actors/types.js";
 
 /**
  * Toggle collapse state of a collapsible group.
@@ -50,9 +51,16 @@ export async function onLoadoutSave(sheet, event) {
     .filter(i => typeof i?.system?.equipped === "boolean" && i.system.equipped)
     .map(i => i.id);
 
+  const inventoryDialog = isHumanoidActorType(sheet.actor?.type);
   const name = await promptDialog({
     title: "Save Loadout",
-    content: `<p>Enter a name for this loadout:</p><input type="text" name="uesrpgLoadoutName" style="width:100%" />`,
+    classes: inventoryDialog ? ["uesrpg-inventory-dialog"] : [],
+    content: inventoryDialog ? `<div class="uesrpg-inventory-dialog-body">
+      <label class="uesrpg-inventory-dialog-field">
+        <span>Enter a name for this loadout:</span>
+        <input type="text" name="uesrpgLoadoutName">
+      </label>
+    </div>` : `<p>Enter a name for this loadout:</p><input type="text" name="uesrpgLoadoutName" style="width:100%" />`,
     okLabel: "Save",
     callback: (html) => {
       const el = html instanceof HTMLElement ? html : html?.[0];
@@ -102,6 +110,7 @@ export async function onLoadoutDelete(sheet, event) {
 
   const confirmed = await confirmDialog({
     title: "Delete Loadout",
+    classes: isHumanoidActorType(sheet.actor?.type) ? ["uesrpg-inventory-dialog"] : [],
     content: "<p>Delete the selected loadout?</p>"
   });
   if (!confirmed) return;

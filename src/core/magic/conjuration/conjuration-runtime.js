@@ -24,18 +24,18 @@
  *   - All created entities are registered with the Origin AE for synchronized
  *     teardown when the spell ends
  *
- * Target: Foundry VTT v13.351
+ * Target: Foundry VTT v14.368+
  */
 
 import { registerLinkedEntity } from "../effects/origin-effect.js";
-import { requestUpdateDocument, requestCreateEmbeddedDocuments } from "../../../utils/authority-proxy.js";
+import { requestUpdateDocument, requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { spawnSummon } from "./summon-service.js";
-import { getUserSpellTargets } from "../spell-runtime.js";
+import { resolveUuidSync } from "../../../utils/uuid-cache.js";
 import { _num, _str, createDebugLogger } from "../_primitives.js";
 import { customDialog } from "../../../utils/dialog-v2-helper.js";
 import { pickCanvasLocation as sharedPickCanvasLocation } from "../../../utils/canvas-location-picker.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
-import { resolveSpellStrengthFormulaForActor } from "../magicka-utils.js";
+import { resolveMagicCastContext } from "../opposed/cast-context.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
@@ -69,15 +69,18 @@ async function _resolveItemTemplate(itemUuid) {
  * @param {Actor} casterActor
  * @returns {Actor[]}
  */
-function _resolveConjureTargets(casterActor) {
-  const targets = getUserSpellTargets();
-  if (targets.length) {
-    const actors = targets
-      .map(t => t.actor ?? t.document?.actor)
-      .filter(a => a != null);
-    if (actors.length) return actors;
-  }
-  return [casterActor];
+export function resolveConjureTargets(casterActor, originAE) {
+  const uuids = originAE?.flags?.[_FLAG_NS]?.targetUuids ?? [];
+  const targets = uuids.map(uuid => resolveUuidSync(uuid)).map(doc => doc?.documentName === "Actor" ? doc : doc?.actor).filter(Boolean);
+  return targets.length ? [...new Map(targets.map(actor => [actor.uuid, actor])).values()] : [casterActor];
+}
+
+export async function prepareConjurationOptions(casterActor, spell, originAE) {
+  const config = spell.system?.engine?.conjure;
+  if (config?.mode !== "item") return {};
+  const conjurationItemUuid = await _resolveConjureItemWithScaling(spell, config, casterActor, originAE);
+  if (!conjurationItemUuid) throw Object.assign(new Error("Conjure Item selection is missing or cancelled."), { committed: false });
+  return { conjurationItemUuid };
 }
 
 /**
@@ -88,14 +91,14 @@ function _resolveConjureTargets(casterActor) {
  * @param {object} conjureConfig - engine.conjure config
  * @returns {Promise<string|null>} The selected item UUID
  */
-async function _resolveConjureItemWithScaling(spell, conjureConfig, casterActor = null) {
+async function _resolveConjureItemWithScaling(spell, conjureConfig, casterActor = null, originAE = null) {
   const summonConfig = spell.system?.engine?.conjure?.summonItems;
   if (!summonConfig || typeof summonConfig !== "object") {
     return _str(conjureConfig.itemUuid) || null;
   }
 
-  const ssRaw = _str(resolveSpellStrengthFormulaForActor(spell, null, casterActor ?? spell?.actor ?? null) || "1");
-  const ss = Math.max(1, _num(Number(ssRaw), 1));
+  const context = await resolveMagicCastContext({ castContext: originAE?.flags?.[_FLAG_NS]?.castContext }, spell, { actor: casterActor });
+  const ss = Math.max(1, _num(context.spellStrengthValue, 1));
 
   // Collect all refs whose minStrength <= current SS
   const eligible = [];
@@ -185,12 +188,18 @@ async function _createConjuredItemOnActor(targetActor, casterActor, originAE, sp
     _debug("Conjured item created:", created.name, { id: created.id, actor: targetActor.name });
 
     // Register with Origin AE for synchronized teardown
-    await registerLinkedEntity(originAE, {
+    const linked = await registerLinkedEntity(originAE, {
       type: "boundItem",
       uuid: created.uuid ?? `${targetActor.uuid}.Item.${created.id}`,
       actorUuid: targetActor.uuid,
       label: `${created.name} on ${targetActor.name}`
     });
+    if (!linked) {
+      const removed = await requestDeleteEmbeddedDocuments(targetActor, "Item", [created.id]);
+      const error = new Error(`Conjured Item linking failed.${removed ? " The new Item was removed." : " Item cleanup also failed."}`);
+      error.committed = !removed;
+      throw error;
+    }
   }
 
   return created;
@@ -206,11 +215,12 @@ async function _createConjuredItemOnActor(targetActor, casterActor, originAE, sp
  * @param {object} conjureConfig - The engine.conjure config block
  * @returns {Promise<void>}
  */
-async function _handleConjureItem(casterActor, originAE, spell, conjureConfig) {
+async function _handleConjureItem(casterActor, originAE, spell, conjureConfig, { strict = false, targets = null, itemUuid: preparedItemUuid = null } = {}) {
   // Resolve item UUID (with optional scaling)
-  const itemUuid = await _resolveConjureItemWithScaling(spell, conjureConfig, casterActor);
+  const itemUuid = preparedItemUuid ?? await _resolveConjureItemWithScaling(spell, conjureConfig, casterActor, originAE);
 
   if (!itemUuid) {
+    if (strict) throw new Error("Conjure Item selection is missing or cancelled.");
     _debug("Conjure Item: no itemUuid configured or cancelled — skipping");
     try {
       await ChatMessage.create({
@@ -226,7 +236,7 @@ async function _handleConjureItem(casterActor, originAE, spell, conjureConfig) {
   }
 
   // Resolve target actors
-  const targetActors = _resolveConjureTargets(casterActor);
+  const targetActors = targets ?? resolveConjureTargets(casterActor, originAE);
   const itemLabel = _str(conjureConfig.itemLabel) || "Conjured Item";
 
   _debug("Conjure Item:", { itemUuid, itemLabel, caster: casterActor.name, targets: targetActors.map(a => a.name) });
@@ -234,6 +244,7 @@ async function _handleConjureItem(casterActor, originAE, spell, conjureConfig) {
   // Resolve the template item
   const templateItem = await _resolveItemTemplate(itemUuid);
   if (!templateItem) {
+    if (strict) throw new Error("The configured conjuration Item template is unavailable.");
     try {
       await ChatMessage.create({
         content: `<div class="uesrpg"><h3>Conjure Item — Template Not Found</h3>
@@ -256,7 +267,9 @@ async function _handleConjureItem(casterActor, originAE, spell, conjureConfig) {
         targetActor, casterActor, originAE, spell, templateItem, itemUuid
       );
       if (created) createdItems.push({ item: created, actor: targetActor });
+      else if (strict) throw new Error("Conjured Item creation was not confirmed.");
     } catch (err) {
+      if (strict) throw err;
       console.error("[UESRPG][ConjureRuntime] Failed to create conjured item on", targetActor.name, err);
     }
   }
@@ -267,14 +280,18 @@ async function _handleConjureItem(casterActor, originAE, spell, conjureConfig) {
       .map(({ item, actor }) => `<strong>${item.name}</strong> on <strong>${actor.name}</strong>`)
       .join(", ");
     try {
-      await ChatMessage.create({
+      const createdMessage = await ChatMessage.create({
         content: `<div class="uesrpg"><h3>Item Conjured</h3>
           <p><strong>${casterActor.name}</strong> conjures ${recipientList} via <strong>${spell.name}</strong>.</p>
           <p><em>The item is bound to the spell and will vanish when the spell ends.</em></p></div>`,
         speaker: ChatMessage.getSpeaker({ actor: casterActor }),
         style: CONST.CHAT_MESSAGE_STYLES.OTHER
       });
-    } catch (_e) { /* non-blocking */ }
+      if (!createdMessage) throw new Error("Conjured Item summary creation was not confirmed.");
+    } catch (error) {
+      if (strict) { error.committed = true; throw error; }
+      console.warn("UESRPG | Conjured Item summary failed", error);
+    }
   } else {
     console.warn("[UESRPG][ConjureRuntime] No items were created");
   }
@@ -306,15 +323,15 @@ async function _resolveSummonActor(actorUuid) {
  * @param {Actor} actor
  * @returns {Token|TokenDocument|null}
  */
-function _findCasterToken(actor) {
+function _findCasterToken(actor, originAE) {
   if (!actor || !canvas?.scene) return null;
-  // Check user's controlled tokens first
-  const controlled = canvas.tokens?.controlled ?? [];
-  const fromControlled = controlled.find(t => t.actor?.id === actor.id);
-  if (fromControlled) return fromControlled;
-  // Fall back to first token of the actor on the scene
-  const sceneTokens = canvas.scene.tokens?.filter(td => td.actorId === actor.id) ?? [];
-  return sceneTokens[0] ?? null;
+  const uuid = originAE?.flags?.[_FLAG_NS]?.casterTokenUuid ?? originAE?.flags?.[_FLAG_NS]?.expirationAnchor?.casterTokenUuid;
+  if (uuid) {
+    const token = resolveUuidSync(uuid);
+    return token?.parent?.uuid === canvas.scene.uuid && token.actor?.uuid === actor.uuid ? token : null;
+  }
+  const controlled = (canvas.tokens?.controlled ?? []).find(token => token.actor?.uuid === actor.uuid);
+  return controlled ?? Array.from(canvas.scene.tokens ?? []).find(token => token.actor?.uuid === actor.uuid) ?? null;
 }
 
 /**
@@ -330,8 +347,7 @@ function _buildSummonerOwnership(casterActor) {
   // Find all users who own the summoner actor and grant them owner on the summon
   for (const user of game.users ?? []) {
     if (user.isGM) continue; // GMs already have access
-    const actorPerm = casterActor.getUserLevel(user);
-    if (actorPerm >= CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER) {
+    if (casterActor.testUserPermission(user, CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER)) {
       ownership[user.id] = CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER;
     }
   }
@@ -347,7 +363,7 @@ function _buildSummonerOwnership(casterActor) {
  * @param {Actor} casterActor - The summoner
  * @returns {Promise<void>}
  */
-async function _applySummonerOwnership(tokenDoc, casterActor) {
+async function _applySummonerOwnership(tokenDoc, casterActor, { strict = false } = {}) {
   const ownershipUpdates = _buildSummonerOwnership(casterActor);
   if (!Object.keys(ownershipUpdates).length) {
     _debug("No player ownership to apply (caster may be GM-only)");
@@ -356,7 +372,7 @@ async function _applySummonerOwnership(tokenDoc, casterActor) {
 
   try {
     // Update the unlinked token's actor delta ownership
-    await requestUpdateDocument(tokenDoc, { "delta.ownership": ownershipUpdates });
+    if (!await requestUpdateDocument(tokenDoc, { "delta.ownership": ownershipUpdates })) throw new Error("Summon ownership update was not confirmed.");
     _debug("Applied summoner ownership to token:", {
       token: tokenDoc.name,
       ownership: ownershipUpdates
@@ -366,13 +382,15 @@ async function _applySummonerOwnership(tokenDoc, casterActor) {
     // Fallback: try updating the token's actor directly
     try {
       const tokenActor = tokenDoc.actor;
+      if (!tokenActor && strict) throw new Error("The summoned Actor is unavailable for ownership update.");
       if (tokenActor) {
         const currentOwnership = foundry.utils.deepClone(tokenActor.ownership ?? {});
         Object.assign(currentOwnership, ownershipUpdates);
-        await requestUpdateDocument(tokenActor, { ownership: currentOwnership });
+        if (!await requestUpdateDocument(tokenActor, { ownership: currentOwnership })) throw new Error("Summon Actor ownership was not confirmed.");
         _debug("Applied ownership via token actor fallback");
       }
     } catch (fallbackErr) {
+      if (strict) throw fallbackErr;
       console.error("[UESRPG][ConjureRuntime] Ownership fallback also failed", fallbackErr);
     }
   }
@@ -388,11 +406,12 @@ async function _applySummonerOwnership(tokenDoc, casterActor) {
  * @param {object} conjureConfig
  * @returns {Promise<void>}
  */
-async function _handleSummonCreature(casterActor, originAE, spell, conjureConfig) {
+async function _handleSummonCreature(casterActor, originAE, spell, conjureConfig, { strict = false } = {}) {
   const actorUuid = _str(conjureConfig.actorUuid);
   const actorLabel = _str(conjureConfig.actorLabel) || "Summoned Creature";
 
   if (!actorUuid) {
+    if (strict) throw new Error("No summoned creature is configured.");
     _debug("Summon Creature: no actorUuid configured — skipping");
     try {
       await ChatMessage.create({
@@ -410,6 +429,7 @@ async function _handleSummonCreature(casterActor, originAE, spell, conjureConfig
   // Resolve the summon actor
   const summonActor = await _resolveSummonActor(actorUuid);
   if (!summonActor) {
+    if (strict) throw new Error("The configured summoned creature is unavailable.");
     try {
       await ChatMessage.create({
         content: `<div class="uesrpg"><h3>Summon — Creature Not Found</h3>
@@ -435,7 +455,9 @@ async function _handleSummonCreature(casterActor, originAE, spell, conjureConfig
   const th = _num(protoToken.height, 1);
 
   // Find caster token for positioning reference
-  const casterToken = _findCasterToken(casterActor);
+  const casterToken = _findCasterToken(casterActor, originAE);
+  const casterTokenUuid = originAE?.flags?.[_FLAG_NS]?.casterTokenUuid ?? originAE?.flags?.[_FLAG_NS]?.expirationAnchor?.casterTokenUuid;
+  if (strict && casterTokenUuid && !casterToken) throw new Error("The captured caster token is unavailable on the active scene. The summon was not placed on another token's scene.");
 
   // ── Location Picker ─────────────────────────────────────────────────
   // Only the GM needs to pick location (GM executes the spawn).
@@ -484,10 +506,13 @@ async function _handleSummonCreature(casterActor, originAE, spell, conjureConfig
     originAE,
     summonActor,
     tokenOverrides,
-    casterToken
+    casterToken, strict
   });
 
+  if (result.token) await _applySummonerOwnership(result.token, casterActor, { strict });
+
   if (result.error) {
+    if (strict) { const error = new Error(result.error); error.committed = Boolean(result.token); throw error; }
     console.warn("[UESRPG][ConjureRuntime] Summon spawn error:", result.error);
     try {
       await ChatMessage.create({
@@ -504,16 +529,8 @@ async function _handleSummonCreature(casterActor, originAE, spell, conjureConfig
 
   _debug("Summon successful:", result.token?.uuid);
 
-  // ── Post-Spawn Ownership ──────────────────────────────────────────────
-  // Grant the caster's player(s) Owner permission on the summoned token's
-  // unlinked actor so they can control it.
-  const tokenDoc = result.token;
-  if (tokenDoc) {
-    await _applySummonerOwnership(tokenDoc, casterActor);
-  }
-
   // Note: The uesrpg.spell.summonSpawned hook is already emitted by spawnSummon(),
-  // which triggers summon-binding.js for Mindlock, Restrained penalty, and binding prompt.
+  // after awaiting Mindlock, Restrained penalties, and the binding prompt.
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -527,12 +544,15 @@ async function _handleSummonCreature(casterActor, originAE, spell, conjureConfig
  * @param {object} payload - { casterActor, spell, originEffect, options }
  * @returns {Promise<void>}
  */
-async function _onOriginCreated(payload) {
+export async function applyConjurationCreation(payload, { strict = false } = {}) {
   const { casterActor, spell, originEffect } = payload;
   if (!casterActor || !spell || !originEffect) return;
 
   // Only GM processes conjuration runtime (token/item creation requires authority)
-  if (!game.user.isGM) return;
+  if (!game.user.isGM) {
+    if (strict) throw new Error("GM authority is required for conjuration creation.");
+    return;
+  }
 
   // Read the engine.conjure config from the spell
   const conjureConfig = spell.system?.engine?.conjure;
@@ -548,11 +568,13 @@ async function _onOriginCreated(payload) {
 
   switch (mode) {
     case "item":
-      await _handleConjureItem(casterActor, originEffect, spell, conjureConfig);
+      await _handleConjureItem(casterActor, originEffect, spell, conjureConfig, {
+        strict, targets: payload.targetActors, itemUuid: payload.options?.conjurationItemUuid,
+      });
       break;
 
     case "creature":
-      await _handleSummonCreature(casterActor, originEffect, spell, conjureConfig);
+      await _handleSummonCreature(casterActor, originEffect, spell, conjureConfig, { strict });
       break;
 
     case "sunder":
@@ -745,6 +767,9 @@ export function initializeConjurationRuntime() {
   if (_initialized) return;
   _initialized = true;
 
-  Hooks.on("uesrpg.spell.originCreated", _onOriginCreated);
+  Hooks.on("uesrpg.spell.originCreated", payload => {
+    if (payload?.handledDomains?.includes("conjuration")) return;
+    void applyConjurationCreation(payload).catch(error => console.error("UESRPG | Conjuration failed", error));
+  });
   _debug("Conjuration runtime hook registered");
 }

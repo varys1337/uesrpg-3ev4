@@ -1,3 +1,4 @@
+import { emitSuppressedSubRollDice } from "../../../utils/dice-visualization.js";
 /**
  * @module magic/effects/spell-effects
  *
@@ -21,8 +22,12 @@ import { buildEffectChange, getEffectChanges } from "../../../utils/compat.js";
 import { buildGenericAEData } from "../../active-effects/modifier-evaluator.js";
 import { buildSpellEffectMetadataFlags } from "./spell-effect-metadata.js";
 import { buildSpellActiveEffectDuration, isFiniteDuration, SPELL_EFFECT_DURATION_FLAG_KEY } from "./spell-effect-duration.js";
-import { resolveNumericSpellStrength } from "../opposed/cast-context.js";
+import { resolveNumericSpellStrength, resolveMagicCastContext } from "../opposed/cast-context.js";
 import { getSpellCost, getSpellScalingEntry } from "../magicka-utils.js";
+import { createChatOutcome } from "../../config/outcome-application-policy.js";
+import { persistChatOutcomes } from "../../../application/combat/chat-outcome-application-service.js";
+import { escapeHtml } from "../../../utils/html.js";
+import { captureItemOutcomeContext } from "../../../utils/item-outcome-snapshot.js";
 
 const _anchorDebug = createDebugLogger("aeLifecycleDebug", "[UESRPG][SpellEffects]");
 
@@ -140,12 +145,49 @@ function _normalizeSpellEffectApplicationOptions(payload = {}) {
     itemCastContext: payload.itemCastContext ?? null,
     magickaSpend: payload.magickaSpend ?? null,
     casterTokenUuid: payload.casterTokenUuid ?? null,
+    bufferValue: payload.bufferValue,
   };
 }
 
-export async function applyResolvedSpellEffects({ casterActor, targetActor, spell, payload = {} } = {}) {
+async function resolveSpellBufferValue(casterActor, spell, options) {
+  const formula = String(spell.system?.buffer?.formula || "SS").trim();
+  const resolvedFormula = formula.replace(/\bSS\b/gi, String(_getSpellStrength(spell, options) || 0));
+  const roll = await new Roll(resolvedFormula).evaluate();
+  void emitSuppressedSubRollDice(roll, { actor: casterActor, message: options.message, parentMessageId: options.parentMessageId });
+  return Math.max(0, Math.floor(Number(roll.total) || 0));
+}
+
+/** Freeze rolls before the outcome is saved; application never rerolls them. */
+export async function prepareResolvedSpellEffectPayload({ casterActor, spell, payload = {} }) {
+  const prepared = { ...payload, castContext: await resolveMagicCastContext({
+    castContext: payload.castContext, spellOptions: payload.spellOptions, scalingChoices: payload.scalingChoices,
+  }, spell, { actor: casterActor, message: payload.message, parentMessageId: payload.parentMessageId }) };
+  if (spell.system?.hasBuffer && spell.system?.buffer?.type && spell.system.buffer.type !== "none"
+    && !Number.isFinite(prepared.bufferValue)) {
+    prepared.bufferValue = await resolveSpellBufferValue(casterActor, spell, prepared);
+  }
+  return prepared;
+}
+
+export async function executeChatOutcome(outcome, context) {
+  const { executeInlineChatOutcome } = await import("../../combat/chat-handlers/combat-chat-apply.js");
+  return executeInlineChatOutcome({ ...outcome, magic: true, damage: { _magicPayload: outcome.payload } }, context);
+}
+
+export async function applyResolvedSpellEffects({ casterActor, targetActor, spell, payload = {}, strict = false, deferOwnedStages = false, chatOutcomeExecution = false } = {}) {
   if (!casterActor || !targetActor || !spell) return;
-  await applySpellEffectsToTarget(casterActor, targetActor, spell, _normalizeSpellEffectApplicationOptions(payload));
+  if (!chatOutcomeExecution) {
+    const prepared = await prepareResolvedSpellEffectPayload({ casterActor, spell, payload });
+    const { message, ...stored } = prepared;
+    const entry = createChatOutcome({ adapter: "magic.spell", kind: "effect", sourceActorUuid: casterActor.uuid,
+      targetUuid: targetActor.uuid, label: spell.name, payload: { ...stored, spellSnapshot: spell.toObject(),
+        spellSnapshotContext: captureItemOutcomeContext(spell),
+        spellUuid: spell.uuid, casterUuid: casterActor.uuid, needsEffects: true, isDamaging: false, isHealing: false } });
+    await persistChatOutcomes({ actor: casterActor, message, entries: [entry],
+      content: `<div class="uesrpg"><b>${escapeHtml(spell.name)}</b><p>${escapeHtml(targetActor.name)}</p></div>` });
+    return { pending: true, effects: [], castContext: prepared.castContext };
+  }
+  return applySpellEffectsToTarget(casterActor, targetActor, spell, { ..._normalizeSpellEffectApplicationOptions(payload), message: payload.message, parentMessageId: payload.parentMessageId, strict, deferOwnedStages });
 }
 
 /**
@@ -157,336 +199,357 @@ export async function applyResolvedSpellEffects({ casterActor, targetActor, spel
  * @returns {Promise<void>}
  */
 export async function applySpellEffectsToTarget(casterActor, targetActor, spell, options = {}) {
-  const spellUuid = spell.uuid;
-  const hasUpkeep = Boolean(spell.system?.hasUpkeep);
-  const forcedDuration = (_isSpellAbsorptionSpell(spell) || _isReflectSpell(spell))
-    ? { value: 1, unit: "rounds" }
-    : null;
-  const baseDurationInfo = buildSpellActiveEffectDuration({
-    actor: targetActor,
-    casterActor,
-    spell,
-    spellOptions: options.spellOptions ?? null,
-    scalingChoices: options.scalingChoices ?? null,
-    castContext: options.castContext ?? null,
-    hasUpkeep,
-    forcedDuration
-  });
-  const noListedDuration = Boolean(baseDurationInfo.noListedDuration);
-  const duration = baseDurationInfo.canonicalDuration;
-  const nowTime = Number(baseDurationInfo.spellEffectDuration?.createdAtWorldTime ?? game?.time?.worldTime ?? 0);
-  const originalCastWorldTime = Number(options.originalCastWorldTime ?? options.originalCastTime ?? nowTime);
-  const expirationAnchor = buildSpellExpirationAnchor({
-    casterActor,
-    casterTokenUuid: options.casterTokenUuid ?? null,
-    combat: game?.combat ?? null
-  });
-  _anchorDebug("Created spell expiration anchor", {
-    spell: spell?.name ?? null,
-    caster: casterActor?.name ?? null,
-    target: targetActor?.name ?? null,
-    round: game?.combat?.round ?? null,
-    turn: game?.combat?.turn ?? null,
-    anchor: expirationAnchor
-  });
-
-  const baseMetadataOptions = {
-    spell,
-    casterActor,
-    actualCost: options.actualCost,
-    originalCastWorldTime,
-    spellOptions: options.spellOptions ?? null,
-    scalingChoices: options.scalingChoices ?? null,
-    castContext: options.castContext ?? null,
-    castSource: options.castSource ?? null,
-    itemCastContext: options.itemCastContext ?? null,
-    magickaSpend: options.magickaSpend ?? null,
-    casterTokenUuid: options.casterTokenUuid ?? null
-  };
-
-  
-  // Remove existing effects from same spell (no stacking per RAW).
-  // Skip Origin AEs — they are lifecycle trackers on the caster and are managed
-  // separately via origin-effect.js teardown.  Deleting them here would cascade
-  // and destroy linked entities (conjured items, summons, target AEs).
-  const existing = targetActor.effects.filter(e => {
-    if (e.origin !== spellUuid) return false;
-    if (getFlagValueWithFallback(e, "isOriginAE")) return false;
-    return true;
-  });
-  if (existing.length) {
-    const ids = existing.map(e => e.id);
-    if (!await requestDeleteEmbeddedDocuments(targetActor, "ActiveEffect", ids, {
-      deleteOptions: { uesrpgExpirationSweep: true }
-    })) throw new Error("Existing spell effects could not be replaced.");
-  }
-  
-  // Remove opposing effects (Frenzy vs Calm, etc.)
-  await removeOpposingSpellEffects(targetActor, spell);
-  
-  // Clone spell's Active Effects to target.
-  // If the spell has Upkeep but no embedded AEs, we still create a lightweight "tracker" AE so that
-  // duration/upkeep prompts have a concrete effect to operate on.
-  const spellEffects = Array.from(spell.effects ?? []);
-  const toCreate = [];
-  
-  for (const ef of spellEffects) {
-    if (ef.disabled) continue;
-    
-    const effectKey = ef.name || ef.id || String(toCreate.length);
-    const effectGroup = `spell.effect.${spell.id || spellUuid}.${effectKey}`;
-    
-    // Validate changes against the modifier registry (dev-mode warnings)
-    const clonedChanges = foundry.utils.deepClone(getEffectChanges(ef));
-    if (toCreate.length === 0) {
-      clonedChanges.push(..._buildOverTimeChanges(spell));
-    }
-    if (isDebugEnabled("spellCastingDebug")) {
-      validateAEChanges(clonedChanges, { context: `spell "${spell.name}" effect "${ef.name}"` });
-    }
-
-      const effectDurationInfo = buildSpellActiveEffectDuration({
-        actor: targetActor,
-        casterActor,
-        spell,
-        sourceEffect: ef,
-        spellOptions: options.spellOptions ?? null,
-        scalingChoices: options.scalingChoices ?? null,
-        castContext: options.castContext ?? null,
-        hasUpkeep,
-        forcedDuration
-      });
-      const canonicalEffectDuration = effectDurationInfo.canonicalDuration;
-      const effectDuration = effectDurationInfo.liveDuration;
-      const resolvedCost = Number(options.actualCost ?? getSpellCost(spell, options?.castContext?.castLevel ?? options?.spellOptions?.castLevel ?? options?.scalingChoices?.level ?? null) ?? spell.system?.cost ?? 0) || 0;
-      const spellEffectFlags = buildSpellEffectMetadataFlags({
-        ...baseMetadataOptions,
-        actualCost: resolvedCost,
-        durationData: canonicalEffectDuration,
-        targetUuids: [targetActor.uuid]
-      });
-
-      const effectData = buildGenericAEData({
-        source: "spell",
-        stack: {
-          policy: "replace",
-          group: effectGroup,
-          max: null,
-          strengthKey: null,
-        },
-        name: ef.name || spell.name,
-        img: ef.img || spell.img,
-        origin: spellUuid,
-        disabled: false,
-        duration: effectDuration,
-        flags: {
-          [FLAG_SCOPE]: {
-            ...spellEffectFlags,
-            spellEffect: true,
-            [SPELL_EFFECT_DURATION_FLAG_KEY]: effectDurationInfo.spellEffectDuration,
-            expirationAnchor,
-            noListedDuration,
-            hasUpkeep: Boolean(spell.system?.hasUpkeep),
-            upkeepCost: resolvedCost,
-            owner: "system",
-            source: "spell"
-          }
-        },
-        changes: clonedChanges
-      });
-
-    toCreate.push(effectData);
-  }
-
-  // Duration tracker: create one tracking effect if none were provided by the item.
-// - For Upkeep spells with no embedded effects, this tracker is the Upkeep handle.
-// - For non-Upkeep spells that still have a duration but no embedded effects, this tracker exists solely to enforce expiry.
-  if (!toCreate.length) {
+  options = { ...options, castContext: await resolveMagicCastContext({
+    castContext: options.castContext, spellOptions: options.spellOptions, scalingChoices: options.scalingChoices,
+  }, spell, { actor: casterActor, message: options.message, parentMessageId: options.parentMessageId }) };
+  let committed = false;
+  try {
+    const spellUuid = spell.uuid;
     const hasUpkeep = Boolean(spell.system?.hasUpkeep);
-    const overTimeChanges = _buildOverTimeChanges(spell);
-    const hasOverTime = overTimeChanges.length > 0;
-    const hasFiniteDuration =
-      isFiniteDuration(duration);
+    const forcedDuration = (_isSpellAbsorptionSpell(spell) || _isReflectSpell(spell))
+      ? { value: 1, unit: "rounds" }
+      : null;
+    const baseDurationInfo = buildSpellActiveEffectDuration({
+      actor: targetActor,
+      casterActor,
+      spell,
+      spellOptions: options.spellOptions ?? null,
+      scalingChoices: options.scalingChoices ?? null,
+      castContext: options.castContext ?? null,
+      hasUpkeep,
+      forcedDuration
+    });
+    const noListedDuration = Boolean(baseDurationInfo.noListedDuration);
+    const duration = baseDurationInfo.canonicalDuration;
+    const nowTime = Number(baseDurationInfo.spellEffectDuration?.createdAtWorldTime ?? game?.time?.worldTime ?? 0);
+    const originalCastWorldTime = Number(options.originalCastWorldTime ?? options.originalCastTime ?? nowTime);
+    const expirationAnchor = buildSpellExpirationAnchor({
+      casterActor,
+      casterTokenUuid: options.casterTokenUuid ?? null,
+      combat: game?.combat ?? null
+    });
+    _anchorDebug("Created spell expiration anchor", {
+      spell: spell?.name ?? null,
+      caster: casterActor?.name ?? null,
+      target: targetActor?.name ?? null,
+      round: game?.combat?.round ?? null,
+      turn: game?.combat?.turn ?? null,
+      anchor: expirationAnchor
+    });
 
-    if (hasUpkeep || hasFiniteDuration || hasOverTime) {
-      const effectGroup = hasUpkeep
-        ? `spell.effect.${spell.id || spellUuid}.upkeep`
-        : `spell.effect.${spell.id || spellUuid}.duration`;
+    const baseMetadataOptions = {
+      spell,
+      casterActor,
+      actualCost: options.actualCost,
+      originalCastWorldTime,
+      spellOptions: options.spellOptions ?? null,
+      scalingChoices: options.scalingChoices ?? null,
+      castContext: options.castContext ?? null,
+      castSource: options.castSource ?? null,
+      itemCastContext: options.itemCastContext ?? null,
+      magickaSpend: options.magickaSpend ?? null,
+      casterTokenUuid: options.casterTokenUuid ?? null
+    };
 
-      const trackerDurationInfo = buildSpellActiveEffectDuration({
-        actor: targetActor,
-        casterActor,
-        spell,
-        spellOptions: options.spellOptions ?? null,
-        scalingChoices: options.scalingChoices ?? null,
-        castContext: options.castContext ?? null,
-        hasUpkeep,
-        forcedDuration
-      });
-      const canonicalTrackerDuration = trackerDurationInfo.canonicalDuration;
-      const trackerDuration = trackerDurationInfo.liveDuration;
-      const trackerFlags = {
-        ...buildSpellEffectMetadataFlags({
+  
+    // Remove existing effects from same spell (no stacking per RAW).
+    // Skip Origin AEs — they are lifecycle trackers on the caster and are managed
+    // separately via origin-effect.js teardown.  Deleting them here would cascade
+    // and destroy linked entities (conjured items, summons, target AEs).
+    const existing = targetActor.effects.filter(e => {
+      if (e.origin !== spellUuid) return false;
+      if (getFlagValueWithFallback(e, "isOriginAE")) return false;
+      return true;
+    });
+    if (existing.length) {
+      const ids = existing.map(e => e.id);
+      if (!await requestDeleteEmbeddedDocuments(targetActor, "ActiveEffect", ids, {
+        deleteOptions: { uesrpgExpirationSweep: true }
+      })) throw new Error("Existing spell effects could not be replaced.");
+      committed = true;
+    }
+  
+    // Remove opposing effects (Frenzy vs Calm, etc.)
+    const removedOpposing = await removeOpposingSpellEffects(targetActor, spell);
+    committed ||= removedOpposing;
+  
+    // Clone spell's Active Effects to target.
+    // If the spell has Upkeep but no embedded AEs, we still create a lightweight "tracker" AE so that
+    // duration/upkeep prompts have a concrete effect to operate on.
+    const spellEffects = Array.from(spell.effects ?? []);
+    const toCreate = [];
+  
+    for (const ef of spellEffects) {
+      if (ef.disabled) continue;
+    
+      const effectKey = ef.name || ef.id || String(toCreate.length);
+      const effectGroup = `spell.effect.${spell.id || spellUuid}.${effectKey}`;
+    
+      // Validate changes against the modifier registry (dev-mode warnings)
+      const clonedChanges = foundry.utils.deepClone(getEffectChanges(ef));
+      if (toCreate.length === 0) {
+        clonedChanges.push(..._buildOverTimeChanges(spell));
+      }
+      if (isDebugEnabled("spellCastingDebug")) {
+        validateAEChanges(clonedChanges, { context: `spell "${spell.name}" effect "${ef.name}"` });
+      }
+
+        const effectDurationInfo = buildSpellActiveEffectDuration({
+          actor: targetActor,
+          casterActor,
+          spell,
+          sourceEffect: ef,
+          spellOptions: options.spellOptions ?? null,
+          scalingChoices: options.scalingChoices ?? null,
+          castContext: options.castContext ?? null,
+          hasUpkeep,
+          forcedDuration
+        });
+        const canonicalEffectDuration = effectDurationInfo.canonicalDuration;
+        const effectDuration = effectDurationInfo.liveDuration;
+        const resolvedCost = Number(options.actualCost ?? getSpellCost(spell, options?.castContext?.castLevel ?? options?.spellOptions?.castLevel ?? options?.scalingChoices?.level ?? null) ?? spell.system?.cost ?? 0) || 0;
+        const spellEffectFlags = buildSpellEffectMetadataFlags({
           ...baseMetadataOptions,
-          actualCost: Number(options.actualCost ?? getSpellCost(spell, options?.castContext?.castLevel ?? options?.spellOptions?.castLevel ?? options?.scalingChoices?.level ?? null) ?? spell.system?.cost ?? 0) || 0,
-          durationData: canonicalTrackerDuration,
+          actualCost: resolvedCost,
+          durationData: canonicalEffectDuration,
           targetUuids: [targetActor.uuid]
-        }),
-        spellEffect: true,
-        [SPELL_EFFECT_DURATION_FLAG_KEY]: trackerDurationInfo.spellEffectDuration,
-        expirationAnchor,
-        noListedDuration,
-        hasUpkeep,
-        upkeepCost: hasUpkeep ? (Number(options.actualCost ?? getSpellCost(spell, options?.castContext?.castLevel ?? options?.spellOptions?.castLevel ?? options?.scalingChoices?.level ?? null) ?? spell.system?.cost ?? 0) || 0) : 0,
-        owner: "system",
-        source: "spell"
-      };
+        });
 
-      // Build tracker AE changes array with OverTime entries (midi-qol / DAE style)
-      const trackerChanges = [...overTimeChanges];
+        const effectData = buildGenericAEData({
+          source: "spell",
+          stack: {
+            policy: "replace",
+            group: effectGroup,
+            max: null,
+            strengthKey: null,
+          },
+          name: ef.name || spell.name,
+          img: ef.img || spell.img,
+          origin: spellUuid,
+          disabled: false,
+          duration: effectDuration,
+          flags: {
+            [FLAG_SCOPE]: {
+              ...spellEffectFlags,
+              spellEffect: true,
+              [SPELL_EFFECT_DURATION_FLAG_KEY]: effectDurationInfo.spellEffectDuration,
+              expirationAnchor,
+              noListedDuration,
+              hasUpkeep: Boolean(spell.system?.hasUpkeep),
+              upkeepCost: resolvedCost,
+              owner: "system",
+              source: "spell"
+            }
+          },
+          changes: clonedChanges
+        });
 
-      // ── Spell Absorption / Reflect: ensure tracker AE grants the
-      //    mechanical effect even when the spell has no embedded AEs. ──
-      const ss = _getSpellStrength(spell, options);
+      toCreate.push(effectData);
+    }
 
-      if (_isSpellAbsorptionSpell(spell)) {
-        const absKey = "system.modifiers.magic.spellAbsorption";
-        if (!trackerChanges.some(c => c.key === absKey)) {
-          trackerChanges.push(buildEffectChange({
-            key: absKey,
-            type: "override",
-            value: String(ss),
-            priority: 20
-          }));
+    // Duration tracker: create one tracking effect if none were provided by the item.
+  // - For Upkeep spells with no embedded effects, this tracker is the Upkeep handle.
+  // - For non-Upkeep spells that still have a duration but no embedded effects, this tracker exists solely to enforce expiry.
+    if (!toCreate.length) {
+      const hasUpkeep = Boolean(spell.system?.hasUpkeep);
+      const overTimeChanges = _buildOverTimeChanges(spell);
+      const hasOverTime = overTimeChanges.length > 0;
+      const hasFiniteDuration =
+        isFiniteDuration(duration);
+
+      if (hasUpkeep || hasFiniteDuration || hasOverTime) {
+        const effectGroup = hasUpkeep
+          ? `spell.effect.${spell.id || spellUuid}.upkeep`
+          : `spell.effect.${spell.id || spellUuid}.duration`;
+
+        const trackerDurationInfo = buildSpellActiveEffectDuration({
+          actor: targetActor,
+          casterActor,
+          spell,
+          spellOptions: options.spellOptions ?? null,
+          scalingChoices: options.scalingChoices ?? null,
+          castContext: options.castContext ?? null,
+          hasUpkeep,
+          forcedDuration
+        });
+        const canonicalTrackerDuration = trackerDurationInfo.canonicalDuration;
+        const trackerDuration = trackerDurationInfo.liveDuration;
+        const trackerFlags = {
+          ...buildSpellEffectMetadataFlags({
+            ...baseMetadataOptions,
+            actualCost: Number(options.actualCost ?? getSpellCost(spell, options?.castContext?.castLevel ?? options?.spellOptions?.castLevel ?? options?.scalingChoices?.level ?? null) ?? spell.system?.cost ?? 0) || 0,
+            durationData: canonicalTrackerDuration,
+            targetUuids: [targetActor.uuid]
+          }),
+          spellEffect: true,
+          [SPELL_EFFECT_DURATION_FLAG_KEY]: trackerDurationInfo.spellEffectDuration,
+          expirationAnchor,
+          noListedDuration,
+          hasUpkeep,
+          upkeepCost: hasUpkeep ? (Number(options.actualCost ?? getSpellCost(spell, options?.castContext?.castLevel ?? options?.spellOptions?.castLevel ?? options?.scalingChoices?.level ?? null) ?? spell.system?.cost ?? 0) || 0) : 0,
+          owner: "system",
+          source: "spell"
+        };
+
+        // Build tracker AE changes array with OverTime entries (midi-qol / DAE style)
+        const trackerChanges = [...overTimeChanges];
+
+        // ── Spell Absorption / Reflect: ensure tracker AE grants the
+        //    mechanical effect even when the spell has no embedded AEs. ──
+        const ss = _getSpellStrength(spell, options);
+
+        if (_isSpellAbsorptionSpell(spell)) {
+          const absKey = "system.modifiers.magic.spellAbsorption";
+          if (!trackerChanges.some(c => c.key === absKey)) {
+            trackerChanges.push(buildEffectChange({
+              key: absKey,
+              type: "override",
+              value: String(ss),
+              priority: 20
+            }));
+          }
+          trackerFlags.spellDefense = { type: "absorption", ss };
+          // Legacy flag path consumed by _applySpellAbsorption
+          trackerFlags.spellAbsorption = ss;
         }
-        trackerFlags.spellDefense = { type: "absorption", ss };
-        // Legacy flag path consumed by _applySpellAbsorption
-        trackerFlags.spellAbsorption = ss;
-      }
 
-      if (_isReflectSpell(spell)) {
-        const refKey = "system.modifiers.magic.spellReflect";
-        if (!trackerChanges.some(c => c.key === refKey)) {
-          trackerChanges.push(buildEffectChange({
-            key: refKey,
-            type: "override",
-            value: String(ss),
-            priority: 20
-          }));
+        if (_isReflectSpell(spell)) {
+          const refKey = "system.modifiers.magic.spellReflect";
+          if (!trackerChanges.some(c => c.key === refKey)) {
+            trackerChanges.push(buildEffectChange({
+              key: refKey,
+              type: "override",
+              value: String(ss),
+              priority: 20
+            }));
+          }
+          trackerFlags.spellDefense = { type: "reflect", ss };
         }
-        trackerFlags.spellDefense = { type: "reflect", ss };
-      }
 
-      toCreate.push(buildGenericAEData({
-        source: "spell",
-        stack: {
-          policy: "refresh",
-          group: effectGroup,
-          max: null,
-          strengthKey: null,
-        },
-        name: spell.name,
-        img: spell.img,
-        origin: spellUuid,
-        disabled: false,
-        duration: trackerDuration,
-        flags: { [FLAG_SCOPE]: trackerFlags },
-        changes: trackerChanges
-      }));
-    }
-  }
-
-  // Initialize createdEffects to prevent undefined reference errors
-  let createdEffects = [];
-
-  if (toCreate.length) {
-    // Add back-link to Origin AE if one exists for this spell on the caster
-    const originAE = findOriginAE(casterActor, spellUuid);
-    if (originAE) {
-      for (const data of toCreate) {
-        data.flags = data.flags ?? {};
-        data.flags[FLAG_SCOPE] = data.flags[FLAG_SCOPE] ?? {};
-        data.flags[FLAG_SCOPE].originAEUuid = originAE.uuid;
-        data.flags[FLAG_SCOPE].originAEId = originAE.id;
+        toCreate.push(buildGenericAEData({
+          source: "spell",
+          stack: {
+            policy: "refresh",
+            group: effectGroup,
+            max: null,
+            strengthKey: null,
+          },
+          name: spell.name,
+          img: spell.img,
+          origin: spellUuid,
+          disabled: false,
+          duration: trackerDuration,
+          flags: { [FLAG_SCOPE]: trackerFlags },
+          changes: trackerChanges
+        }));
       }
     }
 
-    createdEffects = await requestCreateEmbeddedDocuments(targetActor, "ActiveEffect", toCreate);
-    if (createdEffects?.length !== toCreate.length) throw new Error("Spell effects were not fully created.");
+    // Initialize createdEffects to prevent undefined reference errors
+    let createdEffects = [];
+    let ownedCompletion = { operationCount: 0, committed: [], failed: [] };
 
-    // Register target AEs with the Origin AE for deterministic teardown
-    if (originAE && Array.isArray(createdEffects) && createdEffects.length) {
+    if (toCreate.length) {
+      // Add back-link to Origin AE if one exists for this spell on the caster
+      const originAE = findOriginAE(casterActor, spellUuid);
+      if (originAE) {
+        for (const data of toCreate) {
+          data.flags = data.flags ?? {};
+          data.flags[FLAG_SCOPE] = data.flags[FLAG_SCOPE] ?? {};
+          data.flags[FLAG_SCOPE].originAEUuid = originAE.uuid;
+          data.flags[FLAG_SCOPE].originAEId = originAE.id;
+        }
+      }
+
+      createdEffects = await requestCreateEmbeddedDocuments(targetActor, "ActiveEffect", toCreate);
+      committed ||= Boolean(createdEffects?.length);
+      if (createdEffects?.length !== toCreate.length) throw new Error("Spell effects were not fully created.");
+
+      // Register target AEs with the Origin AE for deterministic teardown
+      if (originAE && Array.isArray(createdEffects) && createdEffects.length) {
+        try {
+          await registerTargetAEs(originAE, createdEffects, targetActor, { strict: options.strict === true });
+        } catch (_e) {
+          if (options.strict) throw _e;
+          // best-effort — Origin AE linking is non-blocking
+        }
+      }
+
+      // Emit effectApplied hook
       try {
-        await registerTargetAEs(originAE, createdEffects, targetActor);
-      } catch (_e) {
-        // best-effort — Origin AE linking is non-blocking
-      }
+        ownedCompletion = await emitEffectApplied({
+          caster: casterActor,
+          target: targetActor,
+          spell,
+          effects: Array.isArray(createdEffects) ? createdEffects : [],
+          originEffect: originAE,
+          castContext: options.castContext,
+          message: options.message,
+          parentMessageId: options.parentMessageId,
+        }, { strict: options.strict === true, deferOwnedStages: options.deferOwnedStages === true });
+      } catch (_e) { if (options.strict) throw _e; }
     }
 
-    // Emit effectApplied hook
-    try {
-      emitEffectApplied({
-        caster: casterActor,
-        target: targetActor,
-        spell,
-        effects: Array.isArray(createdEffects) ? createdEffects : [],
-        originEffect: originAE
-      });
-    } catch (_e) { /* no-op */ }
-  }
+    // ── Buffer / Barrier application ──────────────────────────────────────
+    // If the spell has a buffer config, set the target's buffer pool to the computed value.
+    // "SS" in the formula is replaced with the resolved Spell Strength value.
+    if (spell.system?.hasBuffer && spell.system?.buffer?.type && spell.system.buffer.type !== "none") {
+      const bufferType = spell.system.buffer.type; // "physical", "magical", "elemental"
+      const bufferFormula = String(spell.system.buffer.formula || "SS").trim();
 
-  // ── Buffer / Barrier application ──────────────────────────────────────
-  // If the spell has a buffer config, set the target's buffer pool to the computed value.
-  // "SS" in the formula is replaced with the resolved Spell Strength value.
-  if (spell.system?.hasBuffer && spell.system?.buffer?.type && spell.system.buffer.type !== "none") {
-    const bufferType = spell.system.buffer.type; // "physical", "magical", "elemental"
-    const bufferFormula = String(spell.system.buffer.formula || "SS").trim();
+      if (bufferFormula && bufferType) {
+        try {
+          const bufferValue = Number.isFinite(options.bufferValue) ? Math.max(0, options.bufferValue)
+            : await resolveSpellBufferValue(casterActor, spell, options);
 
-    if (bufferFormula && bufferType) {
-      try {
-        const spellStrength = _getSpellStrength(spell, options);
-        const resolvedFormula = bufferFormula.replace(/\bSS\b/gi, String(spellStrength || 0));
-        const roll = new Roll(resolvedFormula);
-        await roll.evaluate();
-        const bufferValue = Math.max(0, Math.floor(roll.total));
+          if (bufferValue > 0) {
+            const bufferPath = `system.buffers.${bufferType}`;
+            const currentBuffer = Number(targetActor.system?.buffers?.[bufferType] ?? 0);
+            // Buffer does not stack — set to the higher of current or new value
+            const newValue = Math.max(currentBuffer, bufferValue);
+            if (!await requestUpdateDocument(targetActor, { [bufferPath]: newValue })) throw new Error("Spell buffer update failed.");
+            committed = true;
 
-        if (bufferValue > 0) {
-          const bufferPath = `system.buffers.${bufferType}`;
-          const currentBuffer = Number(targetActor.system?.buffers?.[bufferType] ?? 0);
-          // Buffer does not stack — set to the higher of current or new value
-          const newValue = Math.max(currentBuffer, bufferValue);
-          if (!await requestUpdateDocument(targetActor, { [bufferPath]: newValue })) throw new Error("Spell buffer update failed.");
-
-          // Store the original buffer value in a flag on the first created effect
-          // so that upkeep can restore it later.
-          if (Array.isArray(createdEffects) && createdEffects.length) {
-            const firstEffect = createdEffects[0];
-            if (firstEffect) {
-              try {
-                const live = targetActor.effects.get(firstEffect.id ?? firstEffect._id);
-                if (live) {
-                  await requestUpdateEmbeddedDocuments(targetActor, "ActiveEffect", [{
-                    _id: live.id,
-                    [`flags.${FLAG_SCOPE}.bufferApplied`]: true,
-                    [`flags.${FLAG_SCOPE}.bufferType`]: bufferType,
-                    [`flags.${FLAG_SCOPE}.bufferOriginalValue`]: bufferValue,
-                  }]);
+            // Store the original buffer value in a flag on the first created effect
+            // so that upkeep can restore it later.
+            if (Array.isArray(createdEffects) && createdEffects.length) {
+              const firstEffect = createdEffects[0];
+              if (firstEffect) {
+                try {
+                  const live = targetActor.effects.get(firstEffect.id ?? firstEffect._id);
+                  if (live) {
+                    const updated = await requestUpdateEmbeddedDocuments(targetActor, "ActiveEffect", [{
+                      _id: live.id,
+                      [`flags.${FLAG_SCOPE}.bufferApplied`]: true,
+                      [`flags.${FLAG_SCOPE}.bufferType`]: bufferType,
+                      [`flags.${FLAG_SCOPE}.bufferOriginalValue`]: bufferValue,
+                    }], { requireUpdated: options.strict === true });
+                    if (options.strict && !updated) throw new Error("Spell buffer effect flags were not confirmed.");
+                  } else if (options.strict) {
+                    throw new Error("The spell buffer effect is unavailable.");
+                  }
+                } catch (flagErr) {
+                  if (options.strict) throw flagErr;
+                  console.warn("UESRPG | spell-effects | Failed to store buffer flags on effect", flagErr);
                 }
-              } catch (flagErr) {
-                console.warn("UESRPG | spell-effects | Failed to store buffer flags on effect", flagErr);
               }
             }
-          }
 
-          if (isDebugEnabled("spellCastingDebug")) {
-            console.log(`UESRPG | spell-effects | Buffer applied: ${bufferType} = ${newValue} (from ${bufferFormula} → ${bufferValue}) on ${targetActor.name}`);
+            if (isDebugEnabled("spellCastingDebug")) {
+              console.log(`UESRPG | spell-effects | Buffer applied: ${bufferType} = ${newValue} (from ${bufferFormula} → ${bufferValue}) on ${targetActor.name}`);
+            }
           }
+        } catch (err) {
+          console.error("UESRPG | spell-effects | Failed to apply buffer", err);
+          throw err;
         }
-      } catch (err) {
-        console.error("UESRPG | spell-effects | Failed to apply buffer", err);
-        throw err;
       }
     }
+    return { effects: createdEffects ?? [], castContext: options.castContext, aftermathSummary: ownedCompletion,
+      execution: { status: ownedCompletion.failed.length ? "partial" : "completed", committed } };
+  } catch (error) {
+    error.committed ||= committed;
+    throw error;
   }
 }
 
@@ -523,5 +586,7 @@ async function removeOpposingSpellEffects(targetActor, spell) {
       deleteOptions: { uesrpgExpirationSweep: true }
     })) throw new Error("Opposing spell effects could not be removed.");
     ui.notifications.info(`${opposing} was overridden by ${spell.name}.`);
+    return true;
   }
+  return false;
 }

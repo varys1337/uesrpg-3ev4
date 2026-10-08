@@ -1,3 +1,4 @@
+import { TimeService } from "../../time/time-service.js";
 /**
  * @module magic/effects/spell-effect-expiration
  *
@@ -25,7 +26,7 @@ const _trackedSpellEffects = new Map();
 const _anchorDebug = createDebugLogger("aeLifecycleDebug", "[UESRPG][SpellExpiration]");
 
 function _actorId(actor) {
-  return String(actor?.id ?? "").trim();
+  return String(actor?.uuid ?? "").trim();
 }
 
 function _isSystemSpellEffect(effect) {
@@ -86,7 +87,7 @@ function _seedTrackedSpellEffects() {
 function _getTrackedActors() {
   const out = [];
   for (const actorId of Array.from(_trackedSpellEffects.keys())) {
-    const actor = game.actors?.get?.(actorId) ?? null;
+    const actor = resolveUuidSync(actorId) ?? MagicTimekeeping.relevantActorsArray().find(actor => actor.uuid === actorId) ?? null;
     if (!actor) {
       _trackedSpellEffects.delete(actorId);
       continue;
@@ -96,13 +97,13 @@ function _getTrackedActors() {
   return out;
 }
 
-function _contextForEvent(event, { combat = null, combatant = null, worldTime = null } = {}) {
+function _contextForEvent(event, { combat = null, combatant = null, worldTime = null, round = null, turn = null } = {}) {
   return {
     event,
     combat: combat ?? game?.combat ?? null,
     combatant: combatant ?? (combat ?? game?.combat)?.combatant ?? null,
-    round: _num((combat ?? game?.combat)?.round, 0),
-    turn: _num((combat ?? game?.combat)?.turn, 0),
+    round: _num(round ?? (combat ?? game?.combat)?.round, 0),
+    turn: _num(turn ?? (combat ?? game?.combat)?.turn, 0),
     worldTime: _num(worldTime, MagicTimekeeping.nowWorldTimeSeconds())
   };
 }
@@ -134,8 +135,7 @@ async function _updateEffect(effect, updates) {
   const live = safeGetEffect(parent, effect.id);
   if (!live) return false;
   try {
-    await requestUpdateDocument(live, updates);
-    return true;
+    return await requestUpdateDocument(live, updates);
   } catch (err) {
     console.warn("UESRPG | spell-effect-expiration | Failed to update effect before registry refresh", err);
     return false;
@@ -213,7 +213,7 @@ function _awaitingGraceExpired(effect, context = {}) {
   const mode = String(flags?.upkeepBoundaryMode ?? "").trim();
   if (mode === "combat") {
     const expiredRound = _num(flags?.expiredAtCombatRound, -1);
-    const currentRound = _num(context?.combat?.round ?? game?.combat?.round, 0);
+    const currentRound = _num(context?.round ?? context?.combat?.round ?? game?.combat?.round, 0);
     return expiredRound >= 0 && (currentRound - expiredRound) >= 1;
   }
 
@@ -299,7 +299,7 @@ async function _markGroupAwaitingUpkeep(originEffect, event, context) {
       [`flags.${_FLAG_NS}.upkeepBoundaryEndTurn`]: promptContext.mode === "combat" ? promptContext.endTurn : null,
       [`flags.${_FLAG_NS}.upkeepPromptSignature`]: promptSignature
     };
-    await _updateEffect(match.effect, updates);
+    if (!await _updateEffect(match.effect, updates)) throw new Error("Upkeep expiry state was not confirmed.");
   }
 
   const { ensureUpkeepPromptForGroup } = await import("../upkeep-workflow.js");
@@ -325,7 +325,7 @@ async function _processUpkeepPreExpiry(event, context) {
 
       const origin = flags?.isOriginAE ? effect : findOriginAEByGroupKey(flags.upkeepGroupKey);
       if (!origin?.id) {
-        await _deleteEffectDirect(effect, "orphan upkeep target expiry");
+        if (!await _deleteEffectDirect(effect, "orphan upkeep target expiry")) throw new Error("Orphan upkeep deletion was not confirmed.");
         continue;
       }
       await _markGroupAwaitingUpkeep(origin, event, context);
@@ -348,9 +348,9 @@ async function _processAwaitingUpkeepGrace(context) {
         const key = String(origin.uuid ?? origin.id);
         if (handledOrigins.has(key)) continue;
         handledOrigins.add(key);
-        await _deleteOriginCascade(origin);
+        if (!await _deleteOriginCascade(origin)) throw new Error("Upkeep origin cleanup did not settle.");
       } else {
-        await _deleteEffectDirect(effect, "unresolved upkeep grace expiry");
+        if (!await _deleteEffectDirect(effect, "unresolved upkeep grace expiry")) throw new Error("Upkeep grace cleanup was not confirmed.");
       }
     }
   }
@@ -366,6 +366,11 @@ async function _handleNativeBoundary(event, context) {
   await _processAwaitingUpkeepGrace(context);
   await _processUpkeepPreExpiry(event, context);
   await _refreshRegistry(event, context);
+  const { settlePendingOriginTeardowns } = await import("./origin-effect.js");
+  const { settlePendingBufferCleanup } = await import("../../../hooks/init/features/register-buffer-cleanup.js");
+  const cleanup = await Promise.allSettled([settlePendingOriginTeardowns(), settlePendingBufferCleanup()]);
+  const failures = cleanup.filter(result => result.status === "rejected").map(result => result.reason);
+  if (failures.length) throw new AggregateError(failures, "Native expiry cleanup only partially completed.");
   await cleanupExpiredSpellEffects({ actors: _getTrackedActors(), context, source: `registry:${event}` });
 }
 
@@ -382,12 +387,12 @@ function _registerTrackingHooks() {
     const actor = effect?.parent;
     if (actor?.documentName !== "Actor") return;
     if (_isSystemSpellEffect(effect)) _trackActorEffect(actor, effect);
-    else _untrackActorEffect(actor?.id, effect?.id);
+    else _untrackActorEffect(actor?.uuid, effect?.id);
   });
 
   Hooks.on("deleteActiveEffect", (effect) => {
     if (!isActiveGMUser(game.user)) return;
-    _untrackActorEffect(effect?.parent?.id, effect?.id);
+    _untrackActorEffect(effect?.parent?.uuid, effect?.id);
   });
 }
 
@@ -398,15 +403,27 @@ async function _handleCombatBoundaryExpiration(payload) {
   const combat = game.combat ?? payload?.combat ?? null;
   if (!combat?.id) return;
 
-  const context = _contextForEvent("turnEnd", {
-    combat,
-    worldTime: _num(payload?.worldTime, MagicTimekeeping.nowWorldTimeSeconds())
-  });
-  await _handleNativeBoundary("turnEnd", context);
-  await _handleNativeBoundary("turnStart", _contextForEvent("turnStart", context));
-  if (payload?.combat?.prior?.round !== undefined && _num(payload.combat.prior.round, 0) !== _num(combat.round, 0)) {
-    await _handleNativeBoundary("roundEnd", _contextForEvent("roundEnd", context));
-    await _handleNativeBoundary("roundStart", _contextForEvent("roundStart", context));
+  if (payload.combat?.id && payload.combat.id !== combat.id) return;
+  const prior = payload.combat?.prior;
+  const current = payload.combat?.current;
+  if (!prior || !current) return;
+  const boundaryContext = async (event, history) => {
+    // Registry.refresh accepts a Combat document. A documented ephemeral clone
+    // supplies a captured position without modifying the live encounter.
+    const captured = Number(combat.round) === Number(history.round) && combat.turn === history.turn
+      ? combat : await combat.clone({ round: history.round, turn: history.turn }, { keepId: true, save: false });
+    return _contextForEvent(event, {
+      combat: captured,
+      combatant: combat.combatants?.get?.(history.combatantId) ?? null,
+      round: history.round, turn: history.turn,
+      worldTime: _num(payload.worldTime, MagicTimekeeping.nowWorldTimeSeconds())
+    });
+  };
+  await _handleNativeBoundary("turnEnd", await boundaryContext("turnEnd", prior));
+  await _handleNativeBoundary("turnStart", await boundaryContext("turnStart", current));
+  if (Number(prior.round) !== Number(current.round)) {
+    await _handleNativeBoundary("roundEnd", await boundaryContext("roundEnd", prior));
+    await _handleNativeBoundary("roundStart", await boundaryContext("roundStart", current));
   }
 }
 
@@ -417,11 +434,11 @@ export function initializeSpellEffectExpirationSystem() {
   _seedTrackedSpellEffects();
   _registerTrackingHooks();
 
-  MagicTimekeeping.onTimeChange(async ({ worldTime } = {}) => {
+  TimeService.registerOwnedWorldTimeStage({ id: "spell-expiration", order: 200, handle: async ({ worldTime } = {}) => {
     if (!isActiveGMUser(game.user)) return;
     if (game.combat) return;
     await _handleNativeBoundary("worldTime", _contextForEvent("worldTime", { worldTime }));
-  });
+  } });
 
   registerCombatBoundaryConsumer({
     id: "spell-effect-expiration",
@@ -470,6 +487,7 @@ export async function cleanupExpiredSpellEffects({ actors = null, context = null
         if (handledOrigins.has(key)) continue;
         handledOrigins.add(key);
         if (await _deleteOriginCascade(origin)) deleted += 1;
+        else throw new Error("Expired origin cleanup did not settle.");
         continue;
       }
 
@@ -479,6 +497,7 @@ export async function cleanupExpiredSpellEffects({ actors = null, context = null
 
   for (const effect of targetDeletes) {
     if (await _deleteEffectDirect(effect, source)) deleted += 1;
+    else throw new Error("Expired spell effect deletion was not confirmed.");
   }
 
   if (deleted > 0) _anchorDebug("Cleaned expired spell effects", { source, checked, deleted });

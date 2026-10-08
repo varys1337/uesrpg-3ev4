@@ -15,6 +15,7 @@ import { applyDamage, applyHealing, DAMAGE_TYPES, getDamageReduction } from "../
 import { escapeHtml } from "../../utils/html.js";
 import { acquireLock, releaseLock } from "../../utils/authority-proxy/shared.js";
 import { commitHealthUpdate, readDamageReceipts } from "../combat/damage/post-application.js";
+import { isPerfEnabled, monoMs, perfRecord } from "../../utils/perf-tracker.js";
 import { getActorTraitValue } from "../traits/trait-registry.js";
 import { evaluateAEModifierKeys } from "../active-effects/modifier-evaluator.js";
 import { _str, createDebugLogger } from "./_primitives.js";
@@ -129,8 +130,9 @@ function _buildMagicGmDamageReport({
   };
 }
 
-async function _applySpellAbsorption(targetActor, { casterActor = null, magicCost = 0, allowSelfAbsorption = false, sourceLabel = "Spell", receiptId = "" } = {}) {
+async function _applySpellAbsorption(targetActor, { casterActor = null, magicCost = 0, allowSelfAbsorption = false, sourceLabel = "Spell", receiptId = "", kind = "damage" } = {}) {
   if (!targetActor) return { absorbed: false, restored: 0, rollTotal: null, threshold: null };
+  const startedAt = isPerfEnabled() ? monoMs() : null;
   const lockKey = `DamageApplication:${targetActor.uuid}`;
   await acquireLock(lockKey);
   try {
@@ -138,7 +140,7 @@ async function _applySpellAbsorption(targetActor, { casterActor = null, magicCos
   const prior = absorptionId && readDamageReceipts(targetActor).find((entry) => entry.id === absorptionId);
   if (prior) return { ...prior.result.absorption, replayed: true };
   const remember = (absorption, updates = {}) => commitHealthUpdate(targetActor, updates, {
-    application: { receiptId: absorptionId }, result: { absorption }, receiptStatus: "applied",
+    application: { receiptId: absorptionId, kind }, result: { absorption }, receiptStatus: "applied",
   });
 
   // Three independent threshold sources (take the highest):
@@ -162,7 +164,12 @@ async function _applySpellAbsorption(targetActor, { casterActor = null, magicCos
 
   if (threshold <= 0 || (casterActor?.uuid === targetActor.uuid && !allowSelfAbsorption)) {
     const result = { absorbed: false, restored: 0, rollTotal: null, threshold: threshold > 0 ? threshold : null };
-    return await remember(result) ? result : { absorbed: false, failed: true };
+    // This decision has no roll or resource write. Save it with the first
+    // health receipt so a retry observes the same decision without a pre-HP
+    // Actor round trip. Actual rolls still use remember() below.
+    return { ...result, pendingReceipt: absorptionId
+      ? { id: absorptionId, at: Date.now(), status: "applied", result: { absorption: result } }
+      : null };
   }
 
   const roll = new Roll("1d10");
@@ -209,6 +216,10 @@ async function _applySpellAbsorption(targetActor, { casterActor = null, magicCos
   return { absorbed, restored, rollTotal, threshold };
   } finally {
     releaseLock(lockKey);
+    if (startedAt !== null) perfRecord({
+      event: "magic.application.absorption", kind, actorUuid: targetActor.uuid, receiptId,
+      durationMs: monoMs() - startedAt,
+    });
   }
 }
 
@@ -268,6 +279,11 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
     if (absorption.absorbed) {
       return { spellAbsorbed: true, absorption };
     }
+    if (absorption.pendingReceipt) {
+      options = { ...options, _additionalDamageReceipts: [
+        ...(Array.isArray(options._additionalDamageReceipts) ? options._additionalDamageReceipts : []), absorption.pendingReceipt,
+      ] };
+    }
 
     const shouldApplyTypedComponents = typedComponents.length > 1
       || (typedComponents.length === 1 && typedComponents[0].damageType && typedComponents[0].damageType !== dt);
@@ -278,6 +294,7 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
         const result = await applyMagicDamage(targetActor, component.amount, component.damageType, spell, {
           ...options,
           receiptId: options.receiptId ? `${options.receiptId}:component:${componentIndex}` : undefined,
+          _additionalDamageReceipts: componentIndex === 0 ? options._additionalDamageReceipts : [],
           damageComponents: null,
           skipSpellAbsorption: true,
           isOverloaded: false,
@@ -382,6 +399,8 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
     const result = await applyDamage(targetActor, Math.max(0, finalDamage), dt, {
       receiptId: options.receiptId,
       applicationId: options.applicationId,
+      outcomeContext: options.outcomeContext,
+      _additionalDamageReceipts: options._additionalDamageReceipts,
       source,
       hitLocation,
       rollHTML,
@@ -432,6 +451,8 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
   const result = await applyDamage(targetActor, adjustedDamage, dt, {
     receiptId: options.receiptId,
     applicationId: options.applicationId,
+    outcomeContext: options.outcomeContext,
+    _additionalDamageReceipts: options._additionalDamageReceipts,
     source,
     hitLocation,
     rollHTML,
@@ -507,7 +528,7 @@ export async function applyMagicHealing(targetActor, healing, spell, options = {
     casterActor,
     magicCost,
     allowSelfAbsorption,
-    sourceLabel: source, receiptId: options.receiptId
+    sourceLabel: source, receiptId: options.receiptId, kind: "healing"
   });
   if (absorption.failed) return null;
   if (absorption.absorbed) {
@@ -522,8 +543,14 @@ export async function applyMagicHealing(targetActor, healing, spell, options = {
   });
 
   return applyHealing(targetActor, Number(healing || 0), {
+    messageId: options.messageId, requestId: options.requestId,
     receiptId: options.receiptId,
+    outcomeContext: options.outcomeContext,
     applicationId: options.applicationId,
+    _additionalDamageReceipts: [
+      ...(Array.isArray(options._additionalDamageReceipts) ? options._additionalDamageReceipts : []),
+      ...(absorption.pendingReceipt ? [absorption.pendingReceipt] : []),
+    ],
     source,
     rollHTML,
     isTemporary: options.isTemporary === true,

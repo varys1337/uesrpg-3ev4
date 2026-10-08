@@ -113,7 +113,8 @@ async function _dispatch(payload) {
       if (previous === "completed") continue;
       if (previous === "failed" && !consumer.retrySafe) { failedCount++; continue; }
       try {
-        await consumer.handle(payload);
+        const result = await consumer.handle(payload);
+        if (result?.failed === true || result?.ok === false) throw new Error(`Consumer ${consumer.id} reported incomplete settlement.`);
         progress.set(consumer.id, "completed");
         invokedCount++;
       } catch (firstError) {
@@ -146,8 +147,8 @@ async function _dispatch(payload) {
     perfRecord({
       event: "combatBoundaryOrchestrator.dispatch",
       combatId: combat.id ?? null,
-      round: Number(combat.round ?? 0),
-      turn: Number(combat.turn ?? 0),
+      round: Number(payload.combat?.current?.round ?? 0),
+      turn: Number(payload.combat?.current?.turn ?? 0),
       boundaryKey,
       consumerCount: ordered.length,
       invokedConsumerCount: invokedCount,
@@ -157,6 +158,7 @@ async function _dispatch(payload) {
       durationMs: monoMs() - _t0,
     });
   }
+  return { ok: failedCount === 0, failedCount, boundaryKey };
 }
 
 /** Awaitable internal dispatch; external Hooks are notifications, not a transaction. */

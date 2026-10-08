@@ -143,6 +143,17 @@ function createSchema(seed, htmlFields = [], options = {}) {
   const htmlFieldSet = new Set(htmlFields);
 
   for (const [key, value] of Object.entries(seed ?? {})) {
+    if (options.legacyArmorCategory === true && key === "item_cat") {
+      // Existing armor uses both a legacy category key and the template's
+      // category-label mapping. Retain either representation without casting.
+      schema[key] = new (getFieldsApi().AnyField)({
+        initial: () => cloneValue(value),
+        nullable: false,
+        validate: (candidate) => typeof candidate === "string" || isPlainObject(candidate),
+        validationError: "Armor category must be a category key or a category mapping.",
+      });
+      continue;
+    }
     if (options.actorResources === true && ACTOR_RESOURCE_KEYS.has(key) && isPlainObject(value)) {
       schema[key] = createNestedNumberSchemaField(value);
       continue;
@@ -220,7 +231,7 @@ const ContainerItemSystemModel = createTypedSystemDataModel(
 const ArmorItemSystemModel = createTypedSystemDataModel(
   ITEM_MODEL_SEEDS.armor,
   ITEM_HTML_FIELDS.armor,
-  { decimalEnc: true }
+  { decimalEnc: true, legacyArmorCategory: true }
 );
 
 const ShieldItemSystemModel = createTypedSystemDataModel(
@@ -375,9 +386,13 @@ export function getTypeDataModelDefaults(documentName, type) {
   }
 }
 
-export function cleanSystemDataWithModel(documentName, type, sourceData) {
+export function cleanSystemDataWithModel(documentName, type, sourceData, { strict = false } = {}) {
   const Model = getTypeDataModelClass(documentName, type);
-  if (!Model) return null;
+  if (!Model) {
+    if (strict) throw new Error(`No TypeDataModel registered for ${documentName}.${type}.`);
+    return null;
+  }
+  if (strict && !isPlainObject(sourceData)) throw new Error(`Invalid ${documentName}.${type} system object.`);
 
   const defaults = getTypeDataModelDefaults(documentName, type);
   const source = isPlainObject(sourceData) ? cloneValue(sourceData) : {};
@@ -390,8 +405,11 @@ export function cleanSystemDataWithModel(documentName, type, sourceData) {
   });
 
   try {
-    return new Model(merged).toObject();
+    const cleaned = new Model(merged, strict ? { strict: true, fallback: false, dropInvalidEmbedded: false } : {}).toObject(true);
+    // Strict Item repair retains properties not represented by the model.
+    return strict ? foundry.utils.mergeObject(source, cleaned, { inplace: false }) : cleaned;
   } catch (err) {
+    if (strict) throw err;
     console.warn(`UESRPG | Failed to clean ${documentName}.${type} system data via TypeDataModel`, err);
     return cloneValue(defaults ?? merged);
   }

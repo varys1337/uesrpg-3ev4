@@ -11,7 +11,7 @@ import { getBlockValue } from "../../../combat/mitigation.js";
 import { resolveHitLocationForTarget } from "../../../combat/combat-utils.js";
 import { getActiveWardSpell } from "../../../combat/ward-defense.js";
 import { listEquippedShields } from "../../../items/shield-utils.js";
-import { buildMagicCastContextRows } from "../cast-context.js";
+import { buildMagicCastContextRows, resolveMagicCastContext } from "../cast-context.js";
 
 function buildMagicDamageComponents(spell, damageType, damageInfo = null) {
   if (Array.isArray(damageInfo?.components) && damageInfo.components.length) {
@@ -88,12 +88,12 @@ export async function handleBlockResolve(ctx) {
   const spellOptions = data.attacker.spellOptions ?? {};
   const damageType = getSpellDamageType(spell);
   const isCritical = Boolean(data.attacker.result?.isCriticalSuccess);
-  const sharedDamage = await getOrCreateSharedSpellDamage({ data, attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
-  const damageInfo = sharedDamage ?? await computeSpellDamageShared({ attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
+  const sharedDamage = await getOrCreateSharedSpellDamage({ castContext: data?.attacker?.castContext, data, attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
+  const damageInfo = sharedDamage ?? await computeSpellDamageShared({ castContext: data?.attacker?.castContext, attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
   const effectiveDamageType = String(damageInfo?.damageType ?? damageType ?? "magic").trim().toLowerCase() || "magic";
   const damageValue = Number(damageInfo?.damageValue ?? 0) || 0;
   const rollHTML = damageInfo?.rollHTML ?? "";
-  const castContext = buildMagicCastContextRows(data?.attacker ?? {}, spell);
+  const castContext = buildMagicCastContextRows({ ...data?.attacker, castContext: damageInfo.castContext }, spell, { actor: attacker });
 
   // Get Block Rating (magic damage treats BR as half, round up, unless magic BR exists)
   const br = getBlockValue(shield, effectiveDamageType);
@@ -187,19 +187,21 @@ export async function handleWardResolve(ctx) {
     ui.notifications.warn("No active Ward spell found on the defender.");
     return;
   }
-  const wardBR = Math.max(0, Number(wardSpell?.system?.spell_str ?? 0) || 0);
+  defender.wardCastContext = await resolveMagicCastContext({ castContext: defender.wardCastContext }, wardSpell, { actor: defenderActor, message, user: game.users.get(defender.banked?.committedBy) ?? game.user });
+  await ctx._updateCard(message, data);
+  const wardBR = Math.max(0, Number(defender.wardCastContext.spellStrengthValue));
   const wardName = String(defender?.wardSpellName ?? wardSpell?.name ?? "Ward");
 
   // Roll spell damage
   const spellOptions = data.attacker.spellOptions ?? {};
   const damageType = getSpellDamageType(spell);
   const isCritical = Boolean(data.attacker.result?.isCriticalSuccess);
-  const sharedDamage = await getOrCreateSharedSpellDamage({ data, attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
-  const damageInfo = sharedDamage ?? await computeSpellDamageShared({ attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
+  const sharedDamage = await getOrCreateSharedSpellDamage({ castContext: data?.attacker?.castContext, data, attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
+  const damageInfo = sharedDamage ?? await computeSpellDamageShared({ castContext: data?.attacker?.castContext, attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
   const effectiveDamageType = String(damageInfo?.damageType ?? damageType ?? "magic").trim().toLowerCase() || "magic";
   const damageValue = Number(damageInfo?.damageValue ?? 0) || 0;
   const rollHTML = damageInfo?.rollHTML ?? "";
-  const castContext = buildMagicCastContextRows(data?.attacker ?? {}, spell);
+  const castContext = buildMagicCastContextRows({ ...data?.attacker, castContext: damageInfo.castContext }, spell, { actor: attacker });
 
   // Ward BR applies equally to ALL damage types (no halving)
   const br = wardBR;

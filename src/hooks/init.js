@@ -64,11 +64,17 @@ import { registerSystemTooltipHooks } from "../ui/shared/system-tooltips.js";
 function applyCustomCursorConfig() {
   try {
     const enabled = game.settings.get(SYSTEM_ID, "customCursor");
+    document.documentElement.classList.toggle("uesrpg-custom-cursor", Boolean(enabled));
+    if (!enabled) document.documentElement.style.removeProperty("--uesrpg-cursor-pointer");
     if (!enabled) return;
 
     const root = `systems/${game.system.id}`;
     const passive = `${root}/images/elements/cursors/inactivecursor-32.webp`;
     const active = `${root}/images/elements/cursors/activecursor-32.webp`;
+    // DOM controls use the same asset as Foundry's configured pointer state.
+    // An absolute URL also works when the variable is consumed by another stylesheet.
+    const activeUrl = new URL(active, document.baseURI).href;
+    document.documentElement.style.setProperty("--uesrpg-cursor-pointer", `url("${activeUrl}") 0 0, pointer`);
 
     CONFIG.cursors.default = passive;
     CONFIG.cursors["default-down"] = passive;

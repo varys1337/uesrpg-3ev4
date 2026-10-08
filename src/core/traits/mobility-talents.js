@@ -9,7 +9,7 @@
  */
 
 import { hasTalent, getSkillRank, normalizeTalentKey } from "./talents-api.js";
-import { createOrUpdateStatusEffect } from "../active-effects/status-effect.js";
+import { queueStatusEffect } from "../system/activation/feature-effects.js";
 import { buildEffectDuration } from "../time/effect-duration.js";
 import { _lower } from "./_primitives.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
@@ -117,7 +117,7 @@ export async function activateHardTargetEffect(actor) {
   }
 
   const duration = buildEffectDuration({ actor, rounds: 1, preferCombat: true });
-  return await createOrUpdateStatusEffect(actor, {
+  return await queueStatusEffect(actor, {
     name: "Hard Target",
     img: "systems/uesrpg-3ev4/images/Icons/hardTarget.webp",
     duration,

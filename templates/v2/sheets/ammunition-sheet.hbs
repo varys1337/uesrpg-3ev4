@@ -19,7 +19,11 @@
                             <div class="grid-container">
                                 <div>{{localize "UESRPG.Sheets.Item.DamageType"}}</div>
                                 <div class="right-align-content">
-                                    <input type="text" name="system.damageType" value="{{item.system.damageType}}" placeholder="{{localize "UESRPG.Sheets.Item.DamageTypePlaceholder"}}"/>
+                                    <select name="system.damageType" aria-label="{{localize "UESRPG.Sheets.Item.DamageType"}}">
+                                        {{#each ammunitionDamageTypeOptions}}
+                                        <option value="{{this.value}}" {{#if this.selected}}selected{{/if}}>{{this.label}}</option>
+                                        {{/each}}
+                                    </select>
                                 </div>
                             </div>
                         </div>

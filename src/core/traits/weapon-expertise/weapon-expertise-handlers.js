@@ -313,6 +313,15 @@ export function getWeaponExpertiseWTDelta({ attacker, weapon, attackMode } = {})
 
 // ---- Post-Damage Effects ----
 
+export function hasWeaponExpertisePostDamageEffects({ attacker, target, weapon, damageContext, damageApplied, woundTriggered } = {}) {
+  if (!attacker || !target || !weapon || !damageContext) return false;
+  const dmg = _asNumber(damageApplied, 0);
+  return Boolean(damageContext._hammerblowActive
+    || damageContext._fromOblivionsHeartActive && woundTriggered
+    || dmg >= 1 && (damageContext._deathByThousandCutsActive || damageContext._beardedWarriorActive
+      || damageContext._bruiserMaceAOA || damageContext._redLegionThrowActive || damageContext._whirlingSchoolActive));
+}
+
 /**
  * Apply post-damage effects from Weapon Expertise talents.
  * Called after damage is resolved and applied to the target.
@@ -347,7 +356,7 @@ export async function applyWeaponExpertisePostDamageEffects({
   let bleedingApplied = false;
   const dmg = _asNumber(damageApplied, 0);
 
-  if (!attacker || !target || !weapon || !damageContext) return { notes, bleedingApplied };
+  if (!hasWeaponExpertisePostDamageEffects({ attacker, target, weapon, damageContext, damageApplied, woundTriggered })) return { notes, bleedingApplied };
 
   // Death by a Thousand Cuts: apply Bleeding(1) on ≥1 damage
   if (damageContext._deathByThousandCutsActive && dmg >= 1) {

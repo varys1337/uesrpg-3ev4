@@ -18,6 +18,40 @@ import { getRoundTimeSecondsSafe } from "../time/round-time.js";
 import { getEffectChanges } from "../../../utils/compat.js";
 import { buildGenericAEData } from "../../active-effects/modifier-evaluator.js";
 import { buildEffectDuration } from "../../time/effect-duration.js";
+import { createChatOutcome } from "../../config/outcome-application-policy.js";
+import { persistChatOutcomes } from "../../../application/combat/chat-outcome-application-service.js";
+import { resolveActorFromUuidSync } from "../../../utils/uuid-cache.js";
+import { createOrUpdateStatusEffect } from "../../active-effects/status-effect.js";
+import { escapeHtml } from "../../../utils/html.js";
+import { restoreOutcomeItem } from "../../../utils/item-outcome-snapshot.js";
+
+export async function queueStatusEffect(actor, effect, { sourceActor = actor, message = null, afterWoundSuppression = false } = {}) {
+  const entry = createChatOutcome({ adapter: "ability.status", kind: "effect",
+    sourceActorUuid: sourceActor.uuid, targetUuid: actor.uuid, label: effect.name,
+    payload: { effect, afterWoundSuppression } });
+  return persistChatOutcomes({ actor: sourceActor, message, entries: [entry],
+    content: `<div class="uesrpg"><b>${escapeHtml(effect.name)}</b></div>` });
+}
+
+export async function executeChatOutcome(outcome, context) {
+  if (outcome.adapter === "ability.status") {
+    return context.stage("statusEffect", async () => {
+      const effect = await createOrUpdateStatusEffect(context.actor, outcome.payload.effect);
+      if (!effect) throw new Error("The activation effect was not saved.");
+      if (outcome.payload.afterWoundSuppression) {
+        const { ensureWoundedPassiveEffect } = await import("../../wounds/engine/apply.js");
+        await ensureWoundedPassiveEffect(context.actor);
+      }
+      return { ok: true, effectsApplied: true };
+    });
+  }
+  const actor = resolveActorFromUuidSync(outcome.sourceActorUuid);
+  if (!actor || !outcome.payload.itemSnapshot) throw Object.assign(new Error("The activation source is unavailable."), { committed: false });
+  const item = restoreOutcomeItem(outcome.payload.itemSnapshot, outcome.payload.itemSnapshotContext);
+  return context.stage("activationEffects", () => applyFeatureEffectsToTargets(actor, item, [context.actor], {
+    featureConfig: outcome.payload.featureConfig,
+  }));
+}
 
 const _featureEffectsDebug = createSeverityDebugLogger("activationDebug", "", "debug");
 

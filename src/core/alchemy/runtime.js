@@ -1,3 +1,5 @@
+import { runAlchemyItemActivation } from "./operations.js";
+import { measurePerfStage } from "../../utils/perf-tracker.js";
 /**
  * Alchemy Runtime Automation
  *
@@ -21,9 +23,11 @@
 import { getEffectByKey } from "./effects.js";
 import { rollPotionBackfire } from "./backfire.js";
 import {
+  requestAtomicUpdateDocument,
   requestCreateEmbeddedDocuments,
   requestUpdateChatMessage,
   requestUpdateDocument,
+  doesUserOwnActor,
 } from "../../utils/authority-proxy.js";
 import { t, tf } from "../../utils/i18n.js";
 import { applyDamage, applyHealing } from "../combat/damage-automation.js";
@@ -34,13 +38,13 @@ import {
   cloneAlchemyData as _cloneData,
   emitAlchemyRoll3d as _emitAlchemyRoll3d,
   FLAG_NS,
-  formatAlchemyDurationLabel as _formatDurationLabel,
   getAlchemyFlags,
 } from "./shared.js";
 import {
   clearAppliedAlchemy as _clearAppliedAlchemy,
   buildWeaponAlchemyAEData,
   getAppliedAlchemy as _getAppliedAlchemy,
+  getAlchemyOnHitCarrier,
   isAppliedAlchemyExpired as _isAppliedAlchemyExpired,
   updateAppliedAlchemyHits as _updateAppliedAlchemyHits,
 } from "./carrier-state.js";
@@ -59,8 +63,7 @@ import {
   normalizeStoredSpellEffect as _normalizeStoredSpellEffect,
 } from "./spell-effects.js";
 import { appendSupplementalDamageReportToMessage } from "../combat/chat-handlers/combat-chat-apply.js";
-import { applyMagicHealing, applyMagicDamage } from "../magic/damage-application.js";
-import { applySpellEffectsToTarget } from "../magic/effects/spell-effects.js";
+import { resolveMagicCastContext } from "../magic/opposed/cast-context.js";
 import { getSpellDamageType, rollSpellHealing } from "../magic/magicka-utils.js";
 import { doTestRoll } from "../../utils/degree-roll-helper.js";
 import {
@@ -88,15 +91,68 @@ import {
 } from "./runtime/resource-updates.js";
 import { buildEffectChange, buildEffectChangesData } from "../../utils/compat.js";
 import { buildGenericAEData } from "../active-effects/modifier-evaluator.js";
+import { createChatOutcome, chatOutcomeFlags } from "../config/outcome-application-policy.js";
+import { resumeDamageAftermath } from "../combat/damage/deferred-operations.js";
+import { prepareResolvedSpellEffectPayload } from "../magic/effects/spell-effects.js";
+import { resolveActorFromUuidSync } from "../../utils/uuid-cache.js";
 
 // ── Flag namespace constant (delegated to canonical FLAG_SCOPE from namespace.js) ──
-const _ALCHEMY_ON_HIT_IN_FLIGHT = new Set();
+const _ALCHEMY_ON_HIT_IN_FLIGHT = new Map();
+
+function _requireApplication(result, label) {
+  if (!result || result.execution?.status === "partial" || result.execution?.status === "failed" || result.aftermathSummary?.failed?.length) {
+    const error = new Error(`${label} was not fully confirmed. Do not repeat a committed resource change.`);
+    error.committed = result?.execution?.committed === true || Number(result?.healing ?? result?.damage ?? result?.granted ?? 0) !== 0;
+    throw error;
+  }
+  return result;
+}
+
+async function _prepareAlchemySpellOutcome({ targetActor, sourceActor, syntheticSpell, castContext, normalizedEffect, label, kind, amount, damageType, rollHTML = "" }) {
+  const prepared = kind === "effect" ? await prepareResolvedSpellEffectPayload({ casterActor: sourceActor, spell: syntheticSpell, payload: { castContext } }) : { castContext };
+  return { ok: true, committed: false, noteHtml: _alchemyNoteHtml(label, `${amount || "Effects"} - application pending.`),
+    outcome: createChatOutcome({ adapter: "alchemy.spell", kind, sourceActorUuid: sourceActor.uuid,
+      targetUuid: targetActor.uuid, label, payload: {
+        alchemySpell: true, spellSnapshot: syntheticSpell, spellUuid: syntheticSpell.uuid,
+        casterUuid: sourceActor.uuid, damage: amount, damageType, rollHTML, source: syntheticSpell.name,
+        isHealing: kind === "healing", isDamaging: kind === "damage", needsEffects: kind === "effect",
+        isTemporary: damageType === "temporaryhealing" || damageType === "temporary healing", ...prepared,
+        actualCost: Number(normalizedEffect.cost ?? 0) || 0,
+        originalCastWorldTime: Number(game.time.worldTime ?? 0),
+      } }) };
+}
+
+export async function executeChatOutcome(outcome, context) {
+  const payload = outcome.payload;
+  if (outcome.adapter === "alchemy.spell") {
+    const { executeInlineChatOutcome } = await import("../combat/chat-handlers/combat-chat-apply.js");
+    return executeInlineChatOutcome({ ...outcome, magic: true, damage: { _magicPayload: payload } }, context);
+  }
+  if (outcome.adapter === "alchemy.potion") {
+    const result = await context.stage("potion", () => _applyPotionEffect(context.actor, getEffectByKey(payload.effectKey),
+      payload.sl, payload.potency, payload.finalDuration, payload.params, { receiptId: context.receiptId, outcomeContext: context }));
+    return resumeDamageAftermath(result, context);
+  }
+  if (outcome.adapter === "alchemy.poison") {
+    const result = await context.stage("health", async () => _requireApplication(await applyDamageResolved(context.actor, {
+      ...payload, rawDamage: payload.amount, receiptId: context.receiptId, outcomeContext: context,
+    }), "Poison damage"));
+    await resumeDamageAftermath(result, context);
+    if (result.gmDamageReport && payload.parentMessageId) {
+      const parent = game.messages.get(payload.parentMessageId);
+      if (parent && game.user.isGM) await appendSupplementalDamageReportToMessage(parent, context.actor.uuid, result);
+    }
+    return result;
+  }
+  return _executePreparedToxin(outcome, context);
+}
 
 async function _applySerializedSpellEffect(targetActor, effectEntry, {
   casterActor = null,
   potency = 1,
   mode = null,
   noteLabelSuffix = "Spell",
+  parentApplication = null,
 } = {}) {
   const normalizedResult = await _normalizeStoredSpellEffect(effectEntry, {
     mode: String(mode ?? effectEntry?.mode ?? "potion").trim().toLowerCase() || "potion",
@@ -115,6 +171,7 @@ async function _applySerializedSpellEffect(targetActor, effectEntry, {
   const label = `${_effectLabel(normalizedEffect)} [${noteLabelSuffix}]`;
   const sourceActor = casterActor ?? targetActor;
   const spellConfig = normalizeSpellConfig(syntheticSpell);
+  let castContext = null;
 
   if (String(mode ?? "").trim().toLowerCase() === "toxin" && spellConfig?.defenseModel === "characteristic") {
     syntheticSpell.system = syntheticSpell.system ?? {};
@@ -125,14 +182,17 @@ async function _applySerializedSpellEffect(targetActor, effectEntry, {
       defenderCharacteristic: "end",
     };
 
-    const tnData = computeCharacteristicDefenseTN(targetActor, syntheticSpell);
+    if (spellConfig.characteristicDefense?.modifierMode !== "formula") {
+      castContext = await resolveMagicCastContext({}, syntheticSpell, { actor: sourceActor });
+    }
+    const tnData = computeCharacteristicDefenseTN(targetActor, syntheticSpell, { caster: sourceActor, castContext });
     const finalTN = Math.max(1, Number(tnData?.finalTN ?? _getEnduranceTN(targetActor)) || _getEnduranceTN(targetActor) || 1);
     const result = await doTestRoll(targetActor, {
       target: finalTN,
       allowLucky: true,
       allowUnlucky: true,
     });
-    _emitAlchemyRoll3d(result?.roll ?? null);
+    _emitAlchemyRoll3d(result?.roll ?? null, { actor: targetActor });
 
     const defResult = {
       success: Boolean(result?.isSuccess),
@@ -174,48 +234,29 @@ async function _applySerializedSpellEffect(targetActor, effectEntry, {
   }
 
   if (applicationKind === "healing") {
-    const healRoll = await rollSpellHealing(syntheticSpell, { level: Number(normalizedEffect?.spellLevel ?? 1) || 1 });
-    _emitAlchemyRoll3d(healRoll);
+    const healRoll = await rollSpellHealing(syntheticSpell, { level: Number(normalizedEffect?.spellLevel ?? 1) || 1, actor: sourceActor, castContext });
+    if (!castContext?.spellStrengthResolved) _emitAlchemyRoll3d(healRoll, { actor: sourceActor, damageType });
     const rolled = Math.max(0, Number(healRoll?.total ?? 0) || 0);
     const healed = Math.max(0, potency < 1 ? Math.floor(rolled * potency) : rolled);
-    await applyMagicHealing(targetActor, healed, syntheticSpell, {
-      isTemporary: damageType === "temporaryhealing" || damageType === "temporary healing",
-      source: syntheticSpell.name,
-      rollHTML: await healRoll.render(),
-    });
-    return {
-      ok: true,
-      noteHtml: _alchemyNoteHtml(label, `${healed} restored${damageType.includes("temporary") ? " as temporary HP" : ""}.`),
-    };
+    return _prepareAlchemySpellOutcome({ targetActor, sourceActor, syntheticSpell, castContext, normalizedEffect, label,
+      kind: "healing", amount: healed, damageType, rollHTML: await healRoll.render() });
   }
 
   if (applicationKind === "spelleffects") {
-    await applySpellEffectsToTarget(sourceActor, targetActor, syntheticSpell, {
-      actualCost: Number(normalizedEffect?.cost ?? syntheticSpell?.system?.cost ?? 0) || 0,
-      casterTokenUuid: sourceActor?.getActiveTokens?.()?.[0]?.document?.uuid ?? null,
-    });
-    return {
-      ok: true,
-      noteHtml: _alchemyNoteHtml(label, _formatDurationLabel(normalizedEffect?.finalDuration ?? payload?.finalDuration ?? null)),
-    };
+    castContext = await resolveMagicCastContext({}, syntheticSpell, { actor: sourceActor });
+    return _prepareAlchemySpellOutcome({ targetActor, sourceActor, syntheticSpell, castContext, normalizedEffect, label,
+      kind: "effect", amount: 0, damageType });
   }
 
   if (applicationKind === "damage") {
     const formula = String(payload?.formula ?? syntheticSpell?.system?.damageFormula ?? "").trim();
     if (!formula) return { ok: false, reason: `${syntheticSpell.name} has no serialized damage formula.` };
-    const roll = await new Roll(formula).evaluate();
-    _emitAlchemyRoll3d(roll);
+    const stored = castContext?.spellStrengthSelectedRolls;
+    const roll = stored?.length === 1 ? Roll.fromData(stored[0]) : await new Roll(formula).evaluate();
+    if (!stored?.length) _emitAlchemyRoll3d(roll, { actor: sourceActor, damageType });
     const amount = Math.max(0, potency < 1 ? Math.floor((Number(roll?.total ?? 0) || 0) * potency) : Number(roll?.total ?? 0) || 0);
-    await applyMagicDamage(targetActor, amount, damageType || "magic", syntheticSpell, {
-      hitLocation: "Body",
-      rollHTML: await roll.render(),
-      source: syntheticSpell.name,
-      casterActor: sourceActor,
-    });
-    return {
-      ok: true,
-      noteHtml: _alchemyNoteHtml(label, `${amount} ${damageType || "magic"} damage applied.`),
-    };
+    return _prepareAlchemySpellOutcome({ targetActor, sourceActor, syntheticSpell, castContext, normalizedEffect, label,
+      kind: "damage", amount, damageType, rollHTML: await roll.render() });
   }
 
   return { ok: false, reason: `${syntheticSpell.name} uses unsupported alchemy application kind "${applicationKind || "unknown"}".` };
@@ -235,18 +276,50 @@ async function _applySerializedSpellEffect(targetActor, effectEntry, {
  * @param {Actor} actor
  * @param {Item}  potionItem
  */
-export async function drinkPotion(actor, potionItem) {
-  if (!actor || !potionItem) return;
+export function drinkPotion(actor, potionItem) {
+  return runAlchemyItemActivation(potionItem, async fresh => {
+    if (fresh.parent?.uuid !== actor?.uuid) return { ok: false, reason: "Potion does not belong to this Actor.", execution: { status: "failed", committed: false } };
+    const progress = { committed: false, consumed: false, rows: [], outcomes: [], backfireHtml: "", presentationStarted: false };
+    try {
+      return await _drinkPotion(actor, fresh, progress);
+    } catch (error) {
+      const committed = progress.committed || error?.committed === true;
+      const status = committed ? "partial" : "failed";
+      const reason = error?.message ?? String(error);
+      ui.notifications.warn(`Potion ${status}: ${reason}`);
+      if (!progress.presentationStarted) {
+        try {
+          await _postAlchemyUseMessage(actor, fresh, committed ? "Potion Partially Completed" : "Potion Not Applied",
+            progress.backfireHtml + progress.rows.join("\n") + _alchemyNoteHtml("Completion", foundry.utils.escapeHTML(reason), "is-warning"));
+        } catch (_error) { /* The completion result still reports the failed presentation. */ }
+      }
+      return { ok: false, reason, consumed: progress.consumed, execution: { status, committed } };
+    }
+  });
+}
+
+async function _finishPotionUse(actor, potionItem, title, html, progress) {
+  progress.presentationStarted = true;
+  await measurePerfStage("consumption", "presentation", { itemUuid: potionItem.uuid, writeCount: 1 },
+    () => _postAlchemyUseMessage(actor, potionItem, title, html, chatOutcomeFlags(progress.outcomes)));
+  const consumption = await _consumeAlchemyItem(actor, potionItem);
+  if (!consumption?.ok) throw new Error(consumption?.reason ?? "Potion consumption was not confirmed.");
+  progress.consumed = true;
+  progress.committed = true;
+  return { ok: true, consumed: true, execution: { status: "completed", committed: true } };
+}
+
+async function _drinkPotion(actor, potionItem, progress) {
+  if (!actor || !potionItem) throw new Error("Missing Actor or potion Item.");
   const algData = getAlchemyFlags(potionItem);
   if (!algData || algData.kind !== "potion") {
-    ui.notifications.warn(t("UESRPG.Notifications.Alchemy.NotBrewedPotion"));
-    return;
+    return { ok: false, reason: t("UESRPG.Notifications.Alchemy.NotBrewedPotion"), execution: { status: "failed", committed: false } };
   }
 
   // Only owner or GM may act.
   if (!actor.isOwner && !game.user.isGM) {
     ui.notifications.warn(t("UESRPG.Notifications.Alchemy.NotOwner"));
-    return;
+    return { ok: false, reason: t("UESRPG.Notifications.Alchemy.NotOwner"), execution: { status: "failed", committed: false } };
   }
 
   let halfPotency = false;
@@ -255,8 +328,8 @@ export async function drinkPotion(actor, potionItem) {
   // Backfired potion: roll the Potion Backfire Table before applying any effect.
   if (algData.backfired) {
     const bfResult = await rollPotionBackfire();
-    _emitAlchemyRoll3d(bfResult?.rollObject ?? null);
-    _emitAlchemyRoll3d(bfResult?.minorEffect?.rollObject ?? null);
+    _emitAlchemyRoll3d(bfResult?.rollObject ?? null, { actor });
+    _emitAlchemyRoll3d(bfResult?.minorEffect?.rollObject ?? null, { actor });
     const bfEntry = bfResult.entry;
     backfireHtml = _alchemyNoteHtml(
       `Backfire (1d10=${bfResult.roll})`,
@@ -264,11 +337,11 @@ export async function drinkPotion(actor, potionItem) {
       "is-danger"
     );
 
+    progress.backfireHtml = backfireHtml;
     switch (bfEntry?.outcome) {
       case "no_effect":
-        await _consumeAlchemyItem(actor, potionItem);
-        await _postAlchemyUseMessage(actor, potionItem, "Potion Consumed — No Effect", backfireHtml);
-        return;
+        progress.backfireHtml = backfireHtml;
+        return _finishPotionUse(actor, potionItem, "Potion Consumed — No Effect", backfireHtml, progress);
 
       case "half_potency":
         halfPotency = true;
@@ -286,22 +359,18 @@ export async function drinkPotion(actor, potionItem) {
         if (bfEntry?.outcome === "dangerous") {
           const dmgRoll = new Roll("1d8");
           await dmgRoll.evaluate();
-          _emitAlchemyRoll3d(dmgRoll);
-          await applyDamage(actor, dmgRoll.total, "physical", {
-            ignoreReduction: true,
-            source: "Backfired Potion",
-            skipChatMessage: false,
-          });
+          _emitAlchemyRoll3d(dmgRoll, { actor, damageType: "physical" });
+          progress.outcomes.push(createChatOutcome({ adapter: "damage.resolved", kind: "damage", sourceActorUuid: actor.uuid,
+            targetUuid: actor.uuid, label: "Backfired Potion", payload: { amount: dmgRoll.total,
+              ignoreReduction: true, damageType: "physical", source: "Backfired Potion", skipChatMessage: true } }));
         }
-        await _consumeAlchemyItem(actor, potionItem);
-        await _postAlchemyUseMessage(actor, potionItem, "Potion Consumed — Backfire!", backfireHtml);
-        return;
+        progress.backfireHtml = backfireHtml;
+        return _finishPotionUse(actor, potionItem, "Potion Consumed — Backfire!", backfireHtml, progress);
 
       case "sickened":
         backfireHtml += _alchemyNoteHtml("Sickened", "Make an Endurance test or gain Poisoned for 1d6 rounds.", "is-warning");
-        await _consumeAlchemyItem(actor, potionItem);
-        await _postAlchemyUseMessage(actor, potionItem, "Potion Consumed — Sickened!", backfireHtml);
-        return;
+        progress.backfireHtml = backfireHtml;
+        return _finishPotionUse(actor, potionItem, "Potion Consumed — Sickened!", backfireHtml, progress);
 
       default:
         break;
@@ -317,14 +386,13 @@ export async function drinkPotion(actor, potionItem) {
 
     const normalized = await _normalizeStoredSpellEffect(rawEffect, { mode: "potion" });
     if (!normalized?.ok) {
-      ui.notifications.warn(normalized?.reason ?? tf("UESRPG.Notifications.Alchemy.MustReBrewBeforeConsume", { effect: _effectLabel(rawEffect) }));
-      return;
+      throw new Error(normalized?.reason ?? tf("UESRPG.Notifications.Alchemy.MustReBrewBeforeConsume", { effect: _effectLabel(rawEffect) }));
     }
     normalizedEffects.push(normalized.effectEntry);
   }
 
   // Apply each effect.
-  const effectResultRows = [];
+  const effectResultRows = progress.rows;
 
   for (const effectEntry of normalizedEffects) {
     if (String(effectEntry?.effectSource ?? "catalog") === "spell") {
@@ -335,9 +403,10 @@ export async function drinkPotion(actor, potionItem) {
         noteLabelSuffix: "Spell",
       });
       if (!resolved?.ok) {
-        ui.notifications.warn(resolved?.reason ?? t("UESRPG.Notifications.Alchemy.PotionEffectNotResolved"));
-        return;
+        throw new Error(resolved?.reason ?? t("UESRPG.Notifications.Alchemy.PotionEffectNotResolved"));
       }
+      progress.committed ||= resolved.committed === true;
+      if (resolved.outcome) progress.outcomes.push(resolved.outcome);
       effectResultRows.push(
         resolved.noteHtml
         ?? _alchemyNoteHtml(`${_effectLabel(effectEntry)} [Spell]`, `SL ${Number(effectEntry?.spellLevel ?? 1)}.`)
@@ -352,68 +421,59 @@ export async function drinkPotion(actor, potionItem) {
     const sl = Number(spellLevel ?? 1);
     const potency = halfPotency ? 0.5 : 1;
 
-    const resultRow = await _applyPotionEffect(actor, effectDef, sl, potency, finalDuration, params);
-    effectResultRows.push(resultRow);
+    const resultRow = await measurePerfStage("consumption", "ownedFollowups", { itemUuid: potionItem.uuid, effectKey },
+      () => _applyPotionEffect(actor, effectDef, sl, potency, finalDuration, params, { prepareOnly: true }));
+    progress.committed ||= resultRow.committed === true;
+    if (resultRow.outcome) progress.outcomes.push(resultRow.outcome);
+    effectResultRows.push(resultRow.noteHtml);
   }
 
-  await _consumeAlchemyItem(actor, potionItem);
-
-  const effectsHtml = effectResultRows.join("\n");
-  await _postAlchemyUseMessage(
-    actor,
-    potionItem,
-    "Potion Consumed",
-    backfireHtml + effectsHtml
-  );
+  return _finishPotionUse(actor, potionItem, "Potion Consumed", backfireHtml + effectResultRows.join("\n"), progress);
 }
 
 /**
  * Apply a single potion effect to an actor.
  * Returns an HTML row for the result chat card.
  */
-async function _applyPotionEffect(actor, effectDef, sl, potency, finalDuration, params) {
+async function _applyPotionEffect(actor, effectDef, sl, potency, finalDuration, params, { prepareOnly = false, receiptId = null, outcomeContext = null } = {}) {
   const key = effectDef.key;
   const label = effectDef.label;
   const magnitude = Math.max(1, Math.floor(sl * potency));
 
-  // Instant healing effects.
-  if (key === "restoreHealth") {
-    await applyHealing(actor, magnitude, { source: label, skipChatMessage: true });
-    return `<div class="uesrpg-da-row"><span class="k">${label}</span><span class="v">+${magnitude} HP restored</span></div>`;
+  if (prepareOnly && effectDef.automation !== "manual" && (["restoreHealth", "heal", "replenish", "restoreMagicka", "restoreStamina"].includes(key)
+    || (effectDef.attributes.includes("upkeep") && finalDuration))) {
+    return { committed: false, noteHtml: _alchemyNoteHtml(label, `SL ${sl} - application pending.`),
+      outcome: createChatOutcome({ adapter: "alchemy.potion", kind: ["restoreHealth", "heal"].includes(key) ? "healing" : "effect",
+        sourceActorUuid: actor.uuid, targetUuid: actor.uuid, label,
+        payload: { effectKey: key, sl, potency, finalDuration, params } }) };
   }
 
-  if (key === "heal") {
-    const amount = Math.max(1, Math.floor((2 * sl) * potency));
-    await applyHealing(actor, amount, { source: label, skipChatMessage: true });
-    return `<div class="uesrpg-da-row"><span class="k">${label}</span><span class="v">+${amount} HP restored</span></div>`;
+  if (key === "restoreHealth" || key === "heal") {
+    const amount = key === "heal" ? Math.max(1, Math.floor(2 * sl * potency)) : magnitude;
+    const result = _requireApplication(await applyHealing(actor, amount, { source: label, skipChatMessage: true, receiptId, outcomeContext }), label);
+    return { ...result, committed: result.execution?.committed === true, noteHtml: _alchemyNoteHtml(label, `+${Number(result.healing ?? 0)} HP restored`) };
   }
 
-  if (key === "replenish") {
-    const amount = Math.max(1, Math.floor((2 * sl) * potency));
-    const current = Number(actor.system?.magicka?.value ?? 0);
-    const max = Number(actor.system?.magicka?.max ?? 0);
-    await requestUpdateDocument(actor, { "system.magicka.value": Math.min(max, current + amount) });
-    return `<div class="uesrpg-da-row"><span class="k">${label}</span><span class="v">+${amount} Magicka restored</span></div>`;
-  }
-
-  if (key === "restoreMagicka") {
-    const current = Number(actor.system?.magicka?.value ?? 0);
-    const max = Number(actor.system?.magicka?.max ?? 0);
-    const newVal = Math.min(max, current + magnitude);
-    await requestUpdateDocument(actor, { "system.magicka.value": newVal });
-    return `<div class="uesrpg-da-row"><span class="k">${label}</span><span class="v">+${magnitude} Magicka restored</span></div>`;
-  }
-
-  if (key === "restoreStamina") {
-    const { valuePath, value, max } = _resolveStaminaPaths(actor);
-    const newVal = Math.min(max, value + magnitude);
-    await requestUpdateDocument(actor, { [valuePath]: newVal });
-    return `<div class="uesrpg-da-row"><span class="k">${label}</span><span class="v">+${magnitude} Stamina restored</span></div>`;
+  if (key === "replenish" || key === "restoreMagicka" || key === "restoreStamina") {
+    const amount = key === "replenish" ? Math.max(1, Math.floor(2 * sl * potency)) : magnitude;
+    let calculated = false;
+    let delta = 0;
+    const confirmed = await requestAtomicUpdateDocument(actor, fresh => {
+      calculated = true;
+      const pool = key === "restoreStamina" ? _resolveStaminaPaths(fresh) : {
+        valuePath: "system.magicka.value", value: Number(fresh.system?.magicka?.value ?? 0), max: Number(fresh.system?.magicka?.max ?? 0),
+      };
+      const next = Math.min(pool.max, pool.value + amount);
+      delta = next - pool.value;
+      return delta === 0 ? null : { [pool.valuePath]: next };
+    }, { perfKind: "consumption" });
+    if (!calculated || (delta !== 0 && !confirmed)) throw new Error(`${label} restoration was not confirmed.`);
+    return { committed: Boolean(confirmed), noteHtml: _alchemyNoteHtml(label, `+${delta} ${key === "restoreStamina" ? "Stamina" : "Magicka"} restored`) };
   }
 
   if (effectDef.automation === "manual") {
     const parameterText = Object.values(params ?? {}).filter(Boolean).join(", ");
-    return `<div class="uesrpg-da-row"><span class="k">${label}</span><span class="v">SL ${sl}${parameterText ? ` (${parameterText})` : ""} — GM resolves effect</span></div>`;
+    return { committed: false, noteHtml: `<div class="uesrpg-da-row"><span class="k">${label}</span><span class="v">SL ${sl}${parameterText ? ` (${parameterText})` : ""} — GM resolves effect</span></div>` };
   }
 
   // Safely representable upkeep effects create a timed Active Effect.
@@ -423,19 +483,21 @@ async function _applyPotionEffect(actor, effectDef, sl, potency, finalDuration, 
       : finalDuration.value;
 
     const aeData = _buildPotionAE(actor, effectDef, sl, magnitude, durationRounds, params);
-    await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [aeData]);
+    const created = await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [aeData]);
+    if (created?.length !== 1) throw new Error(`${label} effect creation was not confirmed.`);
 
-    return `<div class="uesrpg-da-row"><span class="k">${label}</span><span class="v">SL ${sl} — ${finalDuration.value} ${finalDuration.unit}</span></div>`;
+    return { committed: true, noteHtml: `<div class="uesrpg-da-row"><span class="k">${label}</span><span class="v">SL ${sl} — ${finalDuration.value} ${finalDuration.unit}</span></div>` };
   }
 
   // Dispel: descriptive only.
   if (key === "dispel") {
-    return `<div class="uesrpg-da-row"><span class="k">${label}</span><span class="v">Dispel Strength ${magnitude} — resolve via magic automation</span></div>`;
+    return { committed: false, noteHtml: `<div class="uesrpg-da-row"><span class="k">${label}</span><span class="v">Dispel Strength ${magnitude} — resolve via magic automation</span></div>` };
   }
 
   // Fallback: descriptive.
-  return `<div class="uesrpg-da-row"><span class="k">${label}</span><span class="v">SL ${sl} — GM resolves effect</span></div>`;
+  return { committed: false, noteHtml: `<div class="uesrpg-da-row"><span class="k">${label}</span><span class="v">SL ${sl} — GM resolves effect</span></div>` };
 }
+
 
 /**
  * Build an ActiveEffect data object for a timed potion effect.
@@ -515,34 +577,35 @@ export async function applyAlchemyToTarget(actor, alchemyItem, targetItem) {
  * Called on `uesrpgDamageApplied`.
  * Checks if the attacker's weapon has alchemyApplied data; if so, resolves it.
  */
-async function _onDamageApplied(targetActor, context) {
-  if (!game.user?.isGM) return;
-  if ((Number(context?.amountApplied ?? 0) || 0) <= 0) return;
-  if (context?.chatContext?.alchemyOnHitSuppressed === true) return;
+export function applyAlchemyOnHit(targetActor, context, options = {}) {
+  return measurePerfStage("onHit", "alchemy", { actorUuid: targetActor?.uuid, applicationId: context?.applicationId },
+    () => _onDamageApplied(targetActor, context, options));
+}
 
-  const ammoItem = context?.ammo?.documentName === "Item" ? context.ammo : null;
-  const weaponItem = context?.weapon?.documentName === "Item" ? context.weapon : null;
-  const originItem = context?.origin?.documentName === "Item" ? context.origin : null;
-
-  let sourceItem = ammoItem && _getAppliedAlchemy(ammoItem) ? ammoItem : null;
-  if (!sourceItem) sourceItem = weaponItem ?? originItem ?? null;
+async function _onDamageApplied(targetActor, context, { strict = false } = {}) {
+  const sourceItem = getAlchemyOnHitCarrier(context);
   if (!sourceItem) return;
 
   let applied = _getAppliedAlchemy(sourceItem);
   if (!applied) return;
+  if (!game.user?.isGM && !doesUserOwnActor(game.user, sourceItem.parent)) {
+    if (strict) throw new Error("GM authority is required for alchemy on-hit consequences.");
+    return;
+  }
 
   if (applied.source === "legacy-flag") {
     const legacyAe = buildWeaponAlchemyAEData({
       uuid: applied.itemUuid ?? null,
       name: applied.itemName ?? "Applied Alchemy",
     }, applied);
-    await requestCreateEmbeddedDocuments(sourceItem, "ActiveEffect", [legacyAe]);
-    await requestUpdateDocument(sourceItem, { [`flags.${FLAG_NS}.alchemyApplied`]: null });
+    const created = await requestCreateEmbeddedDocuments(sourceItem, "ActiveEffect", [legacyAe]);
+    if (created?.length !== 1) throw new Error("Legacy coating migration was not confirmed.");
+    if (!await requestUpdateDocument(sourceItem, { [`flags.${FLAG_NS}.alchemyApplied`]: null }, { render: false })) throw new Error("Legacy coating cleanup was not confirmed.");
     applied = _getAppliedAlchemy(sourceItem);
   }
 
   if (_isAppliedAlchemyExpired(applied)) {
-    await _clearAppliedAlchemy(sourceItem, applied);
+    if (!await _clearAppliedAlchemy(sourceItem, applied)) throw new Error("Expired coating cleanup was not confirmed.");
     return;
   }
 
@@ -551,21 +614,16 @@ async function _onDamageApplied(targetActor, context) {
     String(sourceItem?.uuid ?? sourceItem?.id ?? ""),
     String(applied?.effectId ?? applied?.itemUuid ?? applied?.kind ?? ""),
   ].join(":");
-  if (_ALCHEMY_ON_HIT_IN_FLIGHT.has(inFlightKey)) return;
-  _ALCHEMY_ON_HIT_IN_FLIGHT.add(inFlightKey);
-
-  try {
+  if (_ALCHEMY_ON_HIT_IN_FLIGHT.has(inFlightKey)) return _ALCHEMY_ON_HIT_IN_FLIGHT.get(inFlightKey);
+  const pending = (async () => {
     if (applied.kind === "poison") {
-      await _clearAppliedAlchemy(sourceItem, applied);
-      await _postPoisonResistanceCard(targetActor, sourceItem, applied, context);
+      if (!await _clearAppliedAlchemy(sourceItem, applied)) throw new Error("Poison consumption was not confirmed.");
+      if (!await _postPoisonResistanceCard(targetActor, sourceItem, applied, context)) throw new Error("Poison resistance presentation failed.");
     }
-
-    if (applied.kind === "toxin") {
-      await _resolveToxinOnHit(targetActor, sourceItem, applied, context);
-    }
-  } finally {
-    _ALCHEMY_ON_HIT_IN_FLIGHT.delete(inFlightKey);
-  }
+    if (applied.kind === "toxin") await _resolveToxinOnHit(targetActor, sourceItem, applied, context, { strict });
+  })().finally(() => _ALCHEMY_ON_HIT_IN_FLIGHT.delete(inFlightKey));
+  _ALCHEMY_ON_HIT_IN_FLIGHT.set(inFlightKey, pending);
+  return pending;
 }
 
 /**
@@ -582,6 +640,7 @@ async function _postPoisonResistanceCard(targetActor, weaponItem, applied, conte
     kind: "poisonResistance",
     targetActorUuid: String(targetActor?.uuid ?? "").trim(),
     weaponUuid: String(weaponItem?.uuid ?? "").trim(),
+    sourceActorUuid: weaponItem?.parent?.uuid ?? "",
     weaponName: String(weaponItem?.name ?? "Weapon").trim() || "Weapon",
     appliedEffectId: String(applied?.effectId ?? "").trim() || null,
     poisonLevel: Math.max(1, Number(applied?.poisonLevel ?? 1) || 1),
@@ -598,7 +657,7 @@ async function _postPoisonResistanceCard(targetActor, weaponItem, applied, conte
     statusNote: "",
   };
 
-  await ChatMessage.create({
+  return ChatMessage.create({
     user: game.user.id,
     speaker: ChatMessage.getSpeaker({ actor: targetActor }),
     content: renderPoisonResistanceCard({
@@ -722,11 +781,12 @@ export async function resolvePoisonResistanceFromChat({ messageId, action } = {}
     return;
   }
 
+  const outcomes = [];
   let damageApplied = 0;
   let statusNote = `${targetActor.name} resisted the poison.`;
   if (!endurance.success) {
     const damageRoll = await new Roll(String(state?.damageFormula ?? "1d4").trim() || "1d4").evaluate();
-    _emitAlchemyRoll3d(damageRoll);
+    _emitAlchemyRoll3d(damageRoll, { actor: targetActor, message, damageType: "poison" });
     damageApplied = Math.max(
       0,
       state?.backfired
@@ -734,33 +794,16 @@ export async function resolvePoisonResistanceFromChat({ messageId, action } = {}
         : (Number(damageRoll?.total ?? 0) || 0)
     );
 
-    const suppressStandaloneSummary = Boolean(String(state?.parentMessageId ?? "").trim());
-    const damageResult = await applyDamageResolved(targetActor, {
-      rawDamage: damageApplied,
-      damageType: "poison",
-      ignoreReduction: true,
-      hitLocation: "Body",
-      source: `Poison (Level ${state?.poisonLevel ?? 1})`,
-      weapon: weaponItem ?? null,
-      origin: weaponItem?.uuid ?? null,
-      rollHTML: await damageRoll.render(),
-      chatContext: {
-        parentMessageId: String(state?.parentMessageId ?? "").trim() || null,
-        suppressStandaloneSummary,
-        alchemyOnHitSuppressed: true,
-      },
-    });
+    outcomes.push(createChatOutcome({ adapter: "alchemy.poison", kind: "damage",
+      sourceActorUuid: state.sourceActorUuid ?? weaponItem?.parent?.uuid ?? "", targetUuid: targetActor.uuid,
+      label: `Poison (Level ${state?.poisonLevel ?? 1})`, payload: {
+        amount: damageApplied, damageType: "poison", ignoreReduction: true, hitLocation: "Body",
+        source: `Poison (Level ${state?.poisonLevel ?? 1})`, origin: state.weaponUuid || null,
+        parentMessageId: state.parentMessageId, rollHTML: await damageRoll.render(),
+        chatContext: { parentMessageId: state.parentMessageId || null, suppressStandaloneSummary: true, alchemyOnHitSuppressed: true },
+      } }));
 
-    if (damageResult?.gmDamageReport && state?.parentMessageId) {
-      const parentMessage = game.messages?.get?.(String(state.parentMessageId).trim()) ?? null;
-      if (parentMessage) {
-        await appendSupplementalDamageReportToMessage(parentMessage, targetActor.uuid, {
-          gmDamageReport: damageResult.gmDamageReport,
-        });
-      }
-    }
-
-    statusNote = `${targetActor.name} failed the Endurance test and suffers ${damageApplied} poison damage to Body (ignores armor).`;
+    statusNote = `${targetActor.name} failed the Endurance test: ${damageApplied} poison damage to Body resolved (ignores armor).`;
   }
 
   const nextState = {
@@ -790,6 +833,7 @@ export async function resolvePoisonResistanceFromChat({ messageId, action } = {}
       statusNote: nextState.statusNote,
     }),
     ..._poisonCardFlagPatch(nextState),
+    [`flags.${FLAG_NS}.chatOutcomes`]: { version: 1, entries: outcomes },
   });
 }
 
@@ -886,6 +930,7 @@ async function _applyFailedToxinEffect(targetActor, effectEntry, {
   potency = 1,
   durationRounds = 10,
   combatActive = false,
+  parentApplication = null,
 } = {}) {
   if (String(effectEntry?.effectSource ?? "catalog") === "spell") {
     const normalizedResult = await _normalizeStoredSpellEffect(effectEntry, { mode: "toxin" });
@@ -901,6 +946,7 @@ async function _applyFailedToxinEffect(targetActor, effectEntry, {
       const report = await applyConsequences(targetActor, spellConfig?.consequences ?? {}, {
         source: syntheticSpell.name,
         origin: syntheticSpell.uuid,
+        sourceActorUuid: casterActor?.uuid ?? targetActor.uuid,
         halveFactor: 1,
       });
       return {
@@ -917,6 +963,7 @@ async function _applyFailedToxinEffect(targetActor, effectEntry, {
       potency,
       mode: "toxin",
       noteLabelSuffix: "Toxin",
+      parentApplication,
     });
   }
 
@@ -927,35 +974,50 @@ async function _applyFailedToxinEffect(targetActor, effectEntry, {
   });
   if (!applied?.ok) return applied;
 
-  if (applied.damageToApply > 0) {
-    await applyDamage(targetActor, applied.damageToApply, "physical", {
-      ignoreReduction: true,
-      source: "Drain Health (Toxin)",
-      skipChatMessage: true,
-      chatContext: { alchemyOnHitSuppressed: true, suppressStandaloneSummary: true },
-    });
-  }
-
-  const actorUpdate = {};
-  if ((applied.magickaDrain ?? 0) > 0) {
-    const currentMagicka = Number(targetActor.system?.magicka?.value ?? 0);
-    actorUpdate["system.magicka.value"] = Math.max(0, currentMagicka - applied.magickaDrain);
-  }
-  if ((applied.staminaDrain ?? 0) > 0) {
-    const { valuePath: staminaPath, value: currentStamina } = _resolveStaminaPaths(targetActor);
-    actorUpdate[staminaPath] = Math.max(0, currentStamina - applied.staminaDrain);
-  }
-  if (Object.keys(actorUpdate).length) {
-    await requestUpdateDocument(targetActor, actorUpdate);
-  }
-  if (Array.isArray(applied.aeCreates) && applied.aeCreates.length) {
-    await requestCreateEmbeddedDocuments(targetActor, "ActiveEffect", applied.aeCreates);
-  }
-
-  return { ok: true, noteHtml: applied.noteRows.join("\n") };
+  const outcome = createChatOutcome({ adapter: "alchemy.toxin", kind: applied.damageToApply > 0 ? "damage" : "effect",
+    sourceActorUuid: casterActor?.uuid ?? targetActor.uuid, targetUuid: targetActor.uuid,
+    label: _effectLabel(effectEntry), payload: applied });
+  return { ok: true, outcome, noteHtml: applied.noteRows.join("\n") };
 }
 
-async function _postToxinResistanceCard(targetActor, weaponItem, applied, context = {}, saveEffects = [], directNotesHtml = "") {
+async function _executePreparedToxin(outcome, context) {
+  const applied = outcome.payload;
+  const targetActor = context.actor;
+  if (applied.damageToApply > 0) {
+    const result = await context.stage("health", async () => _requireApplication(await applyDamage(targetActor, applied.damageToApply, "physical", {
+      ignoreReduction: true, source: "Drain Health (Toxin)", receiptId: context.receiptId, skipChatMessage: true, outcomeContext: context,
+      chatContext: { alchemyOnHitSuppressed: true, suppressStandaloneSummary: true },
+    }), "Toxin damage"));
+    await resumeDamageAftermath(result, context);
+  }
+  if (applied.magickaDrain > 0 || applied.staminaDrain > 0) {
+    await context.stage("resources", async () => {
+      let changed = false;
+      const confirmed = await requestAtomicUpdateDocument(targetActor, fresh => {
+        const update = {};
+        if (applied.magickaDrain > 0) update["system.magicka.value"] = Math.max(0, Number(fresh.system?.magicka?.value ?? 0) - applied.magickaDrain);
+        if (applied.staminaDrain > 0) {
+          const pool = _resolveStaminaPaths(fresh);
+          update[pool.valuePath] = Math.max(0, pool.value - applied.staminaDrain);
+        }
+        changed = Object.keys(foundry.utils.diffObject(fresh.toObject(), foundry.utils.expandObject(update))).length > 0;
+        return update;
+      });
+      if (!confirmed && changed) throw new Error("Toxin resource change was not confirmed.");
+      return { ok: true };
+    });
+  }
+  if (applied.aeCreates?.length) {
+    await context.stage("effects", async () => {
+      const created = await requestCreateEmbeddedDocuments(targetActor, "ActiveEffect", applied.aeCreates);
+      if (created?.length !== applied.aeCreates.length) throw new Error("Toxin effects were not fully created.");
+      return { ok: true, effectsApplied: true };
+    });
+  }
+  return { ok: true };
+}
+
+async function _postToxinResistanceCard(targetActor, weaponItem, applied, context = {}, saveEffects = [], directNotesHtml = "", directOutcomes = []) {
   const endTN = _getEnduranceTN(targetActor);
   if (endTN <= 0) {
     ui.notifications.warn(tf("UESRPG.Notifications.Alchemy.NoEnduranceTN", { target: targetActor?.name ?? t("UESRPG.UI.Target") }));
@@ -970,6 +1032,7 @@ async function _postToxinResistanceCard(targetActor, weaponItem, applied, contex
     kind: "toxinResistance",
     targetActorUuid: String(targetActor?.uuid ?? "").trim(),
     weaponUuid: String(weaponItem?.uuid ?? "").trim(),
+    sourceActorUuid: weaponItem?.parent?.uuid ?? "",
     weaponName: String(weaponItem?.name ?? "Weapon").trim() || "Weapon",
     parentMessageId: String(context?.chatContext?.parentMessageId ?? "").trim() || null,
     resolving: false,
@@ -986,7 +1049,7 @@ async function _postToxinResistanceCard(targetActor, weaponItem, applied, contex
     backfired: Boolean(applied?.backfired),
   };
 
-  await ChatMessage.create({
+  return ChatMessage.create({
     user: game.user.id,
     speaker: ChatMessage.getSpeaker({ actor: targetActor }),
     content: renderToxinResistanceCard({
@@ -1004,6 +1067,7 @@ async function _postToxinResistanceCard(targetActor, weaponItem, applied, contex
     flags: {
       [FLAG_NS]: {
         [ALCHEMY_TOXIN_CARD_KEY]: state,
+        chatOutcomes: { version: 1, entries: directOutcomes },
       },
     },
   });
@@ -1015,20 +1079,22 @@ async function _postToxinResistanceCard(targetActor, weaponItem, applied, contex
  * all AE creations into one createEmbeddedDocuments call to reduce lag.
  * When hitsRemaining reaches 0, the toxin is cleared from the weapon.
  */
-async function _resolveToxinOnHit(targetActor, weaponItem, applied, context = {}) {
+async function _resolveToxinOnHit(targetActor, weaponItem, applied, context = {}, { strict = false } = {}) {
   const effects = applied.effects ?? [];
   const combatActive = !!game.combat?.active;
   const durationRounds = applied.durationRounds ?? 10;
 
   const hitsRemaining = Math.max(0, Number(applied.hitsRemaining ?? 1) - 1);
   if (hitsRemaining <= 0) {
-    await _clearAppliedAlchemy(weaponItem, applied);
+    if (!await _clearAppliedAlchemy(weaponItem, applied)) throw new Error("Toxin consumption failed.");
   } else {
-    await _updateAppliedAlchemyHits(weaponItem, applied, hitsRemaining);
+    if (!await _updateAppliedAlchemyHits(weaponItem, applied, hitsRemaining)) throw new Error("Toxin hit count was not confirmed.");
   }
 
   const saveEffects = [];
   const directNotes = [];
+  const directOutcomes = [];
+  const failures = [];
   const casterActor = weaponItem?.parent?.documentName === "Actor" ? weaponItem.parent : targetActor;
 
   for (const effectEntry of effects) {
@@ -1042,8 +1108,11 @@ async function _resolveToxinOnHit(targetActor, weaponItem, applied, context = {}
       potency: applied.backfired ? 0.5 : 1,
       durationRounds,
       combatActive,
+      parentApplication: context?._parentApplication ?? null,
     });
+    if (resolved.outcome) directOutcomes.push(resolved.outcome);
     if (!resolved?.ok) {
+      failures.push(resolved?.reason ?? "Toxin effect failed.");
       directNotes.push(_alchemyNoteHtml(_effectLabel(effectEntry), resolved?.reason ?? "Toxin effect could not be applied.", "is-warning"));
     } else if (resolved.noteHtml) {
       directNotes.push(resolved.noteHtml);
@@ -1051,7 +1120,8 @@ async function _resolveToxinOnHit(targetActor, weaponItem, applied, context = {}
   }
 
   if (saveEffects.length) {
-    await _postToxinResistanceCard(targetActor, weaponItem, applied, context, saveEffects, directNotes.join("\n"));
+    if (!await _postToxinResistanceCard(targetActor, weaponItem, applied, context, saveEffects, directNotes.join("\n"), directOutcomes)) failures.push("Toxin resistance card failed.");
+    if (strict && failures.length) throw new Error(failures.join("; "));
     return;
   }
 
@@ -1076,7 +1146,9 @@ async function _resolveToxinOnHit(targetActor, weaponItem, applied, context = {}
     style: CONST.CHAT_MESSAGE_STYLES.OTHER,
     whisper: gmIds,
     blind: true,
+    flags: chatOutcomeFlags(directOutcomes),
   });
+  if (strict && failures.length) throw new Error(failures.join("; "));
   return;
 }
 
@@ -1160,15 +1232,17 @@ export async function resolveToxinResistanceFromChat({ messageId, action } = {})
     return;
   }
 
+  const outcomes = foundry.utils.deepClone(message.flags?.[FLAG_NS]?.chatOutcomes?.entries ?? []);
   const noteRows = [];
   if (!endurance.success) {
     for (const effectEntry of Array.isArray(state?.effects) ? state.effects : []) {
       const resolved = await _applyFailedToxinEffect(targetActor, effectEntry, {
-        casterActor: weaponItem?.parent?.documentName === "Actor" ? weaponItem.parent : targetActor,
+        casterActor: resolveActorFromUuidSync(state.sourceActorUuid) ?? (weaponItem?.parent?.documentName === "Actor" ? weaponItem.parent : targetActor),
         potency: state?.backfired ? 0.5 : 1,
         durationRounds: Number(state?.durationRounds ?? 10) || 10,
         combatActive: state?.combatActive === true,
       });
+      if (resolved.outcome) outcomes.push(resolved.outcome);
       if (!resolved?.ok) {
         noteRows.push(_alchemyNoteHtml(_effectLabel(effectEntry), resolved?.reason ?? "Toxin effect could not be applied.", "is-warning"));
       } else if (resolved.noteHtml) {
@@ -1179,7 +1253,7 @@ export async function resolveToxinResistanceFromChat({ messageId, action } = {})
 
   const statusNote = endurance.success
     ? `${targetActor.name} resisted the save-gated toxin effects.`
-    : `${targetActor.name} failed the Endurance test and suffers the toxin effects.`;
+    : `${targetActor.name} failed the Endurance test; toxin effects resolved.`;
   const combinedEffectsHtml = [
     effectsHtml,
     !endurance.success ? noteRows.join("\n") : "",
@@ -1210,6 +1284,7 @@ export async function resolveToxinResistanceFromChat({ messageId, action } = {})
       statusNote,
     }),
     ..._toxinCardFlagPatch(nextState),
+    [`flags.${FLAG_NS}.chatOutcomes`]: { version: 1, entries: outcomes },
   });
 }
 
@@ -1247,8 +1322,10 @@ export async function pickAlchemyCoatingTarget(actor) {
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
-async function _postAlchemyUseMessage(actor, item, title, bodyHtml) {
-  return _postAlchemyUseMessageImpl(actor, item, title, bodyHtml);
+async function _postAlchemyUseMessage(actor, item, title, bodyHtml, flags = {}) {
+  const created = await _postAlchemyUseMessageImpl(actor, item, title, bodyHtml, flags);
+  if (!created) throw new Error("Alchemy summary creation was not confirmed.");
+  return created;
 }
 
 // ── Initialization ────────────────────────────────────────────────────────────

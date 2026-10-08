@@ -16,8 +16,8 @@ export function registerChatMessageSocket() {
   registerAuthorityProxy();
 }
 
-export async function safeUpdateChatMessage(message, payload) {
-  return requestUpdateChatMessage(message, payload);
+export async function safeUpdateChatMessage(message, payload, options) {
+  return requestUpdateChatMessage(message, payload, options);
 }
 
 export { sanitizeChatMessageUpdatePayload };

@@ -2,7 +2,7 @@ import { requestDeleteEmbeddedDocuments } from "../../utils/authority-proxy.js";
 import { buildEffectChangesData } from "../../utils/compat.js";
 import { createDebugLogger } from "../../utils/debug.js";
 import { buildGenericAEMetadata, getGenericAEMetadata, isConditionEffect, mergeGenericAEMetadataIntoFlags } from "./metadata.js";
-import { applyGenericAEExpiryAction, buildGenericAEExpiry, toLegacyStartTurnExpiryFlags } from "./expiry.js";
+import { applyGenericAEExpiryAction, buildGenericAEExpiry, toLegacyStartTurnExpiryFlags, getGenericAEExpiryActors } from "./expiry.js";
 import { applyGenericStackPolicy } from "./stack-policy.js";
 
 const _debug = createDebugLogger("aeLifecycleDebug", "[UESRPG][GenericAELifecycle]");
@@ -53,7 +53,7 @@ function _isCombatEndEffect(effect, combat) {
 async function _expireCombatEndEffects(combat) {
   if (!globalThis.game?.user?.isGM) return;
 
-  for (const actor of globalThis.game?.actors?.contents ?? []) {
+  for (const actor of getGenericAEExpiryActors(combat)) {
     const effects = Array.from(actor?.effects ?? []).filter((effect) => _isCombatEndEffect(effect, combat));
     if (!effects.length) continue;
 

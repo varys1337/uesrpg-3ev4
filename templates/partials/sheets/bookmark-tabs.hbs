@@ -1,4 +1,4 @@
-<nav class="uesrpg-bookmark-tabs tabs" data-group="primary" aria-label="{{localize "UESRPG.UI.Tabs"}}" role="tablist">
+<nav class="uesrpg-bookmark-tabs tabs{{#if (eq actor.type "Group")}} uesrpg-group-bookmark-tabs{{/if}}" data-group="primary" aria-label="{{localize "UESRPG.UI.Tabs"}}" role="tablist" {{#if (eq actor.type "Group")}}aria-orientation="vertical"{{/if}}>
   {{#if (eq actor.type "Group")}}
     <button type="button" class="item uesrpg-semantic-control uesrpg-plain-control" data-action="tab" data-group="primary" data-tab="members" role="tab">{{localize "UESRPG.UI.Members"}}</button>
     <button type="button" class="item uesrpg-semantic-control uesrpg-plain-control" data-action="tab" data-group="primary" data-tab="inventory" role="tab">{{localize "UESRPG.UI.Inventory"}}</button>

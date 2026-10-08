@@ -62,7 +62,7 @@ async function activateDefenderTalent({ actor, context = {}, resolver = null } =
   let targets = getTargetsFromContext(context)
     .map((target) => resolveTokenTarget(target, { resolver }))
     .filter(Boolean);
-  if (targets.length !== 1) {
+  if (targets.length !== 1 && context?.targets == null) {
     targets = Array.from(game?.user?.targets ?? [])
       .map((target) => resolveTokenTarget(target, { resolver }) ?? target?.object ?? null)
       .filter((target) => Boolean(target?.actor));
@@ -192,7 +192,7 @@ export async function runTalentActivationAutomation({ item, actor, context = {},
     if (key === "hardtarget" && !await activateHardTargetEffect(actor)) throw new Error("Hard Target could not be applied.");
     if (key === "defender" && !await activateDefenderTalent({ actor, context, resolver })) throw new Error("Defender did not complete.");
     if (key === "thundercharge") await activateThunderChargeTalent({ actor });
-    if (key === "inspireheroism" && !await handleInspireHeroismActivation({ actor, item })) throw new Error("Inspire Heroism could not be applied.");
+    if (key === "inspireheroism" && !await handleInspireHeroismActivation({ actor, item, context })) throw new Error("Inspire Heroism could not be applied.");
     if (isActivatableSpellcastingTalent(item) && !await activateSpellcastingTalent(actor, item)) throw new Error("Spellcasting talent could not be applied.");
     await handleRacialTalentActivation({ actor, item, itemKey: key });
   } catch (err) {

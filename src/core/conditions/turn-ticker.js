@@ -20,6 +20,8 @@ import {
   applyGenericAEExpiryAction,
   effectMatchesGenericExpiry,
   getEffectExpiryAction,
+  getEffectGenericExpiry,
+  getGenericAEExpiryActors,
 } from "../active-effects/expiry.js";
 
 let _registered = false;
@@ -45,20 +47,6 @@ function _getState(combat) {
   return _combatState.get(String(combat.id)) ?? null;
 }
 
-function _getPreviousCombatant(combat, changed) {
-  if (!combat) return null;
-  const turns = combat.turns ?? [];
-  if (!Array.isArray(turns) || turns.length === 0) return null;
-
-  if (!("turn" in (changed ?? {})) && !("round" in (changed ?? {}))) return null;
-
-  const turn = Number(combat.turn ?? 0);
-  if (turn === 0 && Number(combat.round ?? 0) === 1 && Number(changed?.round ?? 1) === 1) return null;
-
-  const prevIndex = (turn - 1) < 0 ? (turns.length - 1) : (turn - 1);
-  return turns[prevIndex] ?? null;
-}
-
 function _isAggregateRegenEnabled() {
   return isAggregateRegenPromptsEnabled();
 }
@@ -67,115 +55,93 @@ function _isAggregateSilencedEnabled() {
   return isAggregateSilencedChecksEnabled();
 }
 
-async function _expireStartOfTurnEffects(combat, changed) {
+async function _expireStartOfTurnEffects(combat, changed, next) {
   if (!combat) return;
   if (!((changed ?? {}) && ("turn" in changed || "round" in changed))) return;
 
   const turns = combat.turns ?? [];
   if (!Array.isArray(turns) || turns.length === 0) return;
 
-  const idx = Number(combat.turn ?? 0);
-  const current = turns[idx] ?? null;
+  const current = combat.combatants?.get?.(next.combatantId) ?? null;
   const actor = current?.actor ?? null;
   if (!actor) return;
 
-  const currentTurn = Number(combat.turn ?? 0);
-  const currentRound = Number(combat.round ?? 0);
-  const effects = actor?.effects?.contents ?? [];
-  const toDelete = [];
-  const toSuppress = [];
+  const currentTurn = Number(next.turn ?? 0);
+  const currentRound = Number(next.round ?? 0);
+  for (const owner of getGenericAEExpiryActors(combat)) {
+    const effects = (owner?.effects?.contents ?? []).filter(effect => owner.uuid === actor.uuid
+      || getEffectGenericExpiry(effect)?.combatantId === current.id);
+    const toDelete = [];
+    const toSuppress = [];
 
-  for (const effect of effects) {
-    if (!effectMatchesGenericExpiry(effect, {
-      mode: "turn-start",
-      combat,
-      combatant: current,
-      round: currentRound,
-      turn: currentTurn,
-      includeLegacy: true,
-    })) continue;
+    for (const effect of effects) {
+      if (!effectMatchesGenericExpiry(effect, {
+        mode: "turn-start",
+        combat,
+        combatant: current,
+        round: currentRound,
+        turn: currentTurn,
+        includeLegacy: true,
+      })) continue;
 
-    if (getEffectExpiryAction(effect) === "suppress") toSuppress.push(effect);
-    else toDelete.push(effect);
-  }
-
-  for (const effect of toSuppress) {
-    await applyGenericAEExpiryAction(actor, effect, { reason: "turn-start", combat });
-  }
-
-  if (toDelete.length === 0) return;
-
-  const uniqueIds = Array.from(new Set(toDelete.map((e) => e?.id).filter(Boolean)));
-  const existingIds = uniqueIds.filter((id) => actor.effects?.get?.(id));
-  if (existingIds.length === 0) return;
-
-  try {
-    await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", existingIds);
-  } catch (err) {
-    const msg = String(err?.message ?? "");
-    const stillExisting = existingIds.filter((id) => actor.effects?.has?.(id));
-
-    if (stillExisting.length > 0) {
-      try {
-        await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", stillExisting);
-        return;
-      } catch (_retryErr) {
-        // Fall through.
-      }
+      if (getEffectExpiryAction(effect) === "suppress") toSuppress.push(effect);
+      else toDelete.push(effect);
     }
 
-    if (!msg.includes("does not exist")) {
-      console.warn("UESRPG | Start-of-turn effect expiry failed", err);
+    for (const effect of toSuppress) {
+      await applyGenericAEExpiryAction(owner, effect, { reason: "turn-start", combat, round: next.round, strict: true });
+    }
+
+    if (toDelete.length === 0) continue;
+
+    const uniqueIds = Array.from(new Set(toDelete.map((e) => e?.id).filter(Boolean)));
+    const existingIds = uniqueIds.filter((id) => owner.effects?.get?.(id));
+    if (existingIds.length === 0) continue;
+
+    if (!await requestDeleteEmbeddedDocuments(owner, "ActiveEffect", existingIds)) {
+      throw new Error("Start-of-turn effect deletion was not confirmed.");
     }
   }
 }
 
-async function _expireEndOfTurnEffects(combat, changed, previousCombatant) {
+async function _expireEndOfTurnEffects(combat, changed, previousCombatant, prior) {
   if (!combat || !previousCombatant) return;
   if (!((changed ?? {}) && ("turn" in changed || "round" in changed))) return;
 
   const actor = previousCombatant?.actor ?? null;
   if (!actor) return;
 
-  const turns = combat.turns ?? [];
-  const turnArray = Array.isArray(turns) ? turns : Array.from(turns ?? []);
-  const previousTurn = turnArray.findIndex((turn) => String(turn?.id ?? "") === String(previousCombatant.id ?? ""));
-  const currentTurn = Number(combat.turn ?? 0);
-  const currentRound = Number(combat.round ?? 0);
-  const previousRound = ("round" in (changed ?? {}) && currentTurn === 0)
-    ? Math.max(0, currentRound - 1)
-    : currentRound;
+  const previousTurn = Number(prior.turn ?? -1);
+  const previousRound = Number(prior.round ?? 0);
 
-  const toDelete = [];
-  const toSuppress = [];
+  for (const owner of getGenericAEExpiryActors(combat)) {
+    const toDelete = [];
+    const toSuppress = [];
 
-  for (const effect of actor?.effects?.contents ?? []) {
-    if (!effectMatchesGenericExpiry(effect, {
-      mode: "turn-end",
-      combat,
-      combatant: previousCombatant,
-      round: previousRound,
-      turn: previousTurn >= 0 ? previousTurn : null,
-      includeLegacy: false,
-    })) continue;
+    for (const effect of owner?.effects?.contents ?? []) {
+      if (owner.uuid !== actor.uuid && getEffectGenericExpiry(effect)?.combatantId !== previousCombatant.id) continue;
+      if (!effectMatchesGenericExpiry(effect, {
+        mode: "turn-end",
+        combat,
+        combatant: previousCombatant,
+        round: previousRound,
+        turn: previousTurn >= 0 ? previousTurn : null,
+        includeLegacy: false,
+      })) continue;
 
-    if (getEffectExpiryAction(effect) === "suppress") toSuppress.push(effect);
-    else toDelete.push(effect);
-  }
+      if (getEffectExpiryAction(effect) === "suppress") toSuppress.push(effect);
+      else toDelete.push(effect);
+    }
 
-  for (const effect of toSuppress) {
-    await applyGenericAEExpiryAction(actor, effect, { reason: "turn-end", combat });
-  }
+    for (const effect of toSuppress) {
+      await applyGenericAEExpiryAction(owner, effect, { reason: "turn-end", combat, round: prior.round, strict: true });
+    }
 
-  const ids = Array.from(new Set(toDelete.map((effect) => effect?.id).filter(Boolean)))
-    .filter((id) => actor.effects?.get?.(id));
-  if (ids.length) {
-    try {
-      await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", ids);
-    } catch (err) {
-      const msg = String(err?.message ?? "");
-      if (!msg.includes("does not exist")) {
-        console.warn("UESRPG | End-of-turn effect expiry failed", err);
+    const ids = Array.from(new Set(toDelete.map((effect) => effect?.id).filter(Boolean)))
+      .filter((id) => owner.effects?.get?.(id));
+    if (ids.length) {
+      if (!await requestDeleteEmbeddedDocuments(owner, "ActiveEffect", ids)) {
+        throw new Error("End-of-turn effect deletion was not confirmed.");
       }
     }
   }
@@ -200,7 +166,9 @@ async function _postRegenerationPrompts(candidates, round) {
     }
 
     await postRegenerationPrompt({ actor, traitValue: value, round });
-    await requestUpdateDocument(actor, { [`flags.${FLAG_SCOPE}.regenerationPromptRound`]: round });
+    if (!await requestUpdateDocument(actor, { [`flags.${FLAG_SCOPE}.regenerationPromptRound`]: round }, { render: false })) {
+      throw new Error("Regeneration prompt bookkeeping was not confirmed.");
+    }
   }
 }
 
@@ -228,7 +196,8 @@ async function _postRegenerationPromptsAggregated(candidates, round) {
 
   const batchRows = eligible.map(({ actor }) => ({
     docOrUuid: actor,
-    updateData: { [`flags.${FLAG_SCOPE}.regenerationPromptRound`]: round }
+    updateData: { [`flags.${FLAG_SCOPE}.regenerationPromptRound`]: round },
+    updateOptions: { render: false }
   }));
 
   const result = await requestBatchUpdateDocuments(batchRows);
@@ -246,10 +215,11 @@ async function _postRegenerationPromptsAggregated(candidates, round) {
     const actor = row.docOrUuid;
     const uuid = String(actor?.uuid ?? "");
     if (failedUuidSet.size && !failedUuidSet.has(uuid)) continue;
-    const ok = await requestUpdateDocument(actor, row.updateData);
+    const ok = await requestUpdateDocument(actor, row.updateData, { render: false });
     if (!ok) fallbackFailures += 1;
   }
 
+  if (fallbackFailures) throw new Error("Regeneration prompt bookkeeping was only partially confirmed.");
   return {
     writeCount: eligible.length,
     batchCount: 1,
@@ -257,7 +227,7 @@ async function _postRegenerationPromptsAggregated(candidates, round) {
   };
 }
 
-async function _runSilencedRoundChecks(candidates, combat) {
+async function _runSilencedRoundChecks(candidates, combat, round) {
   if (!Array.isArray(candidates) || !candidates.length) return;
 
   // Intentionally sequential/non-batched writes:
@@ -267,21 +237,23 @@ async function _runSilencedRoundChecks(candidates, combat) {
   for (const entry of candidates) {
     const actor = entry?.actor ?? null;
     if (!actor) continue;
-    await runSilencedRealizationCheck(actor, { combat });
+    await runSilencedRealizationCheck(actor, { combat, round, strict: true });
   }
 }
 
-async function _runSilencedRoundChecksParallel(candidates, combat) {
+async function _runSilencedRoundChecksParallel(candidates, combat, round) {
   if (!Array.isArray(candidates) || !candidates.length) return;
 
   const checks = [];
   for (const entry of candidates) {
     const actor = entry?.actor ?? null;
     if (!actor) continue;
-    checks.push(runSilencedRealizationCheck(actor, { combat }));
+    checks.push(runSilencedRealizationCheck(actor, { combat, round, strict: true }));
   }
 
-  if (checks.length) await Promise.allSettled(checks);
+  const results = await Promise.allSettled(checks);
+  const failed = results.find(result => result.status === "rejected");
+  if (failed) throw failed.reason;
 }
 
 function _collectRegenerationCandidatesByCombatScan(combat) {
@@ -321,8 +293,8 @@ async function _handleCombatBoundaryTick(payload) {
     if (!combat?.id) return;
     if (payload?.combat?.id && String(payload.combat.id) !== String(combat.id)) return;
 
-    const prev = _getState(combat);
-    const next = _snapshotCombat(combat);
+    const prev = payload.combat?.prior ?? _getState(combat);
+    const next = payload.combat?.current ?? _snapshotCombat(combat);
 
     if (!prev) {
       _setState(combat);
@@ -334,7 +306,7 @@ async function _handleCombatBoundaryTick(payload) {
     if (prev.turn !== next.turn) changed.turn = next.turn;
     if (prev.combatantId !== next.combatantId) changed.combatantId = next.combatantId;
 
-    _setState(combat);
+    _combatState.set(String(combat.id), { ...next });
     if (!Object.keys(changed).length) return;
 
     const _perf = isPerfEnabled();
@@ -343,12 +315,12 @@ async function _handleCombatBoundaryTick(payload) {
     const _round = next.round;
     const _combatantsTotal = Array.from(combat.combatants ?? []).length;
 
-    const prevCombatant = _getPreviousCombatant(combat, changed);
+    const prevCombatant = combat.combatants?.get?.(prev.combatantId) ?? null;
     const actor = prevCombatant?.actor ?? null;
 
     const _tEndTurn = _perf ? monoMs() : 0;
-    if (actor) await tickConditionsEndTurn(actor);
-    await _expireEndOfTurnEffects(combat, changed, prevCombatant);
+    if (actor) await tickConditionsEndTurn(actor, { strict: true });
+    await _expireEndOfTurnEffects(combat, changed, prevCombatant, prev);
     if (_perf) {
       perfRecord({
         event: "turnTicker.endTurnTick",
@@ -360,7 +332,7 @@ async function _handleCombatBoundaryTick(payload) {
     }
 
     const _tExpiry = _perf ? monoMs() : 0;
-    await _expireStartOfTurnEffects(combat, changed);
+    await _expireStartOfTurnEffects(combat, changed, next);
     if (_perf) {
       perfRecord({
         event: "turnTicker.expireEffects",
@@ -390,7 +362,7 @@ async function _handleCombatBoundaryTick(payload) {
     }
 
     const _aggregateRegen = _isAggregateRegenEnabled();
-    const _roundForRegen = Number(combat.round ?? 0);
+    const _roundForRegen = Number(next.round ?? 0);
     await scheduleBoundaryWork(
       async () => {
         if (_aggregateRegen) {
@@ -447,9 +419,9 @@ async function _handleCombatBoundaryTick(payload) {
     await scheduleBoundaryWork(
       async () => {
         if (_aggregateSilenced) {
-          await _runSilencedRoundChecksParallel(_silencedCandidates, combat);
+          await _runSilencedRoundChecksParallel(_silencedCandidates, combat, next.round);
         } else {
-          await _runSilencedRoundChecks(_silencedCandidates, combat);
+          await _runSilencedRoundChecks(_silencedCandidates, combat, next.round);
         }
       },
       { combatId: _combatId, round: _round, label: "silencedChecks" }
@@ -487,6 +459,7 @@ async function _handleCombatBoundaryTick(payload) {
     }
   } catch (err) {
     console.warn("UESRPG | Condition/Wound turn ticker failed", err);
+    throw err;
   }
 }
 

@@ -35,6 +35,16 @@ export function getAppliedAlchemy(item) {
   };
 }
 
+/** The carrier chosen by the on-hit executor, including legacy/expired coatings. */
+export function getAlchemyOnHitCarrier(context) {
+  if ((Number(context?.amountApplied ?? 0) || 0) <= 0 || context?.chatContext?.alchemyOnHitSuppressed === true) return null;
+  const ammo = context?.ammo?.documentName === "Item" ? context.ammo : null;
+  const weapon = context?.weapon?.documentName === "Item" ? context.weapon : null;
+  const origin = context?.origin?.documentName === "Item" ? context.origin : null;
+  const source = ammo && getAppliedAlchemy(ammo) ? ammo : weapon ?? origin;
+  return source && getAppliedAlchemy(source) ? source : null;
+}
+
 export function isAlchemyWeaponTarget(item) {
   return String(item?.type ?? "").trim().toLowerCase() === "weapon" && item?.system?.equipped === true;
 }
@@ -149,8 +159,7 @@ export async function clearAppliedAlchemy(item, applied = null) {
   }
 
   if (item?.flags?.[FLAG_NS]?.alchemyApplied) {
-    await requestUpdateDocument(item, { [`flags.${FLAG_NS}.alchemyApplied`]: null });
-    return true;
+    return requestUpdateDocument(item, { [`flags.${FLAG_NS}.alchemyApplied`]: null }, { render: false });
   }
 
   return false;
@@ -167,10 +176,9 @@ export async function updateAppliedAlchemyHits(item, applied, hitsRemaining) {
   }
 
   if (item?.flags?.[FLAG_NS]?.alchemyApplied) {
-    await requestUpdateDocument(item, {
+    return requestUpdateDocument(item, {
       [`flags.${FLAG_NS}.alchemyApplied.hitsRemaining`]: next,
     });
-    return true;
   }
 
   return false;

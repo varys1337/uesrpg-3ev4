@@ -7,7 +7,8 @@
  * use that intent service; arbitrary document payloads are never proxied.
  */
 
-import { isPerfEnabled, monoMs, perfRecord } from "./perf-tracker.js";
+import { isPerfEnabled, monoMs, perfRecord, measurePerfStage } from "./perf-tracker.js";
+import { mergeChatOutcomeEnvelope } from "../core/config/outcome-application-policy.js";
 import {
   acquireLock,
   releaseLock,
@@ -127,6 +128,9 @@ async function _handleChatTransitionIntent({ requester, data, expectedRevision }
 
   const systemId = game.system?.id ?? "uesrpg-3ev4";
   const incomingFlags = payload.flags?.[systemId];
+  if (!requester.isGM && Object.keys(incomingFlags ?? {}).some(key => ["chatOutcomes", "regenerationPrompt", "regenerationPromptBatch", "specialActionOpposed", "alchemyPoisonCard", "alchemyToxinCard"].includes(key))) {
+    return { ok: false, code: AUTHORITY_RESULT_CODES.UNAUTHORIZED };
+  }
   const currentFlags = message.flags?.[systemId];
   const incomingState = _laneState(incomingFlags, lane);
   const currentState = _laneState(currentFlags, lane);
@@ -160,7 +164,7 @@ async function _handleChatTransitionIntent({ requester, data, expectedRevision }
     if (!isChatMessageUpdateFresh(liveMessage, payload)) {
       return { ok: false, code: AUTHORITY_RESULT_CODES.STALE_REVISION, data: { currentRevision: currentSeq } };
     }
-    if (!await liveMessage.update(payload)) return { ok: false, code: AUTHORITY_RESULT_CODES.FAILED };
+    if (!await liveMessage.update(payload, { render: data.render !== false })) return { ok: false, code: AUTHORITY_RESULT_CODES.FAILED };
     return { ok: true, data: { revision: incomingSeq } };
   } catch (error) {
     console.error("UESRPG | authority-proxy | Chat transition intent failed", error);
@@ -217,15 +221,18 @@ export function registerAuthorityProxy() {
   registerAuthorityIntentCommand(CHAT_TRANSITION_COMMAND, _handleChatTransitionIntent);
 }
 
-export async function requestUpdateChatMessage(message, payload, { timeout = 5_000 } = {}) {
+export async function requestUpdateChatMessage(message, payload, { timeout = 5_000, render = true } = {}) {
   if (!message) return false;
   const sanitized = sanitizeChatMessageUpdatePayload(payload);
   if (!Object.keys(sanitized).length) return false;
 
   if (canUserUpdateChatMessage(message, game.user)) {
     if (!isChatMessageUpdateFresh(message, sanitized)) return false;
+    const systemId = game.system.id;
+    const incoming = sanitized.flags?.[systemId]?.chatOutcomes;
+    if (incoming) sanitized.flags[systemId].chatOutcomes = mergeChatOutcomeEnvelope(message.flags?.[systemId]?.chatOutcomes, incoming);
     try {
-      return Boolean(await message.update(sanitized));
+      return Boolean(await message.update(sanitized, { render: render !== false }));
     } catch (error) {
       console.error("UESRPG | authority-proxy | Direct ChatMessage update failed", { messageId: message.id, error });
       return false;
@@ -242,6 +249,7 @@ export async function requestUpdateChatMessage(message, payload, { timeout = 5_0
   const result = await requestAuthorityIntent(CHAT_TRANSITION_COMMAND, {
     messageId: message.id,
     payload: sanitized,
+    render: render !== false,
   }, { expectedRevision, timeout });
   if (!result?.ok) {
     _dwarn("Chat transition rejected", { messageId: message.id, code: result?.code });
@@ -262,7 +270,32 @@ export async function requestCreateActiveEffect(actor, effectData) {
   return created?.[0] ?? null;
 }
 
-export async function requestAtomicUpdateDocument(docOrUuid, mutator) {
+/** Preserve the Boolean write contract without treating a native no-op as failure. */
+async function _updateDocument(doc, cleaned, { render } = {}) {
+  const operation = typeof render === "boolean" ? { render } : {};
+  const perf = isPerfEnabled();
+  const startedAt = perf ? monoMs() : null;
+  let outcome = "rejected";
+  try {
+    // Native hooks may modify input; preserve the requested change for confirmation.
+    const updated = await doc.update(foundry.utils.deepClone(cleaned), operation);
+    if (updated !== undefined) {
+      if (updated) outcome = "confirmed-change";
+      return Boolean(updated);
+    }
+    const remaining = doc.updateSource(foundry.utils.deepClone(cleaned), { dryRun: true, fallback: false });
+    if (foundry.utils.isEmpty(remaining)) outcome = "confirmed-noop";
+    return outcome === "confirmed-noop";
+  } finally {
+    if (perf) perfRecord({ event: "authorityProxy.documentResult", docUuid: doc.uuid,
+      docType: doc.documentName, outcome, writeAttemptCount: 1,
+      confirmedChangeCount: outcome === "confirmed-change" ? 1 : 0,
+      confirmedNoopCount: outcome === "confirmed-noop" ? 1 : 0,
+      renderRequested: render !== false, durationMs: monoMs() - startedAt });
+  }
+}
+
+export async function requestAtomicUpdateDocument(docOrUuid, mutator, options = {}) {
   if (!docOrUuid || typeof mutator !== "function") return false;
   const doc = typeof docOrUuid === "string" ? await fromUuid(docOrUuid) : docOrUuid;
   if (!isAllowedGenericDocument(doc)) return false;
@@ -274,13 +307,16 @@ export async function requestAtomicUpdateDocument(docOrUuid, mutator) {
   const lockKey = lockKeyForDoc(doc);
   let acquired = false;
   try {
-    await acquireLock(lockKey);
+    const context = { docUuid: doc.uuid, operationId: options.operationId ?? null };
+    const kind = options.perfKind ?? "authorityProxy.atomic";
+    await measurePerfStage(kind, "queueWait", context, () => acquireLock(lockKey));
     acquired = true;
     const fresh = (doc.uuid ? await fromUuid(doc.uuid) : null) ?? doc;
-    const updateData = await mutator(fresh);
+    const updateData = await measurePerfStage(kind, "calculation", context, () => mutator(fresh));
     const cleaned = sanitizeGenericUpdatePayload(fresh, updateData);
     if (!Object.keys(cleaned).length) return false;
-    return Boolean(await fresh.update(cleaned));
+    return await measurePerfStage(kind, "persistence", { ...context, writeAttemptCount: 1, render: options.render ?? null },
+      () => _updateDocument(fresh, cleaned, options));
   } catch (error) {
     console.error("UESRPG | authority-proxy | Atomic document update failed", { uuid: doc.uuid, error });
     return false;
@@ -289,31 +325,31 @@ export async function requestAtomicUpdateDocument(docOrUuid, mutator) {
   }
 }
 
-export async function requestUpdateDocument(docOrUuid, updateData) {
+export async function requestUpdateDocument(docOrUuid, updateData, options = {}) {
   if (!docOrUuid || !updateData) return false;
   const doc = typeof docOrUuid === "string" ? await fromUuid(docOrUuid) : docOrUuid;
   if (!isAllowedGenericDocument(doc)) return false;
   const cleaned = sanitizeGenericUpdatePayload(doc, updateData);
   if (!Object.keys(cleaned).length) return false;
 
-  if (isPerfEnabled()) {
-    perfRecord({
-      event: "authorityProxy.updateDocument",
-      docType: doc.documentName ?? null,
-      docId: doc.id ?? null,
-      keyCount: Object.keys(cleaned).length,
-      isDirectPath: _canOwn(game.user, doc),
-    });
-  }
   if (!_canOwn(game.user, doc)) {
     _notifyRemoteDenied("document update");
     return false;
   }
+  const startedAt = isPerfEnabled() ? monoMs() : null;
+  let updated = false;
   try {
-    return Boolean(await doc.update(cleaned));
+    updated = await _updateDocument(doc, cleaned, options);
+    return updated;
   } catch (error) {
     console.error("UESRPG | authority-proxy | Direct document update failed", { uuid: doc.uuid, error });
     return false;
+  } finally {
+    if (startedAt !== null) perfRecord({
+      event: "authorityProxy.updateDocument", docType: doc.documentName ?? null, docId: doc.id ?? null,
+      docUuid: doc.uuid ?? null, keyCount: Object.keys(cleaned).length, isDirectPath: true,
+      ok: updated, writeAttemptCount: 1, render: options.render ?? null, durationMs: monoMs() - startedAt,
+    });
   }
 }
 
@@ -335,7 +371,7 @@ export async function requestBatchUpdateDocuments(updates) {
       failures.push({ uuid: String(doc.uuid), error: "Empty or invalid update payload" });
       continue;
     }
-    prepared.push({ doc, cleaned });
+    prepared.push({ doc, cleaned, options: { render: row?.updateOptions?.render } });
   }
 
   const lockKeys = [...new Set(prepared.map(({ doc }) => lockKeyForDoc(doc)))].sort();
@@ -348,8 +384,9 @@ export async function requestBatchUpdateDocuments(updates) {
     }
     for (const row of prepared) {
       try {
-        await row.doc.update(row.cleaned);
-        updatedCount += 1;
+        const fresh = (row.doc.uuid ? await fromUuid(row.doc.uuid) : null) ?? row.doc;
+        if (await _updateDocument(fresh, row.cleaned, row.options)) updatedCount += 1;
+        else failures.push({ uuid: String(fresh.uuid), error: "Document update was not confirmed" });
       } catch (error) {
         failures.push({ uuid: String(row.doc.uuid), error: error?.message ?? String(error) });
       }
@@ -368,7 +405,7 @@ export async function requestBatchUpdateDocuments(updates) {
     failures,
   };
   if (isPerfEnabled()) {
-    perfRecord({ event: "authorityProxy.batchUpdate", ...result, durationMs: monoMs() - started });
+    perfRecord({ event: "authorityProxy.batchUpdate", ...result, writeAttemptCount: prepared.length, durationMs: monoMs() - started });
   }
   if (prepared.length < rows.length) _notifyRemoteDenied("batch update");
   return result;
@@ -386,25 +423,38 @@ export async function requestCreateActor(actorData) {
   }
 }
 
-export async function requestCreateEmbeddedDocuments(parent, embeddedName, docsData) {
+export async function requestCreateEmbeddedDocuments(parent, embeddedName, docsData, { createOptions = {} } = {}) {
   if (!parent || !embeddedName || !Array.isArray(docsData) || !docsData.length) return [];
   if (!_canOwn(game.user, parent)) {
     _notifyRemoteDenied("embedded-document creation");
     return [];
   }
   const cleaned = (embeddedName === "ActiveEffect" || embeddedName === "Item")
-    ? docsData.map((entry) => sanitizeEmbeddedDocData(embeddedName, entry)).filter(Boolean)
+    ? docsData.map((entry) => {
+      const data = sanitizeEmbeddedDocData(embeddedName, entry);
+      if (data && embeddedName === "ActiveEffect" && createOptions.keepId === true && entry?._id) data._id = entry._id;
+      return data;
+    }).filter(Boolean)
     : docsData.map((entry) => foundry.utils.deepClone(entry));
   if (!cleaned.length) return [];
+  const startedAt = isPerfEnabled() ? monoMs() : null;
+  let created = [];
   try {
-    return await parent.createEmbeddedDocuments(embeddedName, cleaned);
+    created = await parent.createEmbeddedDocuments(embeddedName, cleaned, createOptions);
+    return created;
   } catch (error) {
     console.error("UESRPG | authority-proxy | Embedded-document creation failed", { uuid: parent.uuid, embeddedName, error });
     return [];
+  } finally {
+    if (startedAt !== null) perfRecord({
+      event: "authorityProxy.createEmbedded", docType: parent.documentName ?? null, docUuid: parent.uuid,
+      embeddedName, writeAttemptCount: 1, documentCount: cleaned.length, confirmedCount: created?.length ?? 0,
+      durationMs: monoMs() - startedAt,
+    });
   }
 }
 
-export async function requestUpdateEmbeddedDocuments(parent, embeddedName, updates) {
+export async function requestUpdateEmbeddedDocuments(parent, embeddedName, updates, { updateOptions = {}, requireUpdated = false } = {}) {
   if (!parent || !embeddedName || !Array.isArray(updates) || !updates.length) return false;
   if (!_canOwn(game.user, parent)) {
     _notifyRemoteDenied("embedded-document update");
@@ -417,26 +467,53 @@ export async function requestUpdateEmbeddedDocuments(parent, embeddedName, updat
     return id && update ? { ...update, _id: String(id) } : null;
   }).filter(Boolean);
   if (!cleaned.length) return false;
+  const startedAt = isPerfEnabled() ? monoMs() : null;
+  let updated;
   try {
-    await parent.updateEmbeddedDocuments(embeddedName, cleaned);
-    return true;
+    updated = await parent.updateEmbeddedDocuments(embeddedName, cleaned, updateOptions);
+    return !requireUpdated || cleaned.every(row => updated?.some(doc => doc.id === row._id));
   } catch (error) {
     console.error("UESRPG | authority-proxy | Embedded-document update failed", { uuid: parent.uuid, embeddedName, error });
     return false;
+  } finally {
+    if (startedAt !== null) perfRecord({
+      event: "authorityProxy.updateEmbedded", docType: parent.documentName ?? null, docUuid: parent.uuid,
+      embeddedName, writeAttemptCount: 1, documentCount: cleaned.length, confirmedCount: updated?.length ?? 0,
+      durationMs: monoMs() - startedAt,
+    });
   }
 }
 
-export async function requestDeleteEmbeddedDocuments(parent, embeddedName, ids, { deleteOptions = {} } = {}) {
+export async function requestDeleteEmbeddedDocuments(parent, embeddedName, ids, { deleteOptions = {}, requireDeleted = false } = {}) {
   if (!parent || !embeddedName || !Array.isArray(ids) || !ids.length) return false;
   if (!_canOwn(game.user, parent)) {
     _notifyRemoteDenied("embedded-document deletion");
     return false;
   }
+  const startedAt = isPerfEnabled() ? monoMs() : null;
+  let writeCount = 1;
+  let confirmedCount = 0;
+  let ok = false;
   try {
+    if (requireDeleted) {
+      const deleted = await parent.deleteEmbeddedDocuments(embeddedName, ids, deleteOptions);
+      confirmedCount = deleted?.length ?? 0;
+      ok = ids.every(id => deleted?.some(doc => doc.id === id));
+      return ok;
+    }
     const result = await deleteEmbeddedDocumentsIdempotent(parent, embeddedName, ids, deleteOptions);
-    return result?.ok === true;
+    writeCount = result?.allAlreadyGone || result?.error === "No valid ids" ? 0 : 1;
+    confirmedCount = result?.deletedIds?.length ?? 0;
+    ok = result?.ok === true;
+    return ok;
   } catch (error) {
     console.error("UESRPG | authority-proxy | Embedded-document deletion failed", { uuid: parent.uuid, embeddedName, error });
     return false;
+  } finally {
+    if (startedAt !== null) perfRecord({
+      event: "authorityProxy.deleteEmbedded", docType: parent.documentName ?? null, docUuid: parent.uuid,
+      embeddedName, writeAttemptCount: writeCount, confirmedNoopCount: ok && writeCount === 0 ? ids.length : 0, documentCount: ids.length, confirmedCount, ok,
+      durationMs: monoMs() - startedAt,
+    });
   }
 }

@@ -420,8 +420,8 @@ export class BirthSignMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2
                 <p class="card-description">${foundry.utils.escapeHTML(s.description)}</p>
                 <ul class="card-traits">${traitItems}</ul>
                 <div class="card-actions">
-                    <label for="${normalId}" class="card-btn">${escapedName}</label>
-                    <label for="${cursedId}" class="card-btn card-btn-cursed">${escapedName} - ${t("UESRPG.Dialogs.CharGen.StarCursed")}</label>
+                    <label for="${normalId}" class="card-btn uesrpg-adv-choice uesrpg-choice-bar"><span class="uesrpg-adv-choice__label">${escapedName}</span></label>
+                    <label for="${cursedId}" class="card-btn card-btn-cursed uesrpg-adv-choice uesrpg-choice-bar"><span class="uesrpg-adv-choice__label">${escapedName} - ${t("UESRPG.Dialogs.CharGen.StarCursed")}</span></label>
                 </div>
             </div>
         </div>`);

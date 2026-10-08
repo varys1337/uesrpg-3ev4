@@ -33,7 +33,7 @@ async function _registerMagicRuntimeOnce() {
     { initializeResourceRestorationService },
     { initializeCloakTickHandler, seedCloakRegistry },
     _magicOpposed,
-    { seedZoneRegistry }
+    { seedZoneRegistry, registerSpellOwnedAuthority }
   ] = await Promise.all([
     import("../../core/magic/upkeep-workflow.js"),
     import("../../core/magic/effects/spell-effect-expiration.js"),
@@ -58,6 +58,7 @@ async function _registerMagicRuntimeOnce() {
   initializeSpellTickEngine();
   initializeSpellEffectExpirationSystem();
   initializeUpkeepSystem();
+  registerSpellOwnedAuthority();
   initializeOriginAELifecycle();
   registerZoneTickHandler();
   initializeOverTimeEngine();

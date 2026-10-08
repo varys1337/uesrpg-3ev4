@@ -51,9 +51,9 @@
           {{/each}}
         </div>
       </div>
-      <label class="travel-planner__checkbox">
+      <label class="travel-planner__checkbox uesrpg-adv-choice uesrpg-choice-bar" data-tooltip-text="{{localize 'UESRPG.Apps.TravelPlanner.NavigateLostPenalty'}}{{#unless editable}} · {{localize 'UESRPG.Notifications.TravelPlanner.ReadOnly'}}{{/unless}}" {{#unless editable}}tabindex="0"{{/unless}}>
         <input type="checkbox" name="session.navigateLostPenaltyActive" {{checked state.session.navigateLostPenaltyActive}} {{#unless editable}}disabled{{/unless}} />
-        <span>{{localize "UESRPG.Apps.TravelPlanner.NavigateLostPenalty"}}</span>
+        <span class="uesrpg-adv-choice__label">{{localize "UESRPG.Apps.TravelPlanner.NavigateLostPenalty"}}</span>
       </label>
       <div class="travel-planner__header-actions-row">
         <button type="button" data-action="shortRestGroup" {{#unless editable}}disabled{{/unless}}>{{localize "UESRPG.UI.ShortRest"}}</button>

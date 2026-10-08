@@ -23,7 +23,7 @@ import { escapeHtml } from "../../../utils/html.js";
  * Stop condition: Token creation must be GM-only. Players request via socket/hook
  * and the GM client executes the actual document mutation.
  *
- * Target: Foundry VTT v13.351
+ * Target: Foundry VTT v14.368+
  */
 
 import { registerLinkedEntity, findOriginAE } from "../effects/origin-effect.js";
@@ -183,48 +183,58 @@ export async function spawnSummon(cfg = {}) {
 
   _debug("Spawning summon:", summonActor.name, "at", pos);
 
+  let tokenDoc = null;
   try {
     const created = await requestCreateEmbeddedDocuments(scene, "Token", [tokenData]);
-    const tokenDoc = created?.[0] ?? null;
+    tokenDoc = created?.[0] ?? null;
 
     if (!tokenDoc) {
       return { token: null, error: "Token creation returned null" };
     }
 
     // Register the summoned token as a linked entity on the Origin AE
-    await registerLinkedEntity(originAE, {
+    const linked = await registerLinkedEntity(originAE, {
       type: "summon",
       uuid: tokenDoc.uuid,
       label: `${summonActor.name} (Summoned)`
-    });
+    }, { strict: cfg.strict === true });
+    if (cfg.strict && !linked) throw new Error("Summon origin registration was not confirmed.");
 
     _debug("Summon spawned:", tokenDoc.uuid);
 
-    // Emit hook
+    const notification = { casterActor, originAE, summonActor, tokenDoc,
+      spellUuid: _str(originAE.flags?.[_FLAG_NS]?.spellUuid), spellName: _str(originAE.flags?.[_FLAG_NS]?.spellName),
+      handledDomains: ["summonBinding"] };
+    let bindingError = null;
     try {
-      Hooks.callAll("uesrpg.spell.summonSpawned", {
-        casterActor,
-        originAE,
-        summonActor,
-        tokenDoc,
-        spellUuid: _str(originAE.flags?.[_FLAG_NS]?.spellUuid),
-        spellName: _str(originAE.flags?.[_FLAG_NS]?.spellName)
-      });
-    } catch (_e) { /* no-op */ }
+      const { applySummonBinding } = await import("./summon-binding.js");
+      await applySummonBinding(notification, { strict: cfg.strict === true });
+    } catch (error) { bindingError = error; }
+    Hooks.callAll("uesrpg.spell.summonSpawned", { ...notification, completion: { status: bindingError ? "partial" : "completed" } });
+    if (bindingError) {
+      bindingError.committed = true;
+      bindingError.token = tokenDoc;
+      if (cfg.strict) throw bindingError;
+      console.warn("UESRPG | Summon binding partially completed", bindingError);
+    }
 
     // Log to chat
     try {
-      await ChatMessage.create({
+      const createdMessage = await ChatMessage.create({
         content: `<div class="uesrpg"><h3>Creature Summoned</h3><p><strong>${casterActor.name}</strong> summons <strong>${summonActor.name}</strong>.</p></div>`,
         speaker: ChatMessage.getSpeaker({ actor: casterActor }),
         style: CONST.CHAT_MESSAGE_STYLES.OTHER
       });
-    } catch (_e) { /* no-op */ }
+      if (!createdMessage) throw new Error("Summon summary creation was not confirmed.");
+    } catch (error) {
+      if (cfg.strict) { error.committed = true; throw error; }
+      console.warn("UESRPG | Summon summary failed", error);
+    }
 
     return { token: tokenDoc, error: null };
   } catch (err) {
     console.error("UESRPG | summon-service | Failed to create summon token", err);
-    return { token: null, error: err.message ?? "Token creation failed" };
+    return { token: tokenDoc ?? err.token ?? null, error: err.message ?? "Token creation failed", execution: { status: tokenDoc || err.committed ? "partial" : "failed", committed: Boolean(tokenDoc || err.committed) } };
   }
 }
 

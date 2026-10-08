@@ -179,6 +179,25 @@ function applyDialogRestoreEnhancement(dialogRef) {
   }, true);
 }
 
+/** Associate existing labels without changing form values or submission names. */
+function applyDialogFieldLabels(rootEl) {
+  if (!(rootEl instanceof HTMLElement) || !rootEl.matches(".uesrpg-dialog")) return;
+  let index = 0;
+  for (const field of rootEl.querySelectorAll("input:not([type='hidden']), select, textarea")) {
+    index += 1;
+    const label = field.closest("label") ?? field.closest(".form-group")?.querySelector(":scope > label");
+    if (!label) continue;
+    if (!field.labels?.length && !label.querySelector("input, select, textarea")) {
+      field.id ||= `${rootEl.id || "uesrpg-dialog"}-field-${index}`;
+      label.htmlFor = field.id;
+    }
+    const explanation = label.getAttribute("data-tooltip-text");
+    if (!explanation) continue;
+    field.setAttribute("aria-description", explanation);
+    if (field.disabled && field.closest("label") === label) label.setAttribute("tabindex", "0");
+  }
+}
+
 export function renderWithDialogEnhancements(callerRender, selectors) {
   return (event, dialog) => {
     try {
@@ -188,6 +207,7 @@ export function renderWithDialogEnhancements(callerRender, selectors) {
     }
     try {
       const rootEl = resolveDialogRoot(dialog);
+      applyDialogFieldLabels(rootEl);
       applyDialogKeyboardEnhancements(rootEl, selectors);
       applyDialogRestoreEnhancement(dialog);
     } catch (_e) {

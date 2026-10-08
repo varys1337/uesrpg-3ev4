@@ -23,12 +23,14 @@ import {
   commitHealthUpdate,
   dispatchDamageAppliedHook,
   finalizeDamageTargetState,
+  needsDamageTargetState,
   ensureUnconsciousEffect,
   resolveDamageUpdateTarget
 } from "./post-application.js";
 
 export { ensureUnconsciousEffect };
 import { createDamageAftermathBundle } from "./aftermath-bundle.js";
+import { targetStateDocuments } from "./deferred-operations.js";
 
 function _healingDebug(...args) {
   if (!isAnyDebugEnabled(["woundsDebug", "spellCastingDebug"])) return;
@@ -302,7 +304,8 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
   const damageOrigin = normalizeActiveEffectOrigin(options?.origin)
     ?? normalizeActiveEffectOrigin(options?.weapon?.uuid)
     ?? null;
-  dispatchDamageAppliedHook(updateTarget, {
+  const aftermathBundle = createDamageAftermathBundle({ applicationId: options.applicationId, targetActor: updateTarget, source, outcomeContext: options.outcomeContext });
+  await dispatchDamageAppliedHook(updateTarget, {
     applicationId: options?.applicationId ?? crypto?.randomUUID?.() ?? foundry?.utils?.randomID?.() ?? null,
     origin: damageOrigin,
     source,
@@ -319,225 +322,229 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
     criticalSuccess: Boolean(options?.criticalSuccess ?? options?.isCritical ?? false),
     woundTriggered: isWounded === true,
     chatContext: foundry.utils.deepClone(options?.chatContext ?? null),
-  });
+  }, { aftermathBundle, parentApplication: options._application });
 
 
-  const aftermathBundle = createDamageAftermathBundle({ applicationId: options.applicationId, targetActor: updateTarget, source });
   if (forcefulImpact && String(damageType ?? "").toLowerCase() === DAMAGE_TYPES.PHYSICAL) {
     aftermathBundle.stage({ key: "forcefulImpact", label: "Forceful Impact", run: () => _applyForcefulImpact(updateTarget, hitLocation) });
   }
-  aftermathBundle.stage({ key: "targetState", label: "Target condition state", run: () => finalizeDamageTargetState(updateTarget, { newHP }) });
+  aftermathBundle.stage({ key: "targetState", label: "Target condition state", run: () => finalizeDamageTargetState(updateTarget, { newHP }),
+    applicable: () => needsDamageTargetState(updateTarget, { newHP }),
+    operation: { type: "damage.targetState", documentUuids: targetStateDocuments(updateTarget).map(doc => doc.uuid), payload: { newHP } } });
   const aftermathSummary = await aftermathBundle.commit();
 
+  const settledHP = Number(updateTarget.system?.hp?.value ?? newHP) || 0;
+  const settledTempHP = Number(updateTarget.system?.tempHP ?? newTempHP) || 0;
+
   // Damage chat message (GM-only, blind by default)
-  const gmIds = game.users?.filter(u => u.isGM).map(u => u.id) ?? [];
-  const hpDelta = Math.max(0, currentHP - newHP);
+  if (!skipChatMessage) {
+    const gmIds = game.users?.filter(u => u.isGM).map(u => u.id) ?? [];
+    const hpDelta = Math.max(0, currentHP - settledHP);
 
-  const parts = [];
-  const rollHTML = String(options?.rollHTML ?? "");
+    const parts = [];
+    const rollHTML = String(options?.rollHTML ?? "");
 
-  const criticalNote = String(options?.criticalNote ?? "");
-  const extraBreakdownLines = Array.isArray(options?.extraBreakdownLines) ? options.extraBreakdownLines : [];
+    const criticalNote = String(options?.criticalNote ?? "");
+    const extraBreakdownLines = Array.isArray(options?.extraBreakdownLines) ? options.extraBreakdownLines : [];
 
-  if (rollHTML) {
-    parts.push(`<div class="uesrpg-da-row"><span class="k">Roll</span><span class="v">${rollHTML}</span></div>`);
-  }
-
-  if (criticalNote) {
-    parts.push(`<div class="uesrpg-da-row"><span class="k">Critical</span><span class="v">${criticalNote}</span></div>`);
-  }
-  
-  // Show temp HP absorption if any
-  if (tempHPAbsorbed > 0) {
-    parts.push(`<div class="uesrpg-da-row"><span class="k">Temp HP Absorbed</span><span class="v">${tempHPAbsorbed}</span></div>`);
-  }
-
-  for (const line of extraBreakdownLines) {
-    const s = String(line ?? "");
-    if (!s) continue;
-    parts.push(`<div class="uesrpg-da-row"><span class="k"></span><span class="v muted">${s}</span></div>`);
-  }
-
-  if (damageCalc.immunity?.isImmune) {
-    const immType = String(damageCalc.immunity?.damageType ?? damageType ?? "");
-    const label = immType ? `Immune (${immType})` : "Immune";
-    parts.push(`<div class="uesrpg-da-row"><span class="k">Trait</span><span class="v">${label}</span></div>`);
-  }
-
-  if (damageCalc.incorporealBlock?.isBlocked) {
-    parts.push(`<div class="uesrpg-da-row"><span class="k">Trait</span><span class="v">Incorporeal (non-magic source)</span></div>`);
-  }
-
-  if (damageCalc.incorporealAttack?.ignoreNonMagicArmor) {
-    parts.push(`<div class="uesrpg-da-row"><span class="k">Trait</span><span class="v">Incorporeal Attack (non-magic AR ignored)</span></div>`);
-  }
-
-  if (!ignoreReduction) {
-    const rd = Number(damageCalc.rawDamage ?? 0);
-    const db = Number(damageCalc.dosBonus ?? 0);
-    const wb = Number(damageCalc.weaponBonus ?? 0);
-    const showZeroDoS = Boolean(options?.showZeroDoS);
-    const bonuses = [
-      (db || showZeroDoS) ? `${db >= 0 ? "+" : ""}${db} DoS` : null,
-      wb ? `${wb >= 0 ? "+" : ""}${wb} Weapon` : null,
-    ].filter(Boolean).join(" ");
-    parts.push(`<div class="uesrpg-da-row"><span class="k">Rolled</span><span class="v">${rd}</span></div>`);
-    if (bonuses) parts.push(`<div class="uesrpg-da-row"><span class="k">Bonuses</span><span class="v">${bonuses}</span></div>`);
-    parts.push(`<div class="uesrpg-da-row"><span class="k">Pre-Reduction Total</span><span class="v">${Number(damageCalc.totalDamage ?? (rd + db + wb))}</span></div>`);
-    parts.push(`<div class="uesrpg-da-row"><span class="k">Reduction</span><span class="v">-${damageCalc.reductions.total} <span class="muted">(AR ${damageCalc.reductions.armor} / R ${damageCalc.reductions.resistance} / T ${damageCalc.reductions.toughness}${damageCalc.reductions.penetrated ? ` / Pen ${damageCalc.reductions.penetrated}` : ""})</span></span></div>`);
-  }
-  const aeBreakdown = options?.aeBreakdown ?? null;
-
-  const aeSummary = (() => {
-    const hasBreakdown =
-      aeBreakdown &&
-      (Array.isArray(aeBreakdown.attacker) || Array.isArray(aeBreakdown.defender));
-
-    const rows = [];
-
-    const fmt = (n) => {
-      const v = Number(n ?? 0) || 0;
-      return v >= 0 ? `+${v}` : `${v}`;
-    };
-
-    const sumByTarget = (entries, target) => {
-      if (!Array.isArray(entries)) return 0;
-      return entries
-        .filter(e => e?.target === target)
-        .reduce((a, e) => a + (Number(e?.value ?? 0) || 0), 0);
-    };
-
-    const renderDetails = (entries, target, label) => {
-      if (!Array.isArray(entries)) return;
-      for (const e of entries) {
-        if (!e || e.target !== target) continue;
-        const value = Number(e.value ?? 0) || 0;
-        if (!value) continue;
-        const name = String(e.label ?? "Effect");
-        rows.push(
-          `<div class="uesrpg-da-row"><span class="k"></span><span class="v muted">${label}: ${name} ${fmt(value)}</span></div>`
-        );
-      }
-    };
-
-    // --- Attacker-side (dealt damage + penetration) ---
-    if (hasBreakdown) {
-      const dealt = sumByTarget(aeBreakdown.attacker, "damage.dealt");
-      const pen = sumByTarget(aeBreakdown.attacker, "penetration");
-
-      const bits = [];
-      if (dealt) bits.push(`Dealt ${fmt(dealt)}`);
-      if (pen) bits.push(`Pen ${fmt(pen)} <span class="muted">(via penetration)</span>`);
-
-      if (bits.length) {
-        rows.push(
-          `<div class="uesrpg-da-row"><span class="k">AE (Attacker)</span><span class="v">${bits.join(" • ")}</span></div>`
-        );
-        renderDetails(aeBreakdown.attacker, "damage.dealt", "Dealt");
-        renderDetails(aeBreakdown.attacker, "penetration", "Pen");
-      }
+    if (rollHTML) {
+      parts.push(`<div class="uesrpg-da-row"><span class="k">Roll</span><span class="v">${rollHTML}</span></div>`);
     }
 
-    // --- Defender-side (damage taken + flat mitigation) ---
-    {
-      const bits = [];
-      if (aeDamageTaken) bits.push(`Taken ${fmt(aeDamageTaken)}`);
-      if (aeMitigationFlat) bits.push(`Mit -${Number(aeMitigationFlat || 0)}`);
+    if (criticalNote) {
+      parts.push(`<div class="uesrpg-da-row"><span class="k">Critical</span><span class="v">${criticalNote}</span></div>`);
+    }
+    
+    // Show temp HP absorption if any
+    if (tempHPAbsorbed > 0) {
+      parts.push(`<div class="uesrpg-da-row"><span class="k">Temp HP Absorbed</span><span class="v">${tempHPAbsorbed}</span></div>`);
+    }
 
-      if (bits.length) {
-        rows.push(
-          `<div class="uesrpg-da-row"><span class="k">AE (Defender)</span><span class="v">${bits.join(" • ")}</span></div>`
-        );
+    for (const line of extraBreakdownLines) {
+      const s = String(line ?? "");
+      if (!s) continue;
+      parts.push(`<div class="uesrpg-da-row"><span class="k"></span><span class="v muted">${s}</span></div>`);
+    }
 
-        if (hasBreakdown) {
-          renderDetails(aeBreakdown.defender, "damage.taken", "Taken");
-          renderDetails(aeBreakdown.defender, "mitigation.flat", "Mit");
+    if (damageCalc.immunity?.isImmune) {
+      const immType = String(damageCalc.immunity?.damageType ?? damageType ?? "");
+      const label = immType ? `Immune (${immType})` : "Immune";
+      parts.push(`<div class="uesrpg-da-row"><span class="k">Trait</span><span class="v">${label}</span></div>`);
+    }
+
+    if (damageCalc.incorporealBlock?.isBlocked) {
+      parts.push(`<div class="uesrpg-da-row"><span class="k">Trait</span><span class="v">Incorporeal (non-magic source)</span></div>`);
+    }
+
+    if (damageCalc.incorporealAttack?.ignoreNonMagicArmor) {
+      parts.push(`<div class="uesrpg-da-row"><span class="k">Trait</span><span class="v">Incorporeal Attack (non-magic AR ignored)</span></div>`);
+    }
+
+    if (!ignoreReduction) {
+      const rd = Number(damageCalc.rawDamage ?? 0);
+      const db = Number(damageCalc.dosBonus ?? 0);
+      const wb = Number(damageCalc.weaponBonus ?? 0);
+      const showZeroDoS = Boolean(options?.showZeroDoS);
+      const bonuses = [
+        (db || showZeroDoS) ? `${db >= 0 ? "+" : ""}${db} DoS` : null,
+        wb ? `${wb >= 0 ? "+" : ""}${wb} Weapon` : null,
+      ].filter(Boolean).join(" ");
+      parts.push(`<div class="uesrpg-da-row"><span class="k">Rolled</span><span class="v">${rd}</span></div>`);
+      if (bonuses) parts.push(`<div class="uesrpg-da-row"><span class="k">Bonuses</span><span class="v">${bonuses}</span></div>`);
+      parts.push(`<div class="uesrpg-da-row"><span class="k">Pre-Reduction Total</span><span class="v">${Number(damageCalc.totalDamage ?? (rd + db + wb))}</span></div>`);
+      parts.push(`<div class="uesrpg-da-row"><span class="k">Reduction</span><span class="v">-${damageCalc.reductions.total} <span class="muted">(AR ${damageCalc.reductions.armor} / R ${damageCalc.reductions.resistance} / T ${damageCalc.reductions.toughness}${damageCalc.reductions.penetrated ? ` / Pen ${damageCalc.reductions.penetrated}` : ""})</span></span></div>`);
+    }
+    const aeBreakdown = options?.aeBreakdown ?? null;
+
+    const aeSummary = (() => {
+      const hasBreakdown =
+        aeBreakdown &&
+        (Array.isArray(aeBreakdown.attacker) || Array.isArray(aeBreakdown.defender));
+
+      const rows = [];
+
+      const fmt = (n) => {
+        const v = Number(n ?? 0) || 0;
+        return v >= 0 ? `+${v}` : `${v}`;
+      };
+
+      const sumByTarget = (entries, target) => {
+        if (!Array.isArray(entries)) return 0;
+        return entries
+          .filter(e => e?.target === target)
+          .reduce((a, e) => a + (Number(e?.value ?? 0) || 0), 0);
+      };
+
+      const renderDetails = (entries, target, label) => {
+        if (!Array.isArray(entries)) return;
+        for (const e of entries) {
+          if (!e || e.target !== target) continue;
+          const value = Number(e.value ?? 0) || 0;
+          if (!value) continue;
+          const name = String(e.label ?? "Effect");
+          rows.push(
+            `<div class="uesrpg-da-row"><span class="k"></span><span class="v muted">${label}: ${name} ${fmt(value)}</span></div>`
+          );
+        }
+      };
+
+      // --- Attacker-side (dealt damage + penetration) ---
+      if (hasBreakdown) {
+        const dealt = sumByTarget(aeBreakdown.attacker, "damage.dealt");
+        const pen = sumByTarget(aeBreakdown.attacker, "penetration");
+
+        const bits = [];
+        if (dealt) bits.push(`Dealt ${fmt(dealt)}`);
+        if (pen) bits.push(`Pen ${fmt(pen)} <span class="muted">(via penetration)</span>`);
+
+        if (bits.length) {
+          rows.push(
+            `<div class="uesrpg-da-row"><span class="k">AE (Attacker)</span><span class="v">${bits.join(" • ")}</span></div>`
+          );
+          renderDetails(aeBreakdown.attacker, "damage.dealt", "Dealt");
+          renderDetails(aeBreakdown.attacker, "penetration", "Pen");
         }
       }
-    }
 
-    return rows.join("");
-  })();
+      // --- Defender-side (damage taken + flat mitigation) ---
+      {
+        const bits = [];
+        if (aeDamageTaken) bits.push(`Taken ${fmt(aeDamageTaken)}`);
+        if (aeMitigationFlat) bits.push(`Mit -${Number(aeMitigationFlat || 0)}`);
 
-  // --- Reduction provenance (Armor / Resistance / Toughness) ---
-  // If the reduction calculation surfaced AE breakdown info, attribute it here.
-  const reductionAEBreakdown = (() => {
-    const r = damageCalc?.reductions;
-    const ae = r?.ae;
-    const base = r?.base;
-    if (!ae || !base) return "";
+        if (bits.length) {
+          rows.push(
+            `<div class="uesrpg-da-row"><span class="k">AE (Defender)</span><span class="v">${bits.join(" • ")}</span></div>`
+          );
 
-    const lines = [];
-    const fmt = (n) => {
-      const v = Number(n ?? 0) || 0;
-      return v >= 0 ? `+${v}` : `${v}`;
-    };
-
-    const pushEntries = (title, entries) => {
-      if (!Array.isArray(entries) || !entries.length) return;
-      for (const e of entries) {
-        const value = Number(e?.value ?? 0) || 0;
-        if (!value) continue;
-        const label = String(e?.label ?? "Effect");
-        lines.push(`<div class="uesrpg-da-row"><span class="k"></span><span class="v muted">${title}: ${label} ${fmt(value)}</span></div>`);
+          if (hasBreakdown) {
+            renderDetails(aeBreakdown.defender, "damage.taken", "Taken");
+            renderDetails(aeBreakdown.defender, "mitigation.flat", "Mit");
+          }
+        }
       }
-    };
 
-    // Armor Rating
-    if ((ae.armorRating?.global?.total ?? 0) || (ae.armorRating?.location?.total ?? 0)) {
-      const bits = [];
-      const laneLabel = String(ae.armorRating?.lane ?? "physical").toLowerCase() === "magic" ? "Magic AR" : "Physical AR";
-      if (ae.armorRating?.global?.total) bits.push(`Global ${fmt(ae.armorRating.global.total)}`);
-      if (ae.armorRating?.location?.total) bits.push(`${ae.armorRating.location.key} ${fmt(ae.armorRating.location.total)}`);
-      lines.push(`<div class="uesrpg-da-row"><span class="k"></span><span class="v muted">${laneLabel} AE: ${bits.join(" • ")}</span></div>`);
-      pushEntries(laneLabel, ae.armorRating?.global?.entries);
-      pushEntries(laneLabel, ae.armorRating?.location?.entries);
-    }
+      return rows.join("");
+    })();
 
-    // Resistance
-    if (ae.resistance?.key && ae.resistance?.total) {
-      lines.push(`<div class="uesrpg-da-row"><span class="k"></span><span class="v muted">R AE (${ae.resistance.key}): ${fmt(ae.resistance.total)}</span></div>`);
-      pushEntries("R", ae.resistance.entries);
-    }
+    // --- Reduction provenance (Armor / Resistance / Toughness) ---
+    // If the reduction calculation surfaced AE breakdown info, attribute it here.
+    const reductionAEBreakdown = (() => {
+      const r = damageCalc?.reductions;
+      const ae = r?.ae;
+      const base = r?.base;
+      if (!ae || !base) return "";
 
-    // Natural Toughness
-    if (ae.natToughness?.total) {
-      lines.push(`<div class="uesrpg-da-row"><span class="k"></span><span class="v muted">T AE (natToughness): ${fmt(ae.natToughness.total)}</span></div>`);
-      pushEntries("T", ae.natToughness.entries);
-    }
+      const lines = [];
+      const fmt = (n) => {
+        const v = Number(n ?? 0) || 0;
+        return v >= 0 ? `+${v}` : `${v}`;
+      };
 
-    return lines.join("");
-  })();
+      const pushEntries = (title, entries) => {
+        if (!Array.isArray(entries) || !entries.length) return;
+        for (const e of entries) {
+          const value = Number(e?.value ?? 0) || 0;
+          if (!value) continue;
+          const label = String(e?.label ?? "Effect");
+          lines.push(`<div class="uesrpg-da-row"><span class="k"></span><span class="v muted">${title}: ${label} ${fmt(value)}</span></div>`);
+        }
+      };
 
-  const _actorThumb = updateTarget.img ?? "icons/svg/mystery-man.svg";
-  const messageContent = `
-    <div class="uesrpg-damage-applied-card">
-      <div class="hdr">
-        <img class="actor-thumb" src="${_actorThumb}" alt="">
-        <div class="hdr-text">
-          <div class="title">${updateTarget.name}</div>
-          <div class="sub">${source}${hitLocation ? ` \u00B7 ${hitLocation}` : ""}${damageType ? ` <span class="type-tag">${damageType}</span>` : ""}</div>
+      // Armor Rating
+      if ((ae.armorRating?.global?.total ?? 0) || (ae.armorRating?.location?.total ?? 0)) {
+        const bits = [];
+        const laneLabel = String(ae.armorRating?.lane ?? "physical").toLowerCase() === "magic" ? "Magic AR" : "Physical AR";
+        if (ae.armorRating?.global?.total) bits.push(`Global ${fmt(ae.armorRating.global.total)}`);
+        if (ae.armorRating?.location?.total) bits.push(`${ae.armorRating.location.key} ${fmt(ae.armorRating.location.total)}`);
+        lines.push(`<div class="uesrpg-da-row"><span class="k"></span><span class="v muted">${laneLabel} AE: ${bits.join(" • ")}</span></div>`);
+        pushEntries(laneLabel, ae.armorRating?.global?.entries);
+        pushEntries(laneLabel, ae.armorRating?.location?.entries);
+      }
+
+      // Resistance
+      if (ae.resistance?.key && ae.resistance?.total) {
+        lines.push(`<div class="uesrpg-da-row"><span class="k"></span><span class="v muted">R AE (${ae.resistance.key}): ${fmt(ae.resistance.total)}</span></div>`);
+        pushEntries("R", ae.resistance.entries);
+      }
+
+      // Natural Toughness
+      if (ae.natToughness?.total) {
+        lines.push(`<div class="uesrpg-da-row"><span class="k"></span><span class="v muted">T AE (natToughness): ${fmt(ae.natToughness.total)}</span></div>`);
+        pushEntries("T", ae.natToughness.entries);
+      }
+
+      return lines.join("");
+    })();
+
+    const _actorThumb = updateTarget.img ?? "icons/svg/mystery-man.svg";
+    const messageContent = `
+      <div class="uesrpg-damage-applied-card">
+        <div class="hdr">
+          <img class="actor-thumb" src="${_actorThumb}" alt="">
+          <div class="hdr-text">
+            <div class="title">${updateTarget.name}</div>
+            <div class="sub">${source}${hitLocation ? ` \u00B7 ${hitLocation}` : ""}${damageType ? ` <span class="type-tag">${damageType}</span>` : ""}</div>
+          </div>
+        </div>
+        <div class="body">
+          <div class="uesrpg-da-row"><span class="k">Applied Damage</span><span class="v final">${finalDamageAdjusted}</span></div>
+          <div class="uesrpg-da-row"><span class="k">Pre-Reduction</span><span class="v">${Number(damageCalc.totalDamage ?? rawDamage)}</span></div>
+          <div class="uesrpg-da-row"><span class="k">Reduction</span><span class="v">-${Number(damageCalc.reductions?.total ?? 0)}</span></div>
+          <div class="uesrpg-da-row"><span class="k">HP</span><span class="v">${settledHP} / ${maxHP}${hpDelta ? ` <span class="muted">(\u2212${hpDelta})</span>` : ""}</span></div>
+          ${currentTempHP > 0 || newTempHP > 0 ? `<div class="uesrpg-da-row"><span class="k">Temp HP</span><span class="v">${settledTempHP}${tempHPAbsorbed ? ` <span class="muted">(\u2212${tempHPAbsorbed})</span>` : ""}</span></div>` : ""}
+          ${woundStatus === "wounded" ? `<div class="status wounded">\u26A0 WOUNDED <span class="muted">(WT ${woundThreshold})</span></div>` : ""}
+          ${woundStatus === "unconscious" ? `<div class="status unconscious">\u{1F480} UNCONSCIOUS</div>` : ""}
+          ${woundStatus === "dead" ? `<div class="status unconscious">\u{1F480} DEAD</div>` : ""}
+          <details>
+            <summary>Damage Breakdown</summary>
+            <div style="font-size:12px; opacity:0.95;">${parts.join("\n")}${reductionAEBreakdown}${aeSummary}</div>
+          </details>
         </div>
       </div>
-      <div class="body">
-        <div class="uesrpg-da-row"><span class="k">Applied Damage</span><span class="v final">${finalDamageAdjusted}</span></div>
-        <div class="uesrpg-da-row"><span class="k">Pre-Reduction</span><span class="v">${Number(damageCalc.totalDamage ?? rawDamage)}</span></div>
-        <div class="uesrpg-da-row"><span class="k">Reduction</span><span class="v">-${Number(damageCalc.reductions?.total ?? 0)}</span></div>
-        <div class="uesrpg-da-row"><span class="k">HP</span><span class="v">${newHP} / ${maxHP}${hpDelta ? ` <span class="muted">(\u2212${hpDelta})</span>` : ""}</span></div>
-        ${currentTempHP > 0 || newTempHP > 0 ? `<div class="uesrpg-da-row"><span class="k">Temp HP</span><span class="v">${newTempHP}${tempHPAbsorbed ? ` <span class="muted">(\u2212${tempHPAbsorbed})</span>` : ""}</span></div>` : ""}
-        ${woundStatus === "wounded" ? `<div class="status wounded">\u26A0 WOUNDED <span class="muted">(WT ${woundThreshold})</span></div>` : ""}
-        ${woundStatus === "unconscious" ? `<div class="status unconscious">\u{1F480} UNCONSCIOUS</div>` : ""}
-        ${woundStatus === "dead" ? `<div class="status unconscious">\u{1F480} DEAD</div>` : ""}
-        <details>
-          <summary>Damage Breakdown</summary>
-          <div style="font-size:12px; opacity:0.95;">${parts.join("\n")}${reductionAEBreakdown}${aeSummary}</div>
-        </details>
-      </div>
-    </div>
-  `;
+    `;
 
-  if (!skipChatMessage) {
-    await ChatMessage.create({
+    const createdSummary = await ChatMessage.create({
       user: game.user.id,
       speaker: ChatMessage.getSpeaker({ actor: updateTarget }),
       content: messageContent,
@@ -545,6 +552,7 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
       whisper: gmIds,
       blind: true,
     });
+    if (!createdSummary) throw new Error("Damage summary creation was not confirmed.");
   }
 
   const prevented = Math.max(0, Number(damageCalc.totalDamage ?? rawDamage) - finalDamageAdjusted);
@@ -563,6 +571,8 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
     newHP,
     oldTempHP: currentTempHP,
     newTempHP,
+    settledHP,
+    settledTempHP,
     tempHPAbsorbed,
     woundStatus,
     prevented,
@@ -678,44 +688,60 @@ export async function applyHealing(actor, healing, options = {}) {
   // For magic healing workflow, skip chat message since it's already shown in the opposed card
   const skipChatMessage = options?.skipChatMessage === true;
 
-  const messageContent = `
-    <div class="uesrpg-healing-applied">
-      <h3>${updateTarget.name} receives healing!</h3>
-      ${rollHTML ? `<div class="dice-roll" style="margin:0.35rem 0;">${rollHTML}</div>` : ""}
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin:0.5rem 0;">
-        <div><strong>Source:</strong></div><div>${source}</div>
-        <div><strong>Healing:</strong></div><div style="color:#388e3c;font-weight:bold;">+${effectiveHealed}</div>
-        ${revealHP ? `<div><strong>HP:</strong></div><div>${newHP} / ${maxHP}</div>` : ""}
-      </div>
-    </div>
-  `;
+  const healingData = {
+    applicationId: options.applicationId ?? foundry.utils.randomID(),
+    origin: normalizeActiveEffectOrigin(options.origin), source,
+    amountApplied: effectiveHealed, totalHealed, effectiveHealed, overflow,
+    oldHP: currentHP, newHP, maxHP,
+  };
+  const aftermathBundle = createDamageAftermathBundle({
+    applicationId: healingData.applicationId, targetActor: updateTarget, source, kind: "healing", outcomeContext: options.outcomeContext,
+  });
+  aftermathBundle.stage({ key: "bleeding", label: "Bleeding healing adjustment",
+    operation: { type: "healing.bleeding", documentUuids: [updateTarget.uuid], payload: healingData },
+    run: async () => (await import("../../conditions/engine/index.js"))
+      .applyHealingToBleeding(updateTarget, healingData, { strict: true }) });
+  aftermathBundle.stage({ key: "wounds", label: "Wound healing interaction",
+    operation: { type: "healing.wounds", documentUuids: [updateTarget.uuid], payload: healingData },
+    run: async () => (await import("../../wounds/wound-engine.js"))
+      .applyHealingWoundInteractions(updateTarget, healingData, { strict: true }) });
+  aftermathBundle.stage({ key: "targetState", label: "Healing target condition state",
+    operation: { type: "healing.targetState", documentUuids: targetStateDocuments(updateTarget).map(doc => doc.uuid), payload: healingData },
+    run: async () => (await import("../../wounds/wound-engine.js"))
+      .settleHealingTargetState(updateTarget, healingData, { strict: true }) });
 
   // Avoid chat spam when no HP is actually restored (but still dispatch the hook for Bleeding reduction).
   // Also skip chat message if requested (e.g., for magic healing where opposed card already shows result).
   if (effectiveHealed > 0 && !skipChatMessage) {
-    await ChatMessage.create({
-      user: game.user.id,
-      speaker: ChatMessage.getSpeaker({ actor: updateTarget }),
-      content: messageContent,
-      style: CONST.CHAT_MESSAGE_STYLES.OTHER,
-    });
+    const messageContent = `
+      <div class="uesrpg-healing-applied">
+        <h3>${updateTarget.name} receives healing!</h3>
+        ${rollHTML ? `<div class="dice-roll" style="margin:0.35rem 0;">${rollHTML}</div>` : ""}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin:0.5rem 0;">
+          <div><strong>Source:</strong></div><div>${source}</div>
+          <div><strong>Healing:</strong></div><div style="color:#388e3c;font-weight:bold;">+${effectiveHealed}</div>
+          ${revealHP ? `<div><strong>HP:</strong></div><div>${newHP} / ${maxHP}</div>` : ""}
+        </div>
+      </div>
+    `;
+
+    aftermathBundle.stage({ key: "chatSummary", label: "Healing summary",
+      run: async () => {
+        const message = await ChatMessage.create({
+          user: game.user.id,
+          speaker: ChatMessage.getSpeaker({ actor: updateTarget }),
+          content: messageContent,
+          style: CONST.CHAT_MESSAGE_STYLES.OTHER,
+        });
+        if (!message) throw new Error("The healing summary was not created.");
+        return { posted: true };
+      } });
   }
-  // Emit healing-applied hook for downstream automation (wounds treatment, etc.)
+  const aftermathSummary = await aftermathBundle.commit();
+  // Notify observers once. Owned consequences have already finished or failed.
   try {
-    const healingOrigin = normalizeActiveEffectOrigin(options?.origin);
     Hooks.callAll("uesrpgHealingApplied", updateTarget, {
-      applicationId: options?.applicationId ?? crypto?.randomUUID?.() ?? foundry?.utils?.randomID?.() ?? null,
-      origin: healingOrigin,
-      source: options?.source ?? "Healing",
-      // Backwards-compatible: keep amountApplied as the effective HP restored.
-      amountApplied: effectiveHealed,
-      // Canonical: total healing including overheal (used by Bleeding).
-      totalHealed,
-      effectiveHealed,
-      overflow,
-      oldHP: currentHP,
-      newHP,
-      maxHP,
+      ...healingData, coreAftermathHandled: true,
     });
   } catch (err) {
     console.error("UESRPG | uesrpgHealingApplied hook dispatch failed", err);
@@ -729,6 +755,7 @@ export async function applyHealing(actor, healing, options = {}) {
     newHP,
     totalHealed,
     overflow,
+    aftermathSummary,
   };
 }
 
@@ -802,19 +829,19 @@ async function applyTemporaryHP(actor, amount, source = "Spell", options = {}) {
   const skipChatMessage = options?.skipChatMessage === true;
 
   // Chat message
-  const content = `
-    <div class="uesrpg-temp-hp-card">
-      <h3>Temporary Hit Points</h3>
-      ${rollHTML ? `<div class="dice-roll" style="margin:0.35rem 0;">${rollHTML}</div>` : ""}
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin:0.5rem 0;">
-        <div><strong>Source:</strong></div><div>${source}</div>
-        <div><strong>Temp HP:</strong></div><div style="color:#2196f3;font-weight:bold;">${actualGranted > 0 ? `+${grantAmount}` : `${currentTempHP} (already higher)`}</div>
-        <div><strong>Total Temp HP:</strong></div><div><em>${newTempHP}</em></div>
-      </div>
-    </div>
-  `;
-
   if (!skipChatMessage) {
+    const content = `
+      <div class="uesrpg-temp-hp-card">
+        <h3>Temporary Hit Points</h3>
+        ${rollHTML ? `<div class="dice-roll" style="margin:0.35rem 0;">${rollHTML}</div>` : ""}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin:0.5rem 0;">
+          <div><strong>Source:</strong></div><div>${source}</div>
+          <div><strong>Temp HP:</strong></div><div style="color:#2196f3;font-weight:bold;">${actualGranted > 0 ? `+${grantAmount}` : `${currentTempHP} (already higher)`}</div>
+          <div><strong>Total Temp HP:</strong></div><div><em>${newTempHP}</em></div>
+        </div>
+      </div>
+    `;
+
     await ChatMessage.create({
       user: game.user.id,
       speaker: ChatMessage.getSpeaker({ actor: updateTarget }),

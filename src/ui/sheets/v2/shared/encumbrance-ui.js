@@ -1,5 +1,6 @@
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { buildEncumbranceBreakdown } from "../../../../core/actors/rules/item-aggregation.js";
+import { isHumanoidActorType } from "../../../../core/actors/types.js";
 
 function _toFiniteNumber(value, fallback = 0) {
   const n = Number(value);
@@ -72,6 +73,7 @@ export function annotateEncumbranceHighlights(sheetContextActorBuckets, breakdow
 }
 
 export async function openEncumbranceBreakdownDialog(actor) {
+  const inventoryDialog = isHumanoidActorType(actor?.type);
   const breakdown = buildEncumbranceBreakdown(actor);
   const rows = Array.isArray(breakdown?.rows) ? breakdown.rows : [];
   const totals = breakdown?.totals ?? {};
@@ -98,7 +100,7 @@ export async function openEncumbranceBreakdownDialog(actor) {
     .join("");
 
   const countedTotal = _toFiniteNumber(totals?.totalEnc, 0);
-  const content = `<div class="uesrpg-enc-breakdown">
+  const content = `<div class="uesrpg-enc-breakdown${inventoryDialog ? " uesrpg-inventory-dialog-body" : ""}">
     <div class="hint">ENC contribution breakdown for ${_escapeHtml(actor?.name ?? "Actor")}.</div>
     <div class="uesrpg-enc-breakdown__table-wrap">
       <table class="uesrpg-enc-breakdown__table">
@@ -130,7 +132,7 @@ export async function openEncumbranceBreakdownDialog(actor) {
     layout: "table",
     title: "Encumbrance Breakdown",
     content,
-    classes: ["uesrpg-enc-breakdown-dialog"],
+    classes: ["uesrpg-enc-breakdown-dialog", ...(inventoryDialog ? ["uesrpg-inventory-dialog"] : [])],
     width: 840,
     buttons: {
       close: {

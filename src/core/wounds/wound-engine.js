@@ -1,3 +1,7 @@
+import { isOverTimeTickStateOnlyUpdate } from "../active-effects/metadata.js";
+import { getEffectGroup } from "../../utils/ae-helpers.js";
+import { TimeService } from "../time/time-service.js";
+import { MagicTimekeeping } from "../magic/timekeeping-helper.js";
 /**
  * src/core/wounds/wound-engine.js
  *
@@ -34,7 +38,8 @@ import {
   findFirstEffectByKind,
   findFirstEffectByAppId,
   hasAnyWoundEffects,
-  toNumber
+  toNumber,
+  getWoundsFlag
 } from "./engine/calc.js";
 
 import { makeEffect } from "./engine/format.js";
@@ -55,14 +60,31 @@ import {
   advanceTreatedWoundHealing,
   removeShockMarkersForApplication
 } from "./engine/apply.js";
-import { tickDeathTestsEndTurn } from "./death-tests.js";
+import { tickDeathTestsEndTurn, syncNpcDeathState, noteNpcDeathStateEffectChange, clearDeathState, hasDeathState } from "./death-tests.js";
 import { doTestRoll } from "../../utils/degree-roll-helper.js";
+import { isPerfEnabled, monoMs, perfRecord } from "../../utils/perf-tracker.js";
 
 // ===== INTERNAL STATE =====
 
 let _woundHooksRegistered = false;
 const FLAG_PATH = `flags.${FLAG_SCOPE}`;
 const esc = (s) => foundry.utils.escapeHTML(String(s ?? ""));
+
+function _hasWoundDomainState(actor) {
+  return actor?.system?.wounded === true || isDerivedWounded(actor)
+    || actor?.effects?.some(effect => getWoundsFlag(effect) || getEffectGroup(effect) === "wounds.passive");
+}
+
+function _isWoundDomainEffect(effect, changed = null) {
+  if (changed && isOverTimeTickStateOnlyUpdate(changed)) return false;
+  if (getWoundsFlag(effect) || getEffectGroup(effect) === "wounds.passive") return true;
+  // Include removal of prior wound metadata and unknown edits to that domain.
+  const prefix = `flags.${FLAG_SCOPE}.`;
+  return changed && Object.keys(foundry.utils.flattenObject(changed)).some(key =>
+    key === `${prefix}-=wounds` || key === `${prefix}wounds` || key.startsWith(`${prefix}wounds.`)
+    || key === `${prefix}effectGroup` || key === `${prefix}-=effectGroup`);
+}
+
 
 async function _postWoundWorkflowCard({ title, actor, healer, lines = [] } = {}) {
   try {
@@ -521,13 +543,13 @@ export async function setWoundDamage(actorLike, woundEffectId, damage, { by = "g
   return { ok: true, cured: false, progress, damage: nextDamage, by, reason };
 }
 
-export async function applyNaturalHealingToWounds(actorLike, healedAmount, { source = "rest" } = {}) {
+export async function applyNaturalHealingToWounds(actorLike, healedAmount, { source = "rest", strict = false } = {}) {
   const actor = await resolveActorLike(actorLike);
   if (!actor) return { ok: false, reason: "invalidTarget" };
   const heal = Math.max(0, Math.floor(Number(healedAmount ?? 0) || 0));
   if (heal <= 0) return { ok: true, advanced: 0, source };
-  await advanceTreatedWoundHealing(actor, heal);
-  await enforceWoundInvariants(actor, { context: `naturalHealing:${String(source ?? "rest")}` });
+  await advanceTreatedWoundHealing(actor, heal, { strict });
+  await enforceWoundInvariants(actor, { context: `naturalHealing:${String(source ?? "rest")}`, strict });
   return { ok: true, advanced: heal, source };
 }
 
@@ -715,7 +737,7 @@ export async function attemptTreatAllWounds(actorLike, { healerActor = null, has
   return { ok: true, treated, tn };
 }
 
-export async function reconcileWoundState(actorLike, { reason = "manual", emitLog = false } = {}) {
+export async function reconcileWoundState(actorLike, { reason = "manual", emitLog = false, strict = false } = {}) {
   const actor = await resolveActorLike(actorLike);
   if (!actor) return { ok: false, reason: "invalidTarget" };
   const before = {
@@ -723,7 +745,7 @@ export async function reconcileWoundState(actorLike, { reason = "manual", emitLo
     wounded: actor.system?.wounded === true,
     woundCount: findEffectsByKind(actor, "wound").length
   };
-  await enforceWoundInvariants(actor, { context: `reconcile:${reason}` });
+  await enforceWoundInvariants(actor, { context: `reconcile:${reason}`, strict });
   const after = {
     woundState: getWoundState(actor),
     wounded: actor.system?.wounded === true,
@@ -895,26 +917,26 @@ export async function clearAllWounds(actorLike) {
 /**
  * Tick wounds at end of turn (forestall, blood loss, shock markers)
  */
-export async function tickWoundsEndTurn(actor) {
+export async function tickWoundsEndTurn(actor, { strict = false } = {}) {
   if (!actor) return;
 
-  await enforceWoundInvariants(actor, { context: "tickWoundsEndTurn" });
+  await enforceWoundInvariants(actor, { context: "tickWoundsEndTurn", strict });
 
   // Shock markers tick even if wounds were cleared mid-combat
-  await tickShockMarkers(actor);
+  await tickShockMarkers(actor, { strict });
 
   // Defensive invariant: Blood Loss / Forestall should not persist when no wounds exist.
   if (!hasAnyWoundEffects(actor)) {
-    await cleanupWoundStateIfNoWounds(actor);
-    await tickDeathTestsEndTurn(actor);
+    await cleanupWoundStateIfNoWounds(actor, { strict });
+    await tickDeathTestsEndTurn(actor, { strict });
     return;
   }
 
-  await tickBloodLoss(actor);
+  await tickBloodLoss(actor, { strict });
   // Blood loss must see any active Forestall protection for the whole current
   // turn. Forestall then decrements/expires after that protected blood-loss check.
-  await tickForestall(actor);
-  await tickDeathTestsEndTurn(actor);
+  await tickForestall(actor, { strict });
+  await tickDeathTestsEndTurn(actor, { strict });
 }
 
 /**
@@ -935,14 +957,71 @@ export async function resolveShockTestFromChat(...args) {
 
 // ===== HOOK REGISTRATION =====
 
-/**
- * Register wound hooks (called from src/hooks/init.js or src/core/wounds/index.js)
- */
-export function registerWoundHooks() {
-  if (_woundHooksRegistered) return;
-  _woundHooksRegistered = true;
+/** Awaited healing and legacy notifications share the same wound rules. */
+export async function applyHealingWoundInteractions(actor, data, { strict = false } = {}) {
+  try {
+    if (!actor) return;
+    if (!_hasWoundDomainState(actor)) return;
+    if (!isActiveGMUser(game.user)) {
+      const ok = await requestWoundsGM("healingApplied", { actorUuid: actor.uuid,
+        data: { ...data, coreAftermathStage: "wounds", strictCompletion: strict } });
+      if (strict && !ok) throw new Error("Wound healing authority did not confirm completion.");
+      return ok;
+    }
 
-  const onDamageApplied = async (actor, data) => {
+    await enforceWoundInvariants(actor, { context: "uesrpgHealingApplied", strict });
+    if (!isDerivedWounded(actor) && !hasAnyWoundEffects(actor)) {
+      await cleanupWoundStateIfNoWounds(actor, { strict });
+      await enforceWoundInvariants(actor, { context: "uesrpgHealingApplied:cleanup", strict });
+      return;
+    }
+    const untreatedBefore = findEffectsByKind(actor, "wound")
+      .filter(effect => effect.getFlag?.(FLAG_SCOPE, "wounds")?.treated !== true);
+    const effectiveHealed = Math.max(0, toNumber(data?.effectiveHealed ?? 0, 0));
+    if (effectiveHealed > 0) {
+      const hpCur = Number(actor.system?.hp?.value ?? 0) || 0;
+      const hpMax = Number(actor.system?.hp?.max ?? 0) || 0;
+      // HP has already committed before this notification. Do not heal twice.
+      const committedHP = Number(data?.newHP ?? hpCur);
+      const hpAfter = Number.isFinite(committedHP) ? committedHP : hpCur;
+      if (untreatedBefore.length && hpMax > 0 && hpAfter >= hpMax) {
+        for (const woundEf of untreatedBefore) {
+          await applyMaimedOutcomeForWound(actor, woundEf, { reason: "healed-to-full-untreated", immediate: true, strict });
+        }
+      }
+      await applyHealingForestall(actor, effectiveHealed, { strict });
+      await advanceTreatedWoundHealing(actor, effectiveHealed, { strict });
+    } else {
+      await enforceWoundInvariants(actor, { context: "uesrpgHealingApplied:post", strict });
+    }
+  } catch (err) {
+    if (strict) throw err;
+    console.warn("UESRPG | Wound healing interaction failed", err);
+    return false;
+  }
+}
+
+export async function settleHealingTargetState(actor, data, { strict = false } = {}) {
+  if (!actor) return;
+  const npc = String(actor.type ?? "").toLowerCase() === "npc";
+  if (!npc && (!(Number(actor.system?.hp?.value) > 0) || !hasDeathState(actor))) return;
+  if (!isActiveGMUser(game.user)) {
+    const ok = await requestWoundsGM("healingApplied", { actorUuid: actor.uuid,
+      data: { ...data, coreAftermathStage: "targetState", strictCompletion: strict } });
+    if (strict && !ok) throw new Error("Healing target-state authority did not confirm completion.");
+    return ok;
+  }
+  if (npc) return syncNpcDeathState(actor, { strict });
+  return clearDeathState(actor, { strict });
+}
+
+export async function applyDamageWoundInteractions(actor, data, { strict = false } = {}) {
+  if (actor && data?.woundTriggered === true && !isActiveGMUser(game.user)) {
+    const ok = await requestWoundsGM("damageApplied", { actorUuid: actor.uuid, data: { ...data, strictCompletion: strict } });
+    if (strict && !ok) throw new Error("Wound damage authority did not confirm completion.");
+    return ok;
+  }
+    const startedAt = actor && data?.woundTriggered === true && isPerfEnabled() ? monoMs() : null;
     try {
       if (!actor) return;
       if (data?.woundTriggered !== true) return;
@@ -954,7 +1033,10 @@ export function registerWoundHooks() {
         applicationId: data?.applicationId ?? null
       });
 
-      if (!woundDoc) return;
+      if (!woundDoc) {
+        if (strict) throw new Error("Wound creation was not confirmed.");
+        return;
+      }
 
       const w = woundDoc.getFlag?.(FLAG_SCOPE, "wounds") ?? {};
       // Guard: post at most one shock card per wound application.
@@ -965,8 +1047,9 @@ export function registerWoundHooks() {
       if (!appId) appId = String(woundDoc.id ?? "");
       if (appId && !String(w.applicationId ?? "").trim()) {
         try {
-          await requestUpdateDocument(woundDoc, { [`${FLAG_PATH}.wounds.applicationId`]: appId });
+          if (!await requestUpdateDocument(woundDoc, { [`${FLAG_PATH}.wounds.applicationId`]: appId }, { render: false })) throw new Error("Wound application identity was not saved.");
         } catch (_e) {
+          if (strict) throw _e;
           // Non-blocking; proceed with local appId.
         }
       }
@@ -976,19 +1059,21 @@ export function registerWoundHooks() {
 
       // Persist details for later resolution (button click). This also provides idempotency.
       try {
-        await requestUpdateDocument(woundDoc, {
+        const confirmed = await requestUpdateDocument(woundDoc, {
           [`${FLAG_PATH}.wounds.shockPosted`]: true,
           [`${FLAG_PATH}.wounds.shockPostedAt`]: Date.now(),
           [`${FLAG_PATH}.wounds.damageAppliedByType`]: damageAppliedByType
-        });
+        }, { render: false });
+        if (strict && !confirmed) throw new Error("Wound shock claim was not saved.");
       } catch (_e) {
+        if (strict) throw _e;
         // Non-blocking; idempotency is best-effort.
       }
 
       // Apply immediate (non-conditional) shock effects at wound time.
       await applyShockUnconditional(actor, {
         hitLocation,
-        applicationId: appId || null
+        applicationId: appId || null, strict
       });
 
       // Post the shock test card to allow the target to roll END and apply conditional consequences.
@@ -1001,49 +1086,36 @@ export function registerWoundHooks() {
           applicationId: appId || null
         });
       } catch (err) {
+        if (strict) throw err;
         console.warn("UESRPG | Failed to post shock test card", err);
       }
     } catch (err) {
+      if (strict) throw err;
       console.warn("UESRPG | Wound application failed", err);
+    } finally {
+      // Direct stages and legacy notification adapters share this workflow.
+      if (startedAt !== null) perfRecord({
+        event: "damage.woundWorkflow",
+        actorUuid: actor?.uuid ?? null,
+        applicationId: data?.applicationId ?? null,
+        durationMs: monoMs() - startedAt,
+      });
     }
-  };
+}
 
-  const onHealingApplied = async (actor, data) => {
-    try {
-      if (!actor) return;
+/** Register wound hooks once from the system initialization workflow. */
+export function registerWoundHooks() {
+  if (_woundHooksRegistered) return;
+  _woundHooksRegistered = true;
 
-      await enforceWoundInvariants(actor, { context: "uesrpgHealingApplied" });
-      await evaluateUntreatedWoundDeadlines(actor);
-
-      // Only apply wound healing interactions when the actor is currently wounded or has wound effects.
-      const hasWound = isDerivedWounded(actor) || hasAnyWoundEffects(actor);
-      if (!hasWound) return;
-
-      const untreatedBefore = findEffectsByKind(actor, "wound").filter((ef) => ef.getFlag?.(FLAG_SCOPE, "wounds")?.treated !== true);
-      const effectiveHealed = Math.max(0, toNumber(data?.effectiveHealed ?? 0, 0));
-      if (effectiveHealed > 0) {
-        const hpCur = Number(actor.system?.hp?.value ?? 0) || 0;
-        const hpMax = Number(actor.system?.hp?.max ?? 0) || 0;
-        const hpAfter = Math.min(hpMax, hpCur + effectiveHealed);
-
-        if (untreatedBefore.length && hpMax > 0 && hpAfter >= hpMax) {
-          for (const woundEf of untreatedBefore) {
-            await applyMaimedOutcomeForWound(actor, woundEf, { reason: "healed-to-full-untreated", immediate: true });
-          }
-        }
-
-        await applyHealingForestall(actor, effectiveHealed);
-        await advanceTreatedWoundHealing(actor, effectiveHealed);
-      }
-      await enforceWoundInvariants(actor, { context: "uesrpgHealingApplied:post" });
-    } catch (err) {
-      console.warn("UESRPG | Wound healing interaction failed", err);
-    }
-  };
 
   registerWoundSocket({
-    onDamageApplied,
-    onHealingApplied,
+    onDamageApplied: async (actor, data) => data.coreAftermathStage === "deathState"
+      ? (await import("./death-tests.js")).settleDamageDeathState(actor, data, { strict: data.strictCompletion === true })
+      : applyDamageWoundInteractions(actor, data, { strict: data.strictCompletion === true }),
+    onHealingApplied: (actor, data) => data?.coreAftermathStage === "targetState"
+      ? settleHealingTargetState(actor, data, { strict: data.strictCompletion === true })
+      : applyHealingWoundInteractions(actor, data, { strict: data?.strictCompletion === true }),
     onResolveShock: async (actor, data) => {
       const woundEffectId = data?.woundEffectId ?? null;
       const action = data?.action ?? "shock-roll";
@@ -1053,39 +1125,27 @@ export function registerWoundHooks() {
 
   registerWoundCombatTicker({ tickActorEndTurn: tickWoundsEndTurn });
 
-  Hooks.on("uesrpgDamageApplied", async (actor, data) => {
-    try {
-      if (!actor) return;
-      if (data?.woundTriggered !== true) return;
-      if (!isActiveGMUser(game.user)) {
-        requestWoundsGM("damageApplied", { actorUuid: actor.uuid, data });
-        return;
-      }
-      await onDamageApplied(actor, data);
-    } catch (err) {
-      console.warn("UESRPG | Wound creation failed", err);
-    }
+  Hooks.on("uesrpgDamageApplied", (actor, data) => {
+    if (data?.handledDomains?.includes("wounds")) return;
+    void applyDamageWoundInteractions(actor, data).catch(error => console.warn("UESRPG | Wound creation failed", error));
   });
 
   Hooks.on("uesrpgHealingApplied", async (actor, data) => {
     try {
+      if (data?.coreAftermathHandled) return;
       if (!actor) return;
-      if (!isActiveGMUser(game.user)) {
-        requestWoundsGM("healingApplied", { actorUuid: actor.uuid, data });
-        return;
-      }
-      await onHealingApplied(actor, data);
+      await applyHealingWoundInteractions(actor, data);
     } catch (err) {
       console.warn("UESRPG | Wound healing interaction failed", err);
     }
   });
 
-  Hooks.on("uesrpg.timeChanged", async (payload) => {
+  TimeService.registerOwnedWorldTimeStage({ id: "wound-deadlines", order: 300, handle: async (payload) => {
     if (!isActiveGMUser(game.user)) return;
     const worldTime = Number(payload?.worldTime ?? getCurrentWorldTimeSeconds());
     if (!Number.isFinite(worldTime)) return;
 
-    const actors = game.actors?.contents ?? [];
+    const actors = MagicTimekeeping.collectRelevantActors();
     for (const actor of actors) {
       if (!actor) continue;
       const hasWounds = findEffectsByKind(actor, "wound").length > 0;
@@ -1094,67 +1154,52 @@ export function registerWoundHooks() {
       const last = Number(actor.getFlag(FLAG_SCOPE, "wounds.lastDeadlineCheckWorldTime") ?? 0) || 0;
       if (last > 0 && (worldTime - last) < 86400) continue;
 
-      await evaluateUntreatedWoundDeadlines(actor, { nowWorldTimeSeconds: worldTime });
+      await evaluateUntreatedWoundDeadlines(actor, { nowWorldTimeSeconds: worldTime, strict: true });
       try {
-        await requestUpdateDocument(actor, { [`${FLAG_PATH}.wounds.lastDeadlineCheckWorldTime`]: worldTime });
+        if (!await requestUpdateDocument(actor, { [`${FLAG_PATH}.wounds.lastDeadlineCheckWorldTime`]: worldTime }, { render: false })) throw new Error("Wound deadline checkpoint was not confirmed.");
       } catch (_e) {
-        // Non-blocking.
+        throw _e;
       }
     }
-  });
+  } });
 
   Hooks.on("updateActor", (actor, changed) => {
     if (!isActiveGMUser(game.user)) return;
-    if (!Object.prototype.hasOwnProperty.call(changed ?? {}, "system")) return;
-    const systemChanged = changed?.system ?? {};
-    const woundedChanged = Object.prototype.hasOwnProperty.call(systemChanged, "wounded");
-    const hpChanged = Object.prototype.hasOwnProperty.call(systemChanged, "hp");
-    if (!woundedChanged && !hpChanged) return;
+    const keys = Object.keys(foundry.utils.flattenObject(changed ?? {}));
+    const woundedChanged = keys.includes("system.wounded");
+    const hpChanged = keys.some(key => key === "system.hp" || key.startsWith("system.hp."));
+    if ((!woundedChanged && !hpChanged) || !_hasWoundDomainState(actor)) return;
 
-    if (hpChanged) {
-      const hpValueChanged = Object.prototype.hasOwnProperty.call(systemChanged?.hp ?? {}, "value");
-      if (hpValueChanged) {
-        const hpValue = Number(actor?.system?.hp?.value ?? 0) || 0;
-        const hpMax = Number(actor?.system?.hp?.max ?? 0) || 0;
-        if (hpMax > 0 && hpValue >= hpMax) {
-          const untreated = findEffectsByKind(actor, "wound").filter((ef) => ef.getFlag?.(FLAG_SCOPE, "wounds")?.treated !== true);
-          for (const woundEf of untreated) {
-            applyMaimedOutcomeForWound(actor, woundEf, { reason: "healed-to-full-untreated", immediate: true }).catch(() => {});
-          }
+    if (keys.includes("system.hp.value")) {
+      const hpValue = Number(actor?.system?.hp?.value ?? 0) || 0;
+      const hpMax = Number(actor?.system?.hp?.max ?? 0) || 0;
+      if (hpMax > 0 && hpValue >= hpMax) {
+        const untreated = findEffectsByKind(actor, "wound").filter(ef => getWoundsFlag(ef)?.treated !== true);
+        for (const woundEf of untreated) {
+          applyMaimedOutcomeForWound(actor, woundEf, { reason: "healed-to-full-untreated", immediate: true }).catch(() => {});
         }
       }
     }
-
-    enforceWoundInvariants(actor, { context: woundedChanged ? "updateActor:woundedChanged" : "updateActor:hpChanged" }).catch(() => {});
+    void enforceWoundInvariants(actor, { markDirty: true,
+      context: woundedChanged ? "updateActor:woundedChanged" : "updateActor:hpChanged" });
   });
 
-  const reconcileFromEffect = async (effect, context) => {
+  const reconcileFromEffect = async (effect, context, changed = null) => {
     try {
+      if (!isActiveGMUser(game.user)) return;
       const actor = effect?.parent?.documentName === "Actor" ? effect.parent : null;
       if (!actor) return;
-      const w = effect?.getFlag?.(FLAG_SCOPE, "wounds") ?? null;
-      const group = String(effect?.flags?.[FLAG_SCOPE]?.effectGroup ?? "");
-      if (!w && group !== "wounds.passive") return;
-      await enforceWoundInvariants(actor, { context });
-    } catch (_e) {
-      // Non-blocking.
+      noteNpcDeathStateEffectChange(actor, effect, { context, changed });
+      if (!_isWoundDomainEffect(effect, changed)) return;
+      await enforceWoundInvariants(actor, { context, markDirty: true });
+    } catch (error) {
+      console.warn("UESRPG | Wound effect reconciliation adapter failed", { actorUuid: effect?.parent?.uuid, context, error });
     }
   };
 
-  Hooks.on("createActiveEffect", (effect) => {
-    if (!isActiveGMUser(game.user)) return;
-    reconcileFromEffect(effect, "createActiveEffect");
-  });
-  Hooks.on("updateActiveEffect", (effect) => {
-    if (!isActiveGMUser(game.user)) return;
-    reconcileFromEffect(effect, "updateActiveEffect");
-  });
-  Hooks.on("deleteActiveEffect", (effect) => {
-    if (!isActiveGMUser(game.user)) return;
-    const actor = effect?.parent?.documentName === "Actor" ? effect.parent : null;
-    if (!actor) return;
-    enforceWoundInvariants(actor, { context: "deleteActiveEffect" }).catch(() => {});
-  });
+  Hooks.on("createActiveEffect", effect => { void reconcileFromEffect(effect, "createActiveEffect"); });
+  Hooks.on("updateActiveEffect", (effect, changed) => { void reconcileFromEffect(effect, "updateActiveEffect", changed); });
+  Hooks.on("deleteActiveEffect", effect => { void reconcileFromEffect(effect, "deleteActiveEffect"); });
 }
 
 // ===== EXPORTED API OBJECT =====

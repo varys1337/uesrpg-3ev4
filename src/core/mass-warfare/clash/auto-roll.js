@@ -1,3 +1,4 @@
+import { emitSuppressedSubRollDice } from "../../../utils/dice-visualization.js";
 /**
  * src/core/mass-warfare/clash/auto-roll.js
  *
@@ -12,7 +13,7 @@
  *
  * Dice So Nice (3D dice) support:
  *  - After evaluating all rolls, calls game.dice3d?.showForRoll() for each
- *    so the dice animation plays before the final card is revealed.
+ *    without delaying application or the final card.
  */
 
 import { SYSTEM_ID } from "../../../core/constants.js";
@@ -123,7 +124,7 @@ async function _executeAutoRoll(message, data) {
     attackerContactSide: working.unit1.contactSide ?? "front",
     defenderContactSide: working.unit2.contactSide ?? "front",
     attackType:         working.unit1.attackType ?? "melee",
-    applyDamage:        true,
+    applyDamage:        false,
   });
 
   await Promise.all([
@@ -133,20 +134,11 @@ async function _executeAutoRoll(message, data) {
     clashResult.unit2.holdApplied ? consumeHoldNextDefend(defender).catch(() => false) : Promise.resolve(false),
   ]);
 
-  // ── Dice So Nice 3D animation ─────────────────────────────────────────────
-  // Show all evaluated rolls simultaneously so players see all dice at once.
-  // game.dice3d is provided by the Dice So Nice module; gracefully skip if absent.
-  if (game.dice3d) {
-    const rolls = [
-      clashResult.unit1.testResult?.roll,
-      clashResult.unit2.testResult?.roll,
-      clashResult.unit1.dmgRoll,
-      clashResult.unit2.dmgRoll,
-      clashResult.unit1.breakTest?.result?.roll,
-      clashResult.unit2.breakTest?.result?.roll,
-    ].filter(Boolean);
-
-    await Promise.all(rolls.map(r => game.dice3d.showForRoll(r, game.user, true).catch(() => {})));
+  // Display the resolved dice without blocking final card updates.
+  for (const [unit, actor, participant] of [[clashResult.unit1, attacker, working.unit1], [clashResult.unit2, defender, working.unit2]]) {
+    for (const roll of [unit.testResult?.roll, unit.dmgRoll, unit.breakTest?.result?.roll]) {
+      void emitSuppressedSubRollDice(roll, { actor, message, user: game.users.get(participant.banked?.committedBy) ?? message.author });
+    }
   }
 
   // Merge results into the flag state
@@ -160,7 +152,7 @@ async function _executeAutoRoll(message, data) {
   const content = renderClashCard(working, message.id);
   await safeUpdateChatMessage(message, {
     content,
-    flags: { [SYSTEM_ID]: { [CLASH_FLAG_KEY]: working } },
+    flags: { [SYSTEM_ID]: { [CLASH_FLAG_KEY]: working, chatOutcomes: { version: 1, entries: clashResult.outcomes } } },
   });
 }
 

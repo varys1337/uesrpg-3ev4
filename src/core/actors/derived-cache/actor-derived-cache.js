@@ -9,23 +9,29 @@ function _ensureState(actor) {
       aeTotals: null,
       prepareContext: null,
       sheetRevision: 0,
+      inventoryRevision: 0,
     };
   }
   return actor._uesrpgDerivedCache;
 }
 
-export function getActorSheetRevision(actor) {
-  const revision = Number(_ensureState(actor)?.sheetRevision ?? 0);
+function readRevision(actor, key) {
+  const revision = Number(_ensureState(actor)?.[key] ?? 0);
   return Number.isSafeInteger(revision) && revision >= 0 ? revision : 0;
 }
 
-export function bumpActorSheetRevision(actor) {
+function bumpRevision(actor, key) {
   const state = _ensureState(actor);
   if (!state) return 0;
-  const current = getActorSheetRevision(actor);
-  state.sheetRevision = current < Number.MAX_SAFE_INTEGER ? current + 1 : 1;
-  return state.sheetRevision;
+  const current = readRevision(actor, key);
+  state[key] = current < Number.MAX_SAFE_INTEGER ? current + 1 : 1;
+  return state[key];
 }
+
+export function getActorSheetRevision(actor) { return readRevision(actor, "sheetRevision"); }
+export function bumpActorSheetRevision(actor) { return bumpRevision(actor, "sheetRevision"); }
+export function getActorInventoryRevision(actor) { return readRevision(actor, "inventoryRevision"); }
+export function bumpActorInventoryRevision(actor) { return bumpRevision(actor, "inventoryRevision"); }
 
 export function getCachedItemAggregation(actor, combatState) {
   const state = _ensureState(actor);

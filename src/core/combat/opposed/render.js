@@ -83,7 +83,7 @@ export function _renderBreakdown(tnObj) {
   if (!rows) return "";
   return `
     <details style="margin-top:4px;">
-      <summary style="cursor:pointer; user-select:none;">TN breakdown</summary>
+      <summary style="cursor:var(--uesrpg-cursor-pointer, pointer); user-select:none;">TN breakdown</summary>
       <div style="margin-top:4px; font-size:12px; opacity:0.9;">${rows}</div>
     </details>`;
 }

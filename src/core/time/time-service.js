@@ -13,7 +13,7 @@ import { FoundryCoreProvider } from "./providers/foundry-core-provider.js";
 import { dispatchCombatBoundary } from "./combat-boundary-orchestrator.js";
 import { CalendariaProvider } from "./providers/calendaria-provider.js";
 import { _num } from "../../utils/coerce.js";
-import { isPerfEnabled, monoMs, perfRecord } from "../../utils/perf-tracker.js";
+import { isPerfEnabled, monoMs, perfRecord, measurePerfStage } from "../../utils/perf-tracker.js";
 import {
   buildTimePublicApi,
   combatSnapshot,
@@ -23,6 +23,10 @@ import {
   safeCallAll,
   shouldDedupe,
 } from "./service-helpers.js";
+
+import { createMessageQueue } from "../opposed/shared/message-queue.js";
+import { isActiveGMUser } from "../../utils/users.js";
+import { AUTHORITY_RESULT_CODES, registerAuthorityIntentCommand, registerAuthorityIntentService, requestAuthorityIntent } from "../../utils/authority-intents.js";
 
 class TimeServiceImpl {
   constructor() {
@@ -37,6 +41,10 @@ class TimeServiceImpl {
     this._listeners = new Set();
 
     this._hooksInstalled = false;
+    this._ownedWorldStages = new Map();
+    this._worldQueue = createMessageQueue();
+    this._worldSettlements = new Map();
+    this._worldWaiters = new Map();
 
     this._lastWorldTimeSeconds = null;
     this._lastEmit = {
@@ -80,6 +88,12 @@ class TimeServiceImpl {
 
     globalThis.__UESRPG_TIME_SERVICE_HOOKS_INSTALLED__ = true;
     this._hooksInstalled = true;
+    registerAuthorityIntentService();
+    registerAuthorityIntentCommand("time.settle", async ({ data }) => {
+      if (Object.keys(data ?? {}).some(key => !["before", "after"].includes(key)) || !Number.isFinite(data?.before) || !Number.isFinite(data?.after)) return { ok: false, code: AUTHORITY_RESULT_CODES.INVALID_REQUEST };
+      const settlement = await this._waitForWorldSettlement(data.before, data.after);
+      return { ok: settlement?.ok === true, data: settlement };
+    });
 
     // Fires after world time is updated (all clients). Signature: (worldTime, dt, options, userId)
     Hooks.on("updateWorldTime", (worldTime, dtSeconds, options, userId) => {
@@ -237,23 +251,27 @@ class TimeServiceImpl {
    * @param {object} _options
    * @returns {Promise<number>} resulting world time in seconds
    */
-  async advanceWorldTimeSeconds(deltaSeconds, _options = {}) {
+  async advanceWorldTimeSeconds(deltaSeconds, options = {}) {
     this.initialize();
     const delta = _num(deltaSeconds, 0);
-    if (delta === 0) return this.getWorldTimeSeconds();
-
-    if (this._calendaria.isAvailable()) {
-      const out = await this._calendaria.advanceTimeSeconds(delta);
-      const n = _num(out, null);
-      if (n != null) return n;
-    }
-
+    const before = this.getWorldTimeSeconds();
+    if (delta === 0) return before;
     try {
-      const out = await game.time.advance(delta);
-      return _num(out, this.getWorldTimeSeconds());
-    } catch (err) {
-      console.warn("UESRPG | time-service | Failed to advance world time", err);
-      return this.getWorldTimeSeconds();
+      let out = null;
+      if (this._calendaria.isAvailable()) out = await this._calendaria.advanceTimeSeconds(delta);
+      // A calendar may advance successfully without returning a timestamp.
+      // Never advance twice if the confirmed clock already moved.
+      if (out == null && this.getWorldTimeSeconds() === before) out = await game.time.advance(delta);
+      const after = this.getWorldTimeSeconds();
+      if (options.settleOwned && after !== before) await this._settleAdvancement(before, after);
+      return _num(out, after);
+    } catch (error) {
+      const after = this.getWorldTimeSeconds();
+      error.advanced = after !== before;
+      error.worldTime = after;
+      if (options.settleOwned) throw error;
+      console.warn("UESRPG | time-service | Failed to advance world time", error);
+      return after;
     }
   }
 
@@ -265,21 +283,92 @@ class TimeServiceImpl {
    * @param {object} _options
    * @returns {Promise<number>} resulting world time in seconds
    */
-  async advanceWorldTimeToPreset(preset, _options = {}) {
+  async advanceWorldTimeToPreset(preset, options = {}) {
     this.initialize();
     const key = String(preset ?? "").trim().toLowerCase();
-    if (!key) return this.getWorldTimeSeconds();
-
-    if (this._calendaria.isAvailable()) {
-      const out = await this._calendaria.advanceToPreset(key);
-      const n = _num(out, null);
-      if (n != null) return n;
-      console.warn(`UESRPG | time-service | Calendaria could not advance to preset "${key}"`);
-      return this.getWorldTimeSeconds();
+    const before = this.getWorldTimeSeconds();
+    if (!key) return before;
+    if (!this._calendaria.isAvailable()) {
+      console.warn(`UESRPG | time-service | Preset advancement "${key}" requested without Calendaria`);
+      return before;
     }
+    try {
+      const out = await this._calendaria.advanceToPreset(key);
+      const after = this.getWorldTimeSeconds();
+      if (options.settleOwned && after !== before) await this._settleAdvancement(before, after);
+      return _num(out, after);
+    } catch (error) {
+      const after = this.getWorldTimeSeconds();
+      error.advanced = after !== before;
+      error.worldTime = after;
+      if (options.settleOwned) throw error;
+      console.warn("UESRPG | time-service | Preset advancement failed", error);
+      return after;
+    }
+  }
 
-    console.warn(`UESRPG | time-service | Preset advancement "${key}" requested without Calendaria`);
-    return this.getWorldTimeSeconds();
+  /** Internal ordered stages; public observation subscriptions remain separate. */
+  registerOwnedWorldTimeStage({ id, order, handle }) {
+    if (!id || typeof handle !== "function" || this._ownedWorldStages.has(id)) return false;
+    this._ownedWorldStages.set(id, { id, order: Number(order) || 0, handle });
+    return true;
+  }
+
+  async _dispatchOwnedWorldTime(payload) {
+    if (!isActiveGMUser(game.user)) return { ok: true, failed: [], handledDomains: [] };
+    const queuedAt = monoMs();
+    return this._worldQueue("worldTime", () => measurePerfStage("worldTime", "settlement", { worldTime: payload.worldTime }, async () => {
+      if (isPerfEnabled()) perfRecord({ event: "worldTime.queueWait", kind: "worldTime", worldTime: payload.worldTime, durationMs: monoMs() - queuedAt });
+      const failed = [];
+      const handledDomains = [];
+      for (const stage of [...this._ownedWorldStages.values()].sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))) {
+        handledDomains.push(stage.id);
+        try {
+          const result = await measurePerfStage("worldTime", stage.id, { worldTime: payload.worldTime }, () => stage.handle(payload));
+          if (result === false || result?.failed === true || result?.ok === false) throw new Error("Owned time stage reported incomplete settlement.");
+        } catch (error) {
+          failed.push({ id: stage.id, message: String(error.message ?? error) });
+          console.error(`UESRPG | World-time stage ${stage.id} failed`, error);
+        }
+      }
+      return { ok: failed.length === 0, failed, handledDomains };
+    }));
+  }
+
+  _observeWorldChange(payload) {
+    const key = `${payload.worldTime - payload.dtSeconds}->${payload.worldTime}`;
+    const promise = this._emit(payload);
+    this._worldSettlements.delete(key);
+    this._worldSettlements.set(key, promise);
+    while (this._worldSettlements.size > 100) this._worldSettlements.delete(this._worldSettlements.keys().next().value);
+    for (const resolve of (this._worldWaiters.get(key) ?? [])) resolve(promise);
+    this._worldWaiters.delete(key);
+    void promise.catch(error => console.error("UESRPG | time dispatch failed", error));
+  }
+
+  async _waitForWorldSettlement(before, after) {
+    const key = `${before}->${after}`;
+    if (this._worldSettlements.has(key)) return this._worldSettlements.get(key);
+    // Join an ingress which is still travelling to this client; never fabricate a tick.
+    return new Promise(resolve => {
+      const waiters = this._worldWaiters.get(key) ?? new Set();
+      const finish = value => { clearTimeout(timer); waiters.delete(finish); if (!waiters.size) this._worldWaiters.delete(key); resolve(value); };
+      const timer = setTimeout(() => finish({ ok: false, failed: [{ id: "ingress", message: "Confirmed time boundary was not observed." }] }), 5000);
+      waiters.add(finish);
+      this._worldWaiters.set(key, waiters);
+    });
+  }
+
+  async _settleAdvancement(before, after) {
+    const result = isActiveGMUser(game.user)
+      ? await this._waitForWorldSettlement(before, after)
+      : await requestAuthorityIntent("time.settle", { before, after }, { timeout: 60_000 });
+    if (result?.ok !== true) {
+      const error = new Error("World time advanced, but owned automation did not completely settle. Do not advance it again to retry cleanup.");
+      error.advanced = true;
+      error.worldTime = after;
+      throw error;
+    }
   }
 
   /**
@@ -317,6 +406,9 @@ class TimeServiceImpl {
     const _t0 = isPerfEnabled() ? monoMs() : 0;
 
     await dispatchCombatBoundary(p);
+    const settlement = ["worldTime", "calendaria"].includes(p.source)
+      ? await this._dispatchOwnedWorldTime(p) : null;
+    if (settlement) { p.completion = settlement; p.handledDomains = settlement.handledDomains; }
     // Public observation follows the ordered internal consumers.
     safeCallAll("uesrpg.timeChanged", p);
 
@@ -346,6 +438,7 @@ class TimeServiceImpl {
         durationMs: monoMs() - _t0,
       });
     }
+    return settlement ?? { ok: true };
   }
 
   _shouldDedupe(worldTimeSeconds, source) {
@@ -378,7 +471,7 @@ class TimeServiceImpl {
     };
 
     this._noteEmit(wt, "worldTime");
-    void this._emit(payload).catch((error) => console.error("UESRPG | time dispatch failed", error));
+    this._observeWorldChange(payload);
 
     if (_perf) {
       perfRecord({
@@ -394,7 +487,7 @@ class TimeServiceImpl {
   }
 
   _handleCalendariaDateTimeChange(data) {
-    const wt = _num(data?.worldTime, this.getWorldTimeSeconds());
+    const wt = _num(data?.worldTime, this._core.getWorldTimeSeconds());
     const dt = this._lastWorldTimeSeconds == null ? 0 : (wt - _num(this._lastWorldTimeSeconds, wt));
 
     if (this._shouldDedupe(wt, "calendaria")) return;
@@ -410,7 +503,7 @@ class TimeServiceImpl {
     };
 
     this._noteEmit(wt, "calendaria");
-    void this._emit(payload).catch((error) => console.error("UESRPG | time dispatch failed", error));
+    this._observeWorldChange(payload);
   }
 
   _installCalendariaIngress() {
@@ -517,8 +610,8 @@ class TimeServiceImpl {
         turn: _num(current?.turn, _num(c.turn, 0)),
         advanceTime: null,
         direction: null,
-        prior: prior ?? null,
-        current: current ?? null
+        prior: prior ? { ...prior } : null,
+        current: current ? { ...current } : null
       }
     };
 

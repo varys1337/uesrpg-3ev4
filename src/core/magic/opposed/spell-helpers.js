@@ -1,3 +1,4 @@
+import { buildMagicCastContext, recordSpellStrengthRolls, resolveMagicCastContext } from "./cast-context.js";
 import { emitSuppressedSubRollDice as emitSuppressedOpposedSubRollDice } from '../../../utils/dice-visualization.js';
 export { emitSuppressedOpposedSubRollDice };
 /**
@@ -8,8 +9,8 @@ export { emitSuppressedOpposedSubRollDice };
  * Spell-specific utility functions for magic opposed workflow.
  */
 
-import { isMultiDefender, resolveToken } from "./schema.js";
-import { computeSpellMagickaCost, getSpellDamageFormula, getSpellDamageType, getSpellStrengthDamageComponents } from "../magicka-utils.js";
+import { getMessageState, isMultiDefender, resolveToken } from "./schema.js";
+import { computeSpellMagickaCost, getSpellDamageFormula, getSpellDamageType, getSpellStrengthDamageComponents, rollSpellHealing } from "../magicka-utils.js";
 import { confirmDialog } from "../../../utils/dialog-v2-helper.js";
 import { computeElementalDamageBonus } from "../magic-modifiers.js";
 import { canTokenEscapeArea } from "../../../utils/aoe-utils.js";
@@ -27,21 +28,11 @@ async function _postSpellDamageRollMessage({
   const safeRolls = Array.isArray(rolls) ? rolls.filter(Boolean) : [];
   if (!attacker || !safeRolls.length) return null;
 
-  const dsn = game?.dice3d;
-  if (!dsn || typeof dsn.showForRoll !== "function") return null;
-
-  // Avoid posting extra "Spell - Damage Roll" chat cards in inline opposed flows.
-  await Promise.allSettled(safeRolls.map(async (roll) => {
-    try {
-      await dsn.showForRoll(roll, game.user, true);
-    } catch (_err) {
-      try {
-        await dsn.showForRoll(roll);
-      } catch (_err2) {
-        // no-op: the opposed card still renders the roll breakdown inline
-      }
-    }
-  }));
+  const message = parentMessageId ? game.messages.get(parentMessageId) : null;
+  const roller = game.users.get(getMessageState(message)?.attacker?.banked?.committedBy) ?? message?.author ?? game.user;
+  for (const roll of safeRolls) {
+    void emitSuppressedOpposedSubRollDice(roll, { actor: attacker, parentMessageId, user: roller });
+  }
 
   return null;
 }
@@ -141,11 +132,19 @@ export function isTemporaryHealingType(damageType) {
 }
 
 async function _rollSpellDamageComponentSet(spell, commonRollOptions, { attacker = null, damageType = "magic", targetActor = null } = {}) {
-  const components = getSpellStrengthDamageComponents(spell, {
-    ...commonRollOptions,
-    actor: attacker ?? commonRollOptions?.actor ?? null,
-    damageType
-  });
+  const savedContext = commonRollOptions?.castContext;
+  const savedRolls = savedContext?.spellStrengthResolved
+    ? (savedContext.spellStrengthSelectedRolls ?? []).map((stored) => Roll.fromData(stored)) : [];
+  const savedConstant = savedContext?.spellStrengthResolved && savedContext.spellStrengthValue != null && !savedRolls.length;
+  const components = savedRolls.length
+    ? savedRolls.map((roll) => ({ formula: roll.formula, damageType: roll.options?.type ?? damageType }))
+    : savedConstant ? [{ formula: String(savedContext.spellStrengthValue), damageType }]
+      : getSpellStrengthDamageComponents(spell, {
+        ...commonRollOptions,
+        validate: true,
+        actor: attacker ?? commonRollOptions?.actor ?? null,
+        damageType
+      });
   if (!components.length) {
     const zero = await new Roll("0").evaluate();
     return { components: [], rolls: [zero], total: 0, rollHTML: await zero.render() };
@@ -155,7 +154,10 @@ async function _rollSpellDamageComponentSet(spell, commonRollOptions, { attacker
   const resolvedComponents = [];
   let total = 0;
   for (const component of components) {
-    const roll = await new Roll(component.formula).evaluate({ maximize: commonRollOptions?.isCritical === true });
+    const stored = savedRolls[rolls.length];
+    const roll = stored
+      ? stored
+      : await Roll.create(component.formula, { actorId: attacker?.id }, { type: component.damageType }).evaluate({ maximize: commonRollOptions?.isCritical === true });
     rolls.push(roll);
     const baseDamage = Math.max(0, Number(roll.total ?? 0) || 0);
     const elemBonusInfo = computeElementalDamageBonus(attacker, component.damageType, { opposingActor: targetActor, targetActor });
@@ -193,7 +195,7 @@ export function shouldShareSpellDamage(data) {
  * @param {object} options - {attacker, spell, spellOptions, isCritical, damageType}
  * @returns {Promise<object>}
  */
-export async function computeSpellDamageShared({ attacker, spell, spellOptions, isCritical, damageType, targetActor = null, parentMessageId = null } = {}) {
+export async function computeSpellDamageShared({ attacker, spell, spellOptions, isCritical, damageType, targetActor = null, parentMessageId = null, castContext = null } = {}) {
   // Map castLevel → level for downstream functions
   const normalizedOptions = {
     ...(spellOptions ?? {}),
@@ -211,7 +213,8 @@ export async function computeSpellDamageShared({ attacker, spell, spellOptions, 
   const overloadBonus = isOverloaded ? wpBonus : 0;
 
   const commonRollOptions = { 
-    isCritical, 
+    isCritical,
+    castContext,
     isOverloaded, 
     wpBonus,
     actor: attacker,
@@ -222,7 +225,8 @@ export async function computeSpellDamageShared({ attacker, spell, spellOptions, 
   let damageSet = null;
   let rollMessages = null;
   let overchargeTotals = null;
-  if (wantsOvercharge) {
+  const reuseStrength = Boolean(castContext?.spellStrengthResolved && castContext?.spellStrengthValue != null);
+  if (wantsOvercharge && !reuseStrength) {
     const s1 = await _rollSpellDamageComponentSet(spell, commonRollOptions, { attacker, damageType: resolvedDamageType, targetActor });
     const s2 = await _rollSpellDamageComponentSet(spell, commonRollOptions, { attacker, damageType: resolvedDamageType, targetActor });
     const t1 = Number(s1.total) || 0;
@@ -232,9 +236,15 @@ export async function computeSpellDamageShared({ attacker, spell, spellOptions, 
     overchargeTotals = [t1, t2];
   } else {
     damageSet = await _rollSpellDamageComponentSet(spell, commonRollOptions, { attacker, damageType: resolvedDamageType, targetActor });
-    rollMessages = damageSet.rolls ?? [];
+    rollMessages = reuseStrength ? [] : damageSet.rolls ?? [];
+    overchargeTotals = reuseStrength ? castContext.spellStrengthOverchargeTotals ?? null : null;
   }
 
+  const strengthContext = reuseStrength ? castContext : recordSpellStrengthRolls(
+    { spellOptions, castContext: buildMagicCastContext({ spellOptions }, spell, { actor: attacker }) }, spell,
+    { actor: attacker, rolls: rollMessages, selectedRolls: damageSet.rolls ?? [], castLevel: normalizedOptions.level }
+  );
+  strengthContext.spellStrengthOverchargeTotals = overchargeTotals;
   const components = Array.isArray(damageSet?.components) ? damageSet.components.slice() : [];
   if (overloadBonus > 0) {
     const overloadType = resolvedDamageType === "none" ? "magic" : resolvedDamageType;
@@ -288,6 +298,7 @@ export async function computeSpellDamageShared({ attacker, spell, spellOptions, 
     baseDamage,
     damageValue,
     components,
+    castContext: strengthContext,
     rollHTML,
     isOverloaded,
     overloadBonus,
@@ -304,7 +315,7 @@ export async function computeSpellDamageShared({ attacker, spell, spellOptions, 
  * @param {object} options - {data, attacker, spell, spellOptions, isCritical, damageType}
  * @returns {Promise<object|null>}
  */
-export async function getOrCreateSharedSpellDamage({ data, attacker, spell, spellOptions, isCritical, damageType, parentMessageId = null } = {}) {
+export async function getOrCreateSharedSpellDamage({ data, attacker, spell, spellOptions, isCritical, damageType, parentMessageId = null, castContext = null } = {}) {
   if (!shouldShareSpellDamage(data)) return null;
   data.context = data.context ?? {};
   const resolvedDamageType = getSpellDamageType(spell, spellOptions?.castLevel ?? spellOptions?.level ?? null);
@@ -312,7 +323,7 @@ export async function getOrCreateSharedSpellDamage({ data, attacker, spell, spel
   if (existing && existing.spellUuid === spell?.uuid && existing.damageType === resolvedDamageType) {
     return existing;
   }
-  const computed = await computeSpellDamageShared({ attacker, spell, spellOptions, isCritical, damageType: resolvedDamageType, parentMessageId });
+  const computed = await computeSpellDamageShared({ attacker, spell, spellOptions, isCritical, damageType: resolvedDamageType, parentMessageId, castContext });
   data.context.sharedSpellDamage = computed;
   return computed;
 }
@@ -373,4 +384,29 @@ export async function maybeResolveAoEEvadeEscape({ data, defenderEntry, defender
   }
 
   return canEscape;
+}
+
+/** Resolve strength needed before damage (saves or conjuration), retaining the chosen rolls. */
+export async function prepareSpellStrengthForUse({ data, attacker, spell, targetActor, message }) {
+  if (data.attacker.castContext?.spellStrengthValue != null) {
+    data.attacker.castContext = await resolveMagicCastContext(data.attacker, spell, { actor: attacker, message });
+    return data.attacker.castContext;
+  }
+  const spellOptions = data.attacker.spellOptions ?? {};
+  const damageType = getSpellDamageType(spell, spellOptions.castLevel);
+  let context;
+  if (isHealingType(damageType)) {
+    const roll = await rollSpellHealing(spell, { actor: attacker, level: spellOptions.castLevel, isCritical: Boolean(data.attacker.result?.isCriticalSuccess) });
+    context = recordSpellStrengthRolls(data.attacker, spell, { rolls: [roll], actor: attacker });
+    void emitSuppressedOpposedSubRollDice(roll, { actor: attacker, message, damageType });
+  } else if (String(getSpellDamageFormula(spell, spellOptions.castLevel, { actor: attacker }) || "0") !== "0") {
+    const options = { data, attacker, spell, spellOptions, damageType, targetActor, parentMessageId: message?.id,
+      isCritical: Boolean(data.attacker.result?.isCriticalSuccess) };
+    const damage = await getOrCreateSharedSpellDamage(options) ?? await computeSpellDamageShared(options);
+    context = damage.castContext;
+  } else {
+    context = await resolveMagicCastContext(data.attacker, spell, { actor: attacker, message });
+  }
+  data.attacker.castContext = context;
+  return context;
 }

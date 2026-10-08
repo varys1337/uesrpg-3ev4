@@ -10,10 +10,10 @@ import { getAttackModeFromWeapon, getEffectiveWeaponHands } from "./combat-utils
 import { FLAG_SCOPE } from "../system/namespace.js";
 import { getFlagValueWithFallback } from "../system/flags.js";
 import { registerCombatBoundaryConsumer } from "../time/combat-boundary-orchestrator.js";
-import { requestBatchUpdateDocuments } from "../../utils/authority-proxy.js";
+import { requestBatchUpdateDocuments, requestAtomicUpdateDocument } from "../../utils/authority-proxy.js";
 import { evaluateAEModifierKeys, getActorCapabilityFlag } from "../active-effects/modifier-evaluator.js";
 import { isAttackTrackerEagerResetSkipped } from "../config/automation-policy.js";
-import { createDebugLogger } from "../../utils/debug.js";
+import { createDebugLogger, isDebugEnabled } from "../../utils/debug.js";
 import { recordAttackTrackerDiagnostic } from "./attack-tracker-diagnostics.js";
 import { buildAttackTrackerContext } from "./attack-tracker-context.js";
 import { isActorInStartedCombatEncounter } from "./combat-scope.js";
@@ -185,6 +185,7 @@ export class AttackTracker {
     details = {},
     updateMode = null
   } = {}) {
+    if (!isDebugEnabled("effectsProxyDebug")) return null;
     const snapshot = this._buildTrackerSnapshot(actor, trackerContext, limitContext);
     const normalizedContext = snapshot.trackerContext;
     recordAttackTrackerDiagnostic({
@@ -244,6 +245,7 @@ export class AttackTracker {
   }
 
   static _recordResolutionDiagnostic(actor, trackerContext = {}, trackedActor = null, { reason = "resolve" } = {}) {
+    if (!isDebugEnabled("effectsProxyDebug")) return;
     const normalizedContext = buildAttackTrackerContext(actor, trackerContext);
     const fallbackActor = actor ?? null;
     const combatantActor = normalizedContext.combatantActor ?? null;
@@ -409,24 +411,78 @@ export class AttackTracker {
     const normalizedContext = authority.trackerContext;
     const trackedActor = authority.trackedActor;
     const trackerOwner = authority.trackerOwner;
-    if (!trackerOwner || !updates || typeof updates !== "object") return false;
+    if (!trackerOwner || !updates || !["object", "function"].includes(typeof updates)) return false;
 
     this._recordResolutionDiagnostic(actor, normalizedContext, trackedActor, { reason });
 
-    const { requestUpdateDocument } = await import("../../utils/authority-proxy.js");
-    const ok = await requestUpdateDocument(trackerOwner, updates);
+    let unchanged = false;
+    let appliedUpdates = {};
+    const ok = await requestAtomicUpdateDocument(trackerOwner, (fresh) => {
+      if (!game.user?.isGM && fresh.testUserPermission?.(game.user, CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER) !== true) {
+        throw new Error("Attack tracker permission changed before settlement.");
+      }
+      if (this._isCombatantDocument(fresh) && fresh.parent?.combatants?.get?.(fresh.id)?.uuid !== fresh.uuid) {
+        throw new Error("The attack tracker combatant is no longer available.");
+      }
+      const freshActor = this._isCombatantDocument(fresh) ? fresh.actor ?? trackedActor : fresh;
+      const freshContext = { ...normalizedContext, trackerOwner: fresh, trackerDocument: freshActor,
+        combatantActor: freshActor, trackerCombatant: this._isCombatantDocument(fresh) ? fresh : null };
+      const freshAuthority = { ...authority, trackedActor: freshActor, trackerOwner: fresh,
+        trackerCombatant: freshContext.trackerCombatant, trackerContext: freshContext };
+      const proposed = typeof updates === "function" ? updates(freshAuthority) : updates;
+      if (!proposed || typeof proposed !== "object") throw new Error("Invalid attack tracker update.");
+      appliedUpdates = fresh.updateSource(foundry.utils.deepClone(proposed), { dryRun: true, fallback: false });
+      unchanged = foundry.utils.isEmpty(appliedUpdates);
+      return appliedUpdates;
+    });
+    if (unchanged) return true;
     if (!ok) {
       console.warn("UESRPG | AttackTracker update failed", {
         actor: trackerOwner?.uuid ?? trackedActor?.uuid ?? null,
         reason,
-        updateKeys: Object.keys(updates ?? {})
+        updateKeys: Object.keys(appliedUpdates)
       });
       _trackerDebug("update rejected", {
         actor: trackerOwner?.uuid ?? trackedActor?.uuid ?? null,
         sourceActor: actor?.uuid ?? null,
         reason,
-        updates
+        updates: appliedUpdates
       });
+      if (isDebugEnabled("effectsProxyDebug")) {
+        recordAttackTrackerDiagnostic({
+          type: "write",
+          source: normalizedContext?.source ?? "attack-tracker",
+          sourceTag: normalizedContext?.sourceTag ?? normalizedContext?.source ?? "attack-tracker",
+          reason,
+          eventType: "attack-write",
+          attackTraceId: normalizedContext?.attackTraceId ?? null,
+          phase: normalizedContext?.phase ?? reason,
+          attackMode: normalizedContext?.attackMode ?? null,
+          updateMode: this._getTrackerUpdateMode(trackedActor),
+          sourceActor: actor,
+          resolvedActor: trackedActor,
+          combatantActor: normalizedContext?.combatantActor ?? null,
+          combatantId: normalizedContext?.combatantId ?? null,
+          resolutionSource: normalizedContext?.resolutionSource ?? null,
+          authorityState: normalizedContext?.authorityState ?? null,
+          ambiguityState: normalizedContext?.ambiguityState ?? null,
+          explicitTokenUuid: normalizedContext?.tokenUuid ?? null,
+          trackerDocument: trackerOwner ?? normalizedContext?.trackerDocument ?? trackedActor ?? null,
+          combatId: normalizedContext?.combat?.id ?? game?.combat?.id ?? null,
+          round: this._getCombatRound(),
+          turn: this._getCombatTurn(),
+          details: {
+            ok: false,
+            updateKeys: Object.keys(appliedUpdates),
+            updatePayload: foundry.utils.deepClone(appliedUpdates)
+          }
+        });
+      }
+      return false;
+    }
+
+    if (isDebugEnabled("effectsProxyDebug")) {
+      const postSnapshot = this._buildTrackerSnapshot(actor, normalizedContext);
       recordAttackTrackerDiagnostic({
         type: "write",
         source: normalizedContext?.source ?? "attack-tracker",
@@ -436,64 +492,33 @@ export class AttackTracker {
         attackTraceId: normalizedContext?.attackTraceId ?? null,
         phase: normalizedContext?.phase ?? reason,
         attackMode: normalizedContext?.attackMode ?? null,
-        updateMode: this._getTrackerUpdateMode(trackedActor),
+        updateMode: this._getTrackerUpdateMode(trackerOwner),
         sourceActor: actor,
         resolvedActor: trackedActor,
         combatantActor: normalizedContext?.combatantActor ?? null,
         combatantId: normalizedContext?.combatantId ?? null,
         resolutionSource: normalizedContext?.resolutionSource ?? null,
-        authorityState: normalizedContext?.authorityState ?? null,
-        ambiguityState: normalizedContext?.ambiguityState ?? null,
-        explicitTokenUuid: normalizedContext?.tokenUuid ?? null,
-        trackerDocument: trackerOwner ?? normalizedContext?.trackerDocument ?? trackedActor ?? null,
-        combatId: normalizedContext?.combat?.id ?? game?.combat?.id ?? null,
+          authorityState: normalizedContext?.authorityState ?? null,
+          ambiguityState: normalizedContext?.ambiguityState ?? null,
+          explicitTokenUuid: normalizedContext?.tokenUuid ?? null,
+          trackerDocument: trackerOwner ?? normalizedContext?.trackerDocument ?? trackedActor ?? null,
+          combatId: normalizedContext?.combat?.id ?? game?.combat?.id ?? null,
         round: this._getCombatRound(),
         turn: this._getCombatTurn(),
         details: {
-          ok: false,
-          updateKeys: Object.keys(updates ?? {}),
-          updatePayload: foundry.utils.deepClone(updates ?? {})
+          ok: true,
+          updateKeys: Object.keys(appliedUpdates),
+          updatePayload: foundry.utils.deepClone(appliedUpdates),
+          rawCurrent: postSnapshot.rawCurrent,
+          rawTurnCurrent: postSnapshot.rawTurnCurrent,
+          rawMax: postSnapshot.rawLimit,
+          overrideCurrent: postSnapshot.rawOverrideCurrent,
+          overrideMax: postSnapshot.rawOverrideMax,
+          computedCurrent: postSnapshot.current,
+          computedMax: postSnapshot.max
         }
       });
-      return false;
     }
-
-    const postSnapshot = this._buildTrackerSnapshot(actor, normalizedContext);
-    recordAttackTrackerDiagnostic({
-      type: "write",
-      source: normalizedContext?.source ?? "attack-tracker",
-      sourceTag: normalizedContext?.sourceTag ?? normalizedContext?.source ?? "attack-tracker",
-      reason,
-      eventType: "attack-write",
-      attackTraceId: normalizedContext?.attackTraceId ?? null,
-      phase: normalizedContext?.phase ?? reason,
-      attackMode: normalizedContext?.attackMode ?? null,
-      updateMode: this._getTrackerUpdateMode(trackerOwner),
-      sourceActor: actor,
-      resolvedActor: trackedActor,
-      combatantActor: normalizedContext?.combatantActor ?? null,
-      combatantId: normalizedContext?.combatantId ?? null,
-      resolutionSource: normalizedContext?.resolutionSource ?? null,
-        authorityState: normalizedContext?.authorityState ?? null,
-        ambiguityState: normalizedContext?.ambiguityState ?? null,
-        explicitTokenUuid: normalizedContext?.tokenUuid ?? null,
-        trackerDocument: trackerOwner ?? normalizedContext?.trackerDocument ?? trackedActor ?? null,
-        combatId: normalizedContext?.combat?.id ?? game?.combat?.id ?? null,
-      round: this._getCombatRound(),
-      turn: this._getCombatTurn(),
-      details: {
-        ok: true,
-        updateKeys: Object.keys(updates ?? {}),
-        updatePayload: foundry.utils.deepClone(updates ?? {}),
-        rawCurrent: postSnapshot.rawCurrent,
-        rawTurnCurrent: postSnapshot.rawTurnCurrent,
-        rawMax: postSnapshot.rawLimit,
-        overrideCurrent: postSnapshot.rawOverrideCurrent,
-        overrideMax: postSnapshot.rawOverrideMax,
-        computedCurrent: postSnapshot.current,
-        computedMax: postSnapshot.max
-      }
-    });
     this._emitTrackerChanged(actor, {
       reason,
       sourceActor: actor,
@@ -740,8 +765,6 @@ export class AttackTracker {
     const trackedActor = authority.trackedActor;
     if (!trackedActor) return false;
     const current = Math.max(0, Math.floor(Number(currentValue) || 0));
-    const currentRound = this._getCombatRound();
-    const currentTurn = this._getCombatTurn();
     this._recordTrackerPhase(actor, {
       type: "phase",
       reason: "set-current-request",
@@ -751,14 +774,18 @@ export class AttackTracker {
         trackedActor,
         details: { requestedCurrent: current }
       });
-    return this._applyTrackerUpdate(actor, {
-      ...this._buildStateUpdateData(authority, {
-        attacksThisRound: current,
-        lastResetRound: currentRound,
-        lastResetTurn: currentTurn
-      }),
-      [ATTACK_OVERRIDE_CURRENT_PATH]: current
-      }, { reason: "set-current", trackerContext: normalizedContext });
+    return this._applyTrackerUpdate(actor, (freshAuthority) => {
+      const freshContext = freshAuthority.trackerContext;
+      if (this.getAttackCount(freshAuthority.trackedActor, freshContext) === current) return {};
+      return {
+        ...this._buildStateUpdateData(freshAuthority, {
+          attacksThisRound: current,
+          lastResetRound: this._getCombatRound(),
+          lastResetTurn: this._getCombatTurn()
+        }),
+        [ATTACK_OVERRIDE_CURRENT_PATH]: current
+      };
+    }, { reason: "set-current", trackerContext: normalizedContext });
   }
 
   static async adjustCurrentAttacks(actor, delta = 0, trackerContext = {}) {
@@ -781,7 +808,10 @@ export class AttackTracker {
         trackedActor,
         details: { requestedMax: limit }
       });
-    return this._applyTrackerUpdate(actor, { [ATTACK_OVERRIDE_MAX_PATH]: limit }, { reason: "set-max", trackerContext: normalizedContext });
+    return this._applyTrackerUpdate(actor, (freshAuthority) => {
+      if (this.getAttackLimit(freshAuthority.trackedActor, {}, freshAuthority.trackerContext) === limit) return {};
+      return { [ATTACK_OVERRIDE_MAX_PATH]: limit };
+    }, { reason: "set-max", trackerContext: normalizedContext });
   }
 
   static async adjustAttackLimitOverride(actor, delta = 0, trackerContext = {}) {

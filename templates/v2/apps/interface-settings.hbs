@@ -1,99 +1,143 @@
 {{!-- templates/v2/apps/interface-settings.hbs --}}
 <section class="uesrpg-settings uesrpg-settings-panel">
-  <fieldset class="uesrpg-settings__section">
-    <legend>{{localize "UESRPG.Apps.InterfaceSettings.Sections.Interface"}}</legend>
+  <div class="uesrpg-settings__body">
+    <fieldset class="uesrpg-settings__section">
+      <legend>{{localize "UESRPG.Apps.InterfaceSettings.Sections.Interface"}}</legend>
 
-    <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-change-ui-font">{{settings.changeUiFont.name}}</label>
-      <select id="uesrpg-change-ui-font" name="changeUiFont">
-        {{selectOptions settings.changeUiFont.choices selected=settings.changeUiFont.value}}
-      </select>
-      <p class="setting-help">{{settings.changeUiFont.hint}}</p>
-    </div>
-
-    <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-sheet-density">{{settings.sheetDensity.name}}</label>
-      <select id="uesrpg-sheet-density" name="sheetDensity">
-        {{selectOptions settings.sheetDensity.choices selected=settings.sheetDensity.value}}
-      </select>
-      <p class="setting-help">{{settings.sheetDensity.hint}}</p>
-    </div>
-
-    <div class="setting-row setting-row--toggle">
-      <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-no-startup-dialog">{{settings.noStartUpDialog.name}}</label>
-        <p class="setting-help">{{settings.noStartUpDialog.hint}}</p>
+      {{#if settings.changeUiFont}}
+      <div class="setting-row setting-row--select">
+        <label class="setting-row__label" for="uesrpg-change-ui-font">{{settings.changeUiFont.name}}</label>
+        <select id="uesrpg-change-ui-font" aria-describedby="uesrpg-change-ui-font-hint" name="changeUiFont">
+          {{selectOptions settings.changeUiFont.choices selected=settings.changeUiFont.value}}
+        </select>
+        <p id="uesrpg-change-ui-font-hint" class="setting-help">{{settings.changeUiFont.hint}}</p>
       </div>
-      <input id="uesrpg-no-startup-dialog" type="checkbox" name="noStartUpDialog" {{checked settings.noStartUpDialog.value}}>
-    </div>
+      {{/if}}
 
-    <div class="setting-row setting-row--toggle">
-      <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-enable-loadouts">{{settings.enableLoadouts.name}}</label>
-        <p class="setting-help">{{settings.enableLoadouts.hint}}</p>
+      {{#if settings.sheetDensity}}
+      <div class="setting-row setting-row--select">
+        <label class="setting-row__label" for="uesrpg-sheet-density">{{settings.sheetDensity.name}}</label>
+        <select id="uesrpg-sheet-density" aria-describedby="uesrpg-sheet-density-hint" name="sheetDensity">
+          {{selectOptions settings.sheetDensity.choices selected=settings.sheetDensity.value}}
+        </select>
+        <p id="uesrpg-sheet-density-hint" class="setting-help">{{settings.sheetDensity.hint}}</p>
       </div>
-      <input id="uesrpg-enable-loadouts" type="checkbox" name="enableLoadouts" {{checked settings.enableLoadouts.value}}>
-    </div>
+      {{/if}}
 
-    <div class="setting-row setting-row--toggle">
-      <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-custom-cursor">{{settings.customCursor.name}}</label>
-        <p class="setting-help">{{settings.customCursor.hint}}</p>
+      {{#if settings.hideChatFormattingToolbar}}
+      <div class="setting-row setting-row--toggle">
+        <div class="setting-row__main">
+          <label class="setting-row__label" for="uesrpg-hide-chat-formatting-toolbar">{{settings.hideChatFormattingToolbar.name}}</label>
+          <p id="uesrpg-hide-chat-formatting-toolbar-hint" class="setting-help">{{settings.hideChatFormattingToolbar.hint}}</p>
+        </div>
+        <input id="uesrpg-hide-chat-formatting-toolbar" aria-describedby="uesrpg-hide-chat-formatting-toolbar-hint" type="checkbox" name="hideChatFormattingToolbar" {{checked settings.hideChatFormattingToolbar.value}}>
       </div>
-      <input id="uesrpg-custom-cursor" type="checkbox" name="customCursor" {{checked settings.customCursor.value}}>
-    </div>
+      {{/if}}
 
-    <div class="setting-row setting-row--toggle">
-      <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-inline-rules-tooltips">{{settings.enableInlineRulesTooltips.name}}</label>
-        <p class="setting-help">{{settings.enableInlineRulesTooltips.hint}}</p>
+      {{#if settings.noStartUpDialog}}
+      <div class="setting-row setting-row--toggle">
+        <div class="setting-row__main">
+          <label class="setting-row__label" for="uesrpg-no-startup-dialog">{{settings.noStartUpDialog.name}}</label>
+          <p id="uesrpg-no-startup-dialog-hint" class="setting-help">{{settings.noStartUpDialog.hint}}</p>
+        </div>
+        <input id="uesrpg-no-startup-dialog" aria-describedby="uesrpg-no-startup-dialog-hint" type="checkbox" name="noStartUpDialog" {{checked settings.noStartUpDialog.value}}>
       </div>
-      <input id="uesrpg-inline-rules-tooltips" type="checkbox" name="enableInlineRulesTooltips" {{checked settings.enableInlineRulesTooltips.value}}>
-    </div>
+      {{/if}}
 
-    <div class="setting-row setting-row--toggle">
-      <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-custom-journal-styling">{{settings.enableCustomJournalStyling.name}}</label>
-        <p class="setting-help">{{settings.enableCustomJournalStyling.hint}}</p>
+      {{#if settings.enableLoadouts}}
+      <div class="setting-row setting-row--toggle">
+        <div class="setting-row__main">
+          <label class="setting-row__label" for="uesrpg-enable-loadouts">{{settings.enableLoadouts.name}}</label>
+          <p id="uesrpg-enable-loadouts-hint" class="setting-help">{{settings.enableLoadouts.hint}}</p>
+        </div>
+        <input id="uesrpg-enable-loadouts" aria-describedby="uesrpg-enable-loadouts-hint" type="checkbox" name="enableLoadouts" {{checked settings.enableLoadouts.value}}>
       </div>
-      <input id="uesrpg-custom-journal-styling" type="checkbox" name="enableCustomJournalStyling" {{checked settings.enableCustomJournalStyling.value}}>
-    </div>
+      {{/if}}
 
-    <div class="setting-row setting-row--toggle">
-      <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-encumbrance-breakdown">{{settings.encumbranceUiEnhanced.name}}</label>
-        <p class="setting-help">{{settings.encumbranceUiEnhanced.hint}}</p>
+      {{#with (lookup settings "alchemy.enableGatheringHelper") as |gathering|}}
+      <div class="setting-row setting-row--toggle">
+        <div class="setting-row__main">
+          <label class="setting-row__label" for="uesrpg-alchemy-gathering-helper">{{gathering.name}}</label>
+          <p id="uesrpg-alchemy-gathering-helper-hint" class="setting-help">{{gathering.hint}}</p>
+        </div>
+        <input id="uesrpg-alchemy-gathering-helper" aria-describedby="uesrpg-alchemy-gathering-helper-hint" type="checkbox" name="alchemy.enableGatheringHelper" {{checked gathering.value}}>
       </div>
-      <input id="uesrpg-encumbrance-breakdown" type="checkbox" name="encumbranceUiEnhanced" {{checked settings.encumbranceUiEnhanced.value}}>
-    </div>
+      {{/with}}
 
-    <div class="setting-row setting-row--toggle">
-      <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-dialog-keyboard-flow">{{settings.dialogKeyboardEnhancements.name}}</label>
-        <p class="setting-help">{{settings.dialogKeyboardEnhancements.hint}}</p>
+      {{#if settings.customCursor}}
+      <div class="setting-row setting-row--toggle">
+        <div class="setting-row__main">
+          <label class="setting-row__label" for="uesrpg-custom-cursor">{{settings.customCursor.name}}</label>
+          <p id="uesrpg-custom-cursor-hint" class="setting-help">{{settings.customCursor.hint}}</p>
+        </div>
+        <input id="uesrpg-custom-cursor" aria-describedby="uesrpg-custom-cursor-hint" type="checkbox" name="customCursor" {{checked settings.customCursor.value}}>
       </div>
-      <input id="uesrpg-dialog-keyboard-flow" type="checkbox" name="dialogKeyboardEnhancements" {{checked settings.dialogKeyboardEnhancements.value}}>
-    </div>
+      {{/if}}
 
-    <div class="setting-row setting-row--toggle">
-      <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-item-row-quick-menu">{{settings.enableItemRowQuickMenu.name}}</label>
-        <p class="setting-help">{{settings.enableItemRowQuickMenu.hint}}</p>
+      {{#if settings.enableInlineRulesTooltips}}
+      <div class="setting-row setting-row--toggle">
+        <div class="setting-row__main">
+          <label class="setting-row__label" for="uesrpg-inline-rules-tooltips">{{settings.enableInlineRulesTooltips.name}}</label>
+          <p id="uesrpg-inline-rules-tooltips-hint" class="setting-help">{{settings.enableInlineRulesTooltips.hint}}</p>
+        </div>
+        <input id="uesrpg-inline-rules-tooltips" aria-describedby="uesrpg-inline-rules-tooltips-hint" type="checkbox" name="enableInlineRulesTooltips" {{checked settings.enableInlineRulesTooltips.value}}>
       </div>
-      <input id="uesrpg-item-row-quick-menu" type="checkbox" name="enableItemRowQuickMenu" {{checked settings.enableItemRowQuickMenu.value}}>
-    </div>
+      {{/if}}
 
-    <div class="setting-row setting-row--toggle">
-      <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-sheet-search-bars">{{settings.showSheetSearchBars.name}}</label>
-        <p class="setting-help">{{settings.showSheetSearchBars.hint}}</p>
+      {{#if settings.enableCustomJournalStyling}}
+      <div class="setting-row setting-row--toggle">
+        <div class="setting-row__main">
+          <label class="setting-row__label" for="uesrpg-custom-journal-styling">{{settings.enableCustomJournalStyling.name}}</label>
+          <p id="uesrpg-custom-journal-styling-hint" class="setting-help">{{settings.enableCustomJournalStyling.hint}}</p>
+        </div>
+        <input id="uesrpg-custom-journal-styling" aria-describedby="uesrpg-custom-journal-styling-hint" type="checkbox" name="enableCustomJournalStyling" {{checked settings.enableCustomJournalStyling.value}}>
       </div>
-      <input id="uesrpg-sheet-search-bars" type="checkbox" name="showSheetSearchBars" {{checked settings.showSheetSearchBars.value}}>
-    </div>
+      {{/if}}
 
-  </fieldset>
+      {{#if settings.encumbranceUiEnhanced}}
+      <div class="setting-row setting-row--toggle">
+        <div class="setting-row__main">
+          <label class="setting-row__label" for="uesrpg-encumbrance-breakdown">{{settings.encumbranceUiEnhanced.name}}</label>
+          <p id="uesrpg-encumbrance-breakdown-hint" class="setting-help">{{settings.encumbranceUiEnhanced.hint}}</p>
+        </div>
+        <input id="uesrpg-encumbrance-breakdown" aria-describedby="uesrpg-encumbrance-breakdown-hint" type="checkbox" name="encumbranceUiEnhanced" {{checked settings.encumbranceUiEnhanced.value}}>
+      </div>
+      {{/if}}
+
+      {{#if settings.dialogKeyboardEnhancements}}
+      <div class="setting-row setting-row--toggle">
+        <div class="setting-row__main">
+          <label class="setting-row__label" for="uesrpg-dialog-keyboard-flow">{{settings.dialogKeyboardEnhancements.name}}</label>
+          <p id="uesrpg-dialog-keyboard-flow-hint" class="setting-help">{{settings.dialogKeyboardEnhancements.hint}}</p>
+        </div>
+        <input id="uesrpg-dialog-keyboard-flow" aria-describedby="uesrpg-dialog-keyboard-flow-hint" type="checkbox" name="dialogKeyboardEnhancements" {{checked settings.dialogKeyboardEnhancements.value}}>
+      </div>
+      {{/if}}
+
+      {{#if settings.enableItemRowQuickMenu}}
+      <div class="setting-row setting-row--toggle">
+        <div class="setting-row__main">
+          <label class="setting-row__label" for="uesrpg-item-row-quick-menu">{{settings.enableItemRowQuickMenu.name}}</label>
+          <p id="uesrpg-item-row-quick-menu-hint" class="setting-help">{{settings.enableItemRowQuickMenu.hint}}</p>
+        </div>
+        <input id="uesrpg-item-row-quick-menu" aria-describedby="uesrpg-item-row-quick-menu-hint" type="checkbox" name="enableItemRowQuickMenu" {{checked settings.enableItemRowQuickMenu.value}}>
+      </div>
+      {{/if}}
+
+      {{#if settings.showSheetSearchBars}}
+      <div class="setting-row setting-row--toggle">
+        <div class="setting-row__main">
+          <label class="setting-row__label" for="uesrpg-sheet-search-bars">{{settings.showSheetSearchBars.name}}</label>
+          <p id="uesrpg-sheet-search-bars-hint" class="setting-help">{{settings.showSheetSearchBars.hint}}</p>
+        </div>
+        <input id="uesrpg-sheet-search-bars" aria-describedby="uesrpg-sheet-search-bars-hint" type="checkbox" name="showSheetSearchBars" {{checked settings.showSheetSearchBars.value}}>
+      </div>
+      {{/if}}
+
+    </fieldset>
+  </div>
 
   <footer class="uesrpg-settings__footer">
-    <button type="submit" class="save"><i class="fas fa-save"></i> {{localize "UESRPG.UI.Save"}}</button>
+    <button type="submit" class="save"><i class="fas fa-save" aria-hidden="true"></i> {{localize "UESRPG.UI.Save"}}</button>
   </footer>
 </section>

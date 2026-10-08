@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Roll handlers shared across sheets.
  * 
  * Extracted from actor-sheet.js for better maintainability.
@@ -23,6 +23,7 @@ import { applyKeenIntuitionToResult, applyHyperAwarenessToResult } from "../../.
 import { hasTalent } from "../../../../core/traits/talents-api.js";
 import { applyIntellectualTalentDoSOverrides } from "../../../../core/traits/intellectual-talents.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
+import { systemTooltipAttributes } from "../../../shared/system-tooltips.js";
 import { asyncGuardSheet } from "../../../../utils/async-guard.js";
 import { safeUpdateChatMessage } from "../../../../utils/chat-message-socket.js";
 import { getCoreRollMode } from "../../../../utils/chat-roll-mode.js";
@@ -37,7 +38,71 @@ import {
   normalizeCharacteristicKey
 } from "../../../../utils/maps/characteristics.js";
 
-/**
+function computeSheetCombatTN(actor, item, { difficultyKey, manualMod }) {
+  const playerInput = manualMod;
+  const diff = (SKILL_DIFFICULTIES ?? []).find(dv => dv.key === difficultyKey) ?? { key: "average", label: "Average", mod: 0 };
+  const difficultyMod = Number(diff.mod ?? 0) || 0;
+  const base = Number(item.system?.value ?? 0);
+  const fatigue = Number(actor.system?.fatigue?.penalty ?? 0);
+  const enc = Number(actor.system?.carry_rating?.penalty ?? 0);
+  const wound = Number(actor.system?.woundPenalty ?? 0);
+  
+  const breakdown = [];
+  breakdown.push({ label: "Base TN", value: base });
+  breakdown.push({ label: `Difficulty: ${diff.label}`, value: difficultyMod });
+  if (fatigue) breakdown.push({ label: "Fatigue", value: fatigue });
+  if (enc) breakdown.push({ label: "Encumbrance", value: enc });
+  if (wound) breakdown.push({ label: "Wounded", value: wound });
+  if (playerInput) breakdown.push({ label: "Manual Modifier", value: playerInput });
+  
+  const aeBreakdown = [];
+  let aeTotal = 0;
+  
+  for (const ef of (actor?.effects ?? [])) {
+    if (ef?.disabled) continue;
+    const changes = getEffectChanges(ef);
+    let v = 0;
+    for (const ch of changes) {
+      if (!ch) continue;
+      if (ch.key !== "system.modifiers.combat.attackTN") continue;
+      if (!isAddMode(ch)) continue;
+      v += Number(ch.value) || 0;
+    }
+    if (v) {
+      aeBreakdown.push({ label: ef?.name ?? "Effect", value: v });
+      aeTotal += v;
+    }
+  }
+  
+  for (const it of (actor?.items ?? [])) {
+    for (const ef of (it?.effects ?? [])) {
+      if (!ef?.transfer) continue;
+      if (!isItemEffectActive(actor, it, ef)) continue;
+      if (ef?.disabled) continue;
+  
+      const changes = getEffectChanges(ef);
+      let v = 0;
+      for (const ch of changes) {
+        if (!ch) continue;
+        if (ch.key !== "system.modifiers.combat.attackTN") continue;
+        if (!isAddMode(ch)) continue;
+        v += Number(ch.value) || 0;
+      }
+      if (v) {
+        const label = ef?.name ? `${it.name}: ${ef.name}` : (it.name ?? "Item");
+        aeBreakdown.push({ label, value: v });
+        aeTotal += v;
+      }
+    }
+  }
+  
+  for (const e of aeBreakdown) breakdown.push(e);
+  
+  return { finalTN: base + difficultyMod + fatigue + enc + wound + playerInput + aeTotal, breakdown, difficulty: diff, difficultyMod, manualMod: playerInput };
+}
+
+import { renderTNSummary, bindTNEstimates } from "../../../shared/tn-presentation.js";
+﻿/**
  * Handle skill roll from sheet.
  * @param {object} sheet - The actor sheet instance
  * @param {Event} event - The click event
@@ -144,6 +209,19 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
     selectedCharacteristicKey: defaultCharacteristic
   });
 
+  const computeDeclaredTN = (decl) => computeSkillTN({
+    actor: this.actor,
+    skillItem,
+    difficultyKey: decl.difficultyKey,
+    manualMod: decl.manualMod,
+    selectedCharacteristicKey: String(decl.selectedCharacteristicKey ?? defaultCharacteristic),
+    useSpecialization: hasSpec && decl.useSpec,
+    situationalMods: [
+      ...buildResistanceBonusMods(decl.resistanceSelected ?? []),
+      ...(decl.histskinUnderwater ? [{ key: "talent:histskin", label: "Histskin (Underwater)", value: +30, source: "talent" }] : []),
+    ]
+  });
+
   let decl = null;
 
   if (quickShift) {
@@ -166,56 +244,75 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
     const isPersuade = String(skillItem?.name ?? "").trim().toLowerCase() === "persuade";
     const showInterrogation = isPersuade && hasTalent(this.actor, "interrogator");
     const interrogationRow = showInterrogation ? `
-        <div class="form-group" style="margin-top:8px;">
-          <label style="display:flex; align-items:center; gap:8px;">
+        <div class="form-group">
+          <label class="uesrpg-inline-check uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: "Interrogator talent: applies to this Persuade test." })}>
             <input type="checkbox" name="isInterrogationTest" />
-            <span><b>Interrogation</b> (Interrogator talent)</span>
+            <span class="uesrpg-adv-choice__label"><b>Interrogation</b></span>
           </label>
         </div>` : "";
 
     const showQuestioning = isPersuade && hasTalent(this.actor, "questioning");
     const questioningRow = showQuestioning ? `
-        <div class="form-group" style="margin-top:8px;">
-          <label style="display:flex; align-items:center; gap:8px;">
+        <div class="form-group">
+          <label class="uesrpg-inline-check uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: "Questioning talent: applies to this Persuade test." })}>
             <input type="checkbox" name="isQuestioningTest" />
-            <span><b>Questioning</b> (Questioning talent)</span>
+            <span class="uesrpg-adv-choice__label"><b>Questioning</b></span>
           </label>
         </div>` : "";
 
     const skillKey = String(skillItem?.name ?? "").trim().toLowerCase();
     const showHistskinUnderwater = hasTalent(this.actor, "histskin") && (skillKey === "athletics" || skillKey === "stealth");
     const histskinRow = showHistskinUnderwater ? `
-        <div class="form-group" style="margin-top:8px;">
-          <label style="display:flex; align-items:center; gap:8px;">
+        <div class="form-group">
+          <label class="uesrpg-inline-check uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: "Histskin: +30 to Athletics or Stealth while underwater." })}>
             <input type="checkbox" name="histskinUnderwater" />
-            <span><b>Histskin</b> (Underwater) +30</span>
+            <span class="uesrpg-adv-choice__label"><b>Histskin</b> (Underwater) +30</span>
           </label>
         </div>` : "";
 
+    const readDeclaration = (root) => {
+      const difficultyKey = root?.querySelector('select[name="difficultyKey"]')?.value ?? "average";
+      const useSpec = Boolean(root?.querySelector('input[name="useSpec"]')?.checked);
+      const isInterrogationTest = Boolean(root?.querySelector('input[name="isInterrogationTest"]')?.checked);
+      const isQuestioningTest = Boolean(root?.querySelector('input[name="isQuestioningTest"]')?.checked);
+      const histskinUnderwater = Boolean(root?.querySelector('input[name="histskinUnderwater"]')?.checked);
+      const selectedCharacteristicKey = String(
+        root?.querySelector('select[name="selectedCharacteristicKey"]')?.value
+          ?? defaults.selectedCharacteristicKey
+          ?? defaultCharacteristic
+      );
+      const rawManual = root?.querySelector('input[name="manualMod"]')?.value ?? "0";
+      const manualMod = Number.parseInt(String(rawManual), 10) || 0;
+      const selectedRes = readResistanceBonusSelections(root, resistanceSection.options);
+      const normalized = normalizeSkillRollOptions({ difficultyKey, useSpec, manualMod, selectedCharacteristicKey }, defaults);
+      return { ...normalized, resistanceSelected: selectedRes, isInterrogationTest, isQuestioningTest, histskinUnderwater };
+    };
+
     const content = `
-      <div class="uesrpg-skill-roll">
+      <div class="uesrpg-skill-roll uesrpg-dialog-stack">
+        ${renderTNSummary(skillItem.name)}
         <div class="form-group">
           <label><b>Difficulty</b></label>
           <select name="difficultyKey" style="width:100%;">${difficultyOptions}</select>
         </div>
-        <div class="form-group" style="margin-top:8px;">
+        <div class="form-group">
           <label><b>Characteristic</b></label>
           <select name="selectedCharacteristicKey" style="width:100%;">
             ${characteristicOptions.map((option) => `<option value="${foundry.utils.escapeHTML(option.key)}" ${(option.key === (defaults.selectedCharacteristicKey ?? defaultCharacteristic)) ? "selected" : ""}>${foundry.utils.escapeHTML(option.label)}</option>`).join("")}
           </select>
         </div>
-        <div class="form-group" style="margin-top:8px;">
-          <label style="display:flex; align-items:center; gap:8px;">
+        <div class="form-group">
+          <label class="uesrpg-inline-check uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: hasSpec ? "Apply the specialization bonus (+10)." : "No specialization on this skill." })} ${hasSpec ? "" : 'tabindex="0"'}>
             <input type="checkbox" name="useSpec" ${hasSpec ? "" : "disabled"} ${defaults.useSpec ? "checked" : ""} />
-            <span><b>Use Specialization</b> (+10)${hasSpec ? "" : ' <span style="opacity:0.75;">(none on this skill)</span>'}</span>
+            <span class="uesrpg-adv-choice__label"><b>Use Specialization</b> (+10)</span>
           </label>
         </div>
         ${interrogationRow}
         ${questioningRow}
         ${histskinRow}
-        <div class="form-group" style="margin-top:8px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
+        <div class="form-group">
           <label style="margin:0;"><b>Manual Modifier</b></label>
-          <input name="manualMod" type="number" value="${Number(defaults.manualMod) || 0}" style="width:120px;" />
+          <input name="manualMod" type="number" value="${Number(defaults.manualMod) || 0}" />
         </div>
         ${resistanceSection.html}
       </div>`;
@@ -225,27 +322,11 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
         layout: "workflow",
         title: `${skillItem.name} - Roll Options`,
         content,
+        render: (_event, dialog) => bindTNEstimates(dialog.element, () => computeDeclaredTN(readDeclaration(dialog.element))),
         buttons: {
           ok: {
             label: "Roll",
-            callback: (html) => {
-              const root = html instanceof HTMLElement ? html : html?.[0];
-              const difficultyKey = root?.querySelector('select[name="difficultyKey"]')?.value ?? "average";
-              const useSpec = Boolean(root?.querySelector('input[name="useSpec"]')?.checked);
-              const isInterrogationTest = Boolean(root?.querySelector('input[name="isInterrogationTest"]')?.checked);
-              const isQuestioningTest = Boolean(root?.querySelector('input[name="isQuestioningTest"]')?.checked);
-              const histskinUnderwater = Boolean(root?.querySelector('input[name="histskinUnderwater"]')?.checked);
-              const selectedCharacteristicKey = String(
-                root?.querySelector('select[name="selectedCharacteristicKey"]')?.value
-                  ?? defaults.selectedCharacteristicKey
-                  ?? defaultCharacteristic
-              );
-              const rawManual = root?.querySelector('input[name="manualMod"]')?.value ?? "0";
-              const manualMod = Number.parseInt(String(rawManual), 10) || 0;
-              const selectedRes = readResistanceBonusSelections(root, resistanceSection.options);
-              const normalized = normalizeSkillRollOptions({ difficultyKey, useSpec, manualMod, selectedCharacteristicKey }, defaults);
-              return { ...normalized, resistanceSelected: selectedRes, isInterrogationTest, isQuestioningTest, histskinUnderwater };
-            }
+            callback: (html) => readDeclaration(html instanceof HTMLElement ? html : html?.[0])
           },
           cancel: { label: "Cancel", callback: () => null }
         },
@@ -281,10 +362,6 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
   });
   const resMods = buildResistanceBonusMods(decl.resistanceSelected ?? []);
   const resBonus = resMods.reduce((sum, m) => sum + Number(m.value ?? 0), 0);
-  const situationalMods = [...resMods];
-  if (decl.histskinUnderwater) {
-    situationalMods.push({ key: "talent:histskin", label: "Histskin (Underwater)", value: +30, source: "talent" });
-  }
 
   const request = buildSkillRollRequest({
     actor: this.actor,
@@ -300,15 +377,7 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
   });
   skillRollDebug("untargeted request", request);
 
-  const tn = computeSkillTN({
-    actor: this.actor,
-    skillItem,
-    difficultyKey: decl.difficultyKey,
-    manualMod: decl.manualMod,
-    selectedCharacteristicKey: String(decl.selectedCharacteristicKey ?? defaultCharacteristic),
-    useSpecialization: hasSpec && decl.useSpec,
-    situationalMods
-  });
+  const tn = computeDeclaredTN(decl);
 
   skillRollDebug("untargeted TN", { finalTN: tn.finalTN, breakdown: tn.breakdown });
 
@@ -387,7 +456,7 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
       <div><b>Target Number:</b> ${tn.finalTN}</div>
       ${declaredParts.length ? `<div style="margin-top:2px; font-size:12px; opacity:0.85;"><b>Options:</b> ${declaredParts.join("; ")}</div>` : ""}
       <div style="margin-top:4px;">${degreeLine}</div>
-      <details style="margin-top:6px;"><summary style="cursor:pointer; user-select:none;">TN breakdown</summary><div style="margin-top:4px; font-size:12px; opacity:0.9;">${breakdownRows}</div></details>
+      <details style="margin-top:6px;"><summary style="cursor:var(--uesrpg-cursor-pointer, pointer); user-select:none;">TN breakdown</summary><div style="margin-top:4px; font-size:12px; opacity:0.9;">${breakdownRows}</div></details>
       <div class="tag-container">${tags.join("")}</div>
     </div>`;
 
@@ -571,11 +640,17 @@ export const onCombatRoll = asyncGuardSheet(async function onCombatRoll(event, t
     return;
   }
 
+  const readCombatOptions = (root) => ({
+    manualMod: Number.parseInt(String(root?.querySelector('#playerInput')?.value ?? "0"), 10) || 0,
+    difficultyKey: String(root?.querySelector('#difficultyKey')?.value ?? "average"),
+  });
   // No target -> manual roll dialog
   await customDialog({
     layout: "workflow",
     title: `${item.name} - Roll Options`,
+    render: (_event, dialog) => bindTNEstimates(dialog.element, () => computeSheetCombatTN(this.actor, item, readCombatOptions(dialog.element))),
     content: `<div>
+                ${renderTNSummary(item.name)}
                 <div class="form-group" style="margin-bottom:8px;">
                   <label style="display:block;"><b>Difficulty</b></label>
                   <select id="difficultyKey" style="width:100%;">
@@ -595,70 +670,7 @@ export const onCombatRoll = asyncGuardSheet(async function onCombatRoll(event, t
       label: "Roll",
       callback: async (html) => {
           const root = html instanceof HTMLElement ? html : html?.[0];
-          const playerInputRaw = root?.querySelector('#playerInput')?.value;
-          const playerInput = Number.parseInt(String(playerInputRaw ?? "0"), 10) || 0;
-
-          const difficultyKey = String(root?.querySelector('#difficultyKey')?.value ?? "average");
-          const diff = (SKILL_DIFFICULTIES ?? []).find(dv => dv.key === difficultyKey) ?? { key: "average", label: "Average", mod: 0 };
-          const difficultyMod = Number(diff.mod ?? 0) || 0;
-
-          const base = Number(item.system?.value ?? 0);
-          const fatigue = Number(this.actor.system?.fatigue?.penalty ?? 0);
-          const enc = Number(this.actor.system?.carry_rating?.penalty ?? 0);
-          const wound = Number(this.actor.system?.woundPenalty ?? 0);
-
-          const breakdown = [];
-          breakdown.push({ label: "Base TN", value: base });
-          breakdown.push({ label: `Difficulty: ${diff.label}`, value: difficultyMod });
-          if (fatigue) breakdown.push({ label: "Fatigue", value: fatigue });
-          if (enc) breakdown.push({ label: "Encumbrance", value: enc });
-          if (wound) breakdown.push({ label: "Wounded", value: wound });
-          if (playerInput) breakdown.push({ label: "Manual Modifier", value: playerInput });
-
-          const aeBreakdown = [];
-          let aeTotal = 0;
-
-          for (const ef of (this.actor?.effects ?? [])) {
-            if (ef?.disabled) continue;
-            const changes = getEffectChanges(ef);
-            let v = 0;
-            for (const ch of changes) {
-              if (!ch) continue;
-              if (ch.key !== "system.modifiers.combat.attackTN") continue;
-              if (!isAddMode(ch)) continue;
-              v += Number(ch.value) || 0;
-            }
-            if (v) {
-              aeBreakdown.push({ label: ef?.name ?? "Effect", value: v });
-              aeTotal += v;
-            }
-          }
-
-          for (const it of (this.actor?.items ?? [])) {
-            for (const ef of (it?.effects ?? [])) {
-              if (!ef?.transfer) continue;
-              if (!isItemEffectActive(this.actor, it, ef)) continue;
-              if (ef?.disabled) continue;
-
-              const changes = getEffectChanges(ef);
-              let v = 0;
-              for (const ch of changes) {
-                if (!ch) continue;
-                if (ch.key !== "system.modifiers.combat.attackTN") continue;
-                if (!isAddMode(ch)) continue;
-                v += Number(ch.value) || 0;
-              }
-              if (v) {
-                const label = ef?.name ? `${it.name}: ${ef.name}` : (it.name ?? "Item");
-                aeBreakdown.push({ label, value: v });
-                aeTotal += v;
-              }
-            }
-          }
-
-          for (const e of aeBreakdown) breakdown.push(e);
-
-          const tn = base + difficultyMod + fatigue + enc + wound + playerInput + aeTotal;
+          const { finalTN: tn, breakdown, difficulty: diff, difficultyMod, manualMod: playerInput } = computeSheetCombatTN(this.actor, item, readCombatOptions(root));
 
           const res = await doTestRoll(this.actor, {
             rollFormula: SYSTEM_ROLL_FORMULA,
@@ -693,7 +705,7 @@ export const onCombatRoll = asyncGuardSheet(async function onCombatRoll(event, t
               <div><b>Target Number:</b> ${tn}</div>
               <div style="margin-top:2px; font-size:12px; opacity:0.85;"><b>Options:</b> ${declaredParts.join("; ")}</div>
               <div style="margin-top:4px;">${degreeLine}</div>
-              <details style="margin-top:6px;"><summary style="cursor:pointer; user-select:none;">TN breakdown</summary><div style="margin-top:4px; font-size:12px; opacity:0.9;">${breakdownRows}</div></details>
+              <details style="margin-top:6px;"><summary style="cursor:var(--uesrpg-cursor-pointer, pointer); user-select:none;">TN breakdown</summary><div style="margin-top:4px; font-size:12px; opacity:0.9;">${breakdownRows}</div></details>
               <div class="tag-container">${tags.join("")}</div>
             </div>`;
 
@@ -722,10 +734,17 @@ export const onResistanceRoll = asyncGuardSheet(async function onResistanceRoll(
   event.preventDefault();
   const element = target ?? event.currentTarget;
   let tags = [];
+  const computeResistanceTN = (root) => {
+    const manualMod = parseInt(root?.querySelector('#playerInput')?.value);
+    const base = this.actor.system.resistance[element.id];
+    return { finalTN: base + manualMod, manualMod, breakdown: [{ key: "base", label: element.name, value: base }, { label: "Manual Modifier", value: manualMod }] };
+  };
   await customDialog({
     layout: "workflow",
     title: "Apply Roll Modifier",
+    render: (_event, dialog) => bindTNEstimates(dialog.element, () => computeResistanceTN(dialog.element)),
     content: `<div>
+                ${renderTNSummary(`${element.name} Resistance`)}
                 <div class="dialogForm">
                 <label><b>${element.name} Resistance Modifier: </b></label><input placeholder="ex. -20, +10" id="playerInput" value="0" style=" text-align: center; width: 50%; border-style: groove; float: right;" type="text"></input></div>
               </div>`,
@@ -733,11 +752,10 @@ export const onResistanceRoll = asyncGuardSheet(async function onResistanceRoll(
       label: "Roll!",
       callback: async (html) => {
           const root = html instanceof HTMLElement ? html : html?.[0];
-          const playerInput = parseInt(root?.querySelector('#playerInput')?.value);
+          const { finalTN: tn, manualMod: playerInput } = computeResistanceTN(root);
 
           let roll = new Roll("1d100");
           await roll.evaluate();
-          const tn = this.actor.system.resistance[element.id] + playerInput;
           const res = computeResultFromRollTotal(this.actor, { rollTotal: Number(roll.total), target: tn, allowLucky: true, allowUnlucky: true });
           const degreesLine = `<br><b>${res.isSuccess ? "Degrees of Success" : "Degrees of Failure"}: ${res.degree}</b>`;
           const resultLabel = formatResultOutcomeLabel(res, { uppercase: true });

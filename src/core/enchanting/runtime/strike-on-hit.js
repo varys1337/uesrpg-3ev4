@@ -198,7 +198,7 @@ function _stubNotify(targetActor, fx, label) {
     + `<p>Effect triggered on <strong>${targetActor.name}</strong>. `
     + `SL: ${fx.sl}. Requires GM adjudication — automation not yet implemented.</p>`;
 
-  ChatMessage.create({
+  return ChatMessage.create({
     content: msg,
     whisper: ChatMessage.getWhisperRecipients("GM"),
     speaker: ChatMessage.getSpeaker(),
@@ -210,7 +210,7 @@ function _stubNotify(targetActor, fx, label) {
 // ---------------------------------------------------------------------------
 
 function _postSideEffectChat(targetActor, weaponName, description) {
-  ChatMessage.create({
+  return ChatMessage.create({
     content: `<p><strong>Strike Enchantment</strong> (${weaponName})</p><p>${description}</p>`,
     speaker: ChatMessage.getSpeaker({ actor: targetActor }),
   });
@@ -240,97 +240,107 @@ function _conditionIcon(conditionKey) {
 
 let _hookRegistered = false;
 
+export function hasStrikeOnHitEffects(data) {
+  return Array.isArray(data?.strikeEnchantmentSideEffects) && data.strikeEnchantmentSideEffects.length > 0;
+}
+
 /**
  * Register the uesrpgDamageApplied hook handler.
  * Must be called once at system ready. Idempotent.
  */
+export async function applyStrikeOnHit(targetActor, data, { strict = false } = {}) {
+  if (!hasStrikeOnHitEffects(data)) return;
+  const effects = data?.strikeEnchantmentSideEffects;
+
+  // Accumulators: collect all updates synchronously, then apply in batch.
+  const targetUpdates = {};
+  const effectsToCreate = [];
+  const attackerRef = { actor: null, updates: {} };
+  const chatDescriptions = [];
+  const failures = [];
+
+  for (const fx of effects) {
+    try {
+      let desc = null;
+      switch (fx.effectType) {
+        case "drain":
+          desc = _computeDrain(targetActor, fx, targetUpdates);
+          break;
+        case "absorb":
+          desc = _computeAbsorb(targetActor, fx, data, targetUpdates, attackerRef);
+          break;
+        case "condition":
+          desc = _computeCondition(targetActor, fx, effectsToCreate);
+          break;
+        case "soulTrap":
+          desc = _computeSoulTrap(targetActor, fx, targetUpdates);
+          break;
+        case "dispel":
+          await _stubNotify(targetActor, fx, "Dispel");
+          break;
+        case "disintegrate":
+          await _stubNotify(targetActor, fx, "Disintegrate");
+          break;
+        default:
+          console.warn(`UESRPG | Unknown strike enchantment effectType "${fx.effectType}" — skipping.`);
+      }
+      if (desc) chatDescriptions.push({ weaponName: fx.weaponName, desc });
+    } catch (err) {
+      console.error(`UESRPG | Strike enchantment side effect "${fx.key}" failed`, err);
+      failures.push(fx.key);
+    }
+  }
+
+  // Apply all targetActor updates in a single document operation.
+  let targetUpdated = true;
+  if (Object.keys(targetUpdates).length > 0) {
+    try {
+      targetUpdated = await requestUpdateDocument(targetActor, targetUpdates);
+    } catch (err) {
+      targetUpdated = false;
+      console.error("UESRPG | Strike enchantment batch target update failed", err);
+    }
+    if (!targetUpdated) failures.push('Target resource update');
+  }
+
+  // Apply attacker updates (absorb restore) — separate actor, separate call.
+  if (targetUpdated && attackerRef.actor && Object.keys(attackerRef.updates).length > 0) {
+    try {
+      if (!await requestUpdateDocument(attackerRef.actor, attackerRef.updates)) failures.push('Absorb restoration');
+    } catch (err) {
+      failures.push('Absorb restoration');
+      console.error("UESRPG | Strike enchantment batch attacker update failed", err);
+    }
+  }
+
+  // Create all condition AEs in a single embedded document operation.
+  if (effectsToCreate.length > 0) {
+    try {
+      const created = await requestCreateEmbeddedDocuments(targetActor, "ActiveEffect", effectsToCreate);
+      if (created?.length !== effectsToCreate.length) failures.push('Condition effects');
+    } catch (err) {
+      failures.push('Condition effects');
+      console.error("UESRPG | Strike enchantment AE creation failed", err);
+    }
+  }
+
+  // Post chat messages after document writes.
+  if (failures.length) {
+    ui.notifications?.warn?.(`Strike enchantment partially applied: ${failures.join(', ')}. Review the actors before retrying.`);
+    if (strict) throw new Error(`Strike enchantment stages failed: ${failures.join(", ")}`);
+    return { failed: true };
+  }
+  for (const { weaponName, desc } of chatDescriptions) {
+    await _postSideEffectChat(targetActor, weaponName, desc);
+  }
+  return { failed: false };
+}
+
 export function initializeStrikeOnHitRuntime() {
   if (_hookRegistered) return;
   _hookRegistered = true;
-
-  Hooks.on("uesrpgDamageApplied", async (targetActor, data) => {
-    const effects = data?.strikeEnchantmentSideEffects;
-    if (!Array.isArray(effects) || effects.length === 0) return;
-
-    // Accumulators: collect all updates synchronously, then apply in batch.
-    const targetUpdates = {};
-    const effectsToCreate = [];
-    const attackerRef = { actor: null, updates: {} };
-    const chatDescriptions = [];
-    const failures = [];
-
-    for (const fx of effects) {
-      try {
-        let desc = null;
-        switch (fx.effectType) {
-          case "drain":
-            desc = _computeDrain(targetActor, fx, targetUpdates);
-            break;
-          case "absorb":
-            desc = _computeAbsorb(targetActor, fx, data, targetUpdates, attackerRef);
-            break;
-          case "condition":
-            desc = _computeCondition(targetActor, fx, effectsToCreate);
-            break;
-          case "soulTrap":
-            desc = _computeSoulTrap(targetActor, fx, targetUpdates);
-            break;
-          case "dispel":
-            _stubNotify(targetActor, fx, "Dispel");
-            break;
-          case "disintegrate":
-            _stubNotify(targetActor, fx, "Disintegrate");
-            break;
-          default:
-            console.warn(`UESRPG | Unknown strike enchantment effectType "${fx.effectType}" — skipping.`);
-        }
-        if (desc) chatDescriptions.push({ weaponName: fx.weaponName, desc });
-      } catch (err) {
-        console.error(`UESRPG | Strike enchantment side effect "${fx.key}" failed`, err);
-        failures.push(fx.key);
-      }
-    }
-
-    // Apply all targetActor updates in a single document operation.
-    let targetUpdated = true;
-    if (Object.keys(targetUpdates).length > 0) {
-      try {
-        targetUpdated = await requestUpdateDocument(targetActor, targetUpdates);
-      } catch (err) {
-        targetUpdated = false;
-        console.error("UESRPG | Strike enchantment batch target update failed", err);
-      }
-      if (!targetUpdated) failures.push('Target resource update');
-    }
-
-    // Apply attacker updates (absorb restore) — separate actor, separate call.
-    if (targetUpdated && attackerRef.actor && Object.keys(attackerRef.updates).length > 0) {
-      try {
-        if (!await requestUpdateDocument(attackerRef.actor, attackerRef.updates)) failures.push('Absorb restoration');
-      } catch (err) {
-        failures.push('Absorb restoration');
-        console.error("UESRPG | Strike enchantment batch attacker update failed", err);
-      }
-    }
-
-    // Create all condition AEs in a single embedded document operation.
-    if (effectsToCreate.length > 0) {
-      try {
-        const created = await requestCreateEmbeddedDocuments(targetActor, "ActiveEffect", effectsToCreate);
-        if (created?.length !== effectsToCreate.length) failures.push('Condition effects');
-      } catch (err) {
-        failures.push('Condition effects');
-        console.error("UESRPG | Strike enchantment AE creation failed", err);
-      }
-    }
-
-    // Post chat messages after document writes.
-    if (failures.length) {
-      ui.notifications?.warn?.(`Strike enchantment partially applied: ${failures.join(', ')}. Review the actors before retrying.`);
-      return;
-    }
-    for (const { weaponName, desc } of chatDescriptions) {
-      _postSideEffectChat(targetActor, weaponName, desc);
-    }
+  Hooks.on("uesrpgDamageApplied", (actor, data) => {
+    if (data?.handledDomains?.includes("strike")) return;
+    void applyStrikeOnHit(actor, data).catch(error => console.error("UESRPG | Strike on-hit failed", error));
   });
 }
