@@ -32,10 +32,19 @@ async function main() {
   const token = process.env.GITHUB_TOKEN;
   if (!token) throw new Error("GITHUB_TOKEN is required");
 
-  const apiResponse = await fetch(`https://api.github.com/repos/${metadata.repository}/releases/tags/${metadata.tag}`, {
+  // The by-tag API does not resolve unpublished drafts. Look up the freshly
+  // created draft by its exact numeric ID; retain the by-tag API after publish.
+  const releaseId = process.env.GITHUB_RELEASE_ID;
+  if (phase === "draft" && !/^[1-9][0-9]*$/.test(releaseId ?? "")) {
+    throw new Error("GITHUB_RELEASE_ID is required for draft verification");
+  }
+  const endpoint = phase === "draft"
+    ? `/releases/${releaseId}`
+    : `/releases/tags/${metadata.tag}`;
+  const apiResponse = await fetch(`https://api.github.com/repos/${metadata.repository}${endpoint}`, {
     headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
   });
-  if (!apiResponse.ok) throw new Error(`GitHub release API returned HTTP ${apiResponse.status}`);
+  if (!apiResponse.ok) throw new Error(`GitHub ${phase} release API returned HTTP ${apiResponse.status}`);
   const release = await apiResponse.json();
   if ((phase === "draft") !== (release.draft === true)) throw new Error(`Release draft state does not match ${phase} verification`);
   if (release.tag_name !== metadata.tag) throw new Error(`Unexpected release tag ${release.tag_name}`);
@@ -53,9 +62,16 @@ async function main() {
     const local = fs.readFileSync(path.join(ROOT, filename));
     const asset = release.assets.find((entry) => entry.name === filename);
     if (asset.size !== local.length) throw new Error(`${filename} size differs from the local artifact`);
-    const remote = await getBuffer(asset.url, token);
-    if (sha256(remote) !== sha256(local)) throw new Error(`${filename} SHA-256 differs from the local artifact`);
-    if (asset.digest && asset.digest !== `sha256:${sha256(local)}`) throw new Error(`${filename} API digest is incorrect`);
+
+    // Current GitHub assets expose SHA-256 digests. Prefer the server-side
+    // digest and only download bytes when the API does not provide one.
+    const localDigest = `sha256:${sha256(local)}`;
+    if (asset.digest) {
+      if (asset.digest !== localDigest) throw new Error(`${filename} API SHA-256 digest is incorrect`);
+    } else {
+      const remote = await getBuffer(asset.url, token);
+      if (sha256(remote) !== sha256(local)) throw new Error(`${filename} SHA-256 differs from the local artifact`);
+    }
   }
 
   if (phase === "published") {
