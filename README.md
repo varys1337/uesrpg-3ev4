@@ -17,19 +17,3 @@ A system and a few compendiums used to play the UESRPG game. Special thanks to 2
 Express permission to use the artwork and tokens included in the compendiums of this system was given by 2MinuteTabletop and the copyright holder.
 
 You can find the lively UESRPG Discord Community here: https://discord.gg/KAkXdf9
-
-Documentation:
-
-- [Localization guide](docs/Localization.md)
-- [Release and deployment guide](docs/Release.md)
-- [Consolidation implementation audit](docs/consolidation-audit.md)
-- [Live Foundry acceptance checklist](docs/consolidation-acceptance.md)
-- [Compact chat composer preference](docs/chat-composer.md)
-
-## Ready release folder
-
-Run `build-release-folder.cmd` on Windows, or run `npm run build:folder` from a terminal.
-
-The command validates the source and creates a ready-to-install Foundry system at `dist/uesrpg-3ev4`. The folder contains only runtime files required by the system; development dependencies, automation, repository metadata, and transient compendium lock/log files are excluded.
-
-Use Node.js 24 for local validation and release builds. Run `npm ci`, `npm run lint`, and `npm run build:release` before publishing.
