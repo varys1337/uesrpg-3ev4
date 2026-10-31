@@ -8,7 +8,7 @@ const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$
 function getReleaseMetadata(version) {
   const normalized = String(version ?? "").trim();
   if (!SEMVER_PATTERN.test(normalized)) throw new Error(`Invalid release version: ${normalized || "<empty>"}`);
-  const tag = `v${normalized}`;
+  const tag = normalized;
   const base = `https://github.com/${REPOSITORY}/releases`;
   return Object.freeze({
     version: normalized,

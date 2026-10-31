@@ -1,5 +1,11 @@
 # Changelog
 
+## 14.3.3
+
+- Uses numeric release tags and matching package versions and download URLs, and retains the stable update-manifest URL.
+- Documents recovery for installations following the original system's manifest or using an older `v`-prefixed package version. The existing system ID remains shared with the upstream listing.
+- Carries forward the 14.3.2 runtime and matched compiled Core packs; Foundry update detection for this release remains unverified.
+
 ## v14.3.2
 
 - Incorporates the Core rules, combat, character creation, inventory, magic and compendium workflow corrections prepared in the current workspace, with safeguards that stop selected unsafe or incomplete activations for manual resolution.

@@ -67,7 +67,7 @@ Get-ChildItem -LiteralPath $sourceSnapshot -Force | Copy-Item -Destination $gith
 git -C $githubCheckout status --short
 ```
 
-This handoff is a future procedure, not part of local package verification. After native acceptance and an explicit publication decision, inspect and commit the accepted source first. Use the existing npm version lifecycle and `automation/release-metadata.js` for any separately approved version change; do not hand-edit one version or invent package URLs. The eventual tag must be `v` followed by the exact accepted package version and resolve to that exact commit. Pushing a matching tag starts the workflow that creates, verifies and publishes `system.json` and `uesrpg-3ev4.zip`; a tag alone is not a downloadable release. Do not commit the local `dist` wrapper or push a tag as a verification exercise.
+After the applicable acceptance and publication decision, inspect and commit the accepted source first. Use the existing npm version lifecycle and `automation/release-metadata.js` for version changes; do not hand-edit one version or invent package URLs. The release tag must equal the package version without a leading `v` and resolve to the exact release commit. Pushing the matching numeric tag starts the workflow that creates, verifies and publishes `system.json` and `uesrpg-3ev4.zip`; a tag alone is not a downloadable release. Do not commit the local `dist` wrapper or push a tag as a verification exercise.
 
 ## Local deployment
 

@@ -37,6 +37,7 @@ const GITHUB_SOURCE_FILES = Object.freeze([
   ".editorconfig",
   ".gitattributes",
   ".gitignore",
+  ".npmrc",
   "build-dist.cmd",
   "build-release-folder.cmd",
   "CHANGELOG.md",
@@ -1012,8 +1013,12 @@ function validateCoreIntegrationSafety() {
 function validateReleaseAutomation() {
   const releaseWorkflow = fs.readFileSync(path.join(ROOT, ".github", "workflows", "main.yml"), "utf8");
   const validationWorkflow = fs.readFileSync(path.join(ROOT, ".github", "workflows", "validate.yml"), "utf8");
+  const npmConfig = fs.readFileSync(path.join(ROOT, ".npmrc"), "utf8");
+  if (!/^tag-version-prefix=\s*$/m.test(npmConfig)) fail("npm version must create numeric release tags without a prefix");
   const requiredReleaseFragments = [
     "tags:",
+    '"[0-9]*"',
+    `expected_tag="$(node -p "require('./package.json').version")"`,
     "Validate tag, commit, and release identity",
     "--draft",
     "verify-github-release.js --draft",
@@ -1048,6 +1053,7 @@ function validateSourceLayout(manifest, packageJson, packageLock) {
   if (!SEMVER_PATTERN.test(String(manifest.version ?? ""))) fail(`Manifest version ${manifest.version} is not plain SemVer`);
   try {
     const metadata = getReleaseMetadata(packageJson.version);
+    if (metadata.tag !== packageJson.version) fail("Release tag must equal the numeric package version");
     if (manifest.manifest !== metadata.manifestUrl) fail(`Manifest URL must be ${metadata.manifestUrl}`);
     if (manifest.download !== metadata.downloadUrl) fail(`Download URL must be ${metadata.downloadUrl}`);
   } catch (error) {

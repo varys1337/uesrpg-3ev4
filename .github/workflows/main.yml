@@ -3,7 +3,7 @@ name: Build and Publish Foundry System
 on:
   push:
     tags:
-      - "v*"
+      - "[0-9]*"
 
 permissions:
   contents: write
@@ -34,7 +34,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          expected_tag="v$(node -p "require('./package.json').version")"
+          expected_tag="$(node -p "require('./package.json').version")"
           if [[ "$GITHUB_REF_TYPE" != "tag" || "$GITHUB_REF_NAME" != "$expected_tag" ]]; then
             echo "Release workflow requires tag $expected_tag; received $GITHUB_REF_TYPE $GITHUB_REF_NAME." >&2
             exit 1
