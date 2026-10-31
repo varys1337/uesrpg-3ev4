@@ -67,6 +67,7 @@ export function validateBrewRecipe(actor, recipe) {
   const inventory = getAlchemyInventoryState(actor);
   const alchemySkill = getAlchemySkill(actor);
   const alchemySnapshot = getAlchemySkillSnapshot(actor, { skill: alchemySkill });
+  let exceedsFieldKitDepth = false;
 
   if (!alchemySnapshot.found) add("NoValidSkill", "Actor has no trained Alchemy skill entry.");
   if (["potion", "toxin", "poison"].includes(recipe.mode) && !inventory.requirementMet) {
@@ -103,6 +104,7 @@ export function validateBrewRecipe(actor, recipe) {
         add("IngredientUnconfigured", `${ingredient.name} has no configured alchemical school.`, "error", { ingredientId: ingredient.id });
         continue;
       }
+      if (ingredientData.depthBase > 4) exceedsFieldKitDepth = true;
 
       const effect = resolveAlchemyEffectDescriptor(actor, slot, { ingredient, mode: recipe.mode });
       if (!effect) {
@@ -158,10 +160,15 @@ export function validateBrewRecipe(actor, recipe) {
   if (recipe.mode === "poison") {
     const ingredient = actor?.items?.get?.(recipe.ingredientId) ?? null;
     const data = resolveAlchemyIngredientData(ingredient);
+    if (data?.isConfigured && data.depthBase > 4) exceedsFieldKitDepth = true;
     if (!ingredient) add("PoisonIngredientMissing", "No Destruction ingredient selected.");
     else if (!data?.isConfigured) add("IngredientUnconfigured", `${ingredient.name} is not a configured alchemical ingredient.`);
     else if (data.school !== "destruction") add("PoisonRequiresDestruction", "Poison brewing requires a Destruction ingredient.");
     else if (data.quantity < 1) add("QuantityInsufficient", `${ingredient.name} has no remaining units.`);
+  }
+
+  if (inventory.coreFieldKitPresent && exceedsFieldKitDepth) {
+    add("FieldKitDepthReview", "The Core alchemy field kit handles ingredients of depth 4 or less. Ask the GM to confirm a suitable lab for higher-depth ingredients.", "warning");
   }
 
   const errors = issues.filter((entry) => entry.severity === "error").map((entry) => entry.message);

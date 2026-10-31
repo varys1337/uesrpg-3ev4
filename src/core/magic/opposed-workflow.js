@@ -1,4 +1,62 @@
 import { reconcileUnavailableDefenses } from "../opposed/shared/automatic-no-defense.js";
+import { applyConjurationTalentResult } from "../traits/spellcasting-talents.js";
+import { actionResultFromEvidence, addActionErrorContext } from "../../application/action-results.js";
+import { getChatOutcomes, describeChatOutcome } from "../../application/combat/chat-outcome-application-service.js";
+
+const _castRuns = new WeakMap();
+
+function recordCastResult(cfg, result) {
+  const evidence = _castRuns.get(cfg);
+  if (evidence) {
+    evidence.confirmed ||= result.actionResult.commitment === "confirmed";
+    if (result.actionResult.commitment === "uncertain") evidence.inFlight++;
+  }
+  return result.value;
+}
+
+function observeCastOutcome(cfg, message) {
+  if (!message?.id) throw new Error("The cast consequence submission was not confirmed.");
+  const evidence = _castRuns.get(cfg);
+  if (!evidence) return;
+  evidence.targets.push(...getChatOutcomes(message).map(outcome => ({ targetUuid: outcome.targetUuid,
+    actionResult: describeChatOutcome(message, outcome) })));
+  evidence.pending ||= evidence.targets.some(target => ["pending", "processing"].includes(target.actionResult.status));
+}
+
+// This evidence belongs to this invocation only; native Document returns and
+// the existing card/receipt persistence formats remain unchanged.
+async function recordCastStep(cfg, run, confirms, consequential = true) {
+  const evidence = _castRuns.get(cfg);
+  if (!evidence || !consequential) return run();
+  evidence.inFlight++;
+  const value = await run();
+  if (confirms(value)) { evidence.confirmed ||= consequential !== "presentation"; evidence.inFlight--; }
+  return value;
+}
+
+async function castWorkflowResult(method, cfg) {
+  const input = { ...cfg };
+  const evidence = { confirmed: false, inFlight: 0, pending: false, targets: [] };
+  _castRuns.set(input, evidence);
+  const describe = (value, error = null) => {
+    const state = value ? getMessageState(value) : null;
+    const targets = [...evidence.targets, ...(value ? getChatOutcomes(value).map(outcome => ({ targetUuid: outcome.targetUuid,
+      actionResult: describeChatOutcome(value, outcome) })) : [])];
+    return actionResultFromEvidence({ owner: "magic", scope: "cast and consequences",
+      confirmed: evidence.confirmed,
+      uncertain: evidence.inFlight > 0 || targets.some(target => target.actionResult.commitment === "uncertain")
+        || Boolean(state?.context?.automationCompletion?.failed?.length),
+      pending: evidence.pending || targets.some(target => ["pending", "processing"].includes(target.actionResult.status))
+        || Boolean(value && state?.status !== "resolved"),
+      partial: evidence.presentationFailed === true || targets.some(target => ["rejected", "blocked", "cancelled", "partial"].includes(target.actionResult.status)),
+      blocked: !value && !error, rejected: Boolean(error && !value), accepted: Boolean(value), reason: error ? String(error.message ?? error) : !value ? "The cast was not completed." : null,
+      references: { messageId: value?.id, actorUuid: cfg.attackerActorUuid, itemUuid: cfg.spellUuid }, targets });
+  };
+  try {
+    const value = await MagicOpposedWorkflow[method](input);
+    return { value, actionResult: describe(value) };
+  } catch (error) { throw addActionErrorContext(error, describe(null, error)); }
+}
 /**
  * @module magic/opposed-workflow
  *
@@ -19,6 +77,7 @@ import {
   applySpellRestraintRefund,
   isHealingSpell,
   canActorCastSpell,
+  getRitualCastingBlockReason,
   getSpellCastingSchool,
   getSpellCost,
   getSpellLevel
@@ -34,6 +93,8 @@ import { classifySpellForRouting, getUserSpellTargets, emitCastResolved } from "
 import { getBlockingNoDurationUpkeep, spellNeedsDeferredDirectApplication, spellNeedsEffectApplication } from "./opposed/spell-helpers.js";
 import { isCharacteristicDefense } from "./characteristic-defense-service.js";
 import { normalizeSpellConfig } from "./spell-config.js";
+import { isCoreRejuvenateSpell, isRejuvenateChoice, promptRejuvenateChoice } from "./rejuvenate-choice.js";
+import { getCoreRejuvenateConfigurationIssue, getCoreReplenishConfigurationIssue, isCoreReplenishSpell } from "./services/resource-restoration-service.js";
 import { resolveActor, resolveToken, resolveDoc, getMessageState, selectDefenderEntry, getDefenderEntries, ensureBankedScaffold, allDefendersCommitted, getDefenderOutcome } from "./opposed/schema.js";
 import { renderCard, renderUnopposedCard } from "./opposed/render.js";
 import { dispatchAction, autoRollBanked } from "./opposed/actions.js";
@@ -52,7 +113,7 @@ import {
 } from "./opposed/cast-source.js";
 import { createAttackTraceId } from "../combat/attack-tracker-diagnostics.js";
 import { resolveCombatantForActor } from "../../utils/document-resolution.js";
-import { buildMagicCastContext, resolveMagicCastContext } from "./opposed/cast-context.js";
+import { buildMagicCastContext, resolveMagicCastContext, captureCastingResult } from "./opposed/cast-context.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 const _FLAG_KEY = "magicOpposed";
@@ -233,6 +294,9 @@ export const MagicOpposedWorkflow = {
         return null;
       }
 
+      const ritualReason = getRitualCastingBlockReason(spell);
+      if (ritualReason) { ui.notifications.warn(ritualReason); return null; }
+
       if (!_ignoreTraining(cfg) && !canActorCastSpell(attacker, spell)) {
         ui.notifications.warn(`${attacker.name} is untrained in ${getSpellCastingSchool(spell) || "that school"} and cannot cast ${spell.name}.`);
         return null;
@@ -254,7 +318,7 @@ export const MagicOpposedWorkflow = {
 
       // Direct spells resolve immediately (no casting/defense tests).
       if (Boolean(spell?.system?.isDirect) && !isCharacteristicDefense(spell)) {
-        return this.castDirectTargeted({
+        const directCfg = {
           attackerTokenUuid: cfg.attackerTokenUuid,
           attackerActorUuid: cfg.attackerActorUuid,
           attackerUuid: cfg.attackerUuid,
@@ -265,7 +329,9 @@ export const MagicOpposedWorkflow = {
           castActionType: cfg.castActionType,
           castSource: cfg.castSource ?? null,
           itemCastContext: cfg.itemCastContext ?? null
-        });
+        };
+        if (_castRuns.has(cfg)) _castRuns.set(directCfg, _castRuns.get(cfg));
+        return this.castDirectTargeted(directCfg);
       }
 
       const firstDefenderForCasting = defenderEntries[0]?.actorUuid ? resolveActor(defenderEntries[0].actorUuid) : null;
@@ -370,18 +436,22 @@ export const MagicOpposedWorkflow = {
       outcome: null
     };
 
-    const message = await ChatMessage.create({
+    const message = await recordCastStep(cfg, () => ChatMessage.create({
       user: game.user.id,
       speaker: ChatMessage.getSpeaker({ actor: attacker, token: aToken?.document ?? aToken ?? null }),
       content: renderCard(data, ""),
       flags: { [_FLAG_NS]: { [_FLAG_KEY]: { version: _CARD_VERSION, state: data } } },
       style: CONST.CHAT_MESSAGE_STYLES.OTHER
-    });
+    }), value => Boolean(value?.id), "presentation");
 
     await magicUpdateCard(message, liveState => liveState, renderCard, { renderIfUnchanged: true });
     await reconcileUnavailableDefenses(message, this);
     return message;
   },
+
+  async createPendingResult(cfg = {}) { return castWorkflowResult("createPending", cfg); },
+  async castDirectTargetedResult(cfg = {}) { return castWorkflowResult("castDirectTargeted", cfg); },
+  async castUnopposedResult(cfg = {}) { return castWorkflowResult("castUnopposed", cfg); },
 
   /**
    * Resolve a targeted Direct spell with casting test but no defense.
@@ -413,6 +483,9 @@ export const MagicOpposedWorkflow = {
       return null;
     }
 
+    const ritualReason = getRitualCastingBlockReason(spell);
+    if (ritualReason) { ui.notifications.warn(ritualReason); return null; }
+
     if (!Boolean(spell?.system?.isDirect)) {
       ui.notifications.warn("This spell is not marked as Direct.");
       return null;
@@ -443,7 +516,30 @@ export const MagicOpposedWorkflow = {
       return null;
     }
 
-    const spellOptions = cfg.spellOptions ?? {};
+    let spellOptions = cfg.spellOptions ?? {};
+    if (isCoreRejuvenateSpell(spell)) {
+      const issue = getCoreRejuvenateConfigurationIssue(spell);
+      if (issue) { ui.notifications.warn(issue); return null; }
+      if (defenderEntries.length !== 1) {
+        ui.notifications.warn("Rejuvenate requires exactly one recipient. No casting cost was paid.");
+        return null;
+      }
+      const choice = isRejuvenateChoice(spellOptions.rejuvenateChoice)
+        ? spellOptions.rejuvenateChoice : await promptRejuvenateChoice(defender, spell.name, { confirmRange: true });
+      if (!choice) return null;
+      const updatedIssue = getCoreRejuvenateConfigurationIssue(spell);
+      if (updatedIssue) { ui.notifications.warn(updatedIssue); return null; }
+      spellOptions = { ...spellOptions, rejuvenateChoice: choice };
+    }
+    if (isCoreReplenishSpell(spell)) {
+      const issue = getCoreReplenishConfigurationIssue(spell, { castSource: cfg.castSource, spellOptions });
+      if (issue) { ui.notifications.warn(issue); return null; }
+      if (defenderEntries.length !== 1) {
+        ui.notifications.warn("Replenish requires exactly one recipient. No casting cost was paid.");
+        return null;
+      }
+      ui.notifications.info("Confirm with the GM that the Replenish recipient is within 1 meter.");
+    }
     const spellClassification = classifySpellForRouting(spell);
     const castSource = cfg?.castSource ? foundry.utils.deepClone(cfg.castSource) : null;
     const itemCastContext = cfg?.itemCastContext ? foundry.utils.deepClone(cfg.itemCastContext) : null;
@@ -525,18 +621,18 @@ export const MagicOpposedWorkflow = {
     // All pre-checks passed — now consume resources.
     const apReason = `Cast (Direct): ${spell.name}`;
     if (!ignoreAP) {
-      const apSpentOk = await ActionEconomy.spendAP(attacker, apCost, {
+      const apSpentOk = recordCastResult(cfg, await ActionEconomy.spendAPResult(attacker, apCost, {
         reason: apReason,
         silent: false,
         tokenUuid: directTrackerContext.tokenUuid,
         combatantId: directTrackerContext.combatantId
-      });
+      }));
       if (!apSpentOk) return null;
     }
 
     let magickaSpend = { ok: true, consumed: 0, remaining: Number(attacker?.system?.magicka?.value ?? 0) || 0, refund: 0 };
     if (isEnchantmentSource && castSourceMode === "soul") {
-      const soulSpend = await spendItemSoulCost({ itemCtx, cost: enchantSoulCost });
+      const soulSpend = await recordCastStep(cfg, () => spendItemSoulCost({ itemCtx, cost: enchantSoulCost }), value => value?.ok === true);
       if (!soulSpend?.ok) {
         if (!ignoreAP && directInStartedCombat) {
           try {
@@ -548,7 +644,7 @@ export const MagicOpposedWorkflow = {
       magickaSpend.consumed = Number(soulSpend.spent ?? enchantSoulCost ?? 0) || 0;
       magickaSpend.remaining = Number(attacker?.system?.magicka?.value ?? 0) || 0;
     } else if (isEnchantmentSource && castSourceMode === "magicka") {
-      magickaSpend = await _spendActorMagickaFixed(attacker, configuredEnchantmentCost);
+      magickaSpend = await recordCastStep(cfg, () => _spendActorMagickaFixed(attacker, configuredEnchantmentCost), value => value?.ok === true);
       if (!magickaSpend?.ok) {
         if (!ignoreAP && directInStartedCombat) {
           try {
@@ -558,7 +654,7 @@ export const MagicOpposedWorkflow = {
         return null;
       }
     } else if (!(isEnchantmentSource && castSourceMode === "none")) {
-      magickaSpend = await consumeSpellMagicka(attacker, spell, { ...spellOptions, costSnapshot: magickaCostSnapshot });
+      magickaSpend = await recordCastStep(cfg, () => consumeSpellMagicka(attacker, spell, { ...spellOptions, costSnapshot: magickaCostSnapshot }), value => value?.ok === true, spellOptions.consumeMagicka !== false);
       if (!magickaSpend?.ok) {
         // Rollback AP on magicka failure
         if (!ignoreAP && directInStartedCombat) {
@@ -577,6 +673,8 @@ export const MagicOpposedWorkflow = {
           allowLucky: true,
           allowUnlucky: true
         });
+
+    await applyConjurationTalentResult(attacker, result, { skillName: spell.system?.school });
 
     if (spellClassification.isAttack) {
       try {
@@ -609,7 +707,7 @@ export const MagicOpposedWorkflow = {
 
     const refundInfo = isEnchantmentSource
       ? { finalCost: Number(magickaSpend?.consumed ?? 0) || 0, refund: 0 }
-      : await applySpellRestraintRefund(attacker, spell, spellOptions, result, magickaSpend);
+      : await recordCastStep(cfg, () => applySpellRestraintRefund(attacker, spell, spellOptions, result, magickaSpend), value => value?.confirmed !== false, "presentation");
 
     // Emit castResolved hook
     try {
@@ -626,6 +724,7 @@ export const MagicOpposedWorkflow = {
 
     // Create Origin AE on the caster for persistent spells (only on success)
     const automationFailures = [];
+    if (refundInfo?.confirmed === false) automationFailures.push({ stage: "refund", message: "Spell restraint refund was not confirmed." });
     let originEffect = null;
     if (result.isSuccess && spellRequiresOriginAE(spell)) {
       const castContext = buildMagicCastContext({
@@ -633,9 +732,11 @@ export const MagicOpposedWorkflow = {
         spellOptions,
         scalingChoices: spellOptions?.castLevel ? { level: spellOptions.castLevel } : null
       }, spell, { actor: attacker });
+      castContext.castingResult = captureCastingResult(result);
       try {
-        originEffect = await createOriginAE(attacker, spell, {
+        originEffect = await recordCastStep(cfg, () => createOriginAE(attacker, spell, {
           strict: true,
+          onOutcome: message => observeCastOutcome(cfg, message),
           isCritical: Boolean(result.isCriticalSuccess),
           costPaid: Number(refundInfo?.finalCost ?? magickaSpend?.consumed ?? 0) || 0,
           scalingChoices: spellOptions?.castLevel ? { level: spellOptions.castLevel } : null,
@@ -647,7 +748,7 @@ export const MagicOpposedWorkflow = {
           itemCastContext: itemCastContext ?? null,
           magickaSpend: foundry.utils.deepClone(magickaSpend ?? null),
           casterTokenUuid: aToken?.document?.uuid ?? aToken?.uuid ?? cfg.attackerTokenUuid ?? null
-        });
+        }), value => Boolean(value?.id));
       } catch (_e) {
         originEffect = _e.originEffect ?? null;
         automationFailures.push({ stage: "origin", message: String(_e.message ?? _e) });
@@ -712,15 +813,15 @@ export const MagicOpposedWorkflow = {
       outcome: null
     };
 
-    const message = await ChatMessage.create({
+    const message = await recordCastStep(cfg, () => ChatMessage.create({
       user: game.user.id,
       speaker: ChatMessage.getSpeaker({ actor: attacker, token: aToken?.document ?? aToken ?? null }),
       content: renderCard(data, ""),
       flags: { [_FLAG_NS]: { [_FLAG_KEY]: { version: _CARD_VERSION, state: data } } },
       style: CONST.CHAT_MESSAGE_STYLES.OTHER
-    });
+    }), value => Boolean(value?.id), "presentation");
 
-    await safeUpdateChatMessage(message, { content: renderCard(data, message.id) });
+    if (!await safeUpdateChatMessage(message, { content: renderCard(data, message.id) }) && _castRuns.has(cfg)) _castRuns.get(cfg).presentationFailed = true;
     
     if (result.isSuccess) {
       const isAoE = Boolean(data?.context?.aoe?.isAoE || data?.context?.isAoE);
@@ -778,6 +879,14 @@ export const MagicOpposedWorkflow = {
       ui.notifications.error("Could not resolve spell.");
       return null;
     }
+
+    if (isCoreRejuvenateSpell(spell) || isCoreReplenishSpell(spell)) {
+      ui.notifications.warn(`Select one recipient for ${spell.name}. No casting cost was paid.`);
+      return null;
+    }
+
+    const ritualReason = getRitualCastingBlockReason(spell);
+    if (ritualReason) { ui.notifications.warn(ritualReason); return null; }
 
     if (!_ignoreTraining(cfg) && !canActorCastSpell(attacker, spell)) {
       ui.notifications.warn(`${attacker.name} is untrained in ${getSpellCastingSchool(spell) || "that school"} and cannot cast ${spell.name}.`);
@@ -865,12 +974,12 @@ export const MagicOpposedWorkflow = {
     const castActionType = String(cfg.castActionType ?? "primary");
     const apReason = (castActionType === "secondary") ? "Cast Magic (Instant)" : "Cast Magic";
     if (!ignoreAP) {
-      const apSpentOk = await ActionEconomy.spendAP(attacker, apCost, {
+      const apSpentOk = recordCastResult(cfg, await ActionEconomy.spendAPResult(attacker, apCost, {
         reason: apReason,
         silent: false,
         tokenUuid: castTrackerContext.tokenUuid,
         combatantId: castTrackerContext.combatantId
-      });
+      }));
       if (!apSpentOk) return null;
     }
 
@@ -890,7 +999,7 @@ export const MagicOpposedWorkflow = {
 
     let magickaSpend = { ok: true, consumed: 0, remaining: Number(attacker?.system?.magicka?.value ?? 0) || 0, refund: 0 };
     if (isEnchantmentSource && castSourceMode === "soul") {
-      const soulSpend = await spendItemSoulCost({ itemCtx, cost: enchantSoulCost });
+      const soulSpend = await recordCastStep(cfg, () => spendItemSoulCost({ itemCtx, cost: enchantSoulCost }), value => value?.ok === true);
       if (!soulSpend?.ok) {
         if (!ignoreAP && castInStartedCombat) {
           try {
@@ -904,7 +1013,7 @@ export const MagicOpposedWorkflow = {
       magickaSpend.consumed = Number(soulSpend.spent ?? enchantSoulCost ?? 0) || 0;
       magickaSpend.remaining = Number(attacker?.system?.magicka?.value ?? 0) || 0;
     } else if (isEnchantmentSource && castSourceMode === "magicka") {
-      magickaSpend = await _spendActorMagickaFixed(attacker, configuredEnchantmentCost);
+      magickaSpend = await recordCastStep(cfg, () => _spendActorMagickaFixed(attacker, configuredEnchantmentCost), value => value?.ok === true);
       if (!magickaSpend?.ok) {
         if (!ignoreAP && castInStartedCombat) {
           try {
@@ -916,7 +1025,7 @@ export const MagicOpposedWorkflow = {
         return null;
       }
     } else if (!(isEnchantmentSource && castSourceMode === "none")) {
-      magickaSpend = await consumeSpellMagicka(attacker, spell, { ...spellOptions, costSnapshot: magickaCostSnapshot });
+      magickaSpend = await recordCastStep(cfg, () => consumeSpellMagicka(attacker, spell, { ...spellOptions, costSnapshot: magickaCostSnapshot }), value => value?.ok === true, spellOptions.consumeMagicka !== false);
       if (!magickaSpend?.ok) {
         if (!ignoreAP && castInStartedCombat) {
           try {
@@ -937,10 +1046,14 @@ export const MagicOpposedWorkflow = {
           allowUnlucky: true
         });
 
+    await applyConjurationTalentResult(attacker, result, { skillName: spell.system?.school });
+
+    let refundConfirmed = true;
     try {
       const refundInfo = isEnchantmentSource
         ? { finalCost: Number(magickaSpend?.consumed ?? 0) || 0, refund: 0, breakdown: [] }
-        : await applySpellRestraintRefund(attacker, spell, spellOptions, result, magickaSpend);
+        : await recordCastStep(cfg, () => applySpellRestraintRefund(attacker, spell, spellOptions, result, magickaSpend), value => value?.confirmed !== false, "presentation");
+      refundConfirmed = refundInfo?.confirmed !== false;
       if (refundInfo?.refund > 0) {
         magickaSpend.consumed = refundInfo.finalCost;
         magickaSpend.remaining = Number(attacker.system?.magicka?.value ?? magickaSpend.remaining);
@@ -948,6 +1061,7 @@ export const MagicOpposedWorkflow = {
         magickaSpend.restraintBreakdown = refundInfo.breakdown;
       }
     } catch (err) {
+      refundConfirmed = false;
       console.warn("UESRPG | Spell restraint refund failed", err);
     }
 
@@ -981,6 +1095,7 @@ export const MagicOpposedWorkflow = {
 
     // Create Origin AE on the caster for persistent spells (only on success)
     const automationFailures = [];
+    if (!refundConfirmed) automationFailures.push({ stage: "refund", message: "Spell restraint refund was not confirmed." });
     let originEffect = null;
     if (result.isSuccess && spellRequiresOriginAE(spell)) {
       const castContext = buildMagicCastContext({
@@ -988,9 +1103,11 @@ export const MagicOpposedWorkflow = {
         spellOptions,
         scalingChoices: spellOptions?.castLevel ? { level: spellOptions.castLevel } : null
       }, spell, { actor: attacker });
+      castContext.castingResult = captureCastingResult(result);
       try {
-        originEffect = await createOriginAE(attacker, spell, {
+        originEffect = await recordCastStep(cfg, () => createOriginAE(attacker, spell, {
           strict: true,
+          onOutcome: message => observeCastOutcome(cfg, message),
           isCritical: Boolean(result.isCriticalSuccess),
           costPaid: Number(magickaSpend?.consumed ?? 0) || 0,
           scalingChoices: spellOptions?.castLevel ? { level: spellOptions.castLevel } : null,
@@ -1002,7 +1119,7 @@ export const MagicOpposedWorkflow = {
           itemCastContext: itemCastContext ?? null,
           magickaSpend: foundry.utils.deepClone(magickaSpend ?? null),
           casterTokenUuid: aToken?.document?.uuid ?? aToken?.uuid ?? null
-        });
+        }), value => Boolean(value?.id));
       } catch (_e) {
         originEffect = _e.originEffect ?? null;
         automationFailures.push({ stage: "origin", message: String(_e.message ?? _e) });
@@ -1087,15 +1204,15 @@ export const MagicOpposedWorkflow = {
         outcome: null
       };
 
-      const message = await ChatMessage.create({
+      const message = await recordCastStep(cfg, () => ChatMessage.create({
         user: game.user.id,
         speaker: ChatMessage.getSpeaker({ actor: attacker, token: aToken?.document ?? aToken ?? null }),
         content: renderCard(data, ""),
         flags: { [_FLAG_NS]: { [_FLAG_KEY]: { version: _CARD_VERSION, state: data } } },
         style: CONST.CHAT_MESSAGE_STYLES.OTHER
-      });
+      }), value => Boolean(value?.id), "presentation");
 
-      await safeUpdateChatMessage(message, { content: renderCard(data, message.id) });
+      if (!await safeUpdateChatMessage(message, { content: renderCard(data, message.id) }) && _castRuns.has(cfg)) _castRuns.get(cfg).presentationFailed = true;
 
       const defenderEntry = selectDefenderEntry(data, {}).defender;
       await resolveOutcome({
@@ -1145,7 +1262,7 @@ export const MagicOpposedWorkflow = {
           }, spell, { actor: attacker });
           appliedCastContext = castContext;
           try {
-            await applyResolvedSpellEffects({
+            const effectSubmission = await recordCastStep(cfg, () => applyResolvedSpellEffects({
               strict: true,
               casterActor: attacker,
               targetActor: effectTarget,
@@ -1161,7 +1278,9 @@ export const MagicOpposedWorkflow = {
                 magickaSpend: foundry.utils.deepClone(magickaSpend ?? null),
                 casterTokenUuid: aToken?.document?.uuid ?? aToken?.uuid ?? null
               }
-            });
+            }), value => Boolean(value), "presentation");
+            const evidence = _castRuns.get(cfg);
+            if (evidence && effectSubmission?.pending) evidence.pending = true;
           } catch (err) {
             automationFailures.push({ stage: "effects", actorUuid: effectTarget?.uuid, message: String(err.message ?? err) });
             console.error("UESRPG | Failed to apply spell effects to", effectTarget?.name ?? "unknown", err);
@@ -1224,15 +1343,15 @@ export const MagicOpposedWorkflow = {
       }
     };
 
-    const message = await ChatMessage.create({
+    const message = await recordCastStep(cfg, () => ChatMessage.create({
       user: game.user.id,
       speaker: ChatMessage.getSpeaker({ actor: attacker, token: aToken?.document ?? aToken ?? null }),
       content: renderUnopposedCard(data, ""),
       flags: { [_FLAG_NS]: { [_FLAG_KEY]: { version: _CARD_VERSION, state: data } } },
       style: CONST.CHAT_MESSAGE_STYLES.OTHER
-    });
+    }), value => Boolean(value?.id), "presentation");
 
-    await safeUpdateChatMessage(message, { content: renderUnopposedCard(data, message.id) });
+    if (!await safeUpdateChatMessage(message, { content: renderUnopposedCard(data, message.id) }) && _castRuns.has(cfg)) _castRuns.get(cfg).presentationFailed = true;
     return message;
   },
 
@@ -1275,6 +1394,7 @@ export const MagicOpposedWorkflow = {
 
     const { defender: defenderEntry } = selectDefenderEntry(data, opts);
     if (!defenderEntry || !defender) return;
+    if (getDefenderOutcome(data, defenderEntry)?.needsReview === true) return;
 
     const isAoE = Boolean(data?.context?.aoe?.isAoE || data?.context?.isAoE);
     const forcedHitLocation = String(data?.context?.forcedHitLocation ?? "").trim();

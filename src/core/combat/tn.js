@@ -28,6 +28,8 @@ import {
   hasEquippedShieldType as hasEquippedShieldTypeCanonical,
 } from "../items/shield-utils.js";
 import { isWarfareUnitActorType } from "../actors/types.js";
+import { getSkillCharacteristicSelectionDelta } from "../skills/skill-tn.js";
+import { canonicalCharacteristicToken, isKnownCharacteristicKey } from "../skills/skill-tn-characteristics.js";
 import {
   asCombatNumber as asNumber,
   computeDefenderTNOverride,
@@ -315,6 +317,20 @@ function computeCombatStyleTN(styleItem) {
   return value;
 }
 
+function resolveCombatStyleCharacteristic(actor, styleItem, selectedCharacteristicKey) {
+  const base = canonicalCharacteristicToken(styleItem?.system?.baseCha);
+  const selected = canonicalCharacteristicToken(selectedCharacteristicKey);
+  if (styleItem?.type !== "combatStyle" || styleItem?._professionKey || !["str", "agi"].includes(base)
+    || !isKnownCharacteristicKey(selected)) return { delta: 0, characteristic: null };
+  const oldTotal = actor?.system?.characteristics?.[base]?.total;
+  const newTotal = actor?.system?.characteristics?.[selected]?.total;
+  if (oldTotal == null || newTotal == null || !Number.isFinite(Number(oldTotal)) || !Number.isFinite(Number(newTotal))) {
+    return { delta: 0, characteristic: null };
+  }
+  return { delta: getSkillCharacteristicSelectionDelta({ actorSystem: actor.system, skill: styleItem, selectedCharacteristicKey: selected }),
+    characteristic: selected };
+}
+
 function computeBlockTN(defender, styleItem) {
   // RAW: Combat Style test using Strength.
   const woundPenalty = asNumber(defender?.system?.woundPenalty ?? 0);
@@ -441,6 +457,7 @@ export function computeTN({
   variant = "normal",
   defenseType = null,
   styleUuid = null,
+  selectedCharacteristicKey = null,
   manualMod = 0,
   circumstanceMod = 0,
   situationalMods = [],
@@ -453,6 +470,7 @@ export function computeTN({
   // --- Base TN
   let baseTN = 0;
   let baseLabel = "Base";
+  let selectedStyleCharacteristic = null;
 
   if (role === "attacker") {
     const styleItem = getCombatStyleItem(actor, styleUuid);
@@ -463,6 +481,10 @@ export function computeTN({
       });
     }
     baseTN = computeCombatStyleTN(styleItem);
+    const selection = resolveCombatStyleCharacteristic(actor, styleItem,
+      attackMode === "ranged" ? "agi" : selectedCharacteristicKey);
+    baseTN += selection.delta;
+    selectedStyleCharacteristic = selection.characteristic;
     baseLabel = "Base TN";
   } else if (role === "defender") {
     if (defenseType === "evade") {
@@ -509,6 +531,9 @@ export function computeTN({
     } else if (defenseType === "parry" || defenseType === "counter") {
       const styleItem = getCombatStyleItem(actor, styleUuid);
       baseTN = computeCombatStyleTN(styleItem);
+      const selection = resolveCombatStyleCharacteristic(actor, styleItem, selectedCharacteristicKey);
+      baseTN += selection.delta;
+      selectedStyleCharacteristic = selection.characteristic;
       baseLabel = "Base TN";
     } else {
       baseTN = 0;
@@ -517,7 +542,8 @@ export function computeTN({
   }
 
   // Keep a short label for chat-card real estate; preserve detail for debugging.
-  const baseDetail = (role === "attacker")
+  const baseDetail = selectedStyleCharacteristic ? `Combat Style (${selectedStyleCharacteristic.toUpperCase()})`
+    : (role === "attacker")
     ? "Combat Style"
     : (defenseType === "evade")
       ? "Evade"

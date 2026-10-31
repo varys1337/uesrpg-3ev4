@@ -9,6 +9,7 @@
  */
 
 import { doTestRoll } from "../../../../utils/degree-roll-helper.js";
+import { applyConjurationTalentResult } from "../../../traits/spellcasting-talents.js";
 import { requireUserCanRollActor } from "../../../../utils/permissions.js";
 import { buildSkillRollRequest, normalizeSkillRollOptions, skillRollDebug, validateSkillRollRequest } from "../../roll-request.js";
 import { buildResistanceBonusMods } from "../../../traits/trait-resistance-ui.js";
@@ -25,6 +26,7 @@ import {
   _defaultSelectedCharacteristicForSkill,
   _filterSkillsForSpecialAction,
   _getSpecialActionLegalityForSide,
+  _isSnareContextCurrent,
   _isSpecialActionSelectionLegal
 } from "../context.js";
 import { resolveSelectionAndComputeTN } from "../helpers/selection-and-tn.js";
@@ -110,6 +112,13 @@ export async function handleDefenderRoll(ctx, action) {
   if (isCommittedRoll) {
     decl = readCommittedDeclaration(data.defender, "Defender");
     if (!decl) return;
+
+    if (!requireUserCanRollActor(game.user, defender)) return;
+
+    if (!_isSnareContextCurrent(_getMessageState(game.messages.get(message.id) ?? message) ?? data, defender, "defender", data)) {
+      ui.notifications.warn("The Snare weapon or range changed. Start a new Special Action.");
+      return;
+    }
   } else {
     if (quick) {
       decl = buildQuickDeclaration({ selectedSkillUuid, defaults, defaultCharacteristic });
@@ -222,6 +231,13 @@ export async function handleDefenderRoll(ctx, action) {
   const rollMode = _getCoreRollMode();
   const res = await doTestRoll(defender, { rollFormula: "1d100", target: tn.finalTN, allowLucky: true, allowUnlucky: true });
 
+  if (!requireUserCanRollActor(game.user, defender)) return;
+
+  if (!_isSnareContextCurrent(_getMessageState(game.messages.get(message.id) ?? message) ?? data, defender, "defender", data)) {
+    ui.notifications.warn("The Snare weapon or range changed during the roll. Start a new Special Action.");
+    return;
+  }
+
   // Awareness talent automation: Keen Intuition (Observe) / Hyper Awareness (Evade).
   await applyKeenIntuitionToResult(defender, skillLabel, res, { allowPrompt: true });
   await applyHyperAwarenessToResult(defender, skillLabel, res, { allowPrompt: true });
@@ -234,6 +250,7 @@ export async function handleDefenderRoll(ctx, action) {
     isInterrogationTest: Boolean(decl?.isInterrogationTest),
     allowPrompt: true
   });
+  await applyConjurationTalentResult(defender, res, { skillName: skillLabel });
 
   skillRollDebug("opposed defender result", { rollTotal: res.rollTotal, target: res.target, isSuccess: res.isSuccess, degree: res.degree, critS: res.isCriticalSuccess, critF: res.isCriticalFailure });
 

@@ -26,6 +26,17 @@
                                     </select>
                                 </div>
                             </div>
+                            <div class="grid-container">
+                                <div>{{localize "UESRPG.Sheets.Item.ArrowType"}}</div>
+                                <div class="right-align-content">
+                                    <select name="system.arrowType" aria-label="{{localize "UESRPG.Sheets.Item.ArrowType"}}">
+                                        {{#each ammunitionArrowTypeOptions}}
+                                        <option value="{{this.value}}" {{#if this.selected}}selected{{/if}}>{{localize this.label}}</option>
+                                        {{/each}}
+                                    </select>
+                                </div>
+                            </div>
+                            <p class="uesrpg-field-hint">{{localize "UESRPG.Sheets.Item.ArrowTypeHint"}}</p>
                         </div>
                     </div>
                 </div>

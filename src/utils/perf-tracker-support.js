@@ -1,5 +1,43 @@
 const BUFFER_SIZE = 500;
 
+export const PERF_COUNTER_KEYS = Object.freeze([
+  "writeCount", "writeAttemptCount", "renderCount", "refreshCount", "requestedCount", "coalescedCount",
+  "skippedCount", "confirmedChangeCount", "confirmedNoopCount", "matchedCount", "registeredCount",
+  "unregisteredCount", "completedCount", "failedCount", "cancelledCount",
+]);
+
+/** Diagnostic-only callback boundary. Invalid clocks leave duration unavailable. */
+export function beginPerfMeasurement({ enabled = false, now, record, event, details = {} } = {}) {
+  if (!enabled) return () => {};
+  const clock = () => {
+    try { const value = now(); return typeof value === "number" && Number.isFinite(value) ? value : null; }
+    catch (_error) { return null; }
+  };
+  const startedAt = clock();
+  let finished = false;
+  return (result = {}) => {
+    if (finished) return;
+    finished = true;
+    const endedAt = clock();
+    const duration = startedAt !== null && endedAt !== null ? endedAt - startedAt : null;
+    try {
+      record({
+        ...details, ...result, event,
+        ...(Number.isFinite(duration) && duration >= 0 ? { durationMs: duration } : {}),
+      });
+    } catch (_error) { /* Diagnostic failure must not change the measured operation. */ }
+  };
+}
+
+/** Synchronous boundary only: a returned Promise is preserved, never awaited here. */
+export function measurePerfCall(options, run) {
+  if (!options?.enabled) return run();
+  const finish = beginPerfMeasurement(options);
+  let failed = true;
+  try { const result = run(); failed = false; return result; }
+  finally { finish({ failed }); }
+}
+
 const _buf = new Array(BUFFER_SIZE).fill(null);
 let _head = 0;
 let _total = 0;
@@ -80,7 +118,7 @@ export function summarizePerfEntries(records, { kind = null } = {}) {
       p95: +(count > 0 ? sorted[p95Idx] : 0).toFixed(3),
       max: +(sorted[count - 1] ?? 0).toFixed(3),
     };
-    for (const key of ["writeCount", "writeAttemptCount", "renderCount", "refreshCount", "requestedCount", "coalescedCount", "skippedCount", "confirmedChangeCount", "confirmedNoopCount"]) {
+    for (const key of PERF_COUNTER_KEYS) {
       const values = entries.map(entry => entry.record[key]).filter(value => value != null && Number.isFinite(Number(value)));
       if (values.length) result[ev][key] = values.reduce((sum, value) => sum + Number(value), 0);
     }
@@ -162,6 +200,9 @@ export function getPerfHelpText(systemId) {
     + "\n  outcome.application / outcome.healthCommit / outcome.stage / outcome.stage.skipped"
     + "\n  outcome.receipt.persist / outcome.snapshotBefore / outcome.snapshotAfter"
     + "\n  outcome.chat.refreshRequested / outcome.chat.refreshSkipped / outcome.chat.refresh / outcome.chat.render"
+    + "\n  sheet.signature / sheet.refresh.match / sheet.refresh.lifecycle / sheet.queue"
+    + "\n  system.deferred.scheduled / system.deferred.started (scheduling delay) / system.deferred.finished (awaited task)"
+    + "\nSheet queue completion means an awaited render call settled; lifecycle callbacks and task completion do not measure visible latency or usable gameplay."
     + "\nPer-event summaries include recorded write, skip, and refresh totals; do not sum overlapping stage/helper counters."
     + "\nRender impact is time-window correlation, not causal attribution. Visible HP measures open Actor-sheet inputs."
   );

@@ -16,7 +16,8 @@ import { promptDefenderAdvantage as _promptDefenderAdvantage } from "../dialogs/
 
 import { listEquippedShields as _listEquippedShields } from "../helpers/utility.js";
 import { weaponHasQuality as _weaponHasQuality, asNumber as _asNumber, getPreferredWeaponUuid as _getPreferredWeaponUuid } from "../helpers/workflow.js";
-import { getAttackModeFromWeapon, getDamageTypeFromWeapon, getHitLocationFromRoll, resolveHitLocationForTarget } from "../../combat-utils.js";
+import { getAttackModeFromWeapon, getDamageTypeFromWeapon, getHitLocationFromRoll, getWeaponCombatCapabilities, resolveHitLocationForTarget } from "../../combat-utils.js";
+import { isWeaponExpertiseActive } from "../../../traits/weapon-expertise/index.js";
 import { getBlockValue } from "../../mitigation.js";
 import { DAMAGE_TYPES } from "../../damage-automation.js";
 import { rollWeaponDamage as _rollWeaponDamage } from "../damage/roller.js";
@@ -183,6 +184,7 @@ export async function handleDefenderAdvantage(ctx) {
   // Execute Special Advantage automation for defender (free + auto-win)
   if (Array.isArray(choice.specialActionsSelected) && choice.specialActionsSelected.length) {
     await executeAdvantageSpecialActions({
+      sourceMessage: message, sourceState: data,
       specialActionIds: choice.specialActionsSelected,
       actor: defender,
       opponent: attackerResolved,
@@ -195,7 +197,7 @@ export async function handleDefenderAdvantage(ctx) {
       source: "advantage-defender-free",
       freeActionCost: advantageSource === "buckler-parry-win" ? 1 : 0,
       freeActionReason: "Buckler Parry-Win: Special Advantage",
-      onAutoWinSuccess: () => _pushAdvantageMarker(data, {
+      onAutoWinAccepted: () => _pushAdvantageMarker(data, {
         actor: defender, actorUuid: data.defender?.actorUuid ?? null,
         tokenUuid: data.defender?.tokenUuid ?? null, kind: "defender-special-advantage",
       }),
@@ -434,6 +436,10 @@ export async function handleBlockResolve(ctx) {
   const blocked = dmg.finalDamage <= br;
 
   if (blocked) {
+    const spearedShieldReminder = isRanged && getWeaponCombatCapabilities(weapon).thrown
+      && isWeaponExpertiseActive(attacker, weapon, "redlegionthrow", "ranged")
+      ? "<br><b>Red Legion Throw:</b> Record the speared shield manually. Further block attempts cost 1 SP; removal requires a Secondary Action and a Strength test."
+      : "";
     const damageObj = {
       rolled: true,
       mode: "block",
@@ -447,7 +453,7 @@ export async function handleBlockResolve(ctx) {
       weaponUuid: weapon.uuid ?? "",
       damageType,
       qualityPillsHtml: "",
-      extraNoteHtml: `<b>Defense:</b> Block (${shield?.name ?? "Shield"})`,
+      extraNoteHtml: `<b>Defense:</b> Block (${shield?.name ?? "Shield"})${spearedShieldReminder}`,
       blockResult: {
         blocked: true,
         blockRating: br,

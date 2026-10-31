@@ -21,7 +21,9 @@ import { registerWoundSocket, requestWoundsGM } from "./wound-socket.js";
 import { registerWoundCombatTicker } from "./wound-ticker.js";
 import { normalizeHitLocation, isActiveGMUser } from "./wound-schema.js";
 import { SYSTEM_ID, FLAG_SCOPE } from "../constants.js";
-import { customDialog } from "../../utils/dialog-v2-helper.js";
+import { confirmDialog, customDialog } from "../../utils/dialog-v2-helper.js";
+import { acquireLock, releaseLock } from "../../utils/authority-proxy/shared.js";
+import { canUserRollActor } from "../../utils/permissions.js";
 import { t } from "../../utils/i18n.js";
 import { deleteOwnedEffects, getCurrentWorldTimeSeconds } from "./shared.js";
 import {
@@ -29,6 +31,7 @@ import {
   findHealerKit,
   promptTreatWoundRollOptions,
   resolveHealingTestTarget,
+  woundTreatmentNeedsReview,
 } from "./treatment-helpers.js";
 
 // Import from segmented modules
@@ -266,14 +269,16 @@ export async function removeFirstAid(actorLike) {
  */
 export async function treatWound(actorLike, effectId, meta = {}) {
   const actor = await resolveActorLike(actorLike);
-  if (!actor || !effectId) return;
+  if (!actor || !effectId) return { ok: false, reason: "invalidTarget" };
   const ef = actor.effects?.get?.(effectId) ?? null;
   const data = ef?.getFlag?.(FLAG_SCOPE, "wounds");
-  if (!ef || data?.kind !== "wound") return;
+  if (!ef || data?.kind !== "wound") return { ok: false, reason: "invalidWound" };
+  if (woundTreatmentNeedsReview(data.treatmentAttempt)
+    && (!meta?.treatmentAttemptId || data.treatmentAttempt?.id !== meta.treatmentAttemptId || data.treatmentAttempt?.status !== "applying")) return { ok: false, reason: "needsReview" };
 
-  if (data.treated === true) return;
+  if (data.treated === true) return { ok: true, alreadyTreated: true };
 
-  await requestUpdateDocument(ef, {
+  const updated = await requestUpdateDocument(ef, {
     [`${FLAG_PATH}.wounds.treated`]: true,
     [`${FLAG_PATH}.wounds.treatedAt`]: Date.now(),
     [`${FLAG_PATH}.wounds.progress`]: 0,
@@ -282,7 +287,13 @@ export async function treatWound(actorLike, effectId, meta = {}) {
     [`${FLAG_PATH}.wounds.gmOverride`]: meta?.gmOverride === true,
     [`${FLAG_PATH}.wounds.treatmentDurationHours`]: 1
   });
-  await enforceWoundInvariants(actor, { context: "treatWound" });
+  if (!updated || ef.getFlag?.(FLAG_SCOPE, "wounds")?.treated !== true) return { ok: false, reason: "needsReview" };
+  try { await enforceWoundInvariants(actor, { context: "treatWound", strict: true }); }
+  catch (error) {
+    console.warn("UESRPG | Wound was treated but follow-up reconciliation needs review", error);
+    return { ok: false, reason: "needsReview", treated: true };
+  }
+  return { ok: true, treated: true };
 }
 
 /**
@@ -381,105 +392,153 @@ export async function attemptFirstAid(actorLike, { healerActor = null, skill = n
   return { ok: true, ...result, tn, bypass: bypass === true };
 }
 
-export async function attemptTreatWound(actorLike, woundEffectId, { healerActor = null, hasKit = null, bypass = false } = {}) {
+async function saveWoundTreatmentAttempt(effect, attempt, extra = {}) {
+  const ok = await requestUpdateDocument(effect, { ...extra, [`${FLAG_PATH}.wounds.treatmentAttempt`]: attempt });
+  const saved = effect?.getFlag?.(FLAG_SCOPE, "wounds")?.treatmentAttempt;
+  return Boolean(ok && saved?.id === attempt.id && saved?.status === attempt.status);
+}
+
+function woundTreatmentReview(reasonText = "Treatment could not be confirmed. Stop other processing; the GM must inspect the wound and chat before resolving it.") {
+  return { ok: false, reason: "needsReview", reasonText };
+}
+
+export async function attemptTreatWound(actorLike, woundEffectId, { healerActor = null, bypass = false } = {}) {
   const actor = await resolveActorLike(actorLike);
+  const effect = actor?.effects?.get?.(String(woundEffectId)) ?? null;
   if (!actor) return { ok: false, reason: "invalidTarget" };
-  const woundEffect = actor.effects?.get?.(String(woundEffectId)) ?? null;
-  const woundData = woundEffect?.getFlag?.(FLAG_SCOPE, "wounds") ?? null;
-  if (!woundEffect || woundData?.kind !== "wound") return { ok: false, reason: "invalidWound", reasonText: "Invalid wound target." };
+  if (!effect || effect.getFlag?.(FLAG_SCOPE, "wounds")?.kind !== "wound") return { ok: false, reason: "invalidWound", reasonText: "Invalid wound target." };
+  if (bypass && !game.user?.isGM) return { ok: false, reason: "gmOnly", reasonText: "Only the GM can override treatment." };
+  const lock = `wound-treatment:${actor.uuid}:${effect.id}`;
+  if (!await acquireLock(lock, { wait: false })) return { ok: false, reason: "processing", reasonText: "This wound is already being treated on this client." };
+  try {
+    const woundData = effect.getFlag?.(FLAG_SCOPE, "wounds") ?? {};
+    if (woundTreatmentNeedsReview(woundData.treatmentAttempt)) return woundTreatmentReview();
+    if (woundData.treated === true) return { ok: false, reason: "alreadyTreated", reasonText: "This wound is already treated." };
+    const healer = await resolveActorLike(healerActor) ?? canvas?.tokens?.controlled?.[0]?.actor ?? game.user?.character ?? actor;
+    if (!bypass && !canUserRollActor(game.user, healer)) return { ok: false, reason: "permission", reasonText: "You do not have permission to roll for the healer." };
+    const candidates = collectHealingTestCandidates(healer, { medicineOnly: true });
+    if (!bypass && !candidates.length) return { ok: false, reason: "invalidTestTarget", reasonText: "No recognized Profession [Medicine] test target." };
 
-  const healer = await resolveActorLike(healerActor) ?? canvas?.tokens?.controlled?.[0]?.actor ?? game.user?.character ?? actor;
-  const resolvedHasKit = (typeof hasKit === "boolean") ? hasKit : findHealerKit(healer);
-  const candidates = collectHealingTestCandidates(healer);
-  const baseTn = Math.max(0, resolveHealingTestTarget(healer));
-  let tn = baseTn;
-  let selectedLaneLabel = "Auto";
-  const crippleRelated = _isCrippleRelatedWound(actor, woundEffect);
-  const currentRestId = _currentLongRestCounter(actor);
-  const priorRestId = Number(woundData?.limbTreatLongRestId ?? null);
-
-  if (!bypass && !resolvedHasKit) {
-    await _postWoundWorkflowCard({ title: "Treat Wound", actor, healer, lines: ["Failed: missing healer's kit/supplies."] });
-    return { ok: false, reason: "missingKit", reasonText: "Missing healer's kit/supplies." };
-  }
-  if (!bypass && !candidates.length) {
-    await _postWoundWorkflowCard({ title: "Treat Wound", actor, healer, lines: ["Failed: no valid Profession[Medicine] / Survival test target."] });
-    return { ok: false, reason: "invalidTestTarget", reasonText: "No valid Profession[Medicine] / Survival test target." };
-  }
-  if (!bypass && crippleRelated && Number.isFinite(priorRestId) && priorRestId === currentRestId) {
-    await _postWoundWorkflowCard({
-      title: "Treat Wound",
-      actor,
-      healer,
-      lines: ["Blocked: this cripple-related wound can only be treated once per long rest."]
-    });
-    return { ok: false, reason: "longRestLimit", reasonText: "This cripple-related wound can only be treated once per long rest." };
-  }
-
-  let passed = true;
-  let dramaticFailure = false;
-  if (!bypass) {
-    const opts = await promptTreatWoundRollOptions(healer, candidates);
-    if (!opts) return { ok: false, reason: "cancelled", suppressUiWarning: true };
-    tn = Math.max(0, Number(opts.target ?? 0) || 0);
-    selectedLaneLabel = String(opts?.candidate?.label ?? "Skill");
-    if (tn <= 0) {
-      await _postWoundWorkflowCard({ title: "Treat Wound", actor, healer, lines: ["Failed: resulting test target is 0 or lower."] });
-      return { ok: false, reason: "invalidTestTarget", reasonText: "No valid Profession[Medicine] / Survival test target." };
+    const crippleRelated = _isCrippleRelatedWound(actor, effect);
+    const currentRestId = _currentLongRestCounter(actor);
+    const recordedRestId = woundData.limbTreatLongRestId;
+    const priorRestId = recordedRestId == null ? null : Number(recordedRestId);
+    const invalidRestRecord = (recordedRestId != null && (String(recordedRestId).trim() === "" || !Number.isInteger(priorRestId) || priorRestId < 0))
+      || (woundData.limbTreatAttemptLongRest === true && recordedRestId == null);
+    if (!bypass && crippleRelated && invalidRestRecord) return woundTreatmentReview("The earlier cripple-related treatment record is incomplete; the GM must review it before another attempt.");
+    if (!bypass && crippleRelated && Number.isFinite(priorRestId) && priorRestId === currentRestId) {
+      return { ok: false, reason: "longRestLimit", reasonText: "This cripple-related wound can only be treated once per long rest." };
     }
-    const roll = await doTestRoll(healer, { target: tn, rollFormula: "1d100" });
-    passed = Boolean(roll?.isSuccess);
-    dramaticFailure = roll?.isCriticalFailure === true;
-    try {
-      await roll?.roll?.toMessage?.({
-        speaker: ChatMessage.getSpeaker({ actor: healer }),
-        flavor: `Treat Wound Test - ${healer.name} (${esc(selectedLaneLabel)}, TN ${tn})`
-      });
-    } catch (_e) {
-      // Non-blocking.
-    }
-  }
 
-  if (crippleRelated) {
-    try {
-      await requestUpdateDocument(woundEffect, {
+    const options = bypass ? null : await promptTreatWoundRollOptions(healer, candidates);
+    if (!bypass && !options) return { ok: false, reason: "cancelled", suppressUiWarning: true };
+    const tn = bypass ? 0 : Math.max(0, Number(options.target ?? 0) || 0);
+    if (!bypass && tn <= 0) return { ok: false, reason: "invalidTestTarget", reasonText: "No valid Profession [Medicine] test target." };
+    const latest = actor.effects?.get?.(effect.id)?.getFlag?.(FLAG_SCOPE, "wounds");
+    const latestCandidate = bypass ? null : collectHealingTestCandidates(healer, { medicineOnly: true }).find(candidate => candidate.id === options.candidate?.id);
+    if (!latest || latest.treated === true || woundTreatmentNeedsReview(latest.treatmentAttempt)
+      || latest.limbTreatLongRestId !== recordedRestId
+      || (!bypass && (!canUserRollActor(game.user, healer) || !latestCandidate || latestCandidate.tn !== options.candidate?.tn))
+      || _currentLongRestCounter(actor) !== currentRestId || _isCrippleRelatedWound(actor, effect) !== crippleRelated) {
+      return woundTreatmentReview("The wound or its treatment record changed. Inspect it before starting treatment again.");
+    }
+
+    let attempt = {
+      id: foundry.utils.randomID(), status: bypass ? "applying" : "rolling", healerUuid: healer?.uuid ?? "",
+      userId: game.user.id, target: tn, lane: String(options?.candidate?.label ?? "GM override"),
+      crippleRelated, longRestId: currentRestId, startedAt: Date.now(), result: null,
+      completedAt: null, reviewReason: null, reviewedAt: null, reviewedBy: null, reviewDecision: null
+    };
+    if (!await saveWoundTreatmentAttempt(effect, attempt)) return woundTreatmentReview("The treatment record could not be confirmed; inspect the wound before retrying.");
+
+    let roll = null;
+    if (!bypass) {
+      try { roll = await doTestRoll(healer, { target: tn, rollFormula: "1d100" }); }
+      catch (error) {
+        console.warn("UESRPG | Wound treatment roll needs review", error);
+        return woundTreatmentReview();
+      }
+      const total = Number(roll?.rollTotal);
+      if (typeof roll?.isSuccess !== "boolean" || !Number.isInteger(total) || total < 1 || total > 100) return woundTreatmentReview();
+      const changed = _currentLongRestCounter(actor) !== currentRestId || _isCrippleRelatedWound(actor, effect) !== crippleRelated;
+      const dramaticDecision = !roll.isSuccess && crippleRelated;
+      attempt = { ...attempt, status: changed || dramaticDecision ? "review" : roll.isSuccess ? "applying" : "completed",
+        result: { rollTotal: total, isSuccess: roll.isSuccess, isCriticalFailure: roll.isCriticalFailure === true, degree: Number(roll.degree ?? 0) || 0 },
+        reviewReason: changed ? "context-changed" : dramaticDecision ? "dramatic-decision" : null };
+      const restFlags = crippleRelated ? {
         [`${FLAG_PATH}.wounds.limbTreatAttemptLongRest`]: true,
         [`${FLAG_PATH}.wounds.limbTreatLongRestId`]: currentRestId,
         [`${FLAG_PATH}.wounds.limbTreatAttemptAt`]: Date.now()
-      });
-    } catch (_e) {
-      // Non-blocking.
+      } : {};
+      if (!await saveWoundTreatmentAttempt(effect, attempt, restFlags)) return woundTreatmentReview();
+      try {
+        await roll.roll?.toMessage?.({ speaker: ChatMessage.getSpeaker({ actor: healer }),
+          flavor: `Treat Wound Test - ${esc(healer.name)} (${esc(attempt.lane)}, TN ${tn})` });
+      } catch (error) { console.warn("UESRPG | Treatment roll message could not be posted; the result remains on the wound", error); }
+      if (changed) return woundTreatmentReview("The treatment context changed during the roll. The GM must inspect the wound and recorded result.");
+      if (dramaticDecision) return woundTreatmentReview("The test failed. The GM must decide whether it was a dramatic failure and review this wound.");
+      if (!roll.isSuccess) {
+        await _postWoundWorkflowCard({ title: "Treat Wound", actor, healer, lines: [`Failed test (TN ${tn}).`] });
+        return { ok: false, reason: "failedTest", reasonText: `Treat Wound test failed (TN ${tn}).`, tn };
+      }
     }
-  }
 
-  if (!bypass && dramaticFailure && crippleRelated) {
-    await applyMaimedOutcomeForWound(actor, woundEffect, { reason: "dramatic-failure", immediate: true });
-    await _postWoundWorkflowCard({
-      title: "Treat Wound",
-      actor,
-      healer,
-      lines: ["Dramatic failure: the affected body part immediately becomes maimed."]
-    });
-    return { ok: false, reason: "dramaticFailure", reasonText: "Dramatic failure: body part immediately maimed.", tn };
-  }
+    const treated = await treatWound(actor, effect.id, { treatedBy: healer?.id ?? healer?.name ?? "", method: "profession-medicine", gmOverride: bypass === true, treatmentAttemptId: attempt.id });
+    if (!treated?.ok || treated.alreadyTreated) return woundTreatmentReview();
+    attempt = { ...attempt, status: "completed", completedAt: Date.now() };
+    if (!await saveWoundTreatmentAttempt(effect, attempt)) return woundTreatmentReview("The wound may have been treated, but the final record was not confirmed. Inspect it before retrying.");
+    await _postWoundWorkflowCard({ title: "Treat Wound", actor, healer,
+      lines: [`Success${bypass ? " (GM override)" : ""}. Wound marked treated; the GM confirms the approximately one-hour treatment.`, `Test Lane: ${attempt.lane}${tn ? ` (TN ${tn})` : ""}`] });
+    return { ok: true, tn, bypass: bypass === true };
+  } finally { releaseLock(lock); }
+}
 
-  if (!passed) {
-    await _postWoundWorkflowCard({ title: "Treat Wound", actor, healer, lines: [`Failed test (TN ${tn}).`] });
-    return { ok: false, reason: "failedTest", reasonText: `Treat Wound test failed (TN ${tn}).`, tn };
-  }
-
-  await treatWound(actor, woundEffectId, {
-    treatedBy: healer?.id ?? healer?.name ?? "",
-    method: "profession-medicine",
-    gmOverride: bypass === true
-  });
-  await _postWoundWorkflowCard({
-    title: "Treat Wound",
-    actor,
-    healer,
-    lines: [`Success${bypass ? " (GM override)" : ""}. Wound marked treated (1-hour treatment workflow).`, `Test Lane: ${selectedLaneLabel}${tn ? ` (TN ${tn})` : ""}`]
-  });
-  return { ok: true, tn, bypass: bypass === true };
+/** The GM inspects interrupted treatment before releasing its hold. */
+export async function reviewWoundTreatment(actorLike, woundEffectId) {
+  if (!game.user?.isGM) return { ok: false, reason: "gmOnly", reasonText: "Only the GM can review treatment." };
+  const actor = await resolveActorLike(actorLike);
+  const effect = actor?.effects?.get?.(String(woundEffectId)) ?? null;
+  const record = effect?.getFlag?.(FLAG_SCOPE, "wounds");
+  const attempt = record?.treatmentAttempt;
+  if (!effect || record?.kind !== "wound" || !woundTreatmentNeedsReview(attempt)) return { ok: false, reason: "invalidAttempt", reasonText: "No unresolved treatment record was found." };
+  if (!attempt || typeof attempt !== "object" || !String(attempt.id ?? "").trim()) return woundTreatmentReview("The treatment record is malformed. The GM must inspect and repair it before another attempt.");
+  const lock = `wound-treatment:${actor.uuid}:${effect.id}`;
+  if (!await acquireLock(lock, { wait: false })) return { ok: false, reason: "processing", reasonText: "This wound is still being processed on this client." };
+  try {
+    const dramaticDecision = attempt.status === "review" && attempt.reviewReason === "dramatic-decision" && attempt.result?.isSuccess === false;
+    const notice = "Stop other clients processing this wound. Inspect its recorded roll, the wound, related conditions and chat before continuing.";
+    let decision;
+    if (dramaticDecision) {
+      decision = await customDialog({ title: "Review wound treatment", layout: "workflow",
+        content: `<p>${esc(notice)}</p><p>The book says a dramatic failure maims the affected body part. Decide whether this recorded failure was dramatic.</p><p>Roll: ${Number(attempt.result.rollTotal) || 0}; TN: ${Number(attempt.target) || 0}.</p>`,
+        buttons: {
+          dramatic: { label: "Dramatic: apply maiming", callback: () => "dramatic" },
+          ordinary: { label: "Not dramatic", callback: () => "ordinary" },
+          cancel: { label: "Cancel", callback: () => null }
+        }, default: "cancel", width: 460 });
+    } else {
+      const confirmed = await confirmDialog({ title: "Review wound treatment", layout: "workflow",
+        content: `<p>${esc(notice)}</p><p>Resolve any incomplete consequences manually. Confirm only after inspection; this releases the hold and does not replay the previous action.</p>`,
+        yesLabel: "Reviewed", noLabel: "Cancel" });
+      decision = confirmed ? "inspected" : null;
+    }
+    if (!decision) return { ok: false, reason: "cancelled", suppressUiWarning: true };
+    const live = actor.effects?.get?.(effect.id)?.getFlag?.(FLAG_SCOPE, "wounds")?.treatmentAttempt;
+    if (live?.id !== attempt.id || live?.status !== attempt.status) return woundTreatmentReview("The treatment record changed during review. Inspect it again before continuing.");
+    let updated = attempt;
+    if (decision === "dramatic") {
+      updated = { ...attempt, status: "applying", reviewDecision: decision };
+      if (!await saveWoundTreatmentAttempt(effect, updated)) return woundTreatmentReview();
+      try { await applyMaimedOutcomeForWound(actor, effect, { reason: "dramatic-failure", immediate: true, strict: true }); }
+      catch (error) {
+        console.warn("UESRPG | Maiming requires review", error);
+        return woundTreatmentReview("Maiming may be partially applied. Inspect the wound and conditions before resolving it manually.");
+      }
+    }
+    updated = { ...updated, status: "reviewed", reviewDecision: decision, reviewedAt: Date.now(), reviewedBy: game.user.id };
+    if (!await saveWoundTreatmentAttempt(effect, updated)) return woundTreatmentReview("The review could not be confirmed. Inspect the wound and conditions before retrying.");
+    return { ok: true, decision };
+  } finally { releaseLock(lock); }
 }
 
 export async function setWoundProgress(actorLike, woundEffectId, progress, { by = "gm", reason = "manual" } = {}) {
@@ -666,75 +725,23 @@ export async function openTreatWoundsMacroDialog(opts = {}) {
   return res ?? { ok: false, reason: "unknown" };
 }
 
-export async function attemptTreatAllWounds(actorLike, { healerActor = null, hasKit = null, bypass = false } = {}) {
+export async function attemptTreatAllWounds(actorLike, { healerActor = null, bypass = false } = {}) {
   const actor = await resolveActorLike(actorLike);
   if (!actor) return { ok: false, reason: "invalidTarget" };
-  const wounds = findEffectsByKind(actor, "wound").filter((ef) => (ef.getFlag?.(FLAG_SCOPE, "wounds")?.treated !== true));
+  const allWounds = findEffectsByKind(actor, "wound");
+  if (allWounds.some(ef => woundTreatmentNeedsReview(ef.getFlag?.(FLAG_SCOPE, "wounds")?.treatmentAttempt))) return woundTreatmentReview();
+  const wounds = allWounds.filter((ef) => (ef.getFlag?.(FLAG_SCOPE, "wounds")?.treated !== true));
   if (!wounds.length) return { ok: true, treated: 0 };
-
-  const healer = await resolveActorLike(healerActor) ?? canvas?.tokens?.controlled?.[0]?.actor ?? game.user?.character ?? actor;
-  const resolvedHasKit = (typeof hasKit === "boolean") ? hasKit : findHealerKit(healer);
-  const tn = Math.max(0, resolveHealingTestTarget(healer));
-  if (!bypass && !resolvedHasKit) return { ok: false, reason: "missingKit" };
-  if (!bypass && tn <= 0) return { ok: false, reason: "invalidTestTarget" };
-
-  let passed = true;
-  if (!bypass) {
-    const roll = await doTestRoll(healer, { target: tn, rollFormula: "1d100" });
-    passed = Boolean(roll?.isSuccess);
-    try {
-      await roll?.roll?.toMessage?.({
-        speaker: ChatMessage.getSpeaker({ actor: healer }),
-        flavor: `Treat All Wounds Test - ${healer.name} (TN ${tn})`
-      });
-    } catch (_e) {}
+  let treated = 0;
+  let failed = 0;
+  for (const wound of wounds) {
+    const result = await attemptTreatWound(actor, wound.id, { healerActor, bypass });
+    if (result?.ok) { treated++; continue; }
+    if (result?.reason === "failedTest") { failed++; continue; }
+    return { ...result, treated, failed, partial: treated > 0 || failed > 0 };
   }
-  if (!passed) return { ok: false, reason: "failedTest", tn };
-
-  const treatedAt = Date.now();
-  const updates = wounds.map((ef) => ({
-    _id: ef.id,
-    [`${FLAG_PATH}.wounds.treated`]: true,
-    [`${FLAG_PATH}.wounds.treatedAt`]: treatedAt,
-    [`${FLAG_PATH}.wounds.progress`]: 0,
-    [`${FLAG_PATH}.wounds.treatedBy`]: String(healer?.id ?? healer?.name ?? ""),
-    [`${FLAG_PATH}.wounds.treatmentMethod`]: "profession-medicine",
-    [`${FLAG_PATH}.wounds.gmOverride`]: bypass === true,
-    [`${FLAG_PATH}.wounds.treatmentDurationHours`]: 1
-  }));
-
-  if (updates.length) {
-    try {
-      const ok = await requestUpdateEmbeddedDocuments(actor, "ActiveEffect", updates);
-      if (!ok) {
-        for (const update of updates) {
-          const live = actor.effects?.get?.(String(update._id)) ?? null;
-          if (!live) continue;
-          const fallback = { ...update };
-          delete fallback._id;
-          await requestUpdateDocument(live, fallback);
-        }
-      }
-    } catch (err) {
-      console.warn("UESRPG | Failed to batch attemptTreatAllWounds updates", err);
-      for (const update of updates) {
-        const live = actor.effects?.get?.(String(update._id)) ?? null;
-        if (!live) continue;
-        const fallback = { ...update };
-        delete fallback._id;
-        await requestUpdateDocument(live, fallback);
-      }
-    }
-  }
-  const treated = updates.length;
-  await enforceWoundInvariants(actor, { context: "attemptTreatAllWounds" });
-  await _postWoundWorkflowCard({
-    title: "Treat Wounds",
-    actor,
-    healer,
-    lines: [`Success${bypass ? " (GM override)" : ""}. Treated wounds: ${treated}.`]
-  });
-  return { ok: true, treated, tn };
+  if (failed) return { ok: false, reason: "failedTest", reasonText: `Treated ${treated} wounds; ${failed} treatment tests failed.`, treated, failed };
+  return { ok: true, treated, failed };
 }
 
 export async function reconcileWoundState(actorLike, { reason = "manual", emitLog = false, strict = false } = {}) {
@@ -1214,6 +1221,7 @@ export const WoundsAPI = {
   treatWound,
   treatAllWounds,
   attemptTreatWound,
+  reviewWoundTreatment,
   attemptTreatAllWounds,
   setWoundProgress,
   setWoundDamage,

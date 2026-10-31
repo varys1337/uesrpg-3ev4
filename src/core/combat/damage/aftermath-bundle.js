@@ -97,9 +97,10 @@ export function createDamageAftermathBundle({
             label: op.label,
             durationMs: perf ? monoMs() - opStarted : null,
             error: err?.message ?? String(err),
+            ...(err?.cancelled === true ? { cancelled: true } : {}),
           };
           failed.push(record);
-          console.warn(`UESRPG | Damage aftermath operation failed: ${op.label}`, err);
+          if (!err?.cancelled) console.warn(`UESRPG | Damage aftermath operation failed: ${op.label}`, err);
           _debug(debug, "failed", { ...base, ...record });
         } finally {
           if (perf) perfRecord({
@@ -134,6 +135,7 @@ export function createDamageAftermathBundle({
         operationCount: operations.length,
         committed: committed.map((op) => ({ ...op })),
         failed: failed.map((op) => ({ ...op })),
+        cancelled: failed.length > 0 && committed.length === 0 && pending.length === 0 && failed.every(op => op.cancelled === true),
         pending: pending.map(op => ({ ...op })),
       };
     },

@@ -11,7 +11,15 @@ function toPositiveInt(value) {
 function strengthValue(value) {
   if (value == null || value === "") return null;
   const n = Number(value);
-  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
+  return Number.isFinite(n) ? Math.floor(n) : null;
+}
+
+/** Preserve only the casting-test facts needed by later summon binding. */
+export function captureCastingResult(result) {
+  if (!result) return null;
+  return { isSuccess: Boolean(result.isSuccess), noRoll: Boolean(result.noRoll), degree: Number(result.degree ?? 0),
+    target: Number(result.target ?? 0), rollTotal: Number(result.rollTotal ?? 0),
+    isCriticalSuccess: Boolean(result.isCriticalSuccess), isCriticalFailure: Boolean(result.isCriticalFailure) };
 }
 
 export function resolveNumericSpellStrength(spell, castLevel = null, actor = null) {
@@ -19,7 +27,7 @@ export function resolveNumericSpellStrength(spell, castLevel = null, actor = nul
   if (!formula) return null;
 
   const directValue = Number(formula);
-  if (formula && Number.isFinite(directValue) && directValue >= 0) return Math.floor(directValue);
+  if (formula && Number.isFinite(directValue)) return Math.floor(directValue);
 
   const evaluatedValue = evaluateNumericExpression(formula);
   return strengthValue(evaluatedValue);
@@ -46,7 +54,7 @@ function _resolveSpellStrengthValue(spell, castLevel, actor, scalingLevels = nul
   const formula = _resolveSpellStrengthFormula(spell, castLevel, actor, scalingLevels);
   if (!formula) return null;
   const directValue = Number(formula);
-  if (Number.isFinite(directValue) && directValue >= 0) return Math.floor(directValue);
+  if (Number.isFinite(directValue)) return Math.floor(directValue);
 
   const wb = Number(getActorWillpowerBonus(actor) ?? 0) || 0;
   const resolvedFormula = formula
@@ -79,6 +87,7 @@ export function buildMagicCastContext(attacker = {}, spell = null, options = {})
   const spellStrengthValue = _resolveSpellStrengthValue(spell, castLevel, actor, scalingLevels);
 
   return {
+    ...attacker?.castContext,
     baseLevel,
     castLevel,
     hasHigherCastLevel: castLevel !== baseLevel,
@@ -94,7 +103,7 @@ export function recordSpellStrengthRolls(attacker, spell, { rolls = [], selected
   if (!Number.isFinite(total)) throw new Error(`Invalid Spell Strength result for ${spell?.name ?? "spell"}.`);
   return {
     ...context,
-    spellStrengthValue: Math.max(0, Math.floor(total)),
+    spellStrengthValue: Math.floor(total),
     spellStrengthFormula: _resolveSpellStrengthFormula(spell, context.castLevel, actor),
     spellStrengthRolls: rolls.map((roll) => roll.toJSON()),
     spellStrengthSelectedRolls: selectedRolls.map((roll) => roll.toJSON()),

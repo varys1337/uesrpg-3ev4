@@ -11,7 +11,7 @@
  */
 
 import { contributeTraitMods, contributeTalentMods, contributePowerMods } from "./contributors.js";
-import { getFeatureConfig } from "./feature-config.js";
+import { getFeatureConfig, isPassiveFeatureActive } from "./feature-config.js";
 import { FEATURE_DOMAINS, STACKING_MODES, makeFeatureMod } from "./feature-mod.js";
 import { createSeverityDebugLogger } from "../../../utils/debug.js";
 
@@ -44,9 +44,7 @@ export function collectFeatureMods({ actor }) {
     const fcfg = isFeatureItem ? getFeatureConfig(item) : null;
 
     try {
-      if (isFeatureItem && fcfg?.enabled === false) continue;
-      if (isFeatureItem && fcfg?.combatOnly && !game?.combat?.started) continue;
-      if (isFeatureItem && fcfg?.outOfCombatAllowed === false && !game?.combat?.started) continue;
+      if (isFeatureItem && !isPassiveFeatureActive(item)) continue;
 
       if (itemType === "trait") {
         const contributed = contributeTraitMods(actor, item);

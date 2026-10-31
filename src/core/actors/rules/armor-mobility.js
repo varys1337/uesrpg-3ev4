@@ -6,6 +6,8 @@
  */
 import { isShieldItem } from "../../items/shield-utils.js";
 
+export const ARMOR_WEIGHT_CLASSES = Object.freeze(["none", "light", "medium", "heavy", "superheavy", "crippling"]);
+
 /**
  * Determine the heaviest *effective* armor weight class currently worn.
  *
@@ -25,7 +27,7 @@ export function getArmorMobilityPenalties(actorData) {
   const itemsRaw = actorData?.items;
   const items = Array.isArray(itemsRaw) ? itemsRaw : (itemsRaw ? Array.from(itemsRaw) : []);
 
-  const order = ["none", "light", "medium", "heavy", "superheavy", "crippling"]; // must match constants
+  const order = ARMOR_WEIGHT_CLASSES;
   const clampIndex = (i) => Math.max(0, Math.min(order.length - 1, i));
 
   // Normalize generic free-text fields
@@ -91,6 +93,12 @@ export function getArmorMobilityPenalties(actorData) {
 
   const effectiveWeightClass = order[maxIdx] ?? "none";
 
+  return buildArmorMobilityPenalties(effectiveWeightClass, sources.map(s => ({ id: s._id ?? s.id, name: s.name })));
+}
+
+/** Shared table for ordinary armor and temporary weight-class adjustments. */
+export function buildArmorMobilityPenalties(effectiveWeightClass, sources = []) {
+
   // Mobility penalties by effective armor weight class (RAW).
   // Data contract consumed by skill TN logic:
   // - armorWeightClass: string
@@ -105,7 +113,7 @@ export function getArmorMobilityPenalties(actorData) {
     skillTestPenalties: {},
     allTestPenalty: 0,
     speedPenalty: 0,
-    sources: sources.map(s => ({ id: s._id, name: s.name }))
+    sources
   };
 
   // RAW table (Chapter 1, Weight Classes):

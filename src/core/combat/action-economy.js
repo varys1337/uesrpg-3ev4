@@ -16,6 +16,7 @@
 import { requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { getFlagValueWithFallback } from "../system/flags.js";
 import { isActorInStartedCombatEncounter } from "./combat-scope.js";
+import { actionResultFromEvidence, addActionErrorContext } from "../../application/action-results.js";
 
 /**
  * Safe, minimal HTML escaping for plain-text insertion into markup.
@@ -84,26 +85,41 @@ export const ActionEconomy = {
    * @param {{reason?: string, silent?: boolean}} opts
    * @returns {Promise<boolean>} true if spent (or cost<=0), false if insufficient or update failed
    */
-  async spendAP(actor, cost = 0, { reason = "", silent = false, combat = game?.combat ?? null, tokenUuid = null, combatantId = null } = {}) {
+  async spendAP(actor, cost = 0, { reason = "", silent = false, combat = game?.combat ?? null, tokenUuid = null, combatantId = null, requireConfirmed = false } = {}) {
+    return (await ActionEconomy.spendAPResult(actor, cost, { reason, silent, combat, tokenUuid, combatantId, requireConfirmed })).value;
+  },
+
+  async spendAPResult(actor, cost = 0, { reason = "", silent = false, combat = game?.combat ?? null, tokenUuid = null, combatantId = null, requireConfirmed = false } = {}) {
+    const finish = (value, evidence = {}) => ({ value, actionResult: actionResultFromEvidence({ owner: "actionEconomy", scope: "AP spending",
+      ...evidence, references: { actorUuid: actor?.uuid }, reason }) });
     const n = Number(cost ?? 0);
     const spend = Number.isFinite(n) ? n : 0;
-    if (!actor || spend <= 0) return true;
-    if (!isActorInStartedCombatEncounter(actor, { combat, tokenUuid, combatantId })) return true;
+    if (!actor || spend <= 0) return finish(true);
+    if (!isActorInStartedCombatEncounter(actor, { combat, tokenUuid, combatantId })) return finish(true);
 
     const current = _getAP(actor);
     if (current < spend) {
       if (!silent) ui.notifications?.warn?.(`${actor.name} does not have enough Action Points (${current}/${spend}).`);
-      return false;
+      return finish(false, { blocked: true });
     }
 
     const next = Math.max(0, current - spend);
     try {
-      await requestUpdateDocument(actor, { "system.action_points.value": next });
-      return true;
+      const updated = await requestUpdateDocument(actor, { "system.action_points.value": next });
+      if (!updated) {
+        const error = addActionErrorContext(new Error("Action Point spending was not confirmed."), { owner: "actionEconomy", scope: "AP spending",
+          status: "needsReview", commitment: "uncertain", reason, references: { actorUuid: actor?.uuid } });
+        if (requireConfirmed) throw error;
+        if (!silent) ui.notifications?.warn?.(error.message);
+        return finish(false, { uncertain: true });
+      }
+      return finish(true, { confirmed: true });
     } catch (err) {
+      if (requireConfirmed) throw addActionErrorContext(err, { owner: "actionEconomy", scope: "AP spending", status: "needsReview", commitment: "uncertain",
+        reason: String(err.message ?? err), references: { actorUuid: actor?.uuid } });
       console.error("UESRPG | ActionEconomy.spendAP failed", { actor: actor?.uuid, spend, reason, err });
       ui.notifications?.error?.("Failed to spend Action Points. See console for details.");
-      return false;
+      return finish(false, { uncertain: true });
     }
   },
 
@@ -111,17 +127,22 @@ export const ActionEconomy = {
    * Break the Aim chain by removing the enabled Aim effect, if present.
    *
    * @param {Actor} actor
-   * @param {{reason?: string}} opts
+   * @param {{reason?: string, requireConfirmed?: boolean, onRemoved?: Function}} opts
    */
-  async breakAim(actor, { reason = "" } = {}) {
+  async breakAim(actor, { reason = "", requireConfirmed = false, onRemoved = null } = {}) {
     const ef = _findEnabledEffectByKey(actor, "aim");
-    if (!ef) return;
-    if (!actor.effects?.get?.(ef.id)) return; // Already deleted
+    if (!ef) return true;
+    if (!actor.effects?.get?.(ef.id)) return true; // Already deleted
 
     try {
-      await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [ef.id]);
+      const confirmed = await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [ef.id]);
+      if (!confirmed && requireConfirmed) throw Object.assign(new Error("Aim removal was not confirmed. Review the action before retrying."), { uncertain: true });
+      if (confirmed && typeof onRemoved === "function") onRemoved(ef);
+      return Boolean(confirmed);
     } catch (err) {
       console.warn("UESRPG | ActionEconomy.breakAim failed to delete Aim effect", { actor: actor?.uuid, effectId: ef?.id, reason, err });
+      if (requireConfirmed) throw err;
+      return false;
     }
   },
 

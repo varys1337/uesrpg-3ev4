@@ -11,7 +11,7 @@ import { renderTNSummary, bindTNEstimates } from "../../ui/shared/tn-presentatio
  * - Active Effect automation using system condition engine
  */
 
-import { hasCondition, applyCondition, removeCondition } from "../conditions/condition-engine.js";
+import { applyCondition, removeCondition } from "../conditions/condition-engine.js";
 import { toggleInCloseBetweenActors } from "../conditions/in-close.js";
 import {
   getSpecialActionById,
@@ -20,21 +20,30 @@ import {
   getSpecialActionTestOptionKeys
 } from "./combat-style-utils.js";
 import { ActionEconomy } from "./action-economy.js";
+import { isActorInStartedCombatEncounter } from "./combat-scope.js";
 import { TimeService, buildEffectDuration } from "../time/index.js";
-import { customDialog } from "../../utils/dialog-v2-helper.js";
-import { _resolveActorViaToken } from "./opposed/helpers/docs.js";
-import { safeUpdateChatMessage } from "../../utils/chat-message-socket.js";
-import { requestUpdateDocument, requestUpdateEmbeddedDocuments } from "../../utils/authority-proxy.js";
-import { getCoreRollMode } from "../../utils/chat-roll-mode.js";
-import { doTestRoll } from "../../utils/degree-roll-helper.js";
+import { customDialog, confirmDialog } from "../../utils/dialog-v2-helper.js";
+import { _resolveActorViaToken, _resolveDoc } from "./opposed/helpers/docs.js";
+import { getWeaponRangeBands } from "./opposed/helpers/combat.js";
+import { getTokenRangeMeasurementMode, measureTokenDistance } from "./opposed/range.js";
+import { itemHasToken, getEquippedSnareWeapon } from "./damage/tokens.js";
+import { createOpposedCardUpdater } from "../opposed/shared/card-persistence.js";
+import { requestUpdateDocument, doesUserOwnActor } from "../../utils/authority-proxy.js";
+import { doTestRoll, resolveOpposed } from "../../utils/degree-roll-helper.js";
 import { SYSTEM_ID, FLAG_SCOPE } from "../system/namespace.js";
 import { getFlagValueWithFallback } from "../system/flags.js";
 import { resolveUnusualCombatSkillLimit } from "./unusual-combat.js";
 import { tf } from "../../utils/i18n.js";
-import { createChatOutcome, chatOutcomeFlags } from "../config/outcome-application-policy.js";
-import { resolveActorFromUuidSync } from "../../utils/uuid-cache.js";
+import { getOutcomeApplicationMode } from "../config/outcome-application-policy.js";
+import { createSpecialActionOperation, specialActionIntent, specialActionEligibility, validateSpecialActionOperation, getSpecialActionStage } from "./special-action-operations.js";
+import { materializeSpecialActionOutcome } from "./special-action-outcomes.js";
+import { ChatOutcomeApplicationService, persistChatOutcomes, isManagedChatOutcomeContext, getChatOutcomeReceipt, describeChatOutcome } from "../../application/combat/chat-outcome-application-service.js";
+import { withActionResult } from "../../application/action-results.js";
+import { stableStringify } from "../../utils/authority-proxy/shared.js";
 const HOOKED_ACTION_IDS = new Set(["disarm", "trip", "takeWeapon", "take-weapon"]);
 const _GRAPPLE_ACTION_LOCKS = new Set();
+const _updateSpecialActionCard = createOpposedCardUpdater({ scope: SYSTEM_ID, key: "specialActionOpposed", version: 1,
+  family: "skills", render: _renderSpecialActionCard });
 const _GRAPPLE_OWNER_PREFIX = "grappleOwner:";
 const _SIZE_INDEX = Object.freeze({
   puny: 0,
@@ -56,6 +65,97 @@ function _sizeIndex(size) {
   return _SIZE_INDEX[_normalizeSizeKey(size)] ?? _SIZE_INDEX.standard;
 }
 
+/** Bash and Trip cannot target a creature larger than the acting character. */
+export function isSpecialActionTargetSizeAllowed(actor, target) {
+  return _sizeIndex(target?.system?.size) <= _sizeIndex(actor?.system?.size);
+}
+
+// Bind a range decision to the actual token positions, scene scale and weapon.
+// The document snapshot can also be checked by an authority viewing another scene.
+function _snareRangeFingerprint(actorToken, targetToken, weapon) {
+  const a = actorToken?.document ?? actorToken;
+  const b = targetToken?.document ?? targetToken;
+  const scene = a?.parent;
+  if (!a?.uuid || !b?.uuid || !scene || scene !== b.parent || !weapon) return null;
+  const point = token => ({ uuid: token.uuid, x: token.x, y: token.y, elevation: token.elevation,
+    width: token.width, height: token.height });
+  const grid = scene.grid;
+  return stableStringify({ scene: scene.uuid, attacker: point(a), target: point(b),
+    grid: { type: grid?.type, size: grid?.size, distance: grid?.distance, units: grid?.units,
+      diagonals: grid?.diagonals }, measurementMode: getTokenRangeMeasurementMode(),
+    weapon: { uuid: weapon.uuid, thrown: itemHasToken(weapon, "thrown"),
+      reach: weapon.system?.reach ?? null, bands: getWeaponRangeBands(weapon) } });
+}
+
+/** Reject stale Snare cards without relying on the authority's currently viewed canvas. */
+export function isSnareActionCurrent({ actor, target, weaponUuid, rangeSnapshot, actorTokenUuid, targetTokenUuid } = {}) {
+  const weapon = getEquippedSnareWeapon(actor, weaponUuid);
+  if (!weapon || !target || !isSpecialActionTargetSizeAllowed(actor, target) || !rangeSnapshot?.fingerprint
+    || rangeSnapshot.actorTokenUuid !== actorTokenUuid || rangeSnapshot.targetTokenUuid !== targetTokenUuid) return false;
+  const a = _resolveDoc(actorTokenUuid);
+  const b = _resolveDoc(targetTokenUuid);
+  if (a?.documentName !== "Token" || b?.documentName !== "Token" || a.actor?.uuid !== actor?.uuid
+    || b.actor?.uuid !== target?.uuid) return false;
+  return _snareRangeFingerprint(a, b, weapon) === rangeSnapshot.fingerprint;
+}
+
+/** Choose a Snare weapon before committing a Bash or Trip action. */
+export async function chooseSnareSpecialAction({ specialActionId, actor, targetToken, actorToken, sourceWeaponUuid = null } = {}) {
+  if (!["bash", "trip"].includes(specialActionId)) return { weaponUuid: null };
+  const weapons = Array.from(actor?.items ?? []).filter(item => item.type === "weapon"
+    && item.system?.equipped === true && itemHasToken(item, "snare"));
+  if (!weapons.length) return { weaponUuid: null };
+  const selected = await customDialog({
+    title: `${getSpecialActionById(specialActionId)?.name ?? "Special Action"}: Weapon`, layout: "form",
+    content: `<p>Choose a Snare weapon or use the normal unarmed action.</p><label>Weapon <select name="snareWeapon"><option value="">Normal unarmed action</option>${weapons.map(item => `<option value="${_escapeHtml(item.id)}"${item.uuid === sourceWeaponUuid ? " selected" : ""}>${_escapeHtml(item.name)}</option>`).join("")}</select></label>`,
+    buttons: {
+      confirm: { label: "Continue", callback: root => String(root?.querySelector('[name="snareWeapon"]')?.value ?? "") },
+      cancel: { label: "Cancel", callback: () => null }
+    }, defaultButton: "confirm"
+  });
+  if (selected === null || selected === undefined) return null;
+  if (!selected) return { weaponUuid: null };
+  const weapon = actor.items?.get?.(selected);
+  if (!weapon || weapon.type !== "weapon" || weapon.system?.equipped !== true || !itemHasToken(weapon, "snare")) {
+    ui.notifications?.warn?.("The selected Snare weapon is no longer equipped.");
+    return null;
+  }
+  if (!targetToken?.actor || !isSpecialActionTargetSizeAllowed(actor, targetToken.actor)) {
+    ui.notifications?.warn?.("Bash and Trip require a target that is not larger than the acting character.");
+    return null;
+  }
+  const a = actorToken?.document ?? actorToken;
+  const b = targetToken?.document ?? targetToken;
+  const fingerprint = _snareRangeFingerprint(a, b, weapon);
+  if (!fingerprint || a.actor?.uuid !== actor?.uuid || b.actor?.uuid !== targetToken.actor.uuid) {
+    ui.notifications?.warn?.("Select the acting and target tokens on the same scene before using a Snare weapon.");
+    return null;
+  }
+  const distance = canvas?.scene?.uuid === a.parent?.uuid ? measureTokenDistance(actorToken, targetToken) : null;
+  const units = String(a.parent?.grid?.units ?? "").trim().toLowerCase();
+  const metersPerUnit = ["m", "meter", "meters", "metre", "metres"].includes(units) ? 1
+    : ["ft", "foot", "feet"].includes(units) ? 0.3048 : null;
+  const distanceMeters = Number.isFinite(distance) && metersPerUnit != null ? distance * metersPerUnit : null;
+  const bands = getWeaponRangeBands(weapon);
+  const maxRange = itemHasToken(weapon, "thrown") ? Number(bands?.long || bands?.medium || 0) : Number(weapon.system?.reach ?? 0);
+  if (distanceMeters == null || !(maxRange > 0) || distanceMeters > maxRange) {
+    const detail = distance == null || !(maxRange > 0)
+      ? "The distance or weapon range could not be determined."
+      : `The measured distance is ${distance} ${units || "scene units"} and the weapon's listed range is ${maxRange} meters.${metersPerUnit == null ? " The scene units cannot be converted automatically." : ""}`;
+    const proceed = await confirmDialog({ title: "Snare range: GM decision",
+      content: `<p>${_escapeHtml(detail)}</p><p>The Snare rule removes the usual 2 meter limit but does not specify a maximum for this Special Action. Ask the GM to decide whether the weapon can reach the target before continuing.</p>`,
+      yesLabel: game.user.isGM ? "Allow" : "GM has allowed", noLabel: "Cancel" });
+    if (proceed !== true) return null;
+  }
+  const rangeSnapshot = { actorTokenUuid: a.uuid, targetTokenUuid: b.uuid, fingerprint };
+  if (!isSnareActionCurrent({ actor, target: targetToken.actor, weaponUuid: weapon.uuid, rangeSnapshot,
+    actorTokenUuid: a.uuid, targetTokenUuid: b.uuid })) {
+    ui.notifications?.warn?.("The Snare weapon or target changed. Start the Special Action again.");
+    return null;
+  }
+  return { weaponUuid: weapon.uuid, rangeSnapshot };
+}
+
 function _getGrappleSizeResult(attacker, defender) {
   const attackerSize = _sizeIndex(attacker?.system?.size);
   const defenderSize = _sizeIndex(defender?.system?.size);
@@ -73,7 +173,7 @@ function _grappleOwnerTag(actor) {
   return `${_GRAPPLE_OWNER_PREFIX}${String(actor?.uuid ?? actor?.id ?? "").trim()}`;
 }
 
-async function _stampConditionSource(actor, conditionKey, sourceTag) {
+async function _stampConditionSource(actor, conditionKey, sourceTag, context) {
   if (!actor || !conditionKey || !sourceTag) return;
   const effect = (actor.effects ?? []).find((e) => {
     if (e?.disabled) return false;
@@ -82,9 +182,11 @@ async function _stampConditionSource(actor, conditionKey, sourceTag) {
   if (!effect) return;
   const existing = String(getFlagValueWithFallback(effect, "condition.source") ?? "").trim();
   if (existing === sourceTag) return;
-  await requestUpdateDocument(effect, {
-    [`flags.${FLAG_SCOPE}.condition.source`]: sourceTag,
-  });
+  await context.stage(`condition.${conditionKey}.source`, async () => {
+    context.requireCurrent();
+    if (!await requestUpdateDocument(effect, { [`flags.${FLAG_SCOPE}.condition.source`]: sourceTag })) throw new Error("Condition source update was not confirmed.");
+    return { ok: true, effectUuids: [effect.uuid] };
+  }, { documents: [actor, effect] });
 }
 
 function _isTargetGrappledByActor(target, actor) {
@@ -231,12 +333,12 @@ export async function showSpecialAdvantageDialog(specialActionId) {
  * @param {boolean} options.isDefender - Whether this is for the defender
  * @returns {Promise<{testType: string, skillUuid: string}|null>}
  */
-export async function showPreTestChoiceDialog({ specialActionId, actor, opponentActor = null, attackerActor = null, isDefender = false }) {
+export async function showPreTestChoiceDialog({ specialActionId, actor, opponentActor = null, attackerActor = null, isDefender = false, snare = false }) {
   const def = getSpecialActionById(specialActionId);
   if (!def) return null;
 
   const side = isDefender ? "defender" : "attacker";
-  const choices = buildSpecialActionTestChoicesForActor(actor, { specialActionId, side })
+  const choices = buildSpecialActionTestChoicesForActor(actor, { specialActionId, side, snare })
     .map((choice, idx) => ({
       value: String(choice?.testType ?? ""),
       label: String(choice?.label ?? choice?.skillUuid ?? "Test"),
@@ -314,8 +416,8 @@ export async function showPreTestChoiceDialog({ specialActionId, actor, opponent
  * @param {"attacker"|"defender"} side
  * @returns {string[]}
  */
-function _getSpecialActionOptionLabels(specialActionId, side) {
-  const keys = getSpecialActionTestOptionKeys(specialActionId, side);
+function _getSpecialActionOptionLabels(specialActionId, side, snare = false) {
+  const keys = getSpecialActionTestOptionKeys(specialActionId, side, { snare });
   const labels = [];
   for (const key of keys) {
     const opt = getSpecialActionTestOption(key);
@@ -330,9 +432,9 @@ function _getSpecialActionOptionLabels(specialActionId, side) {
  * @param {"attacker"|"defender"} side
  * @returns {string[]}
  */
-function _getTestOptions(specialActionId, side) {
+function _getTestOptions(specialActionId, side, snare = false) {
   const lane = (side === "defender") ? "defender" : "attacker";
-  return _getSpecialActionOptionLabels(specialActionId, lane);
+  return _getSpecialActionOptionLabels(specialActionId, lane, snare);
 }
 
 /**
@@ -346,8 +448,8 @@ function _renderSpecialActionCard(data, messageId) {
   const def = getSpecialActionById(specialActionId);
   const name = def?.name ?? "Special Action";
 
-  const attackerOptions = _getTestOptions(specialActionId, "attacker");
-  const defenderOptions = _getTestOptions(specialActionId, "defender");
+  const attackerOptions = _getTestOptions(specialActionId, "attacker", Boolean(data.snareWeaponUuid));
+  const defenderOptions = _getTestOptions(specialActionId, "defender", Boolean(data.snareWeaponUuid));
 
   const attackerOptionsText = attackerOptions.join(", ");
   const defenderOptionsText = defenderOptions.join(", ");
@@ -420,9 +522,14 @@ export async function createSpecialActionOpposedTest({
     return null;
   }
 
+  const snare = await chooseSnareSpecialAction({ specialActionId, actor: attacker, actorToken: attackerToken, targetToken: defenderToken });
+  if (!snare) return null;
+
   const data = {
     specialActionId,
     isFreeAction,
+    snareWeaponUuid: snare.weaponUuid,
+    snareRangeSnapshot: snare.rangeSnapshot ?? null,
     attacker: {
       name: attacker.name,
       actorUuid: attacker.uuid,
@@ -464,12 +571,17 @@ export async function createSpecialActionOpposedTest({
  * @param {ChatMessage} message
  * @param {string} action - "attacker-roll" or "defender-roll"
  */
+export function resolveSpecialActionOpposedResult(attackerResult, defenderResult) {
+  const outcome = resolveOpposed(attackerResult, defenderResult);
+  // Chapter 5: any critical on both sides leaves neither attack nor defense resolved.
+  const attackerCritical = Boolean(attackerResult?.isCriticalSuccess || attackerResult?.isCriticalFailure);
+  const defenderCritical = Boolean(defenderResult?.isCriticalSuccess || defenderResult?.isCriticalFailure);
+  return attackerCritical && defenderCritical ? { winner: "tie", reason: "both sides roll a critical" } : outcome;
+}
+
 export async function handleSpecialActionCardAction(message, action) {
   try {
-    // Import helpers once at the start
-    const { resolveOpposed } = await import("../../utils/degree-roll-helper.js");
-    
-    const data = message.flags?.[SYSTEM_ID]?.specialActionOpposed?.state;
+    const data = foundry.utils.deepClone(message.flags?.[SYSTEM_ID]?.specialActionOpposed?.state);
     if (!data) return;
 
     const { specialActionId, attacker, defender, isFreeAction } = data;
@@ -480,7 +592,7 @@ export async function handleSpecialActionCardAction(message, action) {
     const side = isAttacker ? attacker : defender;
     const actor = _resolveActorViaToken(side.actorUuid, side.tokenUuid);
 
-    if (!actor) {
+    if (!actor || !doesUserOwnActor(game.user, actor)) {
       ui.notifications.warn("Could not resolve actor for this action.");
       return;
     }
@@ -494,15 +606,41 @@ export async function handleSpecialActionCardAction(message, action) {
     // Show legal test choice dialog for this side.
     const attackerActor = _resolveActorViaToken(attacker.actorUuid, attacker.tokenUuid);
     const opponentActor = _resolveActorViaToken(isAttacker ? defender.actorUuid : attacker.actorUuid, isAttacker ? defender.tokenUuid : attacker.tokenUuid);
+    const snareTarget = _resolveActorViaToken(defender.actorUuid, defender.tokenUuid);
+    if (data.snareWeaponUuid && !isSnareActionCurrent({ actor: attackerActor, target: snareTarget, weaponUuid: data.snareWeaponUuid,
+      rangeSnapshot: data.snareRangeSnapshot, actorTokenUuid: attacker.tokenUuid, targetTokenUuid: defender.tokenUuid })) {
+      ui.notifications.warn("The Snare weapon or target is no longer eligible; start a new Special Action.");
+      return;
+    }
     const choice = await showPreTestChoiceDialog({
       opponentActor,
       attackerActor,
       specialActionId,
       actor,
-      isDefender: !isAttacker
+      isDefender: !isAttacker,
+      snare: Boolean(data.snareWeaponUuid)
     });
 
     if (!choice) return;
+    if (!doesUserOwnActor(game.user, actor)) {
+      ui.notifications.warn("You no longer have permission to roll for this actor.");
+      return;
+    }
+    const latest = message.flags?.[SYSTEM_ID]?.specialActionOpposed?.state;
+    const sideKey = isAttacker ? "attacker" : "defender";
+    if (!latest || latest[sideKey]?.result || latest.snareWeaponUuid !== data.snareWeaponUuid) {
+      ui.notifications.warn("The Special Action card changed. Review it before rolling.");
+      return;
+    }
+    if (data.snareWeaponUuid) {
+      const latestAttacker = _resolveActorViaToken(latest.attacker?.actorUuid, latest.attacker?.tokenUuid);
+      const latestDefender = _resolveActorViaToken(latest.defender?.actorUuid, latest.defender?.tokenUuid);
+      if (!isSnareActionCurrent({ actor: latestAttacker, target: latestDefender, weaponUuid: data.snareWeaponUuid,
+        rangeSnapshot: latest.snareRangeSnapshot, actorTokenUuid: latest.attacker?.tokenUuid, targetTokenUuid: latest.defender?.tokenUuid })) {
+        ui.notifications.warn("The Snare weapon or target changed. Start a new Special Action.");
+        return;
+      }
+    }
 
     // Perform roll
     let rollResult;
@@ -514,70 +652,70 @@ export async function handleSpecialActionCardAction(message, action) {
     testLabel = computed.testLabel;
     rollResult = await doTestRoll(actor, { rollFormula: "1d100", target: computed.tn.finalTN, allowLucky: true, allowUnlucky: true });
 
+    if (!doesUserOwnActor(game.user, actor)) {
+      ui.notifications.warn("Permission changed during the roll. Review the action before retrying.");
+      return;
+    }
+
+    const afterRoll = message.flags?.[SYSTEM_ID]?.specialActionOpposed?.state;
+    if (data.snareWeaponUuid && (!afterRoll || afterRoll.snareWeaponUuid !== data.snareWeaponUuid
+      || afterRoll.snareRangeSnapshot?.fingerprint !== data.snareRangeSnapshot?.fingerprint
+      || !isSnareActionCurrent({ actor: attackerActor, target: snareTarget,
+        weaponUuid: data.snareWeaponUuid, rangeSnapshot: data.snareRangeSnapshot,
+        actorTokenUuid: attacker.tokenUuid, targetTokenUuid: defender.tokenUuid }))) {
+      ui.notifications.warn("The Snare weapon or range changed during the roll. Start a new Special Action.");
+      return;
+    }
+
     // Update side with result
-    side.result = rollResult;
-    side.testLabel = testLabel;
     if (consumeConcussiveAfterRoll) {
       await _consumeConcussiveNextBashBonus(actor);
     }
 
-    // Check if both have rolled
-    if (attacker.result && defender.result) {
-      // Resolve outcome
-      let opposedResult = resolveOpposed(attacker.result, defender.result);
+    await _updateSpecialActionCard(message, fresh => {
+      const sideKey = isAttacker ? "attacker" : "defender";
+      if (fresh[sideKey]?.result) return fresh;
+      fresh[sideKey] = { ...fresh[sideKey], result: rollResult, testLabel };
+      fresh.context ??= {};
+      fresh.context.specialActionOperationsVersion = 1;
+      const data = fresh;
+      const { attacker, defender } = data;
+      // Check if both have rolled
+      if (attacker.result && defender.result) {
+        // Resolve outcome
+        const opposedResult = resolveSpecialActionOpposedResult(attacker.result, defender.result);
 
-      // Chapter 5 (Combat Criticals): if both sides roll any critical (success or failure),
-      // neither attack nor defense resolves.
-      const aCrit = Boolean(attacker.result?.isCriticalSuccess || attacker.result?.isCriticalFailure);
-      const dCrit = Boolean(defender.result?.isCriticalSuccess || defender.result?.isCriticalFailure);
-      if (aCrit && dCrit) {
-        opposedResult = { winner: "tie", reason: "both sides roll a critical" };
+        const outcomeText = opposedResult.winner === "attacker"
+          ? `${attacker.name} wins!`
+          : (opposedResult.winner === "defender" ? `${defender.name} wins!` : "Tie!");
+
+        // Save the resolved result; the outcome service owns its effects.
+        const attackerActor = _resolveActorViaToken(attacker.actorUuid, attacker.tokenUuid);
+        const defenderActor = _resolveActorViaToken(defender.actorUuid, defender.tokenUuid);
+        
+        if (!attackerActor || !defenderActor) {
+          console.error("UESRPG | Special Action: Could not resolve actors for effect execution");
+          data.outcome = {
+            ...opposedResult,
+            text: outcomeText,
+            effectMessage: "Error: Could not resolve actors"
+          };
+        } else if (opposedResult.winner === "attacker") {
+          data.outcome = {
+            ...opposedResult,
+            text: outcomeText,
+            effectMessage: "Outcome resolved; application pending."
+          };
+        } else {
+          data.outcome = {
+            ...opposedResult,
+            text: outcomeText,
+            effectMessage: null
+          };
+        }
       }
 
-      const outcomeText = opposedResult.winner === "attacker"
-        ? `${attacker.name} wins!`
-        : (opposedResult.winner === "defender" ? `${defender.name} wins!` : "Tie!");
-
-      // Execute Special Action effects
-      const attackerActor = _resolveActorViaToken(attacker.actorUuid, attacker.tokenUuid);
-      const defenderActor = _resolveActorViaToken(defender.actorUuid, defender.tokenUuid);
-      
-      if (!attackerActor || !defenderActor) {
-        console.error("UESRPG | Special Action: Could not resolve actors for effect execution");
-        data.outcome = {
-          ...opposedResult,
-          text: outcomeText,
-          effectMessage: "Error: Could not resolve actors"
-        };
-      } else if (opposedResult.winner === "attacker") {
-        const prepared = await prepareSpecialActionOutcome({
-          specialActionId,
-          actor: attackerActor,
-          target: defenderActor,
-          isAutoWin: false,
-          opposedResult
-        });
-
-        data.outcome = {
-          ...opposedResult,
-          text: outcomeText,
-          effectMessage: "Outcome resolved; application pending."
-        };
-        data.applicationOutcome = prepared;
-      } else {
-        data.outcome = {
-          ...opposedResult,
-          text: outcomeText,
-          effectMessage: null
-        };
-      }
-    }
-
-    // Update message
-    await safeUpdateChatMessage(message, {
-      content: _renderSpecialActionCard(data, message.id),
-      ...(data.applicationOutcome ? { [`flags.${SYSTEM_ID}.chatOutcomes`]: { version: 1, entries: [data.applicationOutcome] } } : {}),
-      [`flags.${SYSTEM_ID}.specialActionOpposed.state`]: data
+      return fresh;
     });
 
   } catch (err) {
@@ -596,41 +734,154 @@ export async function handleSpecialActionCardAction(message, action) {
  * @param {Object} options.opposedResult
  * @returns {Promise<{success: boolean, message: string}>}
  */
-export async function prepareSpecialActionOutcome({ specialActionId, actor, target, isAutoWin = false, opposedResult = null }) {
-  const prepared = {};
-  if (specialActionId === "grapple" && _isTargetGrappledByActor(target, actor)) prepared.grappleChoice = await _showGrappleFollowUpChoice();
-  if (specialActionId === "bash") prepared.bashResult = await _createBashAcrobaticsTest(target);
-  return createChatOutcome({ adapter: "combat.special", kind: "effect", sourceActorUuid: actor.uuid,
-    targetUuid: ["arise", "resist"].includes(specialActionId) ? actor.uuid : target?.uuid ?? actor.uuid,
-    label: getSpecialActionById(specialActionId)?.name ?? specialActionId,
-    payload: { specialActionId, actorUuid: actor.uuid, targetUuid: target?.uuid ?? null, isAutoWin, opposedResult, prepared } });
+export async function prepareSpecialActionOutcome({ specialActionId, actor, target, isAutoWin = false, opposedResult = null,
+  operation = null, operationId = null, sourceMessage = null, sourceKind = "standalone", resultRevision = 1, slot = "action",
+  signature = "", actorTokenUuid = null, targetTokenUuid = null, followUp = null, launch = null, activation = null } = {}) {
+  const payload = specialActionIntent({ specialActionId, actorUuid: actor?.uuid, targetUuid: target?.uuid,
+    isAutoWin, opposedResult, actorTokenUuid, targetTokenUuid, followUp, launch,
+    activation: activation ? { actionType: activation.actionType ?? "secondary" } : null });
+  operation ??= createSpecialActionOperation({ sourceUuid: sourceMessage?.uuid ?? `submission:${operationId ?? foundry.utils.randomID(24)}`,
+    sourceKind, resultRevision, slot, signature, payload });
+  const outcome = materializeSpecialActionOutcome({ operation, payload,
+    targetUuid: ["arise", "resist"].includes(specialActionId) ? actor?.uuid : target?.uuid ?? actor?.uuid,
+    autoEligible: getOutcomeApplicationMode() === "automatic" });
+  const invalid = validateSpecialActionOperation(outcome);
+  if (invalid) throw new Error(invalid);
+  return outcome;
 }
 
-export async function postSpecialActionOutcome(options) {
-  const outcome = await prepareSpecialActionOutcome(options);
-  await ChatMessage.create({ speaker: ChatMessage.getSpeaker({ actor: options.actor }),
-    content: `<div class="uesrpg-special-action-outcome"><b>Special Action:</b><p>${getSpecialActionById(options.specialActionId)?.name ?? "Special Action"}</p></div>`,
-    style: CONST.CHAT_MESSAGE_STYLES.OTHER, flags: chatOutcomeFlags([outcome]) });
-  return { success: true, message: "Special Action resolved; application pending." };
+export async function postSpecialActionOutcome(options = {}) {
+  const result = await submitSpecialActionOutcome(options);
+  const message = result.messageId ? game.messages?.get(result.messageId) : null;
+  const outcome = message?.flags?.[SYSTEM_ID]?.chatOutcomes?.entries?.find(entry => entry.id === result.outcomeId);
+  const evidence = outcome ? describeChatOutcome(message, outcome) : null;
+  return withActionResult(result, { owner: "specialActions", scope: "application",
+    status: result.status === "failed" ? "rejected" : result.status === "waitingGM" ? "pending" : result.status,
+    commitment: result.status === "needsReview" ? "uncertain" : evidence?.commitment ?? "none",
+    accepted: Boolean(message), reason: result.message,
+    references: { ...evidence?.references, operationId: result.operationId, outcomeId: result.outcomeId, messageId: result.messageId } });
+}
+
+async function submitSpecialActionOutcome(options = {}) {
+  if (options.operationId && !options.operation) {
+    const source = (game.messages?.contents ?? []).find(candidate => candidate.flags?.[SYSTEM_ID]?.chatOutcomes?.entries?.some(entry => entry.id === options.operationId));
+    const entry = source?.flags?.[SYSTEM_ID]?.chatOutcomes?.entries?.find(candidate => candidate.id === options.operationId);
+    if (!entry) return { success: false, status: "needsReview", operationId: options.operationId,
+      message: "The previous submission could not be found. Reload and inspect durable messages before submitting another action." };
+    options = { ...options, operation: entry.operation, sourceMessage: source };
+  }
+  let outcome;
+  try { outcome = await prepareSpecialActionOutcome(options); }
+  catch (error) { return { success: false, status: "rejected", operationId: options.operationId ?? options.operation?.id ?? null, message: String(error.message ?? error) }; }
+  let message = options.sourceMessage ?? (game.messages?.contents ?? []).find(candidate => candidate.flags?.[SYSTEM_ID]?.chatOutcomes?.entries?.some(entry => entry.id === outcome.id));
+  const previous = message?.flags?.[SYSTEM_ID]?.chatOutcomes?.entries?.find(entry => entry.id === outcome.id);
+  if (previous && stableStringify(previous.operation?.intent) !== stableStringify(outcome.operation.intent)) {
+    return { success: false, status: "rejected", operationId: outcome.id, message: "The operation ID is bound to different choices." };
+  }
+  if (!message && (options.operationId || options.operation)) return { success: false, status: "needsReview", operationId: outcome.id,
+    message: "The previous submission could not be found. Inspect durable messages before submitting another action." };
+  try {
+    if (!previous) message = await persistChatOutcomes({ message, actor: options.actor, entries: [outcome],
+      content: `<div class="uesrpg-special-action-outcome"><b>Special Action:</b><p>${_escapeHtml(getSpecialActionById(options.specialActionId)?.name ?? "Special Action")}</p></div>` });
+    if (!message) throw new Error("The special-action card was not confirmed.");
+    await ChatOutcomeApplicationService.onMessagePersisted(message);
+    const receipt = getChatOutcomeReceipt(message, outcome);
+    const saved = message.flags?.[SYSTEM_ID]?.chatOutcomes?.entries?.find(entry => entry.id === outcome.id);
+    const status = receipt?.status ?? saved?.status ?? "pending";
+    const blocked = status === "applied" && receipt?.result?.skipped === true
+      && getSpecialActionStage(receipt.stages, "advantage.ap")?.result?.paid === false;
+    return { success: !blocked && !["partial", "failed"].includes(status), status: blocked ? "blocked" : status === "applied" ? "complete" : status === "partial" ? "needsReview" : status,
+      operationId: outcome.id, outcomeId: outcome.id, messageId: message.id, replayed: Boolean(previous),
+      message: receipt?.result?.message ?? "Special Action submitted; application is controlled by the outcome setting." };
+  } catch (error) {
+    return { success: false, status: "needsReview", operationId: outcome.id, outcomeId: outcome.id, messageId: message?.id ?? null,
+      message: `The submission was not confirmed. Inspect operation ${outcome.id} before retrying. ${error.message}` };
+  }
 }
 
 export async function executeChatOutcome(outcome, context) {
+  if (!isManagedChatOutcomeContext(context)) throw new Error("Special Action effects require the managed outcome owner.");
+  const invalid = validateSpecialActionOperation(outcome);
+  if (invalid) throw Object.assign(new Error(invalid), { committed: false });
   const payload = outcome.payload;
-  const actor = resolveActorFromUuidSync(payload.actorUuid);
-  const target = resolveActorFromUuidSync(payload.targetUuid);
+  if (payload.launch?.mode === "autowin" && payload.launch.apCost !== 1) throw Object.assign(new Error("The Special Advantage quote is invalid."), { committed: false });
+  if (["skillOpposed", "specialActionOpposed"].includes(outcome.operation.sourceKind) && outcome.operation.sourceUuid !== context.message.uuid) throw Object.assign(new Error("The outcome belongs to a different source card."), { committed: false });
+  const actor = _resolveActorViaToken(payload.actorUuid, payload.actorTokenUuid);
+  const target = _resolveActorViaToken(payload.targetUuid, payload.targetTokenUuid);
   if (!actor || (payload.targetUuid && !target)) throw Object.assign(new Error("The Special Action actors are unavailable."), { committed: false });
-  return context.stage("specialAction", () => executeSpecialAction({ ...payload, actor, target }), {
-    documents: payload.specialActionId === "inClose" ? [actor, target] : [context.actor],
-  });
+  const snare = payload.snare ?? (payload.launch?.context?.snareWeaponUuid ? {
+    weaponUuid: payload.launch.context.snareWeaponUuid, rangeSnapshot: payload.launch.context.snareRangeSnapshot
+  } : null);
+  if (snare && (!["bash", "trip"].includes(payload.specialActionId)
+    || !isSnareActionCurrent({ actor, target, ...snare, actorTokenUuid: payload.actorTokenUuid, targetTokenUuid: payload.targetTokenUuid }))) {
+    throw Object.assign(new Error("The Snare weapon or target is no longer eligible. Review the Special Advantage before retrying."), { committed: false });
+  }
+  context.assertSnareCurrent = () => {
+    if (snare && !isSnareActionCurrent({ actor, target, ...snare,
+      actorTokenUuid: payload.actorTokenUuid, targetTokenUuid: payload.targetTokenUuid })) {
+      throw Object.assign(new Error("The Snare weapon or range changed during application; review any completed stages."), { committed: false });
+    }
+  };
+  if (specialActionEligibility(payload) === "none") return { success: false, skipped: true, message: "This result has no Special Action effect." };
+  if (payload.followUp === "inCloseFailure") {
+    const { executeInCloseFailureReaction } = await import("../skills/opposed-workflow/core/helpers.js");
+    return await executeInCloseFailureReaction(actor, target, context) ?? { ok: true, skipped: true, message: "No eligible Attack of Opportunity." };
+  }
+  if (payload.activation) {
+    const { executeActivation, buildSpecialActionActivation } = await import("../system/activation/index.js");
+    const activation = await context.stage("activation", () => executeActivation({ actor,
+      activation: buildSpecialActionActivation({ actionType: payload.activation.actionType, apCost: 1, requiresTarget: false }),
+      label: getSpecialActionById(payload.specialActionId)?.name, renderChat: false, context: { targets: [] },
+      requireConfirmed: true, operationGuard: context.requireCurrent }), { documents: [actor], lockDocuments: false });
+    if (activation.skipped) return { success: false, skipped: true, message: "Special Action activation was rejected." };
+  }
+  if (payload.launch) {
+    const paid = await context.stage("advantage.ap", async () => {
+      context.assertSnareCurrent();
+      return { ok: true, paid: await ActionEconomy.spendAP(actor, payload.launch.apCost, { reason: payload.launch.reason, requireConfirmed: true,
+        tokenUuid: payload.actorTokenUuid }) };
+    }, { documents: [actor] });
+    if (!paid.paid) return { success: false, skipped: true, message: "Insufficient Action Points for Special Advantage." };
+    if (payload.launch.mode === "free") {
+      return context.stage("advantage.card", async () => {
+        context.assertSnareCurrent();
+        const { SkillOpposedWorkflow } = await import("../skills/opposed-workflow/index.js");
+        const child = await SkillOpposedWorkflow.createPending({ attackerTokenUuid: payload.actorTokenUuid,
+          defenderTokenUuid: payload.targetTokenUuid, attackerSkillUuid: null,
+          attackerSkillLabel: `${getSpecialActionById(payload.specialActionId)?.name} (Special Action)`,
+          specialActionContext: { ...payload.launch.context, id: payload.specialActionId },
+          specialActionOperation: { version: 1, operationId: outcome.id, step: "advantage.card" },
+          whisper: Array.from(context.message.whisper ?? [], user => typeof user === "string" ? user : user.id), blind: context.message.blind === true });
+        if (!child) throw new Error("The free Special Action card was not confirmed.");
+        return { ok: true, success: true, messageId: child.id, message: "Free Special Action test created." };
+      }, { documents: [actor] });
+    }
+  }
+  let prepared = null;
+  if (payload.specialActionId === "grapple") {
+    if (_getGrappleSizeResult(actor, target).blocked) return { success: false, skipped: true, message: `${actor.name} cannot grapple ${target?.name}: target is too large.` };
+    const preparation = await context.stage("grapple.prepare", async () => {
+      const alreadyControlled = _isTargetGrappledByActor(target, actor);
+      return { ok: true, prepared: { alreadyControlled, grappleChoice: alreadyControlled ? await _showGrappleFollowUpChoice() : null } };
+    }, { documents: [target] });
+    prepared = preparation.prepared;
+  }
+  return _applySpecialAction({ ...payload, actor, target, prepared, context });
 }
 
-export async function executeSpecialAction({
+/** Public compatibility entrypoint: effects always enter the persisted application owner. */
+export async function executeSpecialAction(options = {}) {
+  return postSpecialActionOutcome(options);
+}
+
+async function _applySpecialAction({
   specialActionId,
   actor,
   target,
   isAutoWin = false,
   opposedResult = null,
-  prepared = null
+  prepared = null,
+  context
 } = {}) {
   const def = getSpecialActionById(specialActionId);
   if (!def) {
@@ -643,25 +894,25 @@ export async function executeSpecialAction({
 
   switch (specialActionId) {
     case "arise":
-      return await _executeArise({ actor, winner, actorName, isAutoWin });
+      return await _executeArise({ actor, winner, actorName, isAutoWin, context });
     case "bash":
-      return await _executeBash({ actor, target, winner, actorName, targetName, isAutoWin, prepared });
+      return await _executeBash({ actor, target, winner, actorName, targetName, isAutoWin, prepared, context });
     case "blindOpponent":
-      return await _executeBlindOpponent({ actor, target, winner, actorName, targetName, isAutoWin });
+      return await _executeBlindOpponent({ actor, target, winner, actorName, targetName, isAutoWin, context });
     case "disarm":
       return await _executeDisarm({ actor, target, winner, actorName, targetName, isAutoWin });
     case "feint":
-      return await _executeFeint({ actor, target, winner, actorName, targetName, isAutoWin });
+      return await _executeFeint({ actor, target, winner, actorName, targetName, isAutoWin, context });
     case "forceMovement":
       return await _executeForceMovement({ actor, target, winner, actorName, targetName, isAutoWin });
     case "grapple":
-      return await _executeGrapple({ actor, target, winner, actorName, targetName, isAutoWin, prepared });
+      return await _executeGrapple({ actor, target, winner, actorName, targetName, isAutoWin, prepared, context });
     case "resist":
-      return await _executeResist({ actor, target, winner, actorName, targetName, isAutoWin });
+      return await _executeResist({ actor, target, winner, actorName, targetName, isAutoWin, context });
     case "trip":
-      return await _executeTrip({ actor, target, winner, actorName, targetName, isAutoWin });
+      return await _executeTrip({ actor, target, winner, actorName, targetName, isAutoWin, context });
     case "inClose":
-      return await _executeInClose({ actor, target, actorName, targetName, isAutoWin });
+      return await _executeInClose({ actor, target, actorName, targetName, isAutoWin, context });
     default:
       return { success: false, message: `No automation for ${def.name}.` };
   }
@@ -710,14 +961,14 @@ export async function initiateSpecialActionFromSheet({
   }
 
   // Create interactive opposed test card
-  await createSpecialActionOpposedTest({
+  const message = await createSpecialActionOpposedTest({
     specialActionId,
     attackerToken: actorToken,
     defenderToken: targetToken,
     isFreeAction: false
   });
 
-  return { success: true, message: "Special Action test initiated." };
+  return message ? { success: true, message: "Special Action test initiated." } : null;
 }
 
 /**
@@ -725,7 +976,7 @@ export async function initiateSpecialActionFromSheet({
  * Target must pass to avoid becoming Prone.
  * @param {Actor} target - The actor who was bashed
  */
-async function _createBashAcrobaticsTest(target) {
+async function _createBashAcrobaticsTest(target, context) {
   const acrobatics = resolveUnusualCombatSkillLimit(target, "Acrobatics");
   if (!(Number(acrobatics?.tn) > 0)) {
     const warning = tf("UESRPG.DefectUpdate.BashNoAcrobatics", { actor: target.name }, `${target.name} has no Acrobatics skill or NPC physical profession. Apply Prone manually if they fail.`);
@@ -742,28 +993,52 @@ async function _createBashAcrobaticsTest(target) {
     allowLucky: true,
     allowUnlucky: true
   });
+  context.assertSnareCurrent?.();
 
   // Post the roll to chat
-  await result.roll.toMessage({
+  const recipients = Array.from(context.message.whisper ?? [], user => typeof user === "string" ? user : user.id);
+  const rollMessage = await result.roll.toMessage({
     speaker: ChatMessage.getSpeaker({ actor: target, token: targetToken?.document ?? null }),
     flavor: tf("UESRPG.DefectUpdate.BashFlavor", {}, "Acrobatics — Bash Follow-Up (avoid Prone)"),
-    rollMode: getCoreRollMode()
-  });
+    whisper: recipients,
+    blind: context.message.blind === true,
+    flags: { [SYSTEM_ID]: { specialActionOperation: { version: 1, operationId: context.operation.id, step: "bash.prepare" } } },
+  }, { messageMode: context.message.blind ? "blind" : recipients.length ? "gm" : "public" });
+  if (!rollMessage || rollMessage.flags?.[SYSTEM_ID]?.specialActionOperation?.operationId !== context.operation.id) throw new Error("The Bash follow-up roll message was not confirmed.");
 
   // Apply Prone if they failed
   if (!result.isSuccess) {
-    return { prone: true, message: tf("UESRPG.DefectUpdate.BashFailure", { actor: target.name }, `${target.name} fails the Acrobatics test and falls Prone.`) };
+    return { prone: true, messageId: rollMessage.id, rollTotal: result.rollTotal, message: tf("UESRPG.DefectUpdate.BashFailure", { actor: target.name }, `${target.name} fails the Acrobatics test and falls Prone.`) };
   }
-  return { prone: false, message: tf("UESRPG.DefectUpdate.BashSuccess", { actor: target.name }, `${target.name} passes the Acrobatics test and avoids falling Prone.`) };
+  return { prone: false, messageId: rollMessage.id, rollTotal: result.rollTotal, message: tf("UESRPG.DefectUpdate.BashSuccess", { actor: target.name }, `${target.name} passes the Acrobatics test and avoids falling Prone.`) };
 }
 
 // ============================================================================
 // EXECUTORS
 // ============================================================================
 
-async function _executeArise({ actor, winner, actorName, isAutoWin }) {
+async function _applyManagedCondition(context, actor, key, source) {
+  return context.stage(`condition.${key}.apply`, async () => {
+    context.assertSnareCurrent?.();
+    const effect = await applyCondition(actor, key, { source, requireConfirmed: true, operationGuard: () => {
+      context.requireCurrent();
+      context.assertSnareCurrent?.();
+    },
+      operationMarker: { version: 1, operationId: context.operation.id, step: `condition.${key}.apply` } });
+    return { ok: true, skipped: !effect, effectUuids: effect ? [effect.uuid] : [] };
+  }, { documents: [actor] });
+}
+
+async function _removeManagedCondition(context, actor, key) {
+  return context.stage(`condition.${key}.remove`, async () => {
+    await removeCondition(actor, key, { requireConfirmed: true, operationGuard: context.requireCurrent });
+    return { ok: true };
+  }, { documents: [actor] });
+}
+
+async function _executeArise({ actor, winner, actorName, isAutoWin, context }) {
   if (winner === "attacker" || isAutoWin) {
-    await removeCondition(actor, "prone");
+    await _removeManagedCondition(context, actor, "prone");
     return {
       success: true,
       message: `${actorName} arises without provoking an attack of opportunity.`
@@ -772,24 +1047,34 @@ async function _executeArise({ actor, winner, actorName, isAutoWin }) {
   return { success: false, message: `${actorName} fails to arise.` };
 }
 
-async function _executeBash({ actor, target, winner, actorName, targetName, isAutoWin, prepared }) {
+async function _executeBash({ actor, target, winner, actorName, targetName, isAutoWin, prepared, context }) {
   if (winner === "attacker" || isAutoWin) {
     // Remove 1 AP
-    await ActionEconomy.spendAP(target, 1, { reason: "bashed", silent: true });
+    const apResult = await context.stage("bash.ap", async () => {
+      context.assertSnareCurrent?.();
+      const tokenUuid = context.outcome.payload.targetTokenUuid;
+      const tracked = isActorInStartedCombatEncounter(target, { tokenUuid });
+      const paid = await ActionEconomy.spendAP(target, 1, { reason: "bashed", silent: true, requireConfirmed: true, tokenUuid });
+      return { ok: true, paid, prepared: { tracked } };
+    }, { documents: [target] });
 
     // Create Acrobatics test card for target (RAW: must pass to avoid Prone)
-    const bashFollowUp = prepared?.bashResult ?? await _createBashAcrobaticsTest(target);
-    if (bashFollowUp.prone) await applyCondition(target, "prone", { source: "bash-failed-acrobatics" });
+    const preparation = await context.stage("bash.prepare", async () => {
+      context.assertSnareCurrent?.();
+      return { ok: true, prepared: { bashResult: prepared?.bashResult ?? await _createBashAcrobaticsTest(target, context) } };
+    }, { documents: [target] });
+    const bashFollowUp = preparation.prepared.bashResult;
+    if (bashFollowUp.prone) await _applyManagedCondition(context, target, "prone", "bash-failed-acrobatics");
 
     return {
       success: true,
-      message: `${actorName} bashes ${targetName}! Knocked back 1m, loses 1 AP. ${bashFollowUp.message} (Manual: move token back 1m)`
+      message: `${actorName} bashes ${targetName}! ${apResult.prepared?.tracked ? (apResult.paid ? "Loses 1 AP." : "No AP was available to remove.") : "No AP was deducted outside tracked combat."} ${bashFollowUp.message} (Manual: move token back 1m)`
     };
   }
   return { success: false, message: `${actorName}'s bash fails.` };
 }
 
-async function _executeBlindOpponent({ actor, target, winner, actorName, targetName, isAutoWin }) {
+async function _executeBlindOpponent({ actor, target, winner, actorName, targetName, isAutoWin, context }) {
   if (winner === "attacker" || isAutoWin) {
     const roundSeconds = Math.max(1, Number(TimeService.getRoundTimeSeconds?.() ?? 6) || 6);
     const duration = buildEffectDuration({
@@ -799,7 +1084,8 @@ async function _executeBlindOpponent({ actor, target, winner, actorName, targetN
       preferCombat: true
     });
 
-    await applyCondition(target, "blinded", { source: "blindOpponent" });
+    const applied = await _applyManagedCondition(context, target, "blinded", "blindOpponent");
+    if (applied.skipped) return { success: false, skipped: true, message: `${targetName} is immune to Blinded; no condition applied.` };
 
     const effect = target.effects.find(e =>
       !e.disabled &&
@@ -808,7 +1094,10 @@ async function _executeBlindOpponent({ actor, target, winner, actorName, targetN
     if (effect) {
       const parent = effect.parent;
       if (parent) {
-        await requestUpdateEmbeddedDocuments(parent, "ActiveEffect", [{ _id: effect.id, duration }]);
+        await context.stage("blinded.duration", async () => {
+          if (!await requestUpdateDocument(effect, { duration })) throw new Error("Blinded duration update was not confirmed.");
+          return { ok: true, effectUuids: [effect.uuid] };
+        }, { documents: [target, effect] });
       }
     }
 
@@ -830,7 +1119,7 @@ async function _executeDisarm({ actor, target, winner, actorName, targetName, is
   return { success: false, message: `${actorName} fails to disarm ${targetName}.` };
 }
 
-async function _executeFeint({ actor, target, winner, actorName, targetName, isAutoWin }) {
+async function _executeFeint({ actor, target, winner, actorName, targetName, isAutoWin, context }) {
   if (winner === "attacker" || isAutoWin) {
     const roundSeconds = Math.max(1, Number(TimeService.getRoundTimeSeconds?.() ?? 6) || 6);
     const duration = buildEffectDuration({
@@ -840,7 +1129,8 @@ async function _executeFeint({ actor, target, winner, actorName, targetName, isA
       preferCombat: true
     });
 
-    await applyCondition(target, "feinted", { source: "feint" });
+    const applied = await _applyManagedCondition(context, target, "feinted", "feint");
+    if (applied.skipped) return { success: false, skipped: true, message: `${targetName} is immune to Feinted; no condition applied.` };
 
     const effect = target.effects.find(e =>
       !e.disabled &&
@@ -854,7 +1144,10 @@ async function _executeFeint({ actor, target, winner, actorName, targetName, isA
       };
       const parent = effect.parent;
       if (parent) {
-        await requestUpdateEmbeddedDocuments(parent, "ActiveEffect", [{ _id: effect.id, ...effectUpdates }]);
+        await context.stage("feinted.metadata", async () => {
+          if (!await requestUpdateDocument(effect, effectUpdates)) throw new Error("Feint metadata update was not confirmed.");
+          return { ok: true, effectUuids: [effect.uuid] };
+        }, { documents: [target, effect] });
       }
     }
 
@@ -876,7 +1169,7 @@ async function _executeForceMovement({ actor, target, winner, actorName, targetN
   return { success: false, message: `${actorName} fails to force movement.` };
 }
 
-async function _executeGrapple({ actor, target, winner, actorName, targetName, isAutoWin, prepared }) {
+async function _executeGrapple({ actor, target, winner, actorName, targetName, isAutoWin, prepared, context }) {
   if (!(winner === "attacker" || isAutoWin)) {
     return { success: false, message: `${actorName} fails to grapple ${targetName}.` };
   }
@@ -893,13 +1186,13 @@ async function _executeGrapple({ actor, target, winner, actorName, targetName, i
   _GRAPPLE_ACTION_LOCKS.add(lockKey);
 
   try {
-    const alreadyControlled = _isTargetGrappledByActor(target, actor);
+    const alreadyControlled = prepared?.alreadyControlled ?? _isTargetGrappledByActor(target, actor);
     const ownerTag = _grappleOwnerTag(actor);
 
     if (alreadyControlled) {
       const followUp = prepared ? prepared.grappleChoice ?? "" : await _showGrappleFollowUpChoice();
       if (followUp === "takedown") {
-        await applyCondition(target, "prone", { source: "Grapple: Takedown" });
+        await _applyManagedCondition(context, target, "prone", "Grapple: Takedown");
         return {
           success: true,
           message: `${actorName} performs Takedown on ${targetName}. ${targetName} is now Prone.`,
@@ -920,10 +1213,10 @@ async function _executeGrapple({ actor, target, winner, actorName, targetName, i
       return { success: false, message: `${actorName} cancels the grapple follow-up action.` };
     }
 
-    await applyCondition(target, "restrained", { source: ownerTag });
-    await applyCondition(target, "grappled", { source: ownerTag });
-    await _stampConditionSource(target, "restrained", ownerTag);
-    await _stampConditionSource(target, "grappled", ownerTag);
+    await _applyManagedCondition(context, target, "restrained", ownerTag);
+    await _applyManagedCondition(context, target, "grappled", ownerTag);
+    await _stampConditionSource(target, "restrained", ownerTag, context);
+    await _stampConditionSource(target, "grappled", ownerTag, context);
 
     return {
       success: true,
@@ -934,11 +1227,11 @@ async function _executeGrapple({ actor, target, winner, actorName, targetName, i
   }
 }
 
-async function _executeResist({ actor, target, winner, actorName, targetName, isAutoWin }) {
+async function _executeResist({ actor, target, winner, actorName, targetName, isAutoWin, context }) {
   if (winner === "attacker" || isAutoWin) {
-    await removeCondition(actor, "restrained");
-    await removeCondition(actor, "grappled");
-    await removeCondition(actor, "blinded");
+    await _removeManagedCondition(context, actor, "restrained");
+    await _removeManagedCondition(context, actor, "grappled");
+    await _removeManagedCondition(context, actor, "blinded");
 
     return {
       success: true,
@@ -948,9 +1241,10 @@ async function _executeResist({ actor, target, winner, actorName, targetName, is
   return { success: false, message: `${actorName} fails to resist.` };
 }
 
-async function _executeTrip({ actor, target, winner, actorName, targetName, isAutoWin }) {
+async function _executeTrip({ actor, target, winner, actorName, targetName, isAutoWin, context }) {
   if (winner === "attacker" || isAutoWin) {
-    await applyCondition(target, "prone", { source: "trip" });
+    const applied = await _applyManagedCondition(context, target, "prone", "trip");
+    if (applied.skipped) return { success: false, skipped: true, message: `${targetName} is immune to Prone; no condition applied.` };
     return {
       success: true,
       message: `${actorName} trips ${targetName}, making them Prone.`
@@ -959,12 +1253,13 @@ async function _executeTrip({ actor, target, winner, actorName, targetName, isAu
   return { success: false, message: `${actorName} fails to trip ${targetName}.` };
 }
 
-async function _executeInClose({ actor, target, actorName, targetName, isAutoWin }) {
+async function _executeInClose({ actor, target, actorName, targetName, isAutoWin, context }) {
   if (!actor || !target) {
     return { success: false, message: "In Close requires both attacker and defender actors." };
   }
 
-  const result = await toggleInCloseBetweenActors(actor, target, { requireOneMeterForEntry: true });
+  const result = await toggleInCloseBetweenActors(actor, target, { requireOneMeterForEntry: true, outcomeContext: context,
+    actorTokenUuid: context.outcome.payload.actorTokenUuid, targetTokenUuid: context.outcome.payload.targetTokenUuid });
   if (!result.success) {
     return { success: false, message: result.message };
   }

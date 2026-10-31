@@ -1,8 +1,8 @@
 import { requestDeleteEmbeddedDocuments } from "../../utils/authority-proxy.js";
 import { isActiveGMUser } from "../wounds/wound-schema.js";
 import { registerCombatBoundaryConsumer } from "../time/combat-boundary-orchestrator.js";
-import { expireStartOfTurnFearEffects, fearLane, getFearEffects, pruneFearSnapPromptDedupe, tickFixedRoundFearEffects } from "./effects-and-restrictions.js";
-import { maybePromptSnapOutOnTurnStart } from "./snap-out.js";
+import { expireStartOfTurnFearEffects, fearLane, getFearEffects, pruneFearSnapPromptDedupe } from "./effects-and-restrictions.js";
+import { maybePromptSnapOutOnTurnStart, settleSnapOutAtTurnEnd } from "./snap-out.js";
 
 let fearRegistered = false;
 
@@ -16,13 +16,27 @@ export async function handleCombatBoundaryFear(payload) {
     if (!combat?.id) return;
     if (payload?.combat?.id && String(payload.combat.id) !== String(combat.id)) return;
 
-    const changed = payload?.changed ?? {};
-    const changedTurn = Object.prototype.hasOwnProperty.call(changed, "turn") || Object.prototype.hasOwnProperty.call(changed, "round");
-    if (!changedTurn) return;
+    const prior = payload?.combat?.prior;
+    const current = payload?.combat?.current;
+    if (!prior || !current || prior.round == null || prior.turn == null || current.round == null || current.turn == null) return;
+    const priorRound = Number(prior.round);
+    const priorTurn = Number(prior.turn);
+    const currentRound = Number(current.round);
+    const currentTurn = Number(current.turn);
+    if (![priorRound, priorTurn, currentRound, currentTurn].every(Number.isInteger)) return;
+    // Do not settle a rewind or a stale boundary after the encounter moved on.
+    const advanced = currentRound > priorRound || (currentRound === priorRound && currentTurn > priorTurn);
+    const isCurrent = () => game.combat?.id === combat.id && Number(combat.round) === currentRound
+      && Number(combat.turn) === currentTurn && String(combat.combatant?.id ?? "") === String(current.combatantId ?? "");
+    if (!advanced || !isCurrent()) return;
 
+    const previousActor = combat.combatants?.get?.(String(prior.combatantId ?? ""))?.actor ?? null;
+    if (previousActor) await settleSnapOutAtTurnEnd(previousActor, { combat, prior });
+    if (!isCurrent()) return;
     await expireStartOfTurnFearEffects(combat);
-    await tickFixedRoundFearEffects(combat, changed);
-    await maybePromptSnapOutOnTurnStart(combat);
+    // Fixed-round Horror outcomes are still tracked by the GM: counting round
+    // boundaries can expire a newly applied effect before a full round passes.
+    if (isCurrent()) await maybePromptSnapOutOnTurnStart(combat);
   } catch (err) {
     console.warn("UESRPG | Fear turn hook failed", err);
   }

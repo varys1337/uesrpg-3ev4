@@ -18,8 +18,6 @@ import {
   getSkillRank
 } from "./talents-api.js";
 import { hasCondition } from "../conditions/condition-engine.js";
-import { itemHasToken } from "../combat/damage-automation.js";
-import { getEffectiveWeaponHands } from "../combat/combat-utils.js";
 import { getActorCanvasToken } from "./combat-proximity.js";
 import { _num as _asNumber, _lower, _buildSituationalMod } from "./_primitives.js";
 
@@ -103,10 +101,6 @@ export function getEnemyWoundThresholdDelta({ attacker, attackMode } = {}) {
   return 0;
 }
 
-function weaponHasQualityKey(weapon, key) {
-  return itemHasToken(weapon, key);
-}
-
 function isHidden(attackerToken) {
   const docHidden = Boolean(attackerToken?.document?.hidden);
   if (docHidden) return true;
@@ -117,8 +111,16 @@ function isHidden(attackerToken) {
 
 export function applyTalentDamageModifiers({ attacker, target, attackerToken, weapon, damageContext } = {}) {
   if (!attacker || !damageContext) return;
-  if (!hasTalent(attacker, "sneakattack") && !hasTalent(attacker, "assassinate")) return;
   if (!weapon || weapon.type !== "weapon") return;
+  if (hasTalent(attacker, "perfecthit")) {
+    damageContext.talentNotes = Array.isArray(damageContext.talentNotes) ? damageContext.talentNotes : [];
+    damageContext.talentNotes.push("Perfect Hit: Choose whether to use Perception Bonus instead of Strength Bonus for eligible Slashing, Splitting or Crushing. The calculation does not make that choice; resolve the selected quality and its armor restrictions with the GM.");
+  }
+  if (hasTalent(attacker, "crackshot")) {
+    damageContext.talentNotes = Array.isArray(damageContext.talentNotes) ? damageContext.talentNotes : [];
+    damageContext.talentNotes.push("Crackshot: With eligible Slashing or Splitting arrows, choose whether to use Agility Bonus instead of Strength Bonus for that quality. Resolve the choice and armor restrictions with the GM.");
+  }
+  if (!hasTalent(attacker, "sneakattack") && !hasTalent(attacker, "assassinate")) return;
 
   const tok = attackerToken ?? getActorCanvasToken(attacker);
   const forcedHidden = (typeof damageContext.attackFromHidden === "boolean") ? damageContext.attackFromHidden : null;
@@ -130,20 +132,11 @@ export function applyTalentDamageModifiers({ attacker, target, attackerToken, we
   if (hasTalent(attacker, "sneakattack")) {
     const stealthRank = getSkillRank(attacker, "Stealth");
     if (stealthRank > 0) {
-      damageContext.talentDamageBonus = _asNumber(damageContext.talentDamageBonus, 0) + stealthRank;
       damageContext.talentNotes = Array.isArray(damageContext.talentNotes) ? damageContext.talentNotes : [];
-      damageContext.talentNotes.push(`Sneak Attack: +${stealthRank} damage (Stealth rank)`);
-      damageContext._isSneakAttack = true;
-    }
-  }
-
-  if (damageContext._isSneakAttack && hasTalent(attacker, "assassinate") && weapon) {
-    const handed = getEffectiveWeaponHands(weapon);
-    const isOneHanded = Boolean(handed?.isOneHanded);
-    if (isOneHanded && weaponHasQualityKey(weapon, "exploitWeakness")) {
-      damageContext.sneakIgnoreArmorOnly = true;
-      damageContext.talentNotes = Array.isArray(damageContext.talentNotes) ? damageContext.talentNotes : [];
-      damageContext.talentNotes.push("Assassinate: Sneak Attack ignores AR (Exploit Weakness)");
+      damageContext.talentNotes.push(`Sneak Attack: If this attack hits and you were hidden from the target when attacking, include +${stealthRank} damage manually and resolve mitigation with the GM.`);
+      if (hasTalent(attacker, "assassinate")) {
+        damageContext.talentNotes.push("Assassinate: With an eligible one-handed weapon that has Exploit Weakness, the attacker may choose for the Sneak Attack bonus to ignore AR; resolve manually.");
+      }
     }
   }
 }

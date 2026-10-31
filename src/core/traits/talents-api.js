@@ -9,6 +9,7 @@
  */
 
 import { resolveUuidSync } from "../../utils/uuid-cache.js";
+import { isPassiveFeatureActive } from "./features/feature-config.js";
 
 /**
  * Normalize an arbitrary label into a stable lookup key.
@@ -103,6 +104,10 @@ const TALENT_NAME_ALIASES = {
   // Racial talents (automation)
   childofthesap: ["Child of the Sap"],
   histskin: ["Histskin"],
+  wrothgarian: ["Wrothgarian"],
+  highmen: ["High Men"],
+  lionheart: ["Lionheart"],
+  bloodofaldmeris: ["Blood of Aldmeris"],
   naturesblessing: ["Nature's Blessing", "Nature’s Blessing"],
   dragonskin: ["Dragonskin"],
   reddiamond: ["Red Diamond"],
@@ -241,6 +246,7 @@ export function getTalentItem(actor, keyOrName) {
   const items = actor.items ?? [];
   for (const it of items) {
     if (!it || it.type !== "talent") continue;
+    if (!isPassiveFeatureActive(it)) continue;
     const n = normalizeTalentKey(it.name);
     if (n && (n === slug || nameKeys.has(n))) return it;
   }

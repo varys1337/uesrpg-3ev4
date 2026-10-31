@@ -3,6 +3,7 @@ import { resolveDamageUpdateTarget } from "../../../../core/combat/damage/post-a
 import { recordAttackTrackerDiagnostic } from "../../../../core/combat/attack-tracker-diagnostics.js";
 import { buildSheetAttackTrackerContext } from "./attack-tracker-sheet-context.js";
 import { resolveAttackTrackerActor } from "../../../../core/combat/attack-tracker-context.js";
+import { measurePerfSync, perfRecord } from "../../../../utils/perf-tracker.js";
 
 function _str(value) {
   return String(value ?? "").trim();
@@ -152,7 +153,9 @@ export function registerCombatTrackerSheetRefresh(sheet) {
   const hooks = {
     trackerChanged: Hooks.on("uesrpg.attackTrackerChanged", async (payload) => {
       _clearSheetTrackerAuthorityHintIfStale(sheet);
-      const matched = _isTrackedActorMatch(sheet, payload?.actor) || _isTrackedActorMatch(sheet, payload?.sourceActor);
+      const matched = measurePerfSync("sheet.refresh.match", { source: "tracker", requestedCount: 1 }, () =>
+        _isTrackedActorMatch(sheet, payload?.actor) || _isTrackedActorMatch(sheet, payload?.sourceActor));
+      perfRecord({ event: "sheet.refresh.match", source: "tracker", matchedCount: matched ? 1 : 0, skippedCount: matched ? 0 : 1 });
       if (matched) _updateSheetTrackerAuthorityHint(sheet, payload);
       _recordSheetRefreshDiagnostic(sheet, payload, matched);
       if (!matched) return;
@@ -165,12 +168,16 @@ export function registerCombatTrackerSheetRefresh(sheet) {
       if (!combat?.id) return;
       if (payload?.combat?.id && String(payload.combat.id) !== String(combat.id)) return;
       _clearSheetTrackerAuthorityHintIfStale(sheet, combat);
-      if (!_isSheetActorInCombat(sheet, combat)) return;
+      const matched = measurePerfSync("sheet.refresh.match", { source: "combat", requestedCount: 1 },
+        () => _isSheetActorInCombat(sheet, combat));
+      perfRecord({ event: "sheet.refresh.match", source: "combat", matchedCount: matched ? 1 : 0, skippedCount: matched ? 0 : 1 });
+      if (!matched) return;
       await _refreshCombatPart(sheet);
     })
   };
 
   sheet._uesrpgCombatTrackerRefreshHooks = hooks;
+  perfRecord({ event: "sheet.refresh.lifecycle", phase: "registration", registeredCount: 2 });
 }
 
 export function unregisterCombatTrackerSheetRefresh(sheet) {
@@ -178,5 +185,9 @@ export function unregisterCombatTrackerSheetRefresh(sheet) {
   if (!hooks) return;
   if (hooks.trackerChanged != null) Hooks.off("uesrpg.attackTrackerChanged", hooks.trackerChanged);
   if (hooks.combatTimeChanged != null) Hooks.off("uesrpg.combatTimeChanged", hooks.combatTimeChanged);
+  perfRecord({
+    event: "sheet.refresh.lifecycle", phase: "cleanup",
+    unregisteredCount: Number(hooks.trackerChanged != null) + Number(hooks.combatTimeChanged != null),
+  });
   sheet._uesrpgCombatTrackerRefreshHooks = null;
 }

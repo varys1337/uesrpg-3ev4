@@ -9,13 +9,13 @@ function walk(directory, output = []) {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     const absolute = path.join(directory, entry.name);
     if (entry.isDirectory()) walk(absolute, output);
-    else if (entry.isFile() && entry.name.endsWith(".js")) output.push(absolute);
+    else if (entry.isFile() && /\.[cm]?js$/.test(entry.name)) output.push(absolute);
   }
   return output;
 }
 
 function checkJavaScriptSyntax(root) {
-  const files = ["src", "scripts", "automation"].flatMap((relative) => walk(path.join(root, relative)));
+  const files = ["src", "scripts", "automation", "tests"].flatMap((relative) => walk(path.join(root, relative)));
   const errors = [];
   for (const file of files) {
     const checked = spawnSync(process.execPath, ["--check", file], { encoding: "utf8" });

@@ -7,7 +7,8 @@
  * from actor-sheet.js for better maintainability and performance.
  */
 
-import { buildCollapsedActionCardHtml, getAimStateFromEffect, getEnabledEffectByKey, resolveTokenForActor, resolveTokenForCombatActor, spendActionPoints } from "../../combat-actions-utils.js";
+import { buildCollapsedActionCardHtml, getAimStateFromEffect, getEnabledEffectByKey, resolveTokenForActor, resolveTokenForCombatActor, spendActionPoints, spendActionPointsResult } from "../../combat-actions-utils.js";
+import { withActionResult, actionResultFromEvidence, aggregateActionResults } from "../../../../application/action-results.js";
 import { createOrUpdateStatusEffect } from "../../../../core/active-effects/status-effect.js";
 import { buildEffectDuration } from "../../../../core/time/effect-duration.js";
 import { executeActivation, buildSpecialActionActivation } from "../../../../core/system/activation/index.js";
@@ -19,7 +20,7 @@ import {
   resolveStyleForCombatTest
 } from "../../../../core/combat/combat-style-utils.js";
 import { OpposedWorkflow } from "../../../../core/combat/opposed-workflow.js";
-import { isActorInStartedCombatEncounter } from "../../../../core/combat/combat-scope.js";
+import { getActorCombatStep, isActorCombatStepCurrent, isActorInStartedCombatEncounter } from "../../../../core/combat/combat-scope.js";
 import { setLastMeleeWeaponForActor } from "../../../canvas/reach-visualizer-state.js";
 import { hasOpponentWithTalentInMeleeRange } from "../../../../core/traits/combat-proximity.js";
 import { getWeaponCombatCapabilities, recordDashStart } from "../../../../core/combat/combat-utils.js";
@@ -28,11 +29,12 @@ import { AimAudit } from "../../../../core/combat/aim-audit.js";
 import { isActorBlockedFromAoOAgainstTarget } from "../../../../core/traits/mobility-talents.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
+import { acquireLock, releaseLock } from "../../../../utils/authority-proxy/shared.js";
 import { safeUpdateChatMessage } from "../../../../utils/chat-message-socket.js";
 import { asyncGuardSheet } from "../../../../utils/async-guard.js";
 import { _num } from "../../../../utils/coerce.js";
-import { executeSpecialAction } from "../../../../core/combat/special-actions-helper.js";
-import { applySprintBonus, applyPowerDrawBonus } from "../../../../core/stamina/stamina-integration-hooks.js";
+import { executeSpecialAction, chooseSnareSpecialAction, isSnareActionCurrent } from "../../../../core/combat/special-actions-helper.js";
+import { applySprintBonus, hasPendingPowerDraw } from "../../../../core/stamina/stamina-integration-hooks.js";
 import {
   ensureBurningTurnActionAllowed,
   attemptExtinguishBurning,
@@ -41,7 +43,10 @@ import {
 import { resolveSurpriseState } from "../../../../core/combat/surprise-state.js";
 import { getFearActionRestrictions } from "../../../../core/fear/index.js";
 import { getMovementActionLegality } from "../../../../core/combat/movement-rules.js";
+import { PHYSICAL_ITEM_TYPES } from "../../../../core/items/inventory-encumbrance.js";
 import { drinkPotion, applyAlchemyToTarget, pickAlchemyCoatingTarget } from "../../../../core/alchemy/runtime.js";
+import { COATING_AUTOMATION_PAUSED, COATING_MANUAL_GUIDANCE } from "../../../../core/alchemy/shared.js";
+import { getCoreArcaneItemUse, showCoreArcaneItemUse } from "../../../../core/magic/arcane-item-use.js";
 import { getActorCapabilityFlag } from "../../../../core/active-effects/modifier-evaluator.js";
 import { buildGenericAEExpiry } from "../../../../core/active-effects/expiry.js";
 import { buildEffectChange } from "../../../../utils/compat.js";
@@ -69,6 +74,9 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
   if (!action) return;
 
   const actor = this.actor;
+  const specialEvidence = { owner: "sheetSpecialAction", scope: "test submission and application", confirmed: false, uncertain: false,
+    pending: false, references: { actorUuid: actor?.uuid } };
+  const specialResult = () => withActionResult({ ok: false }, actionResultFromEvidence({ ...specialEvidence, blocked: !specialEvidence.pending }));
 
   // Local helpers
   const postActionCard = async (title, bodyHtml) => {
@@ -135,19 +143,21 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
     return true;
   };
 
-  const _deleteEffect = async (effect) => {
+  const _deleteEffect = async (effect, { requireConfirmed = false } = {}) => {
     if (!effect) return;
     try {
-      await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [effect.id]);
+      const confirmed = await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [effect.id]);
+      if (requireConfirmed && !confirmed) throw new Error("Aim removal was not confirmed. Inspect before retrying.");
     } catch (err) {
       console.warn("UESRPG | Sheet quick action failed to delete effect", { actor: actor?.uuid, effectId: effect?.id, err });
+      if (requireConfirmed) throw err;
     }
   };
 
-  const breakAimChainIfPresent = async () => {
+  const breakAimChainIfPresent = async (options = {}) => {
     const ef = getEnabledEffectByKey(actor, "aim");
     if (!ef) return;
-    await _deleteEffect(ef);
+    await _deleteEffect(ef, options);
   };
 
   const resolveCombatStyleForAttack = () => {
@@ -170,20 +180,20 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
 
     if (at === "primary" && !isSpecialActionUsableNow(actor, "primary")) {
       ui.notifications?.warn?.("Grapple is only available on your Turn when used as a Primary action.");
-      return;
+      return specialResult();
     }
 
     if (at === "reaction") {
-      if (!ensureReactionAllowed()) return;
+      if (!ensureReactionAllowed()) return specialResult();
     } else if (!(await ensureTurnActionAllowed("grapple"))) {
-      return;
+      return specialResult();
     }
 
     const targets = Array.from(game.user.targets ?? []);
     const targetToken = targets[0] ?? null;
     if (!targetToken) {
       ui.notifications?.warn?.("Grapple requires a targeted token.");
-      return;
+      return specialResult();
     }
 
     const lockKey = [
@@ -194,7 +204,7 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
     ].join("|");
     if (_specialActionLaunchLocks.has(lockKey)) {
       ui.notifications?.warn?.("Grapple is already being started.");
-      return;
+      return specialResult();
     }
     _specialActionLaunchLocks.add(lockKey);
 
@@ -212,7 +222,9 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
         renderChat: false,
         context: { targets: game.user?.targets }
       });
-      if (!activationResult.ok) return;
+      specialEvidence.confirmed ||= activationResult.actionResult.commitment === "confirmed";
+      specialEvidence.uncertain ||= activationResult.actionResult.commitment === "uncertain";
+      if (!activationResult.ok) return activationResult;
 
       let actorToken = canvas.tokens?.controlled?.[0] ?? null;
       if (!actorToken) {
@@ -222,15 +234,17 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
       const attackerStyleCtx = resolveStyleForCombatTest(actor, { actorTypeFallback: true });
       const defenderStyleCtx = resolveStyleForCombatTest(targetToken?.actor ?? null, { actorTypeFallback: true });
 
+      specialEvidence.uncertain = true;
       const message = await SkillOpposedWorkflow.createPending({
         attackerTokenUuid: actorToken?.document?.uuid ?? actorToken?.uuid,
         defenderTokenUuid: targetToken?.document?.uuid ?? targetToken?.uuid,
         attackerSkillUuid: attackerStyleCtx?.styleUuid ?? null,
         attackerSkillLabel: "Grapple"
       });
+      specialEvidence.references.messageId = message?.id;
 
-      const state = message?.flags?.["uesrpg-3ev4"]?.skillOpposed?.state;
-      if (!state) return;
+      const state = foundry.utils.deepClone(message?.flags?.["uesrpg-3ev4"]?.skillOpposed?.state);
+      if (!state) return specialResult();
 
       state.specialActionId = specialId;
       state.allowCombatStyle = true;
@@ -241,7 +255,7 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
         defenderStyleUuid: defenderStyleCtx?.styleUuid ?? null
       };
 
-      await safeUpdateChatMessage(message, {
+      const saved = await safeUpdateChatMessage(message, {
         flags: {
           "uesrpg-3ev4": {
             skillOpposed: {
@@ -251,9 +265,12 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
           }
         }
       });
+      specialEvidence.uncertain = !saved;
+      specialEvidence.pending = saved === true;
     } finally {
       _specialActionLaunchLocks.delete(lockKey);
     }
+  return specialResult();
   };
 
   const launchInCloseAction = async () => {
@@ -261,16 +278,16 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
     const at = String(btn?.dataset?.actionType ?? "secondary").toLowerCase();
 
     if (at === "reaction") {
-      if (!ensureReactionAllowed()) return;
+      if (!ensureReactionAllowed()) return specialResult();
     } else if (!(await ensureTurnActionAllowed("inClose"))) {
-      return;
+      return specialResult();
     }
 
     const targets = Array.from(game.user.targets ?? []);
     const targetToken = targets[0] ?? null;
     if (!targetToken) {
       ui.notifications?.warn?.("In Close requires a targeted token.");
-      return;
+      return specialResult();
     }
 
     const lockKey = [
@@ -281,7 +298,7 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
     ].join("|");
     if (_specialActionLaunchLocks.has(lockKey)) {
       ui.notifications?.warn?.("In Close is already being started.");
-      return;
+      return specialResult();
     }
     _specialActionLaunchLocks.add(lockKey);
 
@@ -299,7 +316,9 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
         renderChat: false,
         context: { targets: game.user?.targets }
       });
-      if (!activationResult.ok) return;
+      specialEvidence.confirmed ||= activationResult.actionResult.commitment === "confirmed";
+      specialEvidence.uncertain ||= activationResult.actionResult.commitment === "uncertain";
+      if (!activationResult.ok) return activationResult;
 
       let actorToken = canvas.tokens?.controlled?.[0] ?? null;
       if (!actorToken) {
@@ -309,15 +328,17 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
       const attackerStyleCtx = resolveStyleForCombatTest(actor, { actorTypeFallback: true });
       const defenderStyleCtx = resolveStyleForCombatTest(targetToken?.actor ?? null, { actorTypeFallback: true });
 
+      specialEvidence.uncertain = true;
       const message = await SkillOpposedWorkflow.createPending({
         attackerTokenUuid: actorToken?.document?.uuid ?? actorToken?.uuid,
         defenderTokenUuid: targetToken?.document?.uuid ?? targetToken?.uuid,
         attackerSkillUuid: attackerStyleCtx?.styleUuid ?? null,
         attackerSkillLabel: "In Close"
       });
+      specialEvidence.references.messageId = message?.id;
 
       const state = message?.flags?.["uesrpg-3ev4"]?.skillOpposed?.state;
-      if (!state) return;
+      if (!state) return specialResult();
 
       state.specialActionId = specialId;
       state.allowCombatStyle = true;
@@ -328,7 +349,7 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
         defenderStyleUuid: defenderStyleCtx?.styleUuid ?? null
       };
 
-      await safeUpdateChatMessage(message, {
+      const saved = await safeUpdateChatMessage(message, {
         flags: {
           "uesrpg-3ev4": {
             skillOpposed: {
@@ -338,9 +359,12 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
           }
         }
       });
+      specialEvidence.uncertain = !saved;
+      specialEvidence.pending = saved === true;
     } finally {
       _specialActionLaunchLocks.delete(lockKey);
     }
+  return specialResult();
   };
 
   switch (action) {
@@ -352,24 +376,42 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
 
       if (!def) {
         ui.notifications?.warn?.("Unknown Special Action.");
-        return;
+        return specialResult();
       }
 
       if (at === "primary" && !isSpecialActionUsableNow(actor, "primary")) {
         ui.notifications?.warn?.("This Primary Special Action is only available on your Turn.");
-        return;
+        return specialResult();
       }
 
       if (at === "reaction") {
-        if (!ensureReactionAllowed()) return;
+        if (!ensureReactionAllowed()) return specialResult();
       } else if (!(await ensureTurnActionAllowed(`special:${specialId ?? "unknown"}`))) {
-        return;
+        return specialResult();
       }
 
       const requiresTarget = specialId !== "arise";
       const targets = Array.from(game.user.targets ?? []);
       const targetToken = targets[0] ?? null;
-      if (!targetToken && requiresTarget) return;
+      if (!targetToken && requiresTarget) return specialResult();
+
+      let snareWeaponUuid = null;
+      let snareRangeSnapshot = null;
+      let snareActorToken = null;
+      if (["bash", "trip"].includes(specialId)) {
+        const actorToken = resolveTokenForCombatActor(actor, { sheetToken: this.token ?? null, requireUnambiguous: true });
+        const choice = await chooseSnareSpecialAction({ specialActionId: specialId, actor, actorToken, targetToken });
+        if (!choice) return specialResult();
+        snareWeaponUuid = choice.weaponUuid;
+        snareRangeSnapshot = choice.rangeSnapshot ?? null;
+        if (snareWeaponUuid) {
+          if (!actorToken) {
+            ui.notifications?.warn?.("Select an unambiguous attacker token before using a Snare weapon.");
+            return specialResult();
+          }
+          snareActorToken = actorToken;
+        }
+      }
 
       const lockKey = [
         String(actor?.uuid ?? actor?.id ?? ""),
@@ -379,7 +421,7 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
       ].join("|");
       if (_specialActionLaunchLocks.has(lockKey)) {
         ui.notifications?.warn?.("This special action is already being started.");
-        return;
+        return specialResult();
       }
       _specialActionLaunchLocks.add(lockKey);
 
@@ -393,6 +435,22 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
         requiresTarget
       });
 
+      if (specialId === "arise") {
+        const result = await executeSpecialAction({ specialActionId: specialId, actor, target: null,
+          isAutoWin: false, opposedResult: { winner: "attacker" }, activation });
+        if (!result.actionResult.accepted || ["partial", "needsReview"].includes(result.actionResult.status)) ui.notifications?.warn?.(result.message);
+        return result;
+      }
+
+      const snareStillCurrent = () => !snareWeaponUuid || isSnareActionCurrent({ actor, target: targetToken?.actor,
+        weaponUuid: snareWeaponUuid, rangeSnapshot: snareRangeSnapshot,
+        actorTokenUuid: snareActorToken?.document?.uuid ?? snareActorToken?.uuid,
+        targetTokenUuid: targetToken?.document?.uuid ?? targetToken?.uuid });
+      if (!snareStillCurrent()) {
+        ui.notifications?.warn?.("The Snare weapon or range changed. Start a new Special Action.");
+        return specialResult();
+      }
+
       const activationResult = await executeActivation({
         actor,
         activation,
@@ -400,43 +458,32 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
         renderChat: false,
         context: { targets: game.user?.targets }
       });
-      if (!activationResult.ok) return;
-
-      let actorToken = canvas.tokens?.controlled?.[0] ?? null;
-      if (!actorToken) {
-        actorToken = canvas.tokens?.placeables?.find(t => t.actor?.id === actor.id) ?? null;
+      specialEvidence.confirmed ||= activationResult.actionResult.commitment === "confirmed";
+      specialEvidence.uncertain ||= activationResult.actionResult.commitment === "uncertain";
+      if (!activationResult.ok) return activationResult;
+      if (!snareStillCurrent()) {
+        specialEvidence.uncertain = true;
+        ui.notifications?.warn?.("The Snare weapon or range changed during activation. Review any action cost before retrying.");
+        return specialResult();
       }
 
-      if (specialId === "arise") {
-        const result = await executeSpecialAction({
-          specialActionId: specialId,
-          actor,
-          target: null,
-          isAutoWin: false,
-          opposedResult: { winner: "attacker" }
-        });
-
-        if (result.success) {
-          await ChatMessage.create({
-            user: game.user.id,
-            speaker: ChatMessage.getSpeaker({ actor }),
-            content: `<div class="uesrpg-special-action-outcome"><b>Special Action:</b><p>${result.message}</p></div>`,
-            style: CONST.CHAT_MESSAGE_STYLES.OTHER
-          });
-        }
-        return;
+      let actorToken = snareActorToken ?? canvas.tokens?.controlled?.[0] ?? null;
+      if (!actorToken) {
+        actorToken = canvas.tokens?.placeables?.find(t => t.actor?.id === actor.id) ?? null;
       }
 
       const attackerStyleCtx = resolveStyleForCombatTest(actor, { actorTypeFallback: true });
       const defenderStyleCtx = resolveStyleForCombatTest(targetToken?.actor ?? null, { actorTypeFallback: true });
       const attackerSkillUuid = attackerStyleCtx?.styleUuid ?? null;
 
+      specialEvidence.uncertain = true;
       const message = await SkillOpposedWorkflow.createPending({
         attackerTokenUuid: actorToken?.document?.uuid ?? actorToken?.uuid,
         defenderTokenUuid: targetToken?.document?.uuid ?? targetToken?.uuid,
         attackerSkillUuid,
         attackerSkillLabel: `${def.name} (Special Action)`
       });
+      specialEvidence.references.messageId = message?.id;
 
       const state = message?.flags?.["uesrpg-3ev4"]?.skillOpposed?.state;
       if (state) {
@@ -446,10 +493,12 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
           id: specialId,
           source: "combat-quick-action",
           attackerStyleUuid: attackerStyleCtx?.styleUuid ?? null,
-          defenderStyleUuid: defenderStyleCtx?.styleUuid ?? null
+          defenderStyleUuid: defenderStyleCtx?.styleUuid ?? null,
+          snareWeaponUuid,
+          snareRangeSnapshot
         };
 
-        await safeUpdateChatMessage(message, {
+        const saved = await safeUpdateChatMessage(message, {
           flags: {
             "uesrpg-3ev4": {
               skillOpposed: {
@@ -459,17 +508,18 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
             }
           }
         });
+      specialEvidence.uncertain = !saved;
+      specialEvidence.pending = saved === true;
       }
 
       } finally {
         _specialActionLaunchLocks.delete(lockKey);
       }
-      return;
+      return specialResult();
     }
 
     case "grapple": {
-      await launchGrappleAction();
-      return;
+      return launchGrappleAction();
     }
 
     case "attack": {
@@ -757,11 +807,15 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
     }
 
     case "use-item": {
-      if (!(await ensureTurnActionAllowed("use-item"))) return;
+      const useResult = (value, cost = null) => withActionResult(value, cost
+        ? aggregateActionResults([cost, value], { owner: "sheetItemUse", scope: "AP and item workflow", references: { actorUuid: actor.uuid } })
+        : value.actionResult);
+      const stopUse = (evidence = {}) => withActionResult({ ok: false }, actionResultFromEvidence({ owner: "sheetItemUse", scope: "AP and item workflow",
+        ...evidence, references: { actorUuid: actor.uuid } }));
       const candidates = actor.items.filter(i => {
         const consumable = Boolean(i?.system?.consumable);
         const type = String(i?.type ?? "");
-        const isPhysical = type === "equipment" || type === "container";
+        const isPhysical = PHYSICAL_ITEM_TYPES.includes(type) && i?.system?.isPhysicalObject !== false;
         return consumable && isPhysical;
       });
 
@@ -770,7 +824,7 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
           "Use Item",
           "<p>No consumable Items were found on this actor.</p>"
         );
-        return;
+        return stopUse({ blocked: true, reason: "No consumable Items were found." });
       }
 
       const options = candidates
@@ -785,47 +839,62 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
         </div>
       `;
 
-      return customDialog({
+      let useStarted = false;
+      const selected = await customDialog({
         layout: "workflow",
         title: t("UESRPG.Dialogs.UseItem.Title", "Use Item"),
         content,
         yes: {
           label: t("UESRPG.Dialogs.UseItem.Use", "Use"),
           callback: async (html) => {
+            useStarted = true;
             const el = html instanceof HTMLElement ? html : html?.[0];
             const itemId = el?.querySelector("select[name='itemId']")?.value;
             const item = actor.items.get(itemId);
             if (!item) {
               ui.notifications.warn("Selected item could not be found.");
-              return;
+              return stopUse({ rejected: true });
             }
 
             // Alchemy products: resolve via the alchemy runtime workflows.
             const alchemyKind = item?.flags?.["uesrpg-3ev4"]?.alchemy?.kind;
             const isAlchemyProduct = alchemyKind === "potion" || alchemyKind === "poison" || alchemyKind === "toxin";
 
-            if (isAlchemyProduct && (alchemyKind === "poison" || alchemyKind === "toxin")) {
-              // Select target first; only spend AP if the player commits.
-              const targetItem = await pickAlchemyCoatingTarget(actor);
-              if (!targetItem) return;
+            // The generic shortcut only spends AP and posts a name. Do not
+            // present that as an arcane Item's source-specific procedure.
+            const arcaneRule = !isAlchemyProduct && getCoreArcaneItemUse(item);
+            if (arcaneRule) {
+              await showCoreArcaneItemUse(item, arcaneRule);
+              return stopUse({ blocked: true, reason: "This arcane Item requires manual resolution; no shortcut cost was charged." });
+            }
 
-              if (!(await spendActionPoints(actor, 1, { reason: "Use Item" }))) return;
-              await breakAimChainIfPresent();
-              await applyAlchemyToTarget(actor, item, targetItem);
-              return;
+            if (alchemyKind !== "potion" && !(await ensureTurnActionAllowed("use-item"))) return stopUse({ blocked: true });
+
+            if (isAlchemyProduct && (alchemyKind === "poison" || alchemyKind === "toxin")) {
+              if (COATING_AUTOMATION_PAUSED) {
+                ui.notifications.warn(COATING_MANUAL_GUIDANCE);
+                return stopUse({ blocked: true, reason: COATING_MANUAL_GUIDANCE });
+              }
+              const targetItem = await pickAlchemyCoatingTarget(actor);
+              if (!targetItem) return stopUse({ cancelled: true });
+              const cost = await spendActionPointsResult(actor, 1, { reason: "Use Item" });
+              if (!cost.value) return useResult({ ok: false, actionResult: cost.actionResult });
+              await breakAimChainIfPresent({ requireConfirmed: true });
+              return useResult(await applyAlchemyToTarget(actor, item, targetItem), cost);
             }
 
             if (isAlchemyProduct && alchemyKind === "potion") {
-              if (!(await spendActionPoints(actor, 1, { reason: "Use Item" }))) return;
-              await breakAimChainIfPresent();
-              await drinkPotion(actor, item);
-              return;
+              // Potion use owns its own action cost across all sheet and chat entry points.
+              return useResult(await drinkPotion(actor, item));
             }
 
             // Default consumable flow (non-alchemy): spend AP and post a card.
-            if (!(await spendActionPoints(actor, 1, { reason: "Use Item" }))) return;
-            await breakAimChainIfPresent();
-            await postActionCard("Use Item", `<p>${item.name}</p>`);
+            const cost = await spendActionPointsResult(actor, 1, { reason: "Use Item" });
+            if (!cost.value) return useResult({ ok: false, actionResult: cost.actionResult });
+            await breakAimChainIfPresent({ requireConfirmed: true });
+            const message = await postActionCard("Use Item", `<p>${item.name}</p>`);
+            return useResult(withActionResult({ ok: Boolean(message), messageId: message?.id }, actionResultFromEvidence({
+              owner: "sheetItemUse", scope: "ordinary item report", uncertain: !message?.id, references: { messageId: message?.id, itemUuid: item.uuid } })), cost);
           }
         },
         no: { label: t("UESRPG.Buttons.Cancel", "Cancel") },
@@ -834,11 +903,12 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
         width: 480,
         resizable: true,
       });
+      return selected?.actionResult ? selected : stopUse({ cancelled: !useStarted, uncertain: useStarted });
     }
 
     case "reload-weapon": {
       event.preventDefault();
-      if (!(await ensureTurnActionAllowed("reload-weapon"))) return;
+      const reloadCombatStep = getActorCombatStep(actor);
 
       const rangedWeapon = actor.items.find(i =>
         i.type === "weapon" &&
@@ -850,6 +920,7 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
         ui.notifications.warn("No equipped ranged weapon to reload.");
         return;
       }
+      const hasReloadPowerDraw = () => hasPendingPowerDraw(actor, actor.items.get(rangedWeapon.id) ?? rangedWeapon);
 
       const reloadState = rangedWeapon.system?.reloadState ?? {};
       const reloadCost = Math.max(0, Math.trunc(_num(reloadState.reloadAPCost, 0)));
@@ -864,11 +935,17 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
         return;
       }
 
-      const powerDrawReduction = Math.max(0, Math.trunc(_num(await applyPowerDrawBonus(actor, rangedWeapon), 0)));
+      if (hasReloadPowerDraw()) {
+        ui.notifications.warn("A Power Draw reload needs GM resolution. Inspect the weapon, pending effect and reload progress; this shortcut did not spend AP or consume Power Draw.");
+        return;
+      }
       const hasRapidReload = hasTalent(actor, "rapidreload") || hasTalent(actor, "dualrapidreloadfighter");
+      if (hasRapidReload) {
+        ui.notifications.warn("Rapid Reload needs manual resolution. Reduce the weapon's Reload quality by one to a minimum of zero; inspect AP, reload progress, ammunition and previous chat before recording the reload or retrying.");
+        return;
+      }
       const talentReloadReduction = hasRapidReload ? 1 : 0;
-      // Reload 0 = free (RAW: Power Draw reduces by 1; reaching 0 means the reload is free).
-      const effectiveReloadCost = Math.max(0, reloadCost - powerDrawReduction - talentReloadReduction);
+      const effectiveReloadCost = Math.max(0, reloadCost - talentReloadReduction);
       const isFreeReload = effectiveReloadCost === 0;
 
       const currentAP = Math.max(0, Math.trunc(_num(actor.system?.action_points?.value, 0)));
@@ -901,7 +978,6 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
           : "";
 
         const reductionParts = [];
-        if (powerDrawReduction > 0) reductionParts.push(`Power Draw -${powerDrawReduction}`);
         if (talentReloadReduction > 0) reductionParts.push(`Rapid Reload -${talentReloadReduction}`);
         const reductionNote = reductionParts.length ? `<p class="u-text-muted u-text-sm">${reductionParts.join(", ")} applied to base cost ${reloadCost}</p>` : "";
 
@@ -939,61 +1015,121 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
         if (apToSpend == null) return; // Cancelled
       }
 
-      const numericSpend = isFreeReload
-        ? 0
-        : Math.max(0, Math.min(Math.trunc(_num(apToSpend, 0)), enforceActionEconomy ? currentAP : remaining, remaining));
-      const newAP = (isFreeReload || !enforceActionEconomy) ? currentAP : Math.max(0, currentAP - numericSpend);
-      const newProgress = isFreeReload ? 0 : Math.max(0, currentProgress + numericSpend);
-      const reloadComplete = isFreeReload || newProgress >= effectiveReloadCost;
-
-      if (enforceActionEconomy && !isFreeReload) {
-        await requestUpdateDocument(actor, { "system.action_points.value": newAP });
+      // The pending benefit may have appeared while the selection dialog was open.
+      if (hasReloadPowerDraw()) {
+        ui.notifications.warn("Power Draw became active while reloading was being selected. The GM must resolve the reload; this shortcut spent no AP and did not consume the benefit.");
+        return;
       }
 
-      if (reloadComplete) {
-        await requestUpdateDocument(rangedWeapon, {
-          "system.reloadState.isLoaded": true,
-          "system.reloadState.reloadProgress": 0,
-        });
-      } else {
-        await requestUpdateDocument(rangedWeapon, {
-          "system.reloadState.reloadProgress": newProgress,
-        });
+      const reloadIsCurrent = () => {
+        const liveWeapon = actor.items.get(rangedWeapon.id);
+        const liveState = liveWeapon?.system?.reloadState;
+        return isActorCombatStepCurrent(actor, reloadCombatStep)
+          && liveWeapon?.uuid === rangedWeapon.uuid && liveWeapon.system?.equipped === true
+          && liveState?.requiresReload === true && liveState.isLoaded !== true
+          && Math.max(0, Math.trunc(_num(liveState.reloadAPCost, 0))) === reloadCost
+          && Math.min(reloadCost, Math.max(0, Math.trunc(_num(liveState.reloadProgress, 0)))) === currentProgress
+          && (hasTalent(actor, "rapidreload") || hasTalent(actor, "dualrapidreloadfighter")) === hasRapidReload;
+      };
+      if (!reloadIsCurrent()) {
+        ui.notifications.warn("The combat step, weapon or reload details changed. This shortcut spent no AP; inspect the current state before starting again.");
+        return;
       }
 
-      const powerDrawNote = powerDrawReduction > 0 ? `<p><em>Power Draw bonus: -${powerDrawReduction} AP</em></p>` : "";
-      const talentNote = talentReloadReduction > 0 ? `<p><em>Rapid Reload: -${talentReloadReduction} AP</em></p>` : "";
-      const remainingNeeded = Math.max(0, remaining - numericSpend);
-      const statusLine = reloadComplete
-        ? `<p><strong>${rangedWeapon.name} is now loaded!</strong></p>`
-        : `<p>Reload progress: <strong>${newProgress} / ${effectiveReloadCost} AP</strong> spent. ${remainingNeeded} AP still needed.</p>`;
+      const reloadLock = `sheet-reload:${actor.uuid}:${rangedWeapon.uuid}`;
+      if (!await acquireLock(reloadLock, { wait: false })) {
+        ui.notifications.warn("A reload for this weapon is already being processed on this client.");
+        return;
+      }
+      try {
+        if (!(await ensureTurnActionAllowed("reload-weapon"))) return;
+        if (!reloadIsCurrent() || hasReloadPowerDraw()) {
+          ui.notifications.warn("The combat step, weapon or Power Draw changed before reload payment. Inspect the current state; this shortcut spent no AP.");
+          return;
+        }
+        const numericSpend = isFreeReload
+          ? 0
+          : Math.max(0, Math.min(Math.trunc(_num(apToSpend, 0)), enforceActionEconomy ? currentAP : remaining, remaining));
+        const newProgress = isFreeReload ? 0 : Math.max(0, currentProgress + numericSpend);
+        const reloadComplete = isFreeReload || newProgress >= effectiveReloadCost;
 
-      await ChatMessage.create({
-        user: game.user.id,
-        speaker: ChatMessage.getSpeaker({ actor }),
-        content: `
-          <div class="uesrpg-chat-card">
-            <header class="card-header">
-              <img src="${rangedWeapon.img}" width="36" height="36"/>
-              <h3>${reloadComplete ? "Reload Complete" : "Reloading…"}</h3>
-            </header>
-            <div class="card-content">
-              <p><strong>${actor.name}</strong> ${reloadComplete ? "reloads" : "continues reloading"} <strong>${rangedWeapon.name}</strong>.</p>
-              <p><em>AP Spent: ${isFreeReload ? "Free" : numericSpend}</em></p>
-              ${powerDrawNote}${talentNote}
-              ${statusLine}
-              <p>Remaining AP: ${newAP}</p>
+        if (enforceActionEconomy && numericSpend > 0) {
+          const payment = await spendActionPointsResult(actor, numericSpend, { reason: "Reload" });
+          if (!payment.value) {
+            ui.notifications.warn("Reload stopped because AP payment was not confirmed. Inspect AP before retrying if the payment result is uncertain.");
+            return;
+          }
+        }
+        if (!reloadIsCurrent() || hasReloadPowerDraw()) {
+          ui.notifications.warn("The reload state changed after payment began. AP may already have been spent; inspect AP, the weapon and Power Draw before retrying.");
+          return;
+        }
+
+        let weaponUpdated = false;
+        const liveWeapon = actor.items.get(rangedWeapon.id);
+        try {
+          if (reloadComplete) {
+            weaponUpdated = await requestUpdateDocument(liveWeapon, {
+              "system.reloadState.isLoaded": true,
+              "system.reloadState.reloadProgress": 0,
+            });
+          } else {
+            weaponUpdated = await requestUpdateDocument(liveWeapon, {
+              "system.reloadState.reloadProgress": newProgress,
+            });
+          }
+        } catch (_error) {
+          weaponUpdated = false;
+        }
+        if (!weaponUpdated) {
+          ui.notifications.warn("Reload progress was not confirmed. AP may already have been spent; inspect AP and the weapon before retrying.");
+          return;
+        }
+
+        const talentNote = talentReloadReduction > 0 ? `<p><em>Rapid Reload: -${talentReloadReduction} AP</em></p>` : "";
+        const remainingNeeded = Math.max(0, remaining - numericSpend);
+        const statusLine = reloadComplete
+          ? `<p><strong>${rangedWeapon.name} is now loaded!</strong></p>`
+          : `<p>Reload progress: <strong>${newProgress} / ${effectiveReloadCost} AP</strong> spent. ${remainingNeeded} AP still needed.</p>`;
+
+        let reloadMessage = null;
+        try {
+          reloadMessage = await ChatMessage.create({
+            user: game.user.id,
+            speaker: ChatMessage.getSpeaker({ actor }),
+            content: `
+            <div class="uesrpg-chat-card">
+              <header class="card-header">
+                <img src="${rangedWeapon.img}" width="36" height="36"/>
+                <h3>${reloadComplete ? "Reload Complete" : "Reloading…"}</h3>
+              </header>
+              <div class="card-content">
+                <p><strong>${actor.name}</strong> ${reloadComplete ? "reloads" : "continues reloading"} <strong>${rangedWeapon.name}</strong>.</p>
+                <p><em>${enforceActionEconomy ? `AP Spent: ${isFreeReload ? "Free" : numericSpend}` : "Outside tracked combat; no AP charged."}</em></p>
+                ${talentNote}
+                ${statusLine}
+                <p>Remaining AP: ${Math.max(0, Math.trunc(_num(actor.system?.action_points?.value, 0)))}</p>
+              </div>
             </div>
-          </div>
-        `,
-        style: CONST.CHAT_MESSAGE_STYLES.OTHER
-      });
+            `,
+            style: CONST.CHAT_MESSAGE_STYLES.OTHER
+          });
+        } catch (_error) {
+          reloadMessage = null;
+        }
+        if (!reloadMessage?.id) {
+          ui.notifications.warn("Reload was updated, but its chat report was not confirmed. Inspect AP, the weapon and chat before retrying.");
+          return;
+        }
 
-      ui.notifications.info(reloadComplete
-        ? `${rangedWeapon.name} fully reloaded.`
-        : `Spent ${numericSpend} AP toward reloading ${rangedWeapon.name} (${newProgress}/${effectiveReloadCost}).`
-      );
-      return;
+        ui.notifications.info(reloadComplete
+          ? `${rangedWeapon.name} fully reloaded.`
+          : `Spent ${numericSpend} AP toward reloading ${rangedWeapon.name} (${newProgress}/${effectiveReloadCost}).`
+        );
+        return;
+      } finally {
+        releaseLock(reloadLock);
+      }
     }
 
     case "extinguish-burning": {
@@ -1100,8 +1236,7 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
 
     case "inClose": {
       // Homebrew Reach & Length Overhaul: run as a skill-opposed special action.
-      await launchInCloseAction();
-      return;
+      return launchInCloseAction();
     }
 
     default:

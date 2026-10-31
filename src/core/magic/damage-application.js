@@ -11,7 +11,8 @@ import { normalizeArmorLocationKey as _normalizeHitLocationKey } from '../combat
  * Target: Foundry VTT v14.368+
  */
 
-import { applyDamage, applyHealing, DAMAGE_TYPES, getDamageReduction } from "../combat/damage-automation.js";
+import { applyDamageResult, applyHealingResult, DAMAGE_TYPES, getDamageReduction } from "../combat/damage-automation.js";
+import { createActionResult, withActionResult, aggregateActionResults, addActionErrorContext, getActionResult } from "../../application/action-results.js";
 import { escapeHtml } from "../../utils/html.js";
 import { acquireLock, releaseLock } from "../../utils/authority-proxy/shared.js";
 import { commitHealthUpdate, readDamageReceipts } from "../combat/damage/post-application.js";
@@ -24,6 +25,38 @@ import { isShieldItem } from "../items/shield-utils.js";
 import { getResolvedArmorValues } from "../combat/armor-state.js";
 
 const _spellDebug = createDebugLogger("spellCastingDebug");
+
+async function collectHealthResult(pending, evidence) {
+  const result = await pending;
+  evidence.push(result.actionResult);
+  return result.value;
+}
+
+function recordAbsorptionResult(absorption, evidence, actor) {
+  evidence.push(createActionResult({ owner: "magicAbsorption", scope: "absorption decision",
+    status: absorption.failed ? "needsReview" : "complete",
+    commitment: absorption.failed ? "uncertain" : absorption.writeConfirmed ? "confirmed" : "none",
+    references: { actorUuid: actor?.uuid } }));
+}
+
+async function magicApplicationResult(actor, options, kind, run) {
+  const evidence = [];
+  try {
+    const value = await run(evidence);
+    let actionResult = evidence.length ? aggregateActionResults(evidence, { owner: "magic", scope: kind,
+      references: { actorUuid: actor?.uuid, receiptId: options.receiptId, messageId: options.messageId } })
+      : createActionResult({ owner: "magic", scope: kind, status: "rejected", references: { actorUuid: actor?.uuid } });
+    if (value?.execution?.status === "partial" && actionResult.ok) actionResult = createActionResult({ ...actionResult, status: "partial" });
+    const execution = value ? { ...value.execution, status: actionResult.status === "complete" ? "applied"
+      : ["pending", "processing"].includes(actionResult.status) ? "waitingGM" : "partial",
+      committed: evidence.some(entry => entry.commitment === "confirmed") } : null;
+    return { value: value ? withActionResult({ ...value, execution }, actionResult) : null, actionResult };
+  } catch (error) {
+    throw addActionErrorContext(error, getActionResult(error) ?? createActionResult({ owner: "magic", scope: kind,
+      status: "needsReview", commitment: "uncertain", reason: String(error.message ?? error),
+      references: { actorUuid: actor?.uuid, receiptId: options.receiptId, messageId: options.messageId } }));
+  }
+}
 
 function _maxTraitValue(actor, key) {
   return Math.max(0, Number(getActorTraitValue(actor, key, { mode: "max" })) || 0);
@@ -138,7 +171,8 @@ async function _applySpellAbsorption(targetActor, { casterActor = null, magicCos
   try {
   const absorptionId = receiptId ? `${receiptId}:absorption` : "";
   const prior = absorptionId && readDamageReceipts(targetActor).find((entry) => entry.id === absorptionId);
-  if (prior) return { ...prior.result.absorption, replayed: true };
+  if (prior) return { ...prior.result?.absorption, replayed: true, failed: prior.status !== "applied" || !prior.result?.absorption,
+    writeConfirmed: prior.status === "applied" && prior.result?.absorption?.restored > 0 };
   const remember = (absorption, updates = {}) => commitHealthUpdate(targetActor, updates, {
     application: { receiptId: absorptionId, kind }, result: { absorption }, receiptStatus: "applied",
   });
@@ -213,7 +247,7 @@ async function _applySpellAbsorption(targetActor, { casterActor = null, magicCos
     // Non-blocking
   }
 
-  return { absorbed, restored, rollTotal, threshold };
+  return { absorbed, restored, rollTotal, threshold, writeConfirmed: restored > 0 };
   } finally {
     releaseLock(lockKey);
     if (startedAt !== null) perfRecord({
@@ -247,6 +281,14 @@ async function _applySpellAbsorption(targetActor, { casterActor = null, magicCos
  * @param {string} options.elementalBonusLabel
  */
 export async function applyMagicDamage(targetActor, damage, damageType, spell, options = {}) {
+  return (await applyMagicDamageResult(targetActor, damage, damageType, spell, options)).value;
+}
+
+export async function applyMagicDamageResult(targetActor, damage, damageType, spell, options = {}) {
+  return magicApplicationResult(targetActor, options, "damage", evidence => runMagicDamage(targetActor, damage, damageType, spell, options, evidence));
+}
+
+async function runMagicDamage(targetActor, damage, damageType, spell, options, evidence) {
   if (!targetActor) return null;
 
   const dt = _str(damageType).toLowerCase() || DAMAGE_TYPES.MAGIC;
@@ -275,6 +317,7 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
       allowSelfAbsorption,
       sourceLabel: source, receiptId: options.receiptId
     });
+    recordAbsorptionResult(absorption, evidence, targetActor);
     if (absorption.failed) return null;
     if (absorption.absorbed) {
       return { spellAbsorbed: true, absorption };
@@ -291,7 +334,7 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
       const results = [];
       let totalApplied = 0;
       for (const [componentIndex, component] of typedComponents.entries()) {
-        const result = await applyMagicDamage(targetActor, component.amount, component.damageType, spell, {
+        const result = await runMagicDamage(targetActor, component.amount, component.damageType, spell, {
           ...options,
           receiptId: options.receiptId ? `${options.receiptId}:component:${componentIndex}` : undefined,
           _additionalDamageReceipts: componentIndex === 0 ? options._additionalDamageReceipts : [],
@@ -302,12 +345,12 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
           elementalBonus: 0,
           elementalBonusLabel: "",
           source: component.sourceLabel || source,
-        });
+        }, evidence);
         if (!result || result.execution?.status === 'partial') {
           if (!results.length) return result;
           return { ...results.at(-1), damage: totalApplied + (Number(result?.damage) || 0),
             componentResults: result ? [...results, result] : results,
-            execution: { status: 'partial', committed: true } };
+            execution: { status: 'partial', committed: results.some(entry => entry.execution?.committed === true) || result?.execution?.committed === true } };
         }
         if (result) {
           totalApplied += Number(result.damage ?? 0) || 0;
@@ -351,7 +394,7 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
   
   if (isElementalSpell) {
     // Step 1: Get elemental mitigation (typed AR + resistance)
-    const elementalReduction = getDamageReduction(targetActor, dt, hitLocation, { attackerActor: casterActor });
+    const elementalReduction = getDamageReduction(targetActor, dt, hitLocation, { attackerActor: casterActor, includeGenericMagicArmor: false });
     const elementalAR = Number(elementalReduction.armor || 0);
     const elementalRes = Number(elementalReduction.resistance || 0);
     const elementalMitigation = elementalAR + elementalRes;
@@ -396,7 +439,7 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
     }
     
     // Apply the layered damage with ignoreReduction=true since we calculated it manually
-    const result = await applyDamage(targetActor, Math.max(0, finalDamage), dt, {
+    const result = await collectHealthResult(applyDamageResult(targetActor, Math.max(0, finalDamage), dt, {
       receiptId: options.receiptId,
       applicationId: options.applicationId,
       outcomeContext: options.outcomeContext,
@@ -411,7 +454,7 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
       extraBreakdownLines,
       woundThresholdDelta,
       damageAppliedByType,
-    });
+    }), evidence);
     if (!result) return result;
     const split = _splitMagicBreakdownLines(extraBreakdownLines);
     const reductionNotes = [];
@@ -448,7 +491,7 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
   }
   
   // Non-elemental spells (pure magic, physical, etc.) use normal damage pipeline
-  const result = await applyDamage(targetActor, adjustedDamage, dt, {
+  const result = await collectHealthResult(applyDamageResult(targetActor, adjustedDamage, dt, {
     receiptId: options.receiptId,
     applicationId: options.applicationId,
     outcomeContext: options.outcomeContext,
@@ -462,7 +505,7 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
     extraBreakdownLines,
     woundThresholdDelta,
     damageAppliedByType: dt && dt !== "none" && dt !== DAMAGE_TYPES.PHYSICAL ? damageAppliedByType : null,
-  });
+  }), evidence);
   if (!result) return result;
   const split = _splitMagicBreakdownLines(extraBreakdownLines);
   const reductionNotes = [...split.reductionNotes];
@@ -506,6 +549,14 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
  * @param {boolean} options.isTemporary - If true, grants temp HP instead of restoring HP
  */
 export async function applyMagicHealing(targetActor, healing, spell, options = {}) {
+  return (await applyMagicHealingResult(targetActor, healing, spell, options)).value;
+}
+
+export async function applyMagicHealingResult(targetActor, healing, spell, options = {}) {
+  return magicApplicationResult(targetActor, options, "healing", evidence => runMagicHealing(targetActor, healing, spell, options, evidence));
+}
+
+async function runMagicHealing(targetActor, healing, spell, options, evidence) {
   _spellDebug("UESRPG | applyMagicHealing CALLED", {
     targetActor: targetActor?.name,
     healing,
@@ -530,6 +581,7 @@ export async function applyMagicHealing(targetActor, healing, spell, options = {
     allowSelfAbsorption,
     sourceLabel: source, receiptId: options.receiptId, kind: "healing"
   });
+  recordAbsorptionResult(absorption, evidence, targetActor);
   if (absorption.failed) return null;
   if (absorption.absorbed) {
     return { spellAbsorbed: true, absorption };
@@ -542,7 +594,7 @@ export async function applyMagicHealing(targetActor, healing, spell, options = {
     isTemporary: options.isTemporary === true
   });
 
-  return applyHealing(targetActor, Number(healing || 0), {
+  return collectHealthResult(applyHealingResult(targetActor, Number(healing || 0), {
     messageId: options.messageId, requestId: options.requestId,
     receiptId: options.receiptId,
     outcomeContext: options.outcomeContext,
@@ -558,5 +610,5 @@ export async function applyMagicHealing(targetActor, healing, spell, options = {
     hideHpLine: true,
     // Skip chat message since healing is already shown in the magic opposed card
     skipChatMessage: true,
-  });
+  }), evidence);
 }

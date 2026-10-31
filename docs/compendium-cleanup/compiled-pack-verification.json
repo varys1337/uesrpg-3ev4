@@ -1,0 +1,656 @@
+{
+  "status": "passed",
+  "method": "Static compiled record comparison; native-added defaults explicitly listed; _stats bookkeeping excluded",
+  "compiledRoot": "C:\\dev\\uesrpg\\uesrpg-3ev4-14.0.0",
+  "packs": [
+    {
+      "pack": "uesrpg-3ev4.core-skills",
+      "documents": 35,
+      "folders": 2,
+      "sourceHash": "10c4be0da397ac18284c098a408a27007dd3b6357c50ff34ba2b5a4a990a01aa",
+      "status": "passed",
+      "differences": [],
+      "extraRecords": [],
+      "nativeDefaults": [],
+      "fileHashes": {
+        "004213.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "004215.ldb": "9c6dacf4cbf4083d1dab9f719e991a608ab69a4d977e11e20dd24a22c721d483",
+        "CURRENT": "46fe73a006317c15162d89f4670e14bb18e46647010300abc8549d125f9c96b9",
+        "MANIFEST-004211": "00ae7d371ebb499c9d1000b54e755bee5b4e92b2b9f0ac9ede9087c9939d15db"
+      }
+    },
+    {
+      "pack": "uesrpg-3ev4.signs",
+      "documents": 24,
+      "folders": 3,
+      "sourceHash": "be17afcaf812d10afefe5c01f3c1081d477df2d5c14f8f3f8ecad7ca8f2a003e",
+      "status": "passed",
+      "differences": [],
+      "extraRecords": [],
+      "nativeDefaults": [
+        {
+          "field": "Item.hmwYTUgjaDAJzSMa.effects.0.duration.value",
+          "value": null
+        },
+        {
+          "field": "Item.hmwYTUgjaDAJzSMa.effects.0.duration.units",
+          "value": "seconds"
+        },
+        {
+          "field": "Item.hmwYTUgjaDAJzSMa.effects.0.duration.expiry",
+          "value": null
+        },
+        {
+          "field": "Item.hmwYTUgjaDAJzSMa.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.hmwYTUgjaDAJzSMa.effects.0.type",
+          "value": "base"
+        },
+        {
+          "field": "Item.hmwYTUgjaDAJzSMa.effects.0.start",
+          "value": null
+        },
+        {
+          "field": "Item.hmwYTUgjaDAJzSMa.effects.0.description",
+          "value": ""
+        },
+        {
+          "field": "Item.hmwYTUgjaDAJzSMa.effects.0.origin",
+          "value": null
+        },
+        {
+          "field": "Item.hmwYTUgjaDAJzSMa.effects.0.tint",
+          "value": "#ffffff"
+        },
+        {
+          "field": "Item.hmwYTUgjaDAJzSMa.effects.0.showIcon",
+          "value": 1
+        },
+        {
+          "field": "Item.hmwYTUgjaDAJzSMa.effects.0.folder",
+          "value": null
+        },
+        {
+          "field": "Item.hmwYTUgjaDAJzSMa.effects.0.sort",
+          "value": 0
+        },
+        {
+          "field": "Item.rq7QuSU4GhJ8XQgT.effects.0.duration.value",
+          "value": null
+        },
+        {
+          "field": "Item.rq7QuSU4GhJ8XQgT.effects.0.duration.units",
+          "value": "seconds"
+        },
+        {
+          "field": "Item.rq7QuSU4GhJ8XQgT.effects.0.duration.expiry",
+          "value": null
+        },
+        {
+          "field": "Item.rq7QuSU4GhJ8XQgT.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.rq7QuSU4GhJ8XQgT.effects.0.type",
+          "value": "base"
+        },
+        {
+          "field": "Item.rq7QuSU4GhJ8XQgT.effects.0.start",
+          "value": null
+        },
+        {
+          "field": "Item.rq7QuSU4GhJ8XQgT.effects.0.description",
+          "value": ""
+        },
+        {
+          "field": "Item.rq7QuSU4GhJ8XQgT.effects.0.origin",
+          "value": null
+        },
+        {
+          "field": "Item.rq7QuSU4GhJ8XQgT.effects.0.tint",
+          "value": "#ffffff"
+        },
+        {
+          "field": "Item.rq7QuSU4GhJ8XQgT.effects.0.showIcon",
+          "value": 1
+        },
+        {
+          "field": "Item.rq7QuSU4GhJ8XQgT.effects.0.folder",
+          "value": null
+        },
+        {
+          "field": "Item.rq7QuSU4GhJ8XQgT.effects.0.sort",
+          "value": 0
+        }
+      ],
+      "fileHashes": {
+        "004206.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "004208.ldb": "63ea61f260d90802872a69ce920af8769ed33e74f9dba5959f31c9ae61ba7d1a",
+        "CURRENT": "6fe7482fb4995f9cd1833a12517f946fef47d1020d72bc57e2745f66b1269e4d",
+        "MANIFEST-004204": "5ad45923849f9192f22bd95948f45e2f7c846d49e2ed264f5e5abeef4cd0ca09"
+      }
+    },
+    {
+      "pack": "uesrpg-3ev4.items-revised",
+      "documents": 1192,
+      "folders": 12,
+      "sourceHash": "80efc17d07dbb99460c7710fbedd92c0ebcd343b8713b10593e59d8f52288a75",
+      "status": "passed",
+      "differences": [],
+      "extraRecords": [],
+      "nativeDefaults": [
+        {
+          "field": "Item.ERq3OHWn6tRLOqUe.system.range",
+          "value": ""
+        },
+        {
+          "field": "Item.GyLmp8hW70yoTjSi.system.range",
+          "value": ""
+        },
+        {
+          "field": "Item.NE7aGY7QAL8ARjWb.system.range",
+          "value": ""
+        },
+        {
+          "field": "Item.XyNYiQBZKGqznarl.system.range",
+          "value": ""
+        },
+        {
+          "field": "Item.YSWnaLeai9Gp4Cy8.system.range",
+          "value": ""
+        },
+        {
+          "field": "Item.bKfjZAEWub3jK9Oa.system.armorValues",
+          "value": {
+            "full": {
+              "armor": 0,
+              "magic_ar": 0,
+              "special_ar": 0,
+              "special_ar_type": ""
+            },
+            "partial": {
+              "armor": 0,
+              "magic_ar": 0,
+              "special_ar": 0,
+              "special_ar_type": ""
+            }
+          }
+        },
+        {
+          "field": "Item.lGdMavApcwJyoEle.system.armorValues",
+          "value": {
+            "full": {
+              "armor": 0,
+              "magic_ar": 0,
+              "special_ar": 0,
+              "special_ar_type": ""
+            },
+            "partial": {
+              "armor": 0,
+              "magic_ar": 0,
+              "special_ar": 0,
+              "special_ar_type": ""
+            }
+          }
+        }
+      ],
+      "fileHashes": {
+        "004246.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "004248.ldb": "f59fe1ee60dee1a594a217c93f3b263837ffafe85d24ae4fe0983c0d99e1e6b7",
+        "CURRENT": "80d0111c011f85456a938f47260e4c81578a04b866d2fe14977a5baaaccfac9f",
+        "MANIFEST-004244": "8a9eecfeeb6b2f1a8d9e228dabecfbe280b07ca6824ac9c091c855d2f812b380"
+      }
+    },
+    {
+      "pack": "uesrpg-3ev4.powers-talents-traits",
+      "documents": 340,
+      "folders": 25,
+      "sourceHash": "5e22903b84b6b2edebd3ef1f0d4899fd0a09b864b7cb4dde2cdeb528c7e068b3",
+      "status": "passed",
+      "differences": [],
+      "extraRecords": [],
+      "nativeDefaults": [],
+      "fileHashes": {
+        "000711.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "000713.ldb": "5695cd337a95e38e22b515f665d20cc0d8bbc4544ff05498e105e45b03683773",
+        "CURRENT": "e1a0b4766c8f76a88bf0cb747a0c47b6ac17e5cc3b28eecbf509451382b4e0e3",
+        "MANIFEST-000709": "85f3aa245825a5590e9755f66609e75295c037297657cc21cdf5f4be90a4f335"
+      }
+    },
+    {
+      "pack": "uesrpg-3ev4.spells-revised",
+      "documents": 169,
+      "folders": 9,
+      "sourceHash": "c6f0640fb2fb19b1f973e9157d54f1bfa1e8d3da4b001e03e83588ad5e0679c4",
+      "status": "passed",
+      "differences": [],
+      "extraRecords": [],
+      "nativeDefaults": [
+        {
+          "field": "Item.0xAYGM0bvarZZbyp.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.0xAYGM0bvarZZbyp.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.0xAYGM0bvarZZbyp.effects.1.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.2aNHextYgLHvZ30b.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.4DxouGoBhX6fkKyQ.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.4DxouGoBhX6fkKyQ.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.4Y8h5ow9T1mIt1dI.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.4Y8h5ow9T1mIt1dI.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.6CCCN9ncMgtI5dOT.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.6CCCN9ncMgtI5dOT.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.6Oh1RL3PXFR9AoBR.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.6Oh1RL3PXFR9AoBR.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.8UEoP5KUiCMqzuwY.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.8UEoP5KUiCMqzuwY.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.8UEoP5KUiCMqzuwY.effects.1.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.Acn2SgH62kV8mrtN.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.Acn2SgH62kV8mrtN.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.CTpsCzVioXvNTZv0.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.CTpsCzVioXvNTZv0.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.CTpsCzVioXvNTZv0.effects.2.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.Erd56kUDPhnJlOkH.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.Erd56kUDPhnJlOkH.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.G0jBSoy40Hy5sriq.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.G0jBSoy40Hy5sriq.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.GtXm64BmTftJmnJ6.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.GtXm64BmTftJmnJ6.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.I0anwGlx3LRA4sYr.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.I0anwGlx3LRA4sYr.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.LYON3dXmFPrBWbBg.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.LYON3dXmFPrBWbBg.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.LoqQCmYhLl3mHpvH.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.LoqQCmYhLl3mHpvH.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.LoqQCmYhLl3mHpvH.effects.0.start",
+          "value": null
+        },
+        {
+          "field": "Item.LoqQCmYhLl3mHpvH.effects.0.description",
+          "value": ""
+        },
+        {
+          "field": "Item.LoqQCmYhLl3mHpvH.effects.0.origin",
+          "value": null
+        },
+        {
+          "field": "Item.LoqQCmYhLl3mHpvH.effects.0.tint",
+          "value": "#ffffff"
+        },
+        {
+          "field": "Item.LoqQCmYhLl3mHpvH.effects.0.showIcon",
+          "value": 1
+        },
+        {
+          "field": "Item.LoqQCmYhLl3mHpvH.effects.0.folder",
+          "value": null
+        },
+        {
+          "field": "Item.LoqQCmYhLl3mHpvH.effects.0.sort",
+          "value": 0
+        },
+        {
+          "field": "Item.LoqQCmYhLl3mHpvH.effects.0.flags",
+          "value": {}
+        },
+        {
+          "field": "Item.MKB3K5pdPbc8jQrG.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.MKB3K5pdPbc8jQrG.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.Nh4WRm5seTK2B28r.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.Pw37J1WC0mO9n5Qj.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.Pw37J1WC0mO9n5Qj.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.Qt4rwN4Y7PPQVTBy.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.RRvLBwRuyFaJnO2i.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.RRvLBwRuyFaJnO2i.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.TqoNckJX6Dg0JYk3.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.TqoNckJX6Dg0JYk3.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.UjID6GUlkEfhaliS.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.UjID6GUlkEfhaliS.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.UjID6GUlkEfhaliS.effects.1.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.VAeaUIled5vKCckB.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.VAeaUIled5vKCckB.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.Yjw9YMbaMMy7fRW9.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.Yjw9YMbaMMy7fRW9.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.cqZvfvozOq55W77q.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.cqZvfvozOq55W77q.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.dR9GTGUfgCTvSGIk.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.dR9GTGUfgCTvSGIk.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.eAz4FYmwuGyTnQUC.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.eAz4FYmwuGyTnQUC.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.eAz4FYmwuGyTnQUC.effects.1.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.fw4KHviwEQUEoF09.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.fw4KHviwEQUEoF09.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.fw4KHviwEQUEoF09.effects.2.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.grTzkpSXIfGgffyz.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.grTzkpSXIfGgffyz.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.i9uBicMHhqRFfdG6.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.i9uBicMHhqRFfdG6.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.k1GU6YYUFdgfmZrF.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.k1GU6YYUFdgfmZrF.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.kK7PvdDMPmEun8fu.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.kK7PvdDMPmEun8fu.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.kK7PvdDMPmEun8fu.effects.1.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.lxNAXnUNH3FvDzmm.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.lxNAXnUNH3FvDzmm.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.lxNAXnUNH3FvDzmm.effects.2.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.qBdZjzn0t4VsB6lu.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.qBdZjzn0t4VsB6lu.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.qBdZjzn0t4VsB6lu.effects.0.start",
+          "value": null
+        },
+        {
+          "field": "Item.qBdZjzn0t4VsB6lu.effects.0.description",
+          "value": ""
+        },
+        {
+          "field": "Item.qBdZjzn0t4VsB6lu.effects.0.origin",
+          "value": null
+        },
+        {
+          "field": "Item.qBdZjzn0t4VsB6lu.effects.0.tint",
+          "value": "#ffffff"
+        },
+        {
+          "field": "Item.qBdZjzn0t4VsB6lu.effects.0.showIcon",
+          "value": 1
+        },
+        {
+          "field": "Item.qBdZjzn0t4VsB6lu.effects.0.folder",
+          "value": null
+        },
+        {
+          "field": "Item.qBdZjzn0t4VsB6lu.effects.0.sort",
+          "value": 0
+        },
+        {
+          "field": "Item.qBdZjzn0t4VsB6lu.effects.0.flags",
+          "value": {}
+        },
+        {
+          "field": "Item.rPpqwunV3Xt0B6oH.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.rPpqwunV3Xt0B6oH.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.rPpqwunV3Xt0B6oH.effects.0.system.changes.1.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.wNHMCiSET2ORM1X2.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.wNHMCiSET2ORM1X2.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.wYDxJNarYYUM3of9.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.wYDxJNarYYUM3of9.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.y8V7EfqmQgIVTtn0.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.y8V7EfqmQgIVTtn0.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.yNIaFSJihckxjLhu.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.yNIaFSJihckxjLhu.effects.0.system.changes.0.phase",
+          "value": "initial"
+        },
+        {
+          "field": "Item.780ca6eb2756fd2e.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.1911b424fe033630.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.1cadfeb8acd9e4e7.effects.0.duration.expired",
+          "value": false
+        },
+        {
+          "field": "Item.506eb779c6aa8b5f.effects.0.duration.expired",
+          "value": false
+        }
+      ],
+      "fileHashes": {
+        "004235.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "004237.ldb": "766cefeb50816c3d47bce5a50e66bbbb6c230948b4ef08e94ac7131046c51528",
+        "CURRENT": "9bf69b1eebb79c8556561b1ae3242c78278660c8ef97c22cdf2e3c018cfd7a89",
+        "MANIFEST-004233": "7606b08457c70782f1922bdfc3411bf5c3ce1e14d839a35253cadb2592a6cc0b"
+      }
+    }
+  ]
+}

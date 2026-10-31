@@ -7,7 +7,7 @@ import {
   activatePowerFromItemSheet,
   activateTraitFromItemSheet
 } from "../../ui/sheets/shared-handlers.js";
-import { executeItemActivation, executeItemMacroBestEffort } from "../../core/system/activation/index.js";
+import { executeItemActivation, executeItemMacroBestEffortResult } from "../../core/system/activation/index.js";
 import { castScrollFromItem } from "../../core/magic/scroll-casting.js";
 import { HPTempHPDialog } from "../../ui/apps/hp-temp-hp-dialog.js";
 import { openStaminaDialog } from "../../core/stamina/stamina-dialog.js";
@@ -57,6 +57,7 @@ export function createTokenActionHudApi() {
         target: makeSyntheticTarget(dataset),
         shiftKey,
         sheetMethod: "_onCombatQuickAction",
+        requireActionResult: ["specialAction", "grapple", "inClose", "use-item"].includes(dataset.combatAction),
         handler: onCombatQuickAction,
         successPathSheet: "sheet._onCombatQuickAction",
         successPathHandler: "shared.listeners.onCombatQuickAction",
@@ -77,6 +78,7 @@ export function createTokenActionHudApi() {
         target: makeSyntheticTarget({ actionType: castActionType === "secondary" ? "secondary" : "primary" }),
         shiftKey,
         sheetMethod: "_onCastMagicAction",
+        requireActionResult: true,
         handler: onCastMagicAction,
         handlerArgs: [preselectedSpell],
         successPathSheet: "sheet._onCastMagicAction",
@@ -190,7 +192,7 @@ export function createTokenActionHudApi() {
         casterActor: actor,
         castActionType,
       });
-      return result(true, "scroll-casting.castScrollFromItem", { result: castResult });
+      return result(castResult.actionResult.ok, "scroll-casting.castScrollFromItem", { result: castResult });
     },
 
     /**
@@ -301,7 +303,7 @@ export function createTokenActionHudApi() {
      */
     async runFeaturePostChatAutomation({ item, actor = null, event = null } = {}) {
       if (!item) return result(false, "none", { reason: "no-item" });
-      await executeItemActivation({
+      const activationResult = await executeItemActivation({
         item,
         actor: actor ?? item.actor ?? null,
         event,
@@ -309,7 +311,7 @@ export function createTokenActionHudApi() {
         includeImage: false,
         context: {},
       });
-      return result(true, "activation.executeItemActivation.renderChatFalse");
+      return result(activationResult.ok, "activation.executeItemActivation.renderChatFalse", { result: activationResult });
     },
 
     /**
@@ -319,8 +321,8 @@ export function createTokenActionHudApi() {
      */
     async executeItemMacro({ item, actor = null, event = null } = {}) {
       if (!item) return result(false, "none", { reason: "no-item" });
-      await executeItemMacroBestEffort({ item, actor: actor ?? item.actor ?? null, event });
-      return result(true, "activation.executeItemMacroBestEffort");
+      const macroResult = await executeItemMacroBestEffortResult(item, { event });
+      return result(macroResult.actionResult.ok, "activation.executeItemMacroBestEffort", { result: macroResult });
     },
   };
 }

@@ -1,3 +1,4 @@
+import { SYSTEM_ID } from "../system/namespace.js";
 /**
  * @module traits/talent-learning
  * @description Deterministic Chapter 4 talent-learning evaluator and helpers.
@@ -6,12 +7,12 @@
  * - Validation only (no schema migration)
  * - XP calculation from RAW level table + favored discount rules
  * - Governing characteristic and prerequisite checks
- * - Multiplayer-safe XP spend helper via authority proxy
+ * - Requester-bound XP spend wrapper via the shared purchase service
  *
- * Target: Foundry VTT v13.351
+ * Target: documented Foundry VTT v14 document APIs
  */
 
-import { requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { requestXpPurchase, readXpPurchaseJournal, XP_PURCHASE_ITEM_FLAG } from "../advancement/purchase-service.js";
 import { resolveTalentSlug } from "./talents-api.js";
 import {
   TALENT_LEARNING_MODE,
@@ -49,7 +50,7 @@ export {
   parseTalentRequirements
 } from "./talent-learning-support.js";
 
-const xpSpendLocks = new Set();
+
 const noticeDedupMap = new Map();
 
 function noticeDedupKey(result) {
@@ -301,44 +302,20 @@ export function notifyTalentLearningResult(result, { force = false } = {}) {
   }
 }
 
-async function withXpLock(actor, fn) {
-  const lockKey = String(actor?.id ?? actor?.uuid ?? "");
-  if (!lockKey) return await fn();
-
-  while (xpSpendLocks.has(lockKey)) {
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-
-  xpSpendLocks.add(lockKey);
-  try {
-    return await fn();
-  } finally {
-    xpSpendLocks.delete(lockKey);
-  }
-}
-
 export async function applyTalentLearningXpCost(actor, validationResult) {
   if (!actor || !validationResult) return { ok: false, spentXp: 0, reason: "Missing actor or validation result." };
   if (validationResult.mode !== TALENT_LEARNING_MODE.ENFORCE) return { ok: true, spentXp: 0 };
   if (!validationResult.rulesOk) return { ok: false, spentXp: 0, reason: "Validation failed." };
-  const cost = Math.max(0, coerceTalentLearningNumber(validationResult.xpCost, 0));
-  if (cost <= 0) return { ok: true, spentXp: 0 };
-
-  return withXpLock(actor, async () => {
-    const currentXp = coerceTalentLearningNumber(actor.system?.xp, 0);
-    if (currentXp < cost) {
-      return {
-        ok: false,
-        spentXp: 0,
-        reason: `Not enough XP after re-check. Required ${cost}, available ${currentXp}.`,
-      };
-    }
-
-    const nextXp = Math.max(0, currentXp - cost);
-    const updated = await requestUpdateDocument(actor, { "system.xp": nextXp });
-    if (!updated) {
-      return { ok: false, spentXp: 0, reason: "Failed to persist XP deduction." };
-    }
-    return { ok: true, spentXp: cost, nextXp };
-  });
+  if (Number(validationResult.xpCost ?? 0) <= 0) return { ok: true, spentXp: 0 };
+  const matches = Array.from(actor.items ?? []).filter(item => item.type === "talent" && resolveTalentSlug(item.name) === validationResult.slug);
+  if (matches.length !== 1) return { ok: false, spentXp: 0, reason: "Resolve one owned Talent before purchasing it." };
+  const item = matches[0];
+  const proof = item.getFlag(SYSTEM_ID, XP_PURCHASE_ITEM_FLAG);
+  if (proof) {
+    const receipt = readXpPurchaseJournal(actor).receipts.find(row => row.id === proof.operationId && row.status === "complete");
+    return receipt ? { ok: true, spentXp: 0, replayed: true, nextXp: Number(actor.system.xp ?? 0) }
+      : { ok: false, spentXp: 0, reason: "This Talent has purchase evidence requiring review; no additional XP was charged." };
+  }
+  const result = await requestXpPurchase(actor, "talentExisting", { itemId: item.id });
+  return { ...result, spentXp: result.ok && !result.replayed ? result.xpCost : 0, nextXp: Number(actor.system.xp ?? 0) };
 }

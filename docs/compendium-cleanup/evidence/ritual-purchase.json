@@ -1,0 +1,17 @@
+{
+  "before": {
+    "xp": 900,
+    "count": 0
+  },
+  "after": {
+    "xp": 875,
+    "count": 1
+  },
+  "ok": true,
+  "status": "complete",
+  "reason": "",
+  "costs": {
+    "xp": 25,
+    "drakes": 0
+  }
+}

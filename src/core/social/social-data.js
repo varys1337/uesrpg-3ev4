@@ -1,6 +1,6 @@
-import { LANGUAGE_CHOICES } from "./social-choices.js";
+import { LANGUAGE_CHOICES, getLanguageComparisonKey } from "./social-choices.js";
 
-const KNOWN_LANG_SET = new Set(LANGUAGE_CHOICES.map((l) => normalizeKey(l?.name ?? l)));
+const KNOWN_LANG_SET = new Set(LANGUAGE_CHOICES.map((l) => getLanguageComparisonKey(l?.name ?? l)));
 const CYRODILIC_KEY = normalizeKey("Cyrodilic");
 const LANGUAGE_PREVIEW_LIMIT = 6;
 const FACTION_PREVIEW_LIMIT = 3;
@@ -98,13 +98,12 @@ function makeLanguageEntry(raw = {}, index = 0) {
   if (!name) return null;
   if (normalizeKey(name) === CYRODILIC_KEY) return null;
 
-  let speak = raw?.speak !== false;
+  const speak = raw?.speak !== false;
   const readWrite = Boolean(raw?.readWrite);
-  if (readWrite) speak = true;
 
   const source = String(raw?.source ?? "").trim().toLowerCase() === "catalog"
     ? "catalog"
-    : (KNOWN_LANG_SET.has(normalizeKey(name)) ? "catalog" : "custom");
+    : (KNOWN_LANG_SET.has(getLanguageComparisonKey(name)) ? "catalog" : "custom");
 
   return {
     id: String(raw?.id ?? "").trim() || `lang-${toSlug(name)}-${index + 1}`,
@@ -124,7 +123,7 @@ export function normalizeLanguageEntries(entries = []) {
     const entry = makeLanguageEntry(fromString, idx);
     if (!entry) continue;
 
-    const key = normalizeKey(entry.name);
+    const key = getLanguageComparisonKey(entry.name);
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(entry);

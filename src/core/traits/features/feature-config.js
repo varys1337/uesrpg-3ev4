@@ -85,7 +85,7 @@ export const DEFAULT_FEATURE_CONFIG = Object.freeze({
   /**
    * Effect duration mode for transferred effects:
    *  - "permanent" → no automatic expiry (manual removal)
-   *  - "timed"     → uses duration fields from the activation config
+   *  - "timed"     → uses the activation effect's duration (or legacy activation duration)
    */
   effectDuration: "permanent",
 
@@ -148,7 +148,7 @@ export const VISIBILITY_OPTIONS = Object.freeze({
 /** Effect duration options { value: label } */
 export const EFFECT_DURATION_OPTIONS = Object.freeze({
   permanent: "Permanent (Manual Removal)",
-  timed:     "Timed (From Activation)",
+  timed:     "Timed (From Active Effects)",
 });
 
 
@@ -165,7 +165,7 @@ export const EFFECT_DURATION_OPTIONS = Object.freeze({
 export function getFeatureConfig(item) {
   if (!item) return { ...DEFAULT_FEATURE_CONFIG, debug: { ...DEFAULT_FEATURE_CONFIG.debug } };
 
-  const flags = item.getFlag?.(SYSTEM_ID, FLAG_KEY);
+  const flags = item.getFlag?.(SYSTEM_ID, FLAG_KEY) ?? item.flags?.[SYSTEM_ID]?.[FLAG_KEY];
   if (!flags || typeof flags !== "object") {
     return { ...DEFAULT_FEATURE_CONFIG, debug: { ...DEFAULT_FEATURE_CONFIG.debug } };
   }
@@ -186,6 +186,14 @@ export function getFeatureConfig(item) {
       showInInspector:    flags.debug?.showInInspector ?? DEFAULT_FEATURE_CONFIG.debug.showInInspector,
     },
   };
+}
+
+/** Shared gating for passive document contributions and trait queries. */
+export function isPassiveFeatureActive(item) {
+  const config = getFeatureConfig(item);
+  if (config.enabled === false) return false;
+  const inCombat = Boolean(game?.combat?.started);
+  return inCombat || (!config.combatOnly && config.outOfCombatAllowed !== false);
 }
 
 

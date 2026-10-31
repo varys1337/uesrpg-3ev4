@@ -14,12 +14,14 @@
  */
 
 import { _num, _str } from "./_primitives.js";
-import { evaluateAEModifierKeys } from "../active-effects/modifier-evaluator.js";
+import { collectApplicableEffects, evaluateAEModifierKeys } from "../active-effects/modifier-evaluator.js";
+import { isPassiveFeatureActive } from "../traits/features/feature-config.js";
 
 function _hasItemNamed(actor, type, name) {
   const target = _str(name).trim().toLowerCase();
   if (!actor?.items || !target) return false;
-  return actor.items.some(i => _str(i?.type).toLowerCase() === _str(type).toLowerCase() && _str(i?.name).trim().toLowerCase() === target);
+  return actor.items.some(i => _str(i?.type).toLowerCase() === _str(type).toLowerCase()
+    && _str(i?.name).trim().toLowerCase() === target && isPassiveFeatureActive(i));
 }
 
 /**
@@ -73,9 +75,9 @@ export function hasStuntedMagicka(actor) {
   if (!actor) return false;
 
   if (actor?.system?._reFlags?.stuntedMagicka === true || actor?.system?._reFlags?.stuntedmagicka === true) return true;
-  if (actorHasTrait(actor, "Stunted Magicka")) return true;
+  if (actorHasTrait(actor, "Stunted Magicka") || actorHasTrait(actor, "Stunted Magica")) return true;
 
-  const effects = Array.from(actor?.effects ?? []);
+  const effects = collectApplicableEffects(actor);
   return effects.some((effect) => {
     if (!effect || effect.disabled === true) return false;
     const flags = effect.flags ?? {};

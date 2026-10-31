@@ -5,7 +5,7 @@
  */
 
 // Data definitions
-export { WEAPON_EXPERTISE, normalizeWeaponName, getWeaponExpertiseSlugs } from "./weapon-expertise-map.js";
+export { WEAPON_EXPERTISE, MANUAL_WEAPON_EXPERTISE_REMINDERS, normalizeWeaponName, getWeaponExpertiseSlugs } from "./weapon-expertise-map.js";
 
 // Helpers
 export {

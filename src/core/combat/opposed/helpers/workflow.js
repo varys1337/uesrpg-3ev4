@@ -44,7 +44,7 @@ import { gateRangedAttackAmmoAndLoad } from "../damage/ranged-ammo-gate.js";
 import { isDebugEnabled } from "../../../../utils/debug.js";
 import { getActorFromResolvedDocument, resolveUuidSync } from "../../../../utils/uuid-cache.js";
 
-import { setOwnedItemQuantityOrDelete } from "../../../items/owned-item-quantity.js";
+import { updateOwnedItem } from "../../../items/owned-item-quantity.js";
 import { circumstanceLabel as sharedCircumstanceLabel } from "../../../opposed/circumstance.js";
 export { getRuntimeSystemId as getSystemId } from "../../../system/namespace.js";
 
@@ -75,7 +75,7 @@ export function collectAttackerDeclarationModifiers({ attacker, defender, declar
   }
   applyAttackerTalentPreTN({ attacker, declaration, situationalMods });
   applyRacialTalentAttackPreTN({ attacker, declaration, situationalMods });
-  applyWeaponExpertiseAttackerPreTN({ attacker, declaration, situationalMods, weapon });
+  applyWeaponExpertiseAttackerPreTN({ attacker, declaration, situationalMods, weapon, attackMode: data?.context?.attackMode ?? "melee" });
   return situationalMods;
 }
 
@@ -426,12 +426,22 @@ export async function preConsumeAttackAmmo(attacker, data) {
     }
 
     const qty = Number(ammo.system?.quantity ?? 0);
-    if (!(qty > 0)) {
+    if (!Number.isInteger(qty) || qty < 0) {
+      ui.notifications.warn("The ammunition quantity is invalid. Inspect the Item before attacking.");
+      return false;
+    }
+    if (qty === 0) {
       ui.notifications.warn(tf("UESRPG.Notifications.Dynamic.AmmunitionNoRemaining", { ammunition: ammo.name }));
       return false;
     }
 
-    await setOwnedItemQuantityOrDelete({ item: ammo, quantity: Math.max(0, qty - 1) });
+    // Keep an empty stack until the attack is resolved: the damage and quality
+    // pipeline still reads the selected embedded ammunition for the final shot.
+    const consumption = await updateOwnedItem({ item: ammo, updates: { "system.quantity": qty - 1 } });
+    if (!consumption.ok || Number(consumption.item?.system?.quantity) !== qty - 1) {
+      ui.notifications.warn("Ammunition consumption was not confirmed. Inspect the ammunition and attack card before retrying.");
+      return false;
+    }
 
     const pre = {
       weaponUuid: weapon.uuid,
@@ -449,7 +459,7 @@ export async function preConsumeAttackAmmo(attacker, data) {
     return true;
   } catch (err) {
     console.error("UESRPG | Pre-consume attack ammo failed", err);
-    ui.notifications.error(t("UESRPG.Notifications.Dynamic.FailedToConsumeAmmunition"));
+    ui.notifications.error("Ammunition consumption was interrupted. Inspect the Item and attack card before retrying.");
     return false;
   }
 }

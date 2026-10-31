@@ -1,0 +1,4072 @@
+{
+  "pack": "uesrpg-3ev4.signs",
+  "documentName": "Item",
+  "folders": [
+    {
+      "type": "Item",
+      "folder": "FqQyOD5ErwvOMYiC",
+      "name": "Star-Curse",
+      "color": null,
+      "sorting": "a",
+      "_id": "1gJKHrJoVzYNu7Yy",
+      "description": "",
+      "sort": 0,
+      "flags": {},
+      "_stats": {
+        "compendiumSource": null,
+        "duplicateSource": null,
+        "exportSource": null,
+        "coreVersion": "13.351",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v1.0.0-RC.84",
+        "lastModifiedBy": null
+      }
+    },
+    {
+      "type": "Item",
+      "folder": null,
+      "name": "Signs",
+      "color": null,
+      "sorting": "a",
+      "_id": "FqQyOD5ErwvOMYiC",
+      "description": "",
+      "sort": 0,
+      "flags": {},
+      "_stats": {
+        "compendiumSource": null,
+        "duplicateSource": null,
+        "exportSource": null,
+        "coreVersion": "13.351",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v1.0.0-RC.84",
+        "createdTime": 1770842658437,
+        "modifiedTime": 1770842658437,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce"
+      }
+    },
+    {
+      "type": "Item",
+      "folder": "FqQyOD5ErwvOMYiC",
+      "name": "Usual",
+      "color": null,
+      "sorting": "a",
+      "_id": "dL6da9p51Y0PHm0T",
+      "description": "",
+      "sort": 100000,
+      "flags": {},
+      "_stats": {
+        "compendiumSource": null,
+        "duplicateSource": null,
+        "exportSource": null,
+        "coreVersion": "13.351",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v1.0.0-RC.84",
+        "createdTime": 1770842676736,
+        "modifiedTime": 1770842679538,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce"
+      }
+    }
+  ],
+  "documents": [
+    {
+      "name": "The Star-Cursed Warrior",
+      "type": "trait",
+      "img": "systems/uesrpg-3ev4/images/dialogue/signs/sign-warrior.webp",
+      "effects": [],
+      "folder": "1gJKHrJoVzYNu7Yy",
+      "sort": 100098,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "featureConfig": {
+            "enabled": true,
+            "applyMode": "auto",
+            "promptMode": "owner",
+            "combatOnly": false,
+            "outOfCombatAllowed": true,
+            "visibility": "all",
+            "stackingOverride": "default",
+            "debug": {
+              "showInInspector": true
+            }
+          },
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 2,
+            "page": 49,
+            "rule": "Star-Cursed Warrior"
+          }
+        }
+      },
+      "_id": "1VMWP1tbtpowTI4O",
+      "_stats": {
+        "coreVersion": "13.351",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v1.0.0-RC.84",
+        "createdTime": null,
+        "modifiedTime": 1770842701047,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.uY0Pzn35u2Fss46p",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "xfxQc6sVhNVKRNeU": 3
+      },
+      "system": {
+        "mpBonus": 0,
+        "hpBonus": 0,
+        "spBonus": 1,
+        "lpBonus": 0,
+        "wtBonus": 0,
+        "iniBonus": 0,
+        "speedBonus": 0,
+        "flyBonus": 0,
+        "swimBonus": 0,
+        "diseaseR": 0,
+        "fireR": 0,
+        "frostR": 0,
+        "shockR": 0,
+        "poisonR": 0,
+        "magicR": 0,
+        "natToughnessR": 0,
+        "silverR": 0,
+        "sunlightR": 0,
+        "replace": {
+          "ini": {
+            "iniToggle": false,
+            "value": 0,
+            "characteristic": ""
+          },
+          "wt": {
+            "wtToggle": false,
+            "value": 0,
+            "characteristic": ""
+          }
+        },
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 5,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": -5,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "skillArray": [],
+        "description": "<p>Increase SP maximum by 1. Gain +5 Strength, lose 5 Willpower.</p>",
+        "halfSpeed": false,
+        "addHalfSpeed": false,
+        "halfFatiguePenalty": false,
+        "mechanical": false,
+        "crpCost": 0,
+        "traitKey": "",
+        "traitParam": "",
+        "traitValue": 0,
+        "traitUnit": "",
+        "traitNotes": "",
+        "halfWoundPenalty": false,
+        "painIntolerant": false,
+        "activation": {
+          "enabled": false,
+          "actionType": "passive",
+          "spendCosts": false,
+          "consumeUse": false,
+          "costs": {
+            "action_points": 0,
+            "stamina": 0,
+            "magicka": 0,
+            "luck_points": 0,
+            "health": 0
+          },
+          "requirements": {
+            "requiresTarget": false,
+            "requiresEquippedWeapon": false,
+            "requiresMelee": false,
+            "requiresRanged": false,
+            "requiresHitLocation": false
+          },
+          "flags": {
+            "npcLuckAllowed": false,
+            "npcEliteAllowed": false
+          },
+          "usage": {
+            "max": 0,
+            "period": "none",
+            "current": 0
+          },
+          "roll": {
+            "mode": "none",
+            "hitLocationMode": "roll",
+            "skillKey": "",
+            "opposed": {
+              "actor": "target",
+              "skillKey": ""
+            },
+            "formula": "",
+            "tags": []
+          },
+          "damage": {
+            "mode": "none",
+            "formula": "",
+            "type": "physical",
+            "qualitiesStructured": [],
+            "qualitiesTraits": []
+          },
+          "text": {
+            "short": "",
+            "full": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "The Mage",
+      "type": "trait",
+      "img": "systems/uesrpg-3ev4/images/dialogue/signs/sign-mage.webp",
+      "effects": [],
+      "folder": "dL6da9p51Y0PHm0T",
+      "sort": 600000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "featureConfig": {
+            "enabled": true,
+            "applyMode": "auto",
+            "promptMode": "owner",
+            "combatOnly": false,
+            "outOfCombatAllowed": true,
+            "visibility": "all",
+            "stackingOverride": "default",
+            "debug": {
+              "showInInspector": true
+            }
+          },
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 2,
+            "page": 50,
+            "rule": "Mage"
+          }
+        }
+      },
+      "_id": "2KiAzQo3gpXi0rPc",
+      "_stats": {
+        "coreVersion": "13.351",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v1.0.0-RC.84",
+        "createdTime": null,
+        "modifiedTime": 1770842683353,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.rJsPUPqP5FyTYKHs",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "xfxQc6sVhNVKRNeU": 3
+      },
+      "system": {
+        "mpBonus": 10,
+        "hpBonus": 0,
+        "spBonus": 0,
+        "lpBonus": 0,
+        "wtBonus": 0,
+        "iniBonus": 0,
+        "speedBonus": 0,
+        "flyBonus": 0,
+        "swimBonus": 0,
+        "diseaseR": 0,
+        "fireR": 0,
+        "frostR": 0,
+        "shockR": 0,
+        "poisonR": 0,
+        "magicR": 0,
+        "natToughnessR": 0,
+        "silverR": 0,
+        "sunlightR": 0,
+        "replace": {
+          "ini": {
+            "iniToggle": false,
+            "value": 0,
+            "characteristic": ""
+          },
+          "wt": {
+            "wtToggle": false,
+            "value": 0,
+            "characteristic": ""
+          }
+        },
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "skillArray": [],
+        "description": "<p>Those born under the sign of the Mage gain the Power Well (10) trait.</p><p>The character increases their maximum Magicka Points by 10.</p>",
+        "halfSpeed": false,
+        "addHalfSpeed": false,
+        "halfFatiguePenalty": false,
+        "mechanical": false,
+        "crpCost": 0,
+        "traitKey": "",
+        "traitParam": "",
+        "traitValue": 0,
+        "traitUnit": "",
+        "traitNotes": "",
+        "halfWoundPenalty": false,
+        "painIntolerant": false,
+        "activation": {
+          "enabled": false,
+          "actionType": "passive",
+          "spendCosts": false,
+          "consumeUse": false,
+          "costs": {
+            "action_points": 0,
+            "stamina": 0,
+            "magicka": 0,
+            "luck_points": 0,
+            "health": 0
+          },
+          "requirements": {
+            "requiresTarget": false,
+            "requiresEquippedWeapon": false,
+            "requiresMelee": false,
+            "requiresRanged": false,
+            "requiresHitLocation": false
+          },
+          "flags": {
+            "npcLuckAllowed": false,
+            "npcEliteAllowed": false
+          },
+          "usage": {
+            "max": 0,
+            "period": "none",
+            "current": 0
+          },
+          "roll": {
+            "mode": "none",
+            "hitLocationMode": "roll",
+            "skillKey": "",
+            "opposed": {
+              "actor": "target",
+              "skillKey": ""
+            },
+            "formula": "",
+            "tags": []
+          },
+          "damage": {
+            "mode": "none",
+            "formula": "",
+            "type": "physical",
+            "qualitiesStructured": [],
+            "qualitiesTraits": []
+          },
+          "text": {
+            "short": "",
+            "full": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "The Star-Cursed Ritual",
+      "type": "trait",
+      "img": "systems/uesrpg-3ev4/images/dialogue/signs/sign-ritual.webp",
+      "effects": [],
+      "folder": "1gJKHrJoVzYNu7Yy",
+      "sort": 103125,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "featureConfig": {
+            "enabled": true,
+            "applyMode": "auto",
+            "promptMode": "owner",
+            "combatOnly": false,
+            "outOfCombatAllowed": true,
+            "visibility": "all",
+            "stackingOverride": "default",
+            "debug": {
+              "showInInspector": true
+            }
+          },
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 2,
+            "page": 50,
+            "rule": "Star-Cursed Ritual"
+          }
+        }
+      },
+      "_id": "5vavAuRX67gfHLUO",
+      "_stats": {
+        "coreVersion": "13.351",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v1.0.0-RC.84",
+        "createdTime": null,
+        "modifiedTime": 1770842697100,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.EiZvTpIgnvFg2UY3",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "xfxQc6sVhNVKRNeU": 3
+      },
+      "system": {
+        "mpBonus": 0,
+        "hpBonus": 0,
+        "spBonus": 0,
+        "lpBonus": 0,
+        "wtBonus": 0,
+        "iniBonus": 0,
+        "speedBonus": 0,
+        "flyBonus": 0,
+        "swimBonus": 0,
+        "diseaseR": 0,
+        "fireR": 0,
+        "frostR": 0,
+        "shockR": 0,
+        "poisonR": 0,
+        "magicR": 0,
+        "natToughnessR": 0,
+        "silverR": 0,
+        "sunlightR": 0,
+        "replace": {
+          "ini": {
+            "iniToggle": false,
+            "value": 0,
+            "characteristic": ""
+          },
+          "wt": {
+            "wtToggle": false,
+            "value": 0,
+            "characteristic": ""
+          }
+        },
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": -5
+        },
+        "skillArray": [],
+        "description": "<p>Gain all three powers permanently (Blessed Touch, Blessed Word, Mara&#39;s Gift), but lose 5 Luck.</p><p>Grants Mara&#39;s Gift; acquire this power or trait through the birthsign selector.</p><p>Grants Blessed Touch; acquire this power or trait through the birthsign selector.</p><p>Grants Blessed Word; acquire this power or trait through the birthsign selector.</p>",
+        "halfSpeed": false,
+        "addHalfSpeed": false,
+        "halfFatiguePenalty": false,
+        "mechanical": false,
+        "crpCost": 0,
+        "traitKey": "",
+        "traitParam": "",
+        "traitValue": 0,
+        "traitUnit": "",
+        "traitNotes": "",
+        "halfWoundPenalty": false,
+        "painIntolerant": false,
+        "activation": {
+          "enabled": false,
+          "actionType": "passive",
+          "spendCosts": false,
+          "consumeUse": false,
+          "costs": {
+            "action_points": 0,
+            "stamina": 0,
+            "magicka": 0,
+            "luck_points": 0,
+            "health": 0
+          },
+          "requirements": {
+            "requiresTarget": false,
+            "requiresEquippedWeapon": false,
+            "requiresMelee": false,
+            "requiresRanged": false,
+            "requiresHitLocation": false
+          },
+          "flags": {
+            "npcLuckAllowed": false,
+            "npcEliteAllowed": false
+          },
+          "usage": {
+            "max": 0,
+            "period": "none",
+            "current": 0
+          },
+          "roll": {
+            "mode": "none",
+            "hitLocationMode": "roll",
+            "skillKey": "",
+            "opposed": {
+              "actor": "target",
+              "skillKey": ""
+            },
+            "formula": "",
+            "tags": []
+          },
+          "damage": {
+            "mode": "none",
+            "formula": "",
+            "type": "physical",
+            "qualitiesStructured": [],
+            "qualitiesTraits": []
+          },
+          "text": {
+            "short": "",
+            "full": ""
+          }
+        }
+      }
+    },
+    {
+      "_id": "IpFdy7LeqwI4x9Ce",
+      "name": "The Lady",
+      "type": "trait",
+      "img": "systems/uesrpg-3ev4/images/dialogue/signs/sign-lady.webp",
+      "effects": [],
+      "folder": "dL6da9p51Y0PHm0T",
+      "sort": 300000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "featureConfig": {
+            "enabled": true,
+            "applyMode": "auto",
+            "promptMode": "owner",
+            "combatOnly": false,
+            "outOfCombatAllowed": true,
+            "visibility": "all",
+            "stackingOverride": "default",
+            "debug": {
+              "showInInspector": true
+            }
+          },
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 2,
+            "page": 49,
+            "rule": "Lady"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "13.351",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v1.0.0-RC.84",
+        "createdTime": null,
+        "modifiedTime": 1770842681823,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.rJsPUPqP5FyTYKHs",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "xfxQc6sVhNVKRNeU": 3
+      },
+      "system": {
+        "mpBonus": 0,
+        "hpBonus": 0,
+        "spBonus": 0,
+        "lpBonus": 0,
+        "wtBonus": 0,
+        "iniBonus": 0,
+        "speedBonus": 0,
+        "flyBonus": 0,
+        "swimBonus": 0,
+        "diseaseR": 0,
+        "fireR": 0,
+        "frostR": 0,
+        "shockR": 0,
+        "poisonR": 0,
+        "magicR": 0,
+        "natToughnessR": 0,
+        "silverR": 0,
+        "sunlightR": 0,
+        "replace": {
+          "ini": {
+            "iniToggle": false,
+            "value": 0,
+            "characteristic": ""
+          },
+          "wt": {
+            "wtToggle": false,
+            "value": 0,
+            "characteristic": ""
+          }
+        },
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 5,
+          "lckChaBonus": 0
+        },
+        "skillArray": [],
+        "description": "<p>Those born under the sign of the Lady gain +5 Personality.</p>",
+        "halfSpeed": false,
+        "addHalfSpeed": false,
+        "halfFatiguePenalty": false,
+        "mechanical": false,
+        "crpCost": 0,
+        "traitKey": "",
+        "traitParam": "",
+        "traitValue": 0,
+        "traitUnit": "",
+        "traitNotes": "",
+        "halfWoundPenalty": false,
+        "painIntolerant": false,
+        "activation": {
+          "enabled": false,
+          "actionType": "passive",
+          "spendCosts": false,
+          "consumeUse": false,
+          "costs": {
+            "action_points": 0,
+            "stamina": 0,
+            "magicka": 0,
+            "luck_points": 0,
+            "health": 0
+          },
+          "requirements": {
+            "requiresTarget": false,
+            "requiresEquippedWeapon": false,
+            "requiresMelee": false,
+            "requiresRanged": false,
+            "requiresHitLocation": false
+          },
+          "flags": {
+            "npcLuckAllowed": false,
+            "npcEliteAllowed": false
+          },
+          "usage": {
+            "max": 0,
+            "period": "none",
+            "current": 0
+          },
+          "roll": {
+            "mode": "none",
+            "hitLocationMode": "roll",
+            "skillKey": "",
+            "opposed": {
+              "actor": "target",
+              "skillKey": ""
+            },
+            "formula": "",
+            "tags": []
+          },
+          "damage": {
+            "mode": "none",
+            "formula": "",
+            "type": "physical",
+            "qualitiesStructured": [],
+            "qualitiesTraits": []
+          },
+          "text": {
+            "short": "",
+            "full": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "The Thief",
+      "type": "trait",
+      "img": "systems/uesrpg-3ev4/images/dialogue/signs/sign-thief.webp",
+      "effects": [],
+      "folder": "dL6da9p51Y0PHm0T",
+      "sort": 1000000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "featureConfig": {
+            "enabled": true,
+            "applyMode": "auto",
+            "promptMode": "owner",
+            "combatOnly": false,
+            "outOfCombatAllowed": true,
+            "visibility": "all",
+            "stackingOverride": "default",
+            "debug": {
+              "showInInspector": true
+            }
+          },
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 2,
+            "page": 50,
+            "rule": "Thief"
+          }
+        }
+      },
+      "_id": "Jag859J9G9frGbMl",
+      "_stats": {
+        "coreVersion": "13.351",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v1.0.0-RC.84",
+        "createdTime": null,
+        "modifiedTime": 1770842685418,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.M9J2gM4Wkvygszuz",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "xfxQc6sVhNVKRNeU": 3
+      },
+      "system": {
+        "mpBonus": 0,
+        "hpBonus": 0,
+        "spBonus": 0,
+        "lpBonus": 0,
+        "wtBonus": 0,
+        "iniBonus": 0,
+        "speedBonus": 0,
+        "flyBonus": 0,
+        "swimBonus": 0,
+        "diseaseR": 0,
+        "fireR": 0,
+        "frostR": 0,
+        "shockR": 0,
+        "poisonR": 0,
+        "magicR": 0,
+        "natToughnessR": 0,
+        "silverR": 0,
+        "sunlightR": 0,
+        "replace": {
+          "ini": {
+            "iniToggle": false,
+            "value": 0,
+            "characteristic": ""
+          },
+          "wt": {
+            "wtToggle": false,
+            "value": 0,
+            "characteristic": ""
+          }
+        },
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "skillArray": [],
+        "description": "<p>Those born under the sign of the Thief roll an extra lucky number that they never lose regardless of their Luck score.</p>",
+        "halfSpeed": false,
+        "addHalfSpeed": false,
+        "halfFatiguePenalty": false,
+        "mechanical": false,
+        "crpCost": 0,
+        "traitKey": "",
+        "traitParam": "",
+        "traitValue": 0,
+        "traitUnit": "",
+        "traitNotes": "",
+        "halfWoundPenalty": false,
+        "painIntolerant": false,
+        "activation": {
+          "enabled": false,
+          "actionType": "passive",
+          "spendCosts": false,
+          "consumeUse": false,
+          "costs": {
+            "action_points": 0,
+            "stamina": 0,
+            "magicka": 0,
+            "luck_points": 0,
+            "health": 0
+          },
+          "requirements": {
+            "requiresTarget": false,
+            "requiresEquippedWeapon": false,
+            "requiresMelee": false,
+            "requiresRanged": false,
+            "requiresHitLocation": false
+          },
+          "flags": {
+            "npcLuckAllowed": false,
+            "npcEliteAllowed": false
+          },
+          "usage": {
+            "max": 0,
+            "period": "none",
+            "current": 0
+          },
+          "roll": {
+            "mode": "none",
+            "hitLocationMode": "roll",
+            "skillKey": "",
+            "opposed": {
+              "actor": "target",
+              "skillKey": ""
+            },
+            "formula": "",
+            "tags": []
+          },
+          "damage": {
+            "mode": "none",
+            "formula": "",
+            "type": "physical",
+            "qualitiesStructured": [],
+            "qualitiesTraits": []
+          },
+          "text": {
+            "short": "",
+            "full": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "The Warrior",
+      "type": "trait",
+      "img": "systems/uesrpg-3ev4/images/dialogue/signs/sign-warrior.webp",
+      "effects": [],
+      "folder": "dL6da9p51Y0PHm0T",
+      "sort": 1200000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "featureConfig": {
+            "enabled": true,
+            "applyMode": "auto",
+            "promptMode": "owner",
+            "combatOnly": false,
+            "outOfCombatAllowed": true,
+            "visibility": "all",
+            "stackingOverride": "default",
+            "debug": {
+              "showInInspector": true
+            }
+          },
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 2,
+            "page": 49,
+            "rule": "Warrior"
+          }
+        }
+      },
+      "_id": "Jepd3F0flaRojWRY",
+      "_stats": {
+        "coreVersion": "13.351",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v1.0.0-RC.84",
+        "createdTime": null,
+        "modifiedTime": 1770842686497,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.uY0Pzn35u2Fss46p",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "xfxQc6sVhNVKRNeU": 3
+      },
+      "system": {
+        "mpBonus": 0,
+        "hpBonus": 0,
+        "spBonus": 1,
+        "lpBonus": 0,
+        "wtBonus": 0,
+        "iniBonus": 0,
+        "speedBonus": 0,
+        "flyBonus": 0,
+        "swimBonus": 0,
+        "diseaseR": 0,
+        "fireR": 0,
+        "frostR": 0,
+        "shockR": 0,
+        "poisonR": 0,
+        "magicR": 0,
+        "natToughnessR": 0,
+        "silverR": 0,
+        "sunlightR": 0,
+        "replace": {
+          "ini": {
+            "iniToggle": false,
+            "value": 0,
+            "characteristic": ""
+          },
+          "wt": {
+            "wtToggle": false,
+            "value": 0,
+            "characteristic": ""
+          }
+        },
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "skillArray": [],
+        "description": "<p>Those born under the sign of the Warrior increase their SP maximum by 1.</p>",
+        "halfSpeed": false,
+        "addHalfSpeed": false,
+        "halfFatiguePenalty": false,
+        "mechanical": false,
+        "crpCost": 0,
+        "traitKey": "",
+        "traitParam": "",
+        "traitValue": 0,
+        "traitUnit": "",
+        "traitNotes": "",
+        "halfWoundPenalty": false,
+        "painIntolerant": false,
+        "activation": {
+          "enabled": false,
+          "actionType": "passive",
+          "spendCosts": false,
+          "consumeUse": false,
+          "costs": {
+            "action_points": 0,
+            "stamina": 0,
+            "magicka": 0,
+            "luck_points": 0,
+            "health": 0
+          },
+          "requirements": {
+            "requiresTarget": false,
+            "requiresEquippedWeapon": false,
+            "requiresMelee": false,
+            "requiresRanged": false,
+            "requiresHitLocation": false
+          },
+          "flags": {
+            "npcLuckAllowed": false,
+            "npcEliteAllowed": false
+          },
+          "usage": {
+            "max": 0,
+            "period": "none",
+            "current": 0
+          },
+          "roll": {
+            "mode": "none",
+            "hitLocationMode": "roll",
+            "skillKey": "",
+            "opposed": {
+              "actor": "target",
+              "skillKey": ""
+            },
+            "formula": "",
+            "tags": []
+          },
+          "damage": {
+            "mode": "none",
+            "formula": "",
+            "type": "physical",
+            "qualitiesStructured": [],
+            "qualitiesTraits": []
+          },
+          "text": {
+            "short": "",
+            "full": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "The Star-Cursed Thief",
+      "type": "trait",
+      "img": "systems/uesrpg-3ev4/images/dialogue/signs/sign-thief.webp",
+      "effects": [],
+      "folder": "1gJKHrJoVzYNu7Yy",
+      "sort": 100391,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "featureConfig": {
+            "enabled": true,
+            "applyMode": "auto",
+            "promptMode": "owner",
+            "combatOnly": false,
+            "outOfCombatAllowed": true,
+            "visibility": "all",
+            "stackingOverride": "default",
+            "debug": {
+              "showInInspector": true
+            }
+          },
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 2,
+            "page": 50,
+            "rule": "Star-Cursed Thief"
+          }
+        }
+      },
+      "_id": "Lh5P9QgIeoanw0YG",
+      "_stats": {
+        "coreVersion": "13.351",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v1.0.0-RC.84",
+        "createdTime": null,
+        "modifiedTime": 1770842699384,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.M9J2gM4Wkvygszuz",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "xfxQc6sVhNVKRNeU": 3
+      },
+      "system": {
+        "mpBonus": 0,
+        "hpBonus": 0,
+        "spBonus": 0,
+        "lpBonus": 0,
+        "wtBonus": 0,
+        "iniBonus": 0,
+        "speedBonus": 0,
+        "flyBonus": 0,
+        "swimBonus": 0,
+        "diseaseR": 0,
+        "fireR": 0,
+        "frostR": 0,
+        "shockR": 0,
+        "poisonR": 0,
+        "magicR": 0,
+        "natToughnessR": 0,
+        "silverR": 0,
+        "sunlightR": 0,
+        "replace": {
+          "ini": {
+            "iniToggle": false,
+            "value": 0,
+            "characteristic": ""
+          },
+          "wt": {
+            "wtToggle": false,
+            "value": 0,
+            "characteristic": ""
+          }
+        },
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "skillArray": [],
+        "description": "<p>Extra permanent lucky number. Replace Luck score with 50. Gain Akaviri Danger-Sense and Running Out of Luck.</p><p>Grants Akaviri Danger-Sense; acquire this power or trait through the birthsign selector.</p><p>Grants Running Out of Luck; acquire this power or trait through the birthsign selector.</p><p>The birthsign selector replaces rolled Luck with 50. This sign is available only after naturally rolling The Thief and cannot be selected by spending Luck.</p>",
+        "halfSpeed": false,
+        "addHalfSpeed": false,
+        "halfFatiguePenalty": false,
+        "mechanical": false,
+        "crpCost": 0,
+        "traitKey": "",
+        "traitParam": "",
+        "traitValue": 0,
+        "traitUnit": "",
+        "traitNotes": "",
+        "halfWoundPenalty": false,
+        "painIntolerant": false,
+        "activation": {
+          "enabled": false,
+          "actionType": "passive",
+          "spendCosts": false,
+          "consumeUse": false,
+          "costs": {
+            "action_points": 0,
+            "stamina": 0,
+            "magicka": 0,
+            "luck_points": 0,
+            "health": 0
+          },
+          "requirements": {
+            "requiresTarget": false,
+            "requiresEquippedWeapon": false,
+            "requiresMelee": false,
+            "requiresRanged": false,
+            "requiresHitLocation": false
+          },
+          "flags": {
+            "npcLuckAllowed": false,
+            "npcEliteAllowed": false
+          },
+          "usage": {
+            "max": 0,
+            "period": "none",
+            "current": 0
+          },
+          "roll": {
+            "mode": "none",
+            "hitLocationMode": "roll",
+            "skillKey": "",
+            "opposed": {
+              "actor": "target",
+              "skillKey": ""
+            },
+            "formula": "",
+            "tags": []
+          },
+          "damage": {
+            "mode": "none",
+            "formula": "",
+            "type": "physical",
+            "qualitiesStructured": [],
+            "qualitiesTraits": []
+          },
+          "text": {
+            "short": "",
+            "full": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "The Tower",
+      "type": "trait",
+      "img": "systems/uesrpg-3ev4/images/dialogue/signs/sign-tower.webp",
+      "effects": [],
+      "folder": "dL6da9p51Y0PHm0T",
+      "sort": 1100000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "featureConfig": {
+            "enabled": true,
+            "applyMode": "auto",
+            "promptMode": "owner",
+            "combatOnly": false,
+            "outOfCombatAllowed": true,
+            "visibility": "all",
+            "stackingOverride": "default",
+            "debug": {
+              "showInInspector": true
+            }
+          },
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 2,
+            "page": 50,
+            "rule": "Tower"
+          }
+        }
+      },
+      "_id": "RBBHJh9SJ52T4FMh",
+      "_stats": {
+        "coreVersion": "13.351",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v1.0.0-RC.84",
+        "createdTime": null,
+        "modifiedTime": 1770842685931,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.M9J2gM4Wkvygszuz",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "xfxQc6sVhNVKRNeU": 3
+      },
+      "system": {
+        "mpBonus": 0,
+        "hpBonus": 0,
+        "spBonus": 0,
+        "lpBonus": 0,
+        "wtBonus": 0,
+        "iniBonus": 0,
+        "speedBonus": 0,
+        "flyBonus": 0,
+        "swimBonus": 0,
+        "diseaseR": 0,
+        "fireR": 0,
+        "frostR": 0,
+        "shockR": 0,
+        "poisonR": 0,
+        "magicR": 0,
+        "natToughnessR": 0,
+        "silverR": 0,
+        "sunlightR": 0,
+        "replace": {
+          "ini": {
+            "iniToggle": false,
+            "value": 0,
+            "characteristic": ""
+          },
+          "wt": {
+            "wtToggle": false,
+            "value": 0,
+            "characteristic": ""
+          }
+        },
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 5,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "skillArray": [],
+        "description": "<p>Those born under the sign of the Tower gain the Treasure Seeker power and +5 Perception.</p><p>Grants Treasure Seeker; acquire this power or trait through the birthsign selector.</p>",
+        "halfSpeed": false,
+        "addHalfSpeed": false,
+        "halfFatiguePenalty": false,
+        "mechanical": false,
+        "crpCost": 0,
+        "traitKey": "",
+        "traitParam": "",
+        "traitValue": 0,
+        "traitUnit": "",
+        "traitNotes": "",
+        "halfWoundPenalty": false,
+        "painIntolerant": false,
+        "activation": {
+          "enabled": false,
+          "actionType": "passive",
+          "spendCosts": false,
+          "consumeUse": false,
+          "costs": {
+            "action_points": 0,
+            "stamina": 0,
+            "magicka": 0,
+            "luck_points": 0,
+            "health": 0
+          },
+          "requirements": {
+            "requiresTarget": false,
+            "requiresEquippedWeapon": false,
+            "requiresMelee": false,
+            "requiresRanged": false,
+            "requiresHitLocation": false
+          },
+          "flags": {
+            "npcLuckAllowed": false,
+            "npcEliteAllowed": false
+          },
+          "usage": {
+            "max": 0,
+            "period": "none",
+            "current": 0
+          },
+          "roll": {
+            "mode": "none",
+            "hitLocationMode": "roll",
+            "skillKey": "",
+            "opposed": {
+              "actor": "target",
+              "skillKey": ""
+            },
+            "formula": "",
+            "tags": []
+          },
+          "damage": {
+            "mode": "none",
+            "formula": "",
+            "type": "physical",
+            "qualitiesStructured": [],
+            "qualitiesTraits": []
+          },
+          "text": {
+            "short": "",
+            "full": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "The Star-Cursed Apprentice",
+      "type": "trait",
+      "img": "systems/uesrpg-3ev4/images/dialogue/signs/sign-apprentice.webp",
+      "effects": [],
+      "folder": "1gJKHrJoVzYNu7Yy",
+      "sort": 100000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "featureConfig": {
+            "enabled": true,
+            "applyMode": "auto",
+            "promptMode": "owner",
+            "combatOnly": false,
+            "outOfCombatAllowed": true,
+            "visibility": "all",
+            "stackingOverride": "default",
+            "debug": {
+              "showInInspector": true
+            }
+          },
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 2,
+            "page": 50,
+            "rule": "Star-Cursed Apprentice"
+          }
+        }
+      },
+      "_id": "VMzpGy5SG1WWR11i",
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776763332709,
+        "modifiedTime": 1776763332709,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.rJsPUPqP5FyTYKHs",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "xfxQc6sVhNVKRNeU": 3
+      },
+      "system": {
+        "mpBonus": 50,
+        "hpBonus": 0,
+        "spBonus": 0,
+        "lpBonus": 0,
+        "wtBonus": 0,
+        "iniBonus": 0,
+        "speedBonus": 0,
+        "flyBonus": 0,
+        "swimBonus": 0,
+        "diseaseR": 0,
+        "fireR": 0,
+        "frostR": 0,
+        "shockR": 0,
+        "poisonR": 0,
+        "magicR": 0,
+        "natToughnessR": 0,
+        "silverR": 0,
+        "sunlightR": 0,
+        "replace": {
+          "ini": {
+            "iniToggle": false,
+            "value": 0,
+            "characteristic": ""
+          },
+          "wt": {
+            "wtToggle": false,
+            "value": 0,
+            "characteristic": ""
+          }
+        },
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "skillArray": [],
+        "description": "<p>Those born under the Star-Cursed Apprentice have especially deep but volatile magicka reserves.</p><p>The character increases their maximum Magicka Points by 50.</p><p>This character takes 3 additional incoming magic damage and gains -30 penalty to resist non-damaging magic effects.</p>",
+        "halfSpeed": false,
+        "addHalfSpeed": false,
+        "halfFatiguePenalty": false,
+        "mechanical": false,
+        "crpCost": 0,
+        "traitKey": "weakness",
+        "traitParam": "magic",
+        "traitValue": 3,
+        "traitUnit": "",
+        "traitNotes": "",
+        "halfWoundPenalty": false,
+        "painIntolerant": false,
+        "activation": {
+          "enabled": false,
+          "actionType": "passive",
+          "spendCosts": false,
+          "consumeUse": false,
+          "costs": {
+            "action_points": 0,
+            "stamina": 0,
+            "magicka": 0,
+            "luck_points": 0,
+            "health": 0
+          },
+          "requirements": {
+            "requiresTarget": false,
+            "requiresEquippedWeapon": false,
+            "requiresMelee": false,
+            "requiresRanged": false,
+            "requiresHitLocation": false
+          },
+          "flags": {
+            "npcLuckAllowed": false,
+            "npcEliteAllowed": false
+          },
+          "usage": {
+            "max": 0,
+            "period": "",
+            "current": 0
+          },
+          "roll": {
+            "mode": "none",
+            "hitLocationMode": "roll",
+            "skillKey": "",
+            "opposed": {
+              "actor": "target",
+              "skillKey": ""
+            },
+            "formula": "",
+            "tags": []
+          },
+          "damage": {
+            "mode": "none",
+            "formula": "",
+            "type": "physical",
+            "qualitiesStructured": [],
+            "qualitiesTraits": []
+          },
+          "text": {
+            "short": "",
+            "full": ""
+          }
+        }
+      }
+    },
+    {
+      "_id": "WbOrSiR2sPM5jA30",
+      "name": "The Star-Cursed Steed",
+      "type": "trait",
+      "img": "systems/uesrpg-3ev4/images/dialogue/signs/sign-steed.webp",
+      "effects": [],
+      "folder": "1gJKHrJoVzYNu7Yy",
+      "sort": 100782,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "featureConfig": {
+            "enabled": true,
+            "applyMode": "auto",
+            "promptMode": "owner",
+            "combatOnly": false,
+            "outOfCombatAllowed": true,
+            "visibility": "all",
+            "stackingOverride": "default",
+            "debug": {
+              "showInInspector": true
+            }
+          },
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 2,
+            "page": 49,
+            "rule": "Star-Cursed Steed"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "13.351",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v1.0.0-RC.84",
+        "createdTime": null,
+        "modifiedTime": 1770842698584,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.EiZvTpIgnvFg2UY3",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "xfxQc6sVhNVKRNeU": 3
+      },
+      "system": {
+        "mpBonus": 0,
+        "hpBonus": 0,
+        "spBonus": 0,
+        "lpBonus": 0,
+        "wtBonus": 0,
+        "iniBonus": 0,
+        "speedBonus": 2,
+        "flyBonus": 0,
+        "swimBonus": 0,
+        "diseaseR": 0,
+        "fireR": 0,
+        "frostR": 0,
+        "shockR": 0,
+        "poisonR": 0,
+        "magicR": 0,
+        "natToughnessR": 0,
+        "silverR": 0,
+        "sunlightR": 0,
+        "replace": {
+          "ini": {
+            "iniToggle": false,
+            "value": 0,
+            "characteristic": ""
+          },
+          "wt": {
+            "wtToggle": false,
+            "value": 0,
+            "characteristic": ""
+          }
+        },
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 5,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "skillArray": [],
+        "description": "<p>Increase Speed by 2. Gain +5 Agility.</p><p>Choose one: willpower or perception; apply -5. The birthsign selector records this choice as a separate penalty trait.</p>",
+        "halfSpeed": false,
+        "addHalfSpeed": false,
+        "halfFatiguePenalty": false,
+        "mechanical": false,
+        "crpCost": 0,
+        "traitKey": "",
+        "traitParam": "",
+        "traitValue": 0,
+        "traitUnit": "",
+        "traitNotes": "",
+        "halfWoundPenalty": false,
+        "painIntolerant": false,
+        "activation": {
+          "enabled": false,
+          "actionType": "passive",
+          "spendCosts": false,
+          "consumeUse": false,
+          "costs": {
+            "action_points": 0,
+            "stamina": 0,
+            "magicka": 0,
+            "luck_points": 0,
+            "health": 0
+          },
+          "requirements": {
+            "requiresTarget": false,
+            "requiresEquippedWeapon": false,
+            "requiresMelee": false,
+            "requiresRanged": false,
+            "requiresHitLocation": false
+          },
+          "flags": {
+            "npcLuckAllowed": false,
+            "npcEliteAllowed": false
+          },
+          "usage": {
+            "max": 0,
+            "period": "none",
+            "current": 0
+          },
+          "roll": {
+            "mode": "none",
+            "hitLocationMode": "roll",
+            "skillKey": "",
+            "opposed": {
+              "actor": "target",
+              "skillKey": ""
+            },
+            "formula": "",
+            "tags": []
+          },
+          "damage": {
+            "mode": "none",
+            "formula": "",
+            "type": "physical",
+            "qualitiesStructured": [],
+            "qualitiesTraits": []
+          },
+          "text": {
+            "short": "",
+            "full": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "The Star-Cursed Lover",
+      "type": "trait",
+      "img": "systems/uesrpg-3ev4/images/dialogue/signs/sign-lord.webp",
+      "effects": [],
+      "folder": "1gJKHrJoVzYNu7Yy",
+      "sort": 112500,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "featureConfig": {
+            "enabled": true,
+            "applyMode": "auto",
+            "promptMode": "owner",
+            "combatOnly": false,
+            "outOfCombatAllowed": true,
+            "visibility": "all",
+            "stackingOverride": "default",
+            "debug": {
+              "showInInspector": true
+            }
+          },
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 2,
+            "page": 50,
+            "rule": "Star-Cursed Lover"
+          }
+        }
+      },
+      "_id": "WhC7vYGPnVzI5GcP",
+      "_stats": {
+        "coreVersion": "13.351",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v1.0.0-RC.84",
+        "createdTime": null,
+        "modifiedTime": 1770842695413,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.rJsPUPqP5FyTYKHs",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "xfxQc6sVhNVKRNeU": 3
+      },
+      "system": {
+        "mpBonus": 0,
+        "hpBonus": 0,
+        "spBonus": 0,
+        "lpBonus": 0,
+        "wtBonus": 0,
+        "iniBonus": 0,
+        "speedBonus": 0,
+        "flyBonus": 0,
+        "swimBonus": 0,
+        "diseaseR": 0,
+        "fireR": 0,
+        "frostR": 0,
+        "shockR": 0,
+        "poisonR": 0,
+        "magicR": 0,
+        "natToughnessR": 0,
+        "silverR": 0,
+        "sunlightR": 0,
+        "replace": {
+          "ini": {
+            "iniToggle": false,
+            "value": 0,
+            "characteristic": ""
+          },
+          "wt": {
+            "wtToggle": false,
+            "value": 0,
+            "characteristic": ""
+          }
+        },
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 5,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 5,
+          "lckChaBonus": 0
+        },
+        "skillArray": [],
+        "description": "<p>Gain +5 Agility and +5 Personality.</p><p>Choose one: willpower or strength; apply -5. The birthsign selector records this choice as a separate penalty trait.</p>",
+        "halfSpeed": false,
+        "addHalfSpeed": false,
+        "halfFatiguePenalty": false,
+        "mechanical": false,
+        "crpCost": 0,
+        "traitKey": "",
+        "traitParam": "",
+        "traitValue": 0,
+        "traitUnit": "",
+        "traitNotes": "",
+        "halfWoundPenalty": false,
+        "painIntolerant": false,
+        "activation": {
+          "enabled": false,
+          "actionType": "passive",
+          "spendCosts": false,
+          "consumeUse": false,
+          "costs": {
+            "action_points": 0,
+            "stamina": 0,
+            "magicka": 0,
+            "luck_points": 0,
+            "health": 0
+          },
+          "requirements": {
+            "requiresTarget": false,
+            "requiresEquippedWeapon": false,
+            "requiresMelee": false,
+            "requiresRanged": false,
+            "requiresHitLocation": false
+          },
+          "flags": {
+            "npcLuckAllowed": false,
+            "npcEliteAllowed": false
+          },
+          "usage": {
+            "max": 0,
+            "period": "none",
+            "current": 0
+          },
+          "roll": {
+            "mode": "none",
+            "hitLocationMode": "roll",
+            "skillKey": "",
+            "opposed": {
+              "actor": "target",
+              "skillKey": ""
+            },
+            "formula": "",
+            "tags": []
+          },
+          "damage": {
+            "mode": "none",
+            "formula": "",
+            "type": "physical",
+            "qualitiesStructured": [],
+            "qualitiesTraits": []
+          },
+          "text": {
+            "short": "",
+            "full": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "The Star-Cursed Lady",
+      "type": "trait",
+      "img": "systems/uesrpg-3ev4/images/dialogue/signs/sign-lady.webp",
+      "effects": [],
+      "folder": "1gJKHrJoVzYNu7Yy",
+      "sort": 150000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "featureConfig": {
+            "enabled": true,
+            "applyMode": "auto",
+            "promptMode": "owner",
+            "combatOnly": false,
+            "outOfCombatAllowed": true,
+            "visibility": "all",
+            "stackingOverride": "default",
+            "debug": {
+              "showInInspector": true
+            }
+          },
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 2,
+            "page": 49,
+            "rule": "Star-Cursed Lady"
+          }
+        }
+      },
+      "_id": "YJ0znjzt5rhhyN1B",
+      "_stats": {
+        "coreVersion": "13.351",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v1.0.0-RC.84",
+        "createdTime": null,
+        "modifiedTime": 1770842693584,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.rJsPUPqP5FyTYKHs",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "xfxQc6sVhNVKRNeU": 3
+      },
+      "system": {
+        "mpBonus": 0,
+        "hpBonus": 0,
+        "spBonus": 0,
+        "lpBonus": 0,
+        "wtBonus": 0,
+        "iniBonus": 0,
+        "speedBonus": 0,
+        "flyBonus": 0,
+        "swimBonus": 0,
+        "diseaseR": 0,
+        "fireR": 0,
+        "frostR": 0,
+        "shockR": 0,
+        "poisonR": 0,
+        "magicR": 0,
+        "natToughnessR": 0,
+        "silverR": 0,
+        "sunlightR": 0,
+        "replace": {
+          "ini": {
+            "iniToggle": false,
+            "value": 0,
+            "characteristic": ""
+          },
+          "wt": {
+            "wtToggle": false,
+            "value": 0,
+            "characteristic": ""
+          }
+        },
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": -5,
+          "endChaBonus": 5,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 5,
+          "lckChaBonus": 0
+        },
+        "skillArray": [],
+        "description": "<p>Gain +5 Personality, +5 Endurance, and lose 5 Strength.</p>",
+        "halfSpeed": false,
+        "addHalfSpeed": false,
+        "halfFatiguePenalty": false,
+        "mechanical": false,
+        "crpCost": 0,
+        "traitKey": "",
+        "traitParam": "",
+        "traitValue": 0,
+        "traitUnit": "",
+        "traitNotes": "",
+        "halfWoundPenalty": false,
+        "painIntolerant": false,
+        "activation": {
+          "enabled": false,
+          "actionType": "passive",
+          "spendCosts": false,
+          "consumeUse": false,
+          "costs": {
+            "action_points": 0,
+            "stamina": 0,
+            "magicka": 0,
+            "luck_points": 0,
+            "health": 0
+          },
+          "requirements": {
+            "requiresTarget": false,
+            "requiresEquippedWeapon": false,
+            "requiresMelee": false,
+            "requiresRanged": false,
+            "requiresHitLocation": false
+          },
+          "flags": {
+            "npcLuckAllowed": false,
+            "npcEliteAllowed": false
+          },
+          "usage": {
+            "max": 0,
+            "period": "none",
+            "current": 0
+          },
+          "roll": {
+            "mode": "none",
+            "hitLocationMode": "roll",
+            "skillKey": "",
+            "opposed": {
+              "actor": "target",
+              "skillKey": ""
+            },
+            "formula": "",
+            "tags": []
+          },
+          "damage": {
+            "mode": "none",
+            "formula": "",
+            "type": "physical",
+            "qualitiesStructured": [],
+            "qualitiesTraits": []
+          },
+          "text": {
+            "short": "",
+            "full": ""
+          }
+        }
+      }
+    },
+    {
+      "_id": "cjA4A770YNaWTHYD",
+      "name": "The Steed",
+      "type": "trait",
+      "img": "systems/uesrpg-3ev4/images/dialogue/signs/sign-steed.webp",
+      "effects": [],
+      "folder": "dL6da9p51Y0PHm0T",
+      "sort": 900000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "featureConfig": {
+            "enabled": true,
+            "applyMode": "auto",
+            "promptMode": "owner",
+            "combatOnly": false,
+            "outOfCombatAllowed": true,
+            "visibility": "all",
+            "stackingOverride": "default",
+            "debug": {
+              "showInInspector": true
+            }
+          },
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 2,
+            "page": 49,
+            "rule": "Steed"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "13.351",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v1.0.0-RC.84",
+        "createdTime": null,
+        "modifiedTime": 1770842684899,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.EiZvTpIgnvFg2UY3",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "xfxQc6sVhNVKRNeU": 3
+      },
+      "system": {
+        "mpBonus": 0,
+        "hpBonus": 0,
+        "spBonus": 0,
+        "lpBonus": 0,
+        "wtBonus": 0,
+        "iniBonus": 0,
+        "speedBonus": 2,
+        "flyBonus": 0,
+        "swimBonus": 0,
+        "diseaseR": 0,
+        "fireR": 0,
+        "frostR": 0,
+        "shockR": 0,
+        "poisonR": 0,
+        "magicR": 0,
+        "natToughnessR": 0,
+        "silverR": 0,
+        "sunlightR": 0,
+        "replace": {
+          "ini": {
+            "iniToggle": false,
+            "value": 0,
+            "characteristic": ""
+          },
+          "wt": {
+            "wtToggle": false,
+            "value": 0,
+            "characteristic": ""
+          }
+        },
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "skillArray": [],
+        "description": "<p>Those born under the sign of the Steed increase Speed by 2.</p>",
+        "halfSpeed": false,
+        "addHalfSpeed": false,
+        "halfFatiguePenalty": false,
+        "mechanical": false,
+        "crpCost": 0,
+        "traitKey": "",
+        "traitParam": "",
+        "traitValue": 0,
+        "traitUnit": "",
+        "traitNotes": "",
+        "halfWoundPenalty": false,
+        "painIntolerant": false,
+        "activation": {
+          "enabled": false,
+          "actionType": "passive",
+          "spendCosts": false,
+          "consumeUse": false,
+          "costs": {
+            "action_points": 0,
+            "stamina": 0,
+            "magicka": 0,
+            "luck_points": 0,
+            "health": 0
+          },
+          "requirements": {
+            "requiresTarget": false,
+            "requiresEquippedWeapon": false,
+            "requiresMelee": false,
+            "requiresRanged": false,
+            "requiresHitLocation": false
+          },
+          "flags": {
+            "npcLuckAllowed": false,
+            "npcEliteAllowed": false
+          },
+          "usage": {
+            "max": 0,
+            "period": "none",
+            "current": 0
+          },
+          "roll": {
+            "mode": "none",
+            "hitLocationMode": "roll",
+            "skillKey": "",
+            "opposed": {
+              "actor": "target",
+              "skillKey": ""
+            },
+            "formula": "",
+            "tags": []
+          },
+          "damage": {
+            "mode": "none",
+            "formula": "",
+            "type": "physical",
+            "qualitiesStructured": [],
+            "qualitiesTraits": []
+          },
+          "text": {
+            "short": "",
+            "full": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "The Atronach",
+      "type": "trait",
+      "img": "systems/uesrpg-3ev4/images/dialogue/signs/sign-atronach.webp",
+      "effects": [
+        {
+          "_id": "744fa9cecd1ca171",
+          "name": "Stunted Magicka",
+          "img": "icons/magic/control/debuff-chains-ropes-purple.webp",
+          "transfer": true,
+          "disabled": false,
+          "statuses": [],
+          "duration": {},
+          "flags": {
+            "uesrpg-3ev4": {
+              "magic": {
+                "stuntedMagicka": true
+              }
+            }
+          },
+          "system": {
+            "changes": []
+          }
+        }
+      ],
+      "folder": "dL6da9p51Y0PHm0T",
+      "sort": 200000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "featureConfig": {
+            "enabled": true,
+            "applyMode": "auto",
+            "promptMode": "owner",
+            "combatOnly": false,
+            "outOfCombatAllowed": true,
+            "visibility": "all",
+            "stackingOverride": "default",
+            "debug": {
+              "showInInspector": true
+            }
+          },
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 2,
+            "page": 50,
+            "rule": "Atronach"
+          }
+        }
+      },
+      "_id": "hmwYTUgjaDAJzSMa",
+      "_stats": {
+        "coreVersion": "13.351",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v1.0.0-RC.84",
+        "createdTime": null,
+        "modifiedTime": 1770842681302,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.rJsPUPqP5FyTYKHs",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "xfxQc6sVhNVKRNeU": 3
+      },
+      "system": {
+        "mpBonus": 50,
+        "hpBonus": 0,
+        "spBonus": 0,
+        "lpBonus": 0,
+        "wtBonus": 0,
+        "iniBonus": 0,
+        "speedBonus": 0,
+        "flyBonus": 0,
+        "swimBonus": 0,
+        "diseaseR": 0,
+        "fireR": 0,
+        "frostR": 0,
+        "shockR": 0,
+        "poisonR": 0,
+        "magicR": 0,
+        "natToughnessR": 0,
+        "silverR": 0,
+        "sunlightR": 0,
+        "replace": {
+          "ini": {
+            "iniToggle": false,
+            "value": 0,
+            "characteristic": ""
+          },
+          "wt": {
+            "wtToggle": false,
+            "value": 0,
+            "characteristic": ""
+          }
+        },
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "skillArray": [],
+        "description": "<p>Those born under the sign of the Atronach are natural sorcerers with deep reserves of magicka, but they cannot generate magicka of their own.</p><p>The character increases their maximum Magicka Points by 50.</p><p>Roll a d10 when affected by magic from another source. On 5 or less, absorb the magic and recover missing MP up to its cost.</p><p>Grants Stunted Magicka; acquire this power or trait through the birthsign selector.</p>",
+        "halfSpeed": false,
+        "addHalfSpeed": false,
+        "halfFatiguePenalty": false,
+        "mechanical": false,
+        "crpCost": 0,
+        "traitKey": "spellAbsorption",
+        "traitParam": "",
+        "traitValue": 5,
+        "traitUnit": "",
+        "traitNotes": "",
+        "halfWoundPenalty": false,
+        "painIntolerant": false,
+        "activation": {
+          "enabled": false,
+          "actionType": "passive",
+          "spendCosts": false,
+          "consumeUse": false,
+          "costs": {
+            "action_points": 0,
+            "stamina": 0,
+            "magicka": 0,
+            "luck_points": 0,
+            "health": 0
+          },
+          "requirements": {
+            "requiresTarget": false,
+            "requiresEquippedWeapon": false,
+            "requiresMelee": false,
+            "requiresRanged": false,
+            "requiresHitLocation": false
+          },
+          "flags": {
+            "npcLuckAllowed": false,
+            "npcEliteAllowed": false
+          },
+          "usage": {
+            "max": 0,
+            "period": "none",
+            "current": 0
+          },
+          "roll": {
+            "mode": "none",
+            "hitLocationMode": "roll",
+            "skillKey": "",
+            "opposed": {
+              "actor": "target",
+              "skillKey": ""
+            },
+            "formula": "",
+            "tags": []
+          },
+          "damage": {
+            "mode": "none",
+            "formula": "",
+            "type": "physical",
+            "qualitiesStructured": [],
+            "qualitiesTraits": []
+          },
+          "text": {
+            "short": "",
+            "full": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "The Star-Cursed Tower",
+      "type": "trait",
+      "img": "systems/uesrpg-3ev4/images/dialogue/signs/sign-tower.webp",
+      "effects": [],
+      "folder": "1gJKHrJoVzYNu7Yy",
+      "sort": 100196,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "featureConfig": {
+            "enabled": true,
+            "applyMode": "auto",
+            "promptMode": "owner",
+            "combatOnly": false,
+            "outOfCombatAllowed": true,
+            "visibility": "all",
+            "stackingOverride": "default",
+            "debug": {
+              "showInInspector": true
+            }
+          },
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 2,
+            "page": 50,
+            "rule": "Star-Cursed Tower"
+          }
+        }
+      },
+      "_id": "iMCvgBy07nmPh3ig",
+      "_stats": {
+        "coreVersion": "13.351",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v1.0.0-RC.84",
+        "createdTime": null,
+        "modifiedTime": 1770842700216,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.M9J2gM4Wkvygszuz",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "xfxQc6sVhNVKRNeU": 3
+      },
+      "system": {
+        "mpBonus": 0,
+        "hpBonus": 0,
+        "spBonus": 0,
+        "lpBonus": 0,
+        "wtBonus": 0,
+        "iniBonus": 0,
+        "speedBonus": 0,
+        "flyBonus": 0,
+        "swimBonus": 0,
+        "diseaseR": 0,
+        "fireR": 0,
+        "frostR": 0,
+        "shockR": 0,
+        "poisonR": 0,
+        "magicR": 0,
+        "natToughnessR": 0,
+        "silverR": 0,
+        "sunlightR": 0,
+        "replace": {
+          "ini": {
+            "iniToggle": false,
+            "value": 0,
+            "characteristic": ""
+          },
+          "wt": {
+            "wtToggle": false,
+            "value": 0,
+            "characteristic": ""
+          }
+        },
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 5,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 5,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "skillArray": [],
+        "description": "<p>Gain Treasure Seeker power, +5 Perception, and +5 Agility.</p><p>Grants Treasure Seeker; acquire this power or trait through the birthsign selector.</p><p>Choose one: willpower or strength; apply -5. The birthsign selector records this choice as a separate penalty trait.</p>",
+        "halfSpeed": false,
+        "addHalfSpeed": false,
+        "halfFatiguePenalty": false,
+        "mechanical": false,
+        "crpCost": 0,
+        "traitKey": "",
+        "traitParam": "",
+        "traitValue": 0,
+        "traitUnit": "",
+        "traitNotes": "",
+        "halfWoundPenalty": false,
+        "painIntolerant": false,
+        "activation": {
+          "enabled": false,
+          "actionType": "passive",
+          "spendCosts": false,
+          "consumeUse": false,
+          "costs": {
+            "action_points": 0,
+            "stamina": 0,
+            "magicka": 0,
+            "luck_points": 0,
+            "health": 0
+          },
+          "requirements": {
+            "requiresTarget": false,
+            "requiresEquippedWeapon": false,
+            "requiresMelee": false,
+            "requiresRanged": false,
+            "requiresHitLocation": false
+          },
+          "flags": {
+            "npcLuckAllowed": false,
+            "npcEliteAllowed": false
+          },
+          "usage": {
+            "max": 0,
+            "period": "none",
+            "current": 0
+          },
+          "roll": {
+            "mode": "none",
+            "hitLocationMode": "roll",
+            "skillKey": "",
+            "opposed": {
+              "actor": "target",
+              "skillKey": ""
+            },
+            "formula": "",
+            "tags": []
+          },
+          "damage": {
+            "mode": "none",
+            "formula": "",
+            "type": "physical",
+            "qualitiesStructured": [],
+            "qualitiesTraits": []
+          },
+          "text": {
+            "short": "",
+            "full": ""
+          }
+        }
+      }
+    },
+    {
+      "_id": "k9EyqaUeYcN34wWo",
+      "name": "The Lord",
+      "type": "trait",
+      "img": "systems/uesrpg-3ev4/images/dialogue/signs/sign-lord.webp",
+      "effects": [],
+      "folder": "dL6da9p51Y0PHm0T",
+      "sort": 400000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "featureConfig": {
+            "enabled": true,
+            "applyMode": "auto",
+            "promptMode": "owner",
+            "combatOnly": false,
+            "outOfCombatAllowed": true,
+            "visibility": "all",
+            "stackingOverride": "default",
+            "debug": {
+              "showInInspector": true
+            }
+          },
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 2,
+            "page": 49,
+            "rule": "Lord"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "13.351",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v1.0.0-RC.84",
+        "createdTime": null,
+        "modifiedTime": 1770842682329,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.rJsPUPqP5FyTYKHs",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "xfxQc6sVhNVKRNeU": 3
+      },
+      "system": {
+        "mpBonus": 0,
+        "hpBonus": 0,
+        "spBonus": 0,
+        "lpBonus": 0,
+        "wtBonus": 0,
+        "iniBonus": 0,
+        "speedBonus": 0,
+        "flyBonus": 0,
+        "swimBonus": 0,
+        "diseaseR": 0,
+        "fireR": 0,
+        "frostR": 0,
+        "shockR": 0,
+        "poisonR": 0,
+        "magicR": 0,
+        "natToughnessR": 0,
+        "silverR": 0,
+        "sunlightR": 0,
+        "replace": {
+          "ini": {
+            "iniToggle": false,
+            "value": 0,
+            "characteristic": ""
+          },
+          "wt": {
+            "wtToggle": false,
+            "value": 0,
+            "characteristic": ""
+          }
+        },
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "skillArray": [],
+        "description": "<p>Those born under the sign of the Lord double their natural healing rate.</p>",
+        "halfSpeed": false,
+        "addHalfSpeed": false,
+        "halfFatiguePenalty": false,
+        "mechanical": false,
+        "crpCost": 0,
+        "traitKey": "",
+        "traitParam": "",
+        "traitValue": 0,
+        "traitUnit": "",
+        "traitNotes": "",
+        "halfWoundPenalty": false,
+        "painIntolerant": false,
+        "activation": {
+          "enabled": false,
+          "actionType": "passive",
+          "spendCosts": false,
+          "consumeUse": false,
+          "costs": {
+            "action_points": 0,
+            "stamina": 0,
+            "magicka": 0,
+            "luck_points": 0,
+            "health": 0
+          },
+          "requirements": {
+            "requiresTarget": false,
+            "requiresEquippedWeapon": false,
+            "requiresMelee": false,
+            "requiresRanged": false,
+            "requiresHitLocation": false
+          },
+          "flags": {
+            "npcLuckAllowed": false,
+            "npcEliteAllowed": false
+          },
+          "usage": {
+            "max": 0,
+            "period": "none",
+            "current": 0
+          },
+          "roll": {
+            "mode": "none",
+            "hitLocationMode": "roll",
+            "skillKey": "",
+            "opposed": {
+              "actor": "target",
+              "skillKey": ""
+            },
+            "formula": "",
+            "tags": []
+          },
+          "damage": {
+            "mode": "none",
+            "formula": "",
+            "type": "physical",
+            "qualitiesStructured": [],
+            "qualitiesTraits": []
+          },
+          "text": {
+            "short": "",
+            "full": ""
+          }
+        }
+      }
+    },
+    {
+      "_id": "mG6OvH97y78ijGsS",
+      "name": "The Star-Cursed Lord",
+      "type": "trait",
+      "img": "systems/uesrpg-3ev4/images/dialogue/signs/sign-lord.webp",
+      "effects": [],
+      "folder": "1gJKHrJoVzYNu7Yy",
+      "sort": 125000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "featureConfig": {
+            "enabled": true,
+            "applyMode": "auto",
+            "promptMode": "owner",
+            "combatOnly": false,
+            "outOfCombatAllowed": true,
+            "visibility": "all",
+            "stackingOverride": "default",
+            "debug": {
+              "showInInspector": true
+            }
+          },
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 2,
+            "page": 49,
+            "rule": "Star-Cursed Lord"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "13.351",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v1.0.0-RC.84",
+        "createdTime": null,
+        "modifiedTime": 1770842694585,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.rJsPUPqP5FyTYKHs",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "xfxQc6sVhNVKRNeU": 3
+      },
+      "system": {
+        "mpBonus": 0,
+        "hpBonus": 0,
+        "spBonus": 0,
+        "lpBonus": 0,
+        "wtBonus": 0,
+        "iniBonus": 0,
+        "speedBonus": 0,
+        "flyBonus": 0,
+        "swimBonus": 0,
+        "diseaseR": 0,
+        "fireR": 0,
+        "frostR": 0,
+        "shockR": 0,
+        "poisonR": 0,
+        "magicR": 0,
+        "natToughnessR": 0,
+        "silverR": 0,
+        "sunlightR": 0,
+        "replace": {
+          "ini": {
+            "iniToggle": false,
+            "value": 0,
+            "characteristic": ""
+          },
+          "wt": {
+            "wtToggle": false,
+            "value": 0,
+            "characteristic": ""
+          }
+        },
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 5,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "skillArray": [],
+        "description": "<p>Double natural healing rate. Gain +5 Endurance.</p><p>This character takes 2 additional incoming fire damage and gains -20 penalty to resist non-damaging fire effects.</p>",
+        "halfSpeed": false,
+        "addHalfSpeed": false,
+        "halfFatiguePenalty": false,
+        "mechanical": false,
+        "crpCost": 0,
+        "traitKey": "weakness",
+        "traitParam": "fire",
+        "traitValue": 2,
+        "traitUnit": "",
+        "traitNotes": "",
+        "halfWoundPenalty": false,
+        "painIntolerant": false,
+        "activation": {
+          "enabled": false,
+          "actionType": "passive",
+          "spendCosts": false,
+          "consumeUse": false,
+          "costs": {
+            "action_points": 0,
+            "stamina": 0,
+            "magicka": 0,
+            "luck_points": 0,
+            "health": 0
+          },
+          "requirements": {
+            "requiresTarget": false,
+            "requiresEquippedWeapon": false,
+            "requiresMelee": false,
+            "requiresRanged": false,
+            "requiresHitLocation": false
+          },
+          "flags": {
+            "npcLuckAllowed": false,
+            "npcEliteAllowed": false
+          },
+          "usage": {
+            "max": 0,
+            "period": "none",
+            "current": 0
+          },
+          "roll": {
+            "mode": "none",
+            "hitLocationMode": "roll",
+            "skillKey": "",
+            "opposed": {
+              "actor": "target",
+              "skillKey": ""
+            },
+            "formula": "",
+            "tags": []
+          },
+          "damage": {
+            "mode": "none",
+            "formula": "",
+            "type": "physical",
+            "qualitiesStructured": [],
+            "qualitiesTraits": []
+          },
+          "text": {
+            "short": "",
+            "full": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "The Star-Cursed Shadow",
+      "type": "trait",
+      "img": "systems/uesrpg-3ev4/images/dialogue/signs/sign-shadow.webp",
+      "effects": [],
+      "folder": "1gJKHrJoVzYNu7Yy",
+      "sort": 101563,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "featureConfig": {
+            "enabled": true,
+            "applyMode": "auto",
+            "promptMode": "owner",
+            "combatOnly": false,
+            "outOfCombatAllowed": true,
+            "visibility": "all",
+            "stackingOverride": "default",
+            "debug": {
+              "showInInspector": true
+            }
+          },
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 2,
+            "page": 50,
+            "rule": "Star-Cursed Shadow"
+          }
+        }
+      },
+      "_id": "qkBb4VFHCB0VlRqy",
+      "_stats": {
+        "coreVersion": "13.351",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v1.0.0-RC.84",
+        "createdTime": null,
+        "modifiedTime": 1770842697915,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.EiZvTpIgnvFg2UY3",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "xfxQc6sVhNVKRNeU": 3
+      },
+      "system": {
+        "mpBonus": 0,
+        "hpBonus": 0,
+        "spBonus": 0,
+        "lpBonus": 0,
+        "wtBonus": 0,
+        "iniBonus": 0,
+        "speedBonus": 0,
+        "flyBonus": 0,
+        "swimBonus": 0,
+        "diseaseR": 0,
+        "fireR": 0,
+        "frostR": 0,
+        "shockR": 0,
+        "poisonR": 0,
+        "magicR": 0,
+        "natToughnessR": 0,
+        "silverR": 0,
+        "sunlightR": 0,
+        "replace": {
+          "ini": {
+            "iniToggle": false,
+            "value": 0,
+            "characteristic": ""
+          },
+          "wt": {
+            "wtToggle": false,
+            "value": 0,
+            "characteristic": ""
+          }
+        },
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 5,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "skillArray": [],
+        "description": "<p>Gain Moonshadow power and +5 Perception.</p><p>Grants Moonshadow; acquire this power or trait through the birthsign selector.</p><p>Choose one: personality or strength; apply -5. The birthsign selector records this choice as a separate penalty trait.</p>",
+        "halfSpeed": false,
+        "addHalfSpeed": false,
+        "halfFatiguePenalty": false,
+        "mechanical": false,
+        "crpCost": 0,
+        "traitKey": "",
+        "traitParam": "",
+        "traitValue": 0,
+        "traitUnit": "",
+        "traitNotes": "",
+        "halfWoundPenalty": false,
+        "painIntolerant": false,
+        "activation": {
+          "enabled": false,
+          "actionType": "passive",
+          "spendCosts": false,
+          "consumeUse": false,
+          "costs": {
+            "action_points": 0,
+            "stamina": 0,
+            "magicka": 0,
+            "luck_points": 0,
+            "health": 0
+          },
+          "requirements": {
+            "requiresTarget": false,
+            "requiresEquippedWeapon": false,
+            "requiresMelee": false,
+            "requiresRanged": false,
+            "requiresHitLocation": false
+          },
+          "flags": {
+            "npcLuckAllowed": false,
+            "npcEliteAllowed": false
+          },
+          "usage": {
+            "max": 0,
+            "period": "none",
+            "current": 0
+          },
+          "roll": {
+            "mode": "none",
+            "hitLocationMode": "roll",
+            "skillKey": "",
+            "opposed": {
+              "actor": "target",
+              "skillKey": ""
+            },
+            "formula": "",
+            "tags": []
+          },
+          "damage": {
+            "mode": "none",
+            "formula": "",
+            "type": "physical",
+            "qualitiesStructured": [],
+            "qualitiesTraits": []
+          },
+          "text": {
+            "short": "",
+            "full": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "The Star-Cursed Atronach",
+      "type": "trait",
+      "img": "systems/uesrpg-3ev4/images/dialogue/signs/sign-atronach.webp",
+      "effects": [
+        {
+          "_id": "5c221ba326a5dbf7",
+          "name": "Stunted Magicka",
+          "img": "icons/magic/control/debuff-chains-ropes-purple.webp",
+          "transfer": true,
+          "disabled": false,
+          "statuses": [],
+          "duration": {},
+          "flags": {
+            "uesrpg-3ev4": {
+              "magic": {
+                "stuntedMagicka": true
+              }
+            }
+          },
+          "system": {
+            "changes": []
+          }
+        }
+      ],
+      "folder": "1gJKHrJoVzYNu7Yy",
+      "sort": 200000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "featureConfig": {
+            "enabled": true,
+            "applyMode": "auto",
+            "promptMode": "owner",
+            "combatOnly": false,
+            "outOfCombatAllowed": true,
+            "visibility": "all",
+            "stackingOverride": "default",
+            "debug": {
+              "showInInspector": true
+            }
+          },
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 2,
+            "page": 50,
+            "rule": "Star-Cursed Atronach"
+          }
+        }
+      },
+      "_id": "rq7QuSU4GhJ8XQgT",
+      "_stats": {
+        "coreVersion": "13.351",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v1.0.0-RC.84",
+        "createdTime": null,
+        "modifiedTime": 1770842692753,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.rJsPUPqP5FyTYKHs",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "xfxQc6sVhNVKRNeU": 3
+      },
+      "system": {
+        "mpBonus": 75,
+        "hpBonus": 0,
+        "spBonus": 0,
+        "lpBonus": 0,
+        "wtBonus": 0,
+        "iniBonus": 0,
+        "speedBonus": 0,
+        "flyBonus": 0,
+        "swimBonus": 0,
+        "diseaseR": 0,
+        "fireR": 0,
+        "frostR": 0,
+        "shockR": 0,
+        "poisonR": 0,
+        "magicR": 0,
+        "natToughnessR": 0,
+        "silverR": 0,
+        "sunlightR": 0,
+        "replace": {
+          "ini": {
+            "iniToggle": false,
+            "value": 0,
+            "characteristic": ""
+          },
+          "wt": {
+            "wtToggle": false,
+            "value": 0,
+            "characteristic": ""
+          }
+        },
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "skillArray": [],
+        "description": "<p>Those born under the Star-Cursed Atronach gain deeper magicka reserves but suffer an attribute penalty.</p><p>The character increases their maximum Magicka Points by 75.</p><p>Roll a d10 when affected by magic from another source. On 5 or less, absorb the magic and recover missing MP up to its cost.</p><p>Grants Stunted Magicka; acquire this power or trait through the birthsign selector.</p><p>Choose one: agility or endurance; apply -5. The birthsign selector records this choice as a separate penalty trait.</p>",
+        "halfSpeed": false,
+        "addHalfSpeed": false,
+        "halfFatiguePenalty": false,
+        "mechanical": false,
+        "crpCost": 0,
+        "traitKey": "spellAbsorption",
+        "traitParam": "",
+        "traitValue": 5,
+        "traitUnit": "",
+        "traitNotes": "",
+        "halfWoundPenalty": false,
+        "painIntolerant": false,
+        "activation": {
+          "enabled": false,
+          "actionType": "passive",
+          "spendCosts": false,
+          "consumeUse": false,
+          "costs": {
+            "action_points": 0,
+            "stamina": 0,
+            "magicka": 0,
+            "luck_points": 0,
+            "health": 0
+          },
+          "requirements": {
+            "requiresTarget": false,
+            "requiresEquippedWeapon": false,
+            "requiresMelee": false,
+            "requiresRanged": false,
+            "requiresHitLocation": false
+          },
+          "flags": {
+            "npcLuckAllowed": false,
+            "npcEliteAllowed": false
+          },
+          "usage": {
+            "max": 0,
+            "period": "none",
+            "current": 0
+          },
+          "roll": {
+            "mode": "none",
+            "hitLocationMode": "roll",
+            "skillKey": "",
+            "opposed": {
+              "actor": "target",
+              "skillKey": ""
+            },
+            "formula": "",
+            "tags": []
+          },
+          "damage": {
+            "mode": "none",
+            "formula": "",
+            "type": "physical",
+            "qualitiesStructured": [],
+            "qualitiesTraits": []
+          },
+          "text": {
+            "short": "",
+            "full": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "The Shadow",
+      "type": "trait",
+      "img": "systems/uesrpg-3ev4/images/dialogue/signs/sign-shadow.webp",
+      "effects": [],
+      "folder": "dL6da9p51Y0PHm0T",
+      "sort": 800000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "featureConfig": {
+            "enabled": true,
+            "applyMode": "auto",
+            "promptMode": "owner",
+            "combatOnly": false,
+            "outOfCombatAllowed": true,
+            "visibility": "all",
+            "stackingOverride": "default",
+            "debug": {
+              "showInInspector": true
+            }
+          },
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 2,
+            "page": 50,
+            "rule": "Shadow"
+          }
+        }
+      },
+      "_id": "sLHFIZIfD1afVEWO",
+      "_stats": {
+        "coreVersion": "13.351",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v1.0.0-RC.84",
+        "createdTime": null,
+        "modifiedTime": 1770842684398,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.EiZvTpIgnvFg2UY3",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "xfxQc6sVhNVKRNeU": 3
+      },
+      "system": {
+        "mpBonus": 0,
+        "hpBonus": 0,
+        "spBonus": 0,
+        "lpBonus": 0,
+        "wtBonus": 0,
+        "iniBonus": 0,
+        "speedBonus": 0,
+        "flyBonus": 0,
+        "swimBonus": 0,
+        "diseaseR": 0,
+        "fireR": 0,
+        "frostR": 0,
+        "shockR": 0,
+        "poisonR": 0,
+        "magicR": 0,
+        "natToughnessR": 0,
+        "silverR": 0,
+        "sunlightR": 0,
+        "replace": {
+          "ini": {
+            "iniToggle": false,
+            "value": 0,
+            "characteristic": ""
+          },
+          "wt": {
+            "wtToggle": false,
+            "value": 0,
+            "characteristic": ""
+          }
+        },
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "skillArray": [],
+        "description": "<p>Those born under the sign of the Shadow gain the Moonshadow power.</p><p>Grants Moonshadow; acquire this power or trait through the birthsign selector.</p>",
+        "halfSpeed": false,
+        "addHalfSpeed": false,
+        "halfFatiguePenalty": false,
+        "mechanical": false,
+        "crpCost": 0,
+        "traitKey": "",
+        "traitParam": "",
+        "traitValue": 0,
+        "traitUnit": "",
+        "traitNotes": "",
+        "halfWoundPenalty": false,
+        "painIntolerant": false,
+        "activation": {
+          "enabled": false,
+          "actionType": "passive",
+          "spendCosts": false,
+          "consumeUse": false,
+          "costs": {
+            "action_points": 0,
+            "stamina": 0,
+            "magicka": 0,
+            "luck_points": 0,
+            "health": 0
+          },
+          "requirements": {
+            "requiresTarget": false,
+            "requiresEquippedWeapon": false,
+            "requiresMelee": false,
+            "requiresRanged": false,
+            "requiresHitLocation": false
+          },
+          "flags": {
+            "npcLuckAllowed": false,
+            "npcEliteAllowed": false
+          },
+          "usage": {
+            "max": 0,
+            "period": "none",
+            "current": 0
+          },
+          "roll": {
+            "mode": "none",
+            "hitLocationMode": "roll",
+            "skillKey": "",
+            "opposed": {
+              "actor": "target",
+              "skillKey": ""
+            },
+            "formula": "",
+            "tags": []
+          },
+          "damage": {
+            "mode": "none",
+            "formula": "",
+            "type": "physical",
+            "qualitiesStructured": [],
+            "qualitiesTraits": []
+          },
+          "text": {
+            "short": "",
+            "full": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "The Ritual",
+      "type": "trait",
+      "img": "systems/uesrpg-3ev4/images/dialogue/signs/sign-ritual.webp",
+      "effects": [],
+      "folder": "dL6da9p51Y0PHm0T",
+      "sort": 700000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "featureConfig": {
+            "enabled": true,
+            "applyMode": "auto",
+            "promptMode": "owner",
+            "combatOnly": false,
+            "outOfCombatAllowed": true,
+            "visibility": "all",
+            "stackingOverride": "default",
+            "debug": {
+              "showInInspector": true
+            }
+          },
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 2,
+            "page": 50,
+            "rule": "Ritual"
+          }
+        }
+      },
+      "_id": "sRy9dPLIRLD60wGC",
+      "_stats": {
+        "coreVersion": "13.351",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v1.0.0-RC.84",
+        "createdTime": null,
+        "modifiedTime": 1770842683879,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.EiZvTpIgnvFg2UY3",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "xfxQc6sVhNVKRNeU": 3
+      },
+      "system": {
+        "mpBonus": 0,
+        "hpBonus": 0,
+        "spBonus": 0,
+        "lpBonus": 0,
+        "wtBonus": 0,
+        "iniBonus": 0,
+        "speedBonus": 0,
+        "flyBonus": 0,
+        "swimBonus": 0,
+        "diseaseR": 0,
+        "fireR": 0,
+        "frostR": 0,
+        "shockR": 0,
+        "poisonR": 0,
+        "magicR": 0,
+        "natToughnessR": 0,
+        "silverR": 0,
+        "sunlightR": 0,
+        "replace": {
+          "ini": {
+            "iniToggle": false,
+            "value": 0,
+            "characteristic": ""
+          },
+          "wt": {
+            "wtToggle": false,
+            "value": 0,
+            "characteristic": ""
+          }
+        },
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "skillArray": [],
+        "description": "<p>Choose one of the following powers at the beginning of each day: Blessed Touch, Blessed Word, or Mara&#39;s Gift. This power lasts until your next long rest, when you may choose again.</p>",
+        "halfSpeed": false,
+        "addHalfSpeed": false,
+        "halfFatiguePenalty": false,
+        "mechanical": false,
+        "crpCost": 0,
+        "traitKey": "",
+        "traitParam": "",
+        "traitValue": 0,
+        "traitUnit": "",
+        "traitNotes": "",
+        "halfWoundPenalty": false,
+        "painIntolerant": false,
+        "activation": {
+          "enabled": false,
+          "actionType": "passive",
+          "spendCosts": false,
+          "consumeUse": false,
+          "costs": {
+            "action_points": 0,
+            "stamina": 0,
+            "magicka": 0,
+            "luck_points": 0,
+            "health": 0
+          },
+          "requirements": {
+            "requiresTarget": false,
+            "requiresEquippedWeapon": false,
+            "requiresMelee": false,
+            "requiresRanged": false,
+            "requiresHitLocation": false
+          },
+          "flags": {
+            "npcLuckAllowed": false,
+            "npcEliteAllowed": false
+          },
+          "usage": {
+            "max": 0,
+            "period": "none",
+            "current": 0
+          },
+          "roll": {
+            "mode": "none",
+            "hitLocationMode": "roll",
+            "skillKey": "",
+            "opposed": {
+              "actor": "target",
+              "skillKey": ""
+            },
+            "formula": "",
+            "tags": []
+          },
+          "damage": {
+            "mode": "none",
+            "formula": "",
+            "type": "physical",
+            "qualitiesStructured": [],
+            "qualitiesTraits": []
+          },
+          "text": {
+            "short": "",
+            "full": ""
+          }
+        }
+      }
+    },
+    {
+      "_id": "vkladIiz5vEJGdy1",
+      "name": "The Apprentice",
+      "type": "trait",
+      "img": "systems/uesrpg-3ev4/images/dialogue/signs/sign-apprentice.webp",
+      "effects": [],
+      "folder": "dL6da9p51Y0PHm0T",
+      "sort": 100000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "featureConfig": {
+            "enabled": true,
+            "applyMode": "auto",
+            "promptMode": "owner",
+            "combatOnly": false,
+            "outOfCombatAllowed": true,
+            "visibility": "all",
+            "stackingOverride": "default",
+            "debug": {
+              "showInInspector": true
+            }
+          },
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 2,
+            "page": 50,
+            "rule": "Apprentice"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776763285833,
+        "modifiedTime": 1776763285833,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.rJsPUPqP5FyTYKHs",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "xfxQc6sVhNVKRNeU": 3
+      },
+      "system": {
+        "mpBonus": 25,
+        "hpBonus": 0,
+        "spBonus": 0,
+        "lpBonus": 0,
+        "wtBonus": 0,
+        "iniBonus": 0,
+        "speedBonus": 0,
+        "flyBonus": 0,
+        "swimBonus": 0,
+        "diseaseR": 0,
+        "fireR": 0,
+        "frostR": 0,
+        "shockR": 0,
+        "poisonR": 0,
+        "magicR": 0,
+        "natToughnessR": 0,
+        "silverR": 0,
+        "sunlightR": 0,
+        "replace": {
+          "ini": {
+            "iniToggle": false,
+            "value": 0,
+            "characteristic": ""
+          },
+          "wt": {
+            "wtToggle": false,
+            "value": 0,
+            "characteristic": ""
+          }
+        },
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "skillArray": [],
+        "description": "<p>Those born under the sign of the Apprentice have a special affinity for magick of all kinds.</p><p>The character increases their maximum Magicka Points by 25.</p><p>This character takes 2 additional incoming magic damage and gains -20 penalty to resist non-damaging magic effects.</p>",
+        "halfSpeed": false,
+        "addHalfSpeed": false,
+        "halfFatiguePenalty": false,
+        "mechanical": false,
+        "crpCost": 0,
+        "traitKey": "weakness",
+        "traitParam": "magic",
+        "traitValue": 2,
+        "traitUnit": "",
+        "traitNotes": "",
+        "halfWoundPenalty": false,
+        "painIntolerant": false,
+        "activation": {
+          "enabled": false,
+          "actionType": "passive",
+          "spendCosts": false,
+          "consumeUse": false,
+          "costs": {
+            "action_points": 0,
+            "stamina": 0,
+            "magicka": 0,
+            "luck_points": 0,
+            "health": 0
+          },
+          "requirements": {
+            "requiresTarget": false,
+            "requiresEquippedWeapon": false,
+            "requiresMelee": false,
+            "requiresRanged": false,
+            "requiresHitLocation": false
+          },
+          "flags": {
+            "npcLuckAllowed": false,
+            "npcEliteAllowed": false
+          },
+          "usage": {
+            "max": 0,
+            "period": "",
+            "current": 0
+          },
+          "roll": {
+            "mode": "none",
+            "hitLocationMode": "roll",
+            "skillKey": "",
+            "opposed": {
+              "actor": "target",
+              "skillKey": ""
+            },
+            "formula": "",
+            "tags": []
+          },
+          "damage": {
+            "mode": "none",
+            "formula": "",
+            "type": "physical",
+            "qualitiesStructured": [],
+            "qualitiesTraits": []
+          },
+          "text": {
+            "short": "",
+            "full": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "The Star-Cursed Mage",
+      "type": "trait",
+      "img": "systems/uesrpg-3ev4/images/dialogue/signs/sign-mage.webp",
+      "effects": [],
+      "folder": "1gJKHrJoVzYNu7Yy",
+      "sort": 106250,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "featureConfig": {
+            "enabled": true,
+            "applyMode": "auto",
+            "promptMode": "owner",
+            "combatOnly": false,
+            "outOfCombatAllowed": true,
+            "visibility": "all",
+            "stackingOverride": "default",
+            "debug": {
+              "showInInspector": true
+            }
+          },
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 2,
+            "page": 50,
+            "rule": "Star-Cursed Mage"
+          }
+        }
+      },
+      "_id": "wJluoSBv3IMCoY5O",
+      "_stats": {
+        "coreVersion": "13.351",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v1.0.0-RC.84",
+        "createdTime": null,
+        "modifiedTime": 1770842696255,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.rJsPUPqP5FyTYKHs",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "xfxQc6sVhNVKRNeU": 3
+      },
+      "system": {
+        "mpBonus": 25,
+        "hpBonus": 0,
+        "spBonus": 0,
+        "lpBonus": 0,
+        "wtBonus": 0,
+        "iniBonus": 0,
+        "speedBonus": 0,
+        "flyBonus": 0,
+        "swimBonus": 0,
+        "diseaseR": 0,
+        "fireR": 0,
+        "frostR": 0,
+        "shockR": 0,
+        "poisonR": 0,
+        "magicR": 0,
+        "natToughnessR": 0,
+        "silverR": 0,
+        "sunlightR": 0,
+        "replace": {
+          "ini": {
+            "iniToggle": false,
+            "value": 0,
+            "characteristic": ""
+          },
+          "wt": {
+            "wtToggle": false,
+            "value": 0,
+            "characteristic": ""
+          }
+        },
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "skillArray": [],
+        "description": "<p>Those born under the Star-Cursed Mage gain Power Well (25) but suffer an attribute penalty.</p><p>The character increases their maximum Magicka Points by 25.</p><p>Choose one: perception or strength or personality; apply -5. The birthsign selector records this choice as a separate penalty trait.</p>",
+        "halfSpeed": false,
+        "addHalfSpeed": false,
+        "halfFatiguePenalty": false,
+        "mechanical": false,
+        "crpCost": 0,
+        "traitKey": "",
+        "traitParam": "",
+        "traitValue": 0,
+        "traitUnit": "",
+        "traitNotes": "",
+        "halfWoundPenalty": false,
+        "painIntolerant": false,
+        "activation": {
+          "enabled": false,
+          "actionType": "passive",
+          "spendCosts": false,
+          "consumeUse": false,
+          "costs": {
+            "action_points": 0,
+            "stamina": 0,
+            "magicka": 0,
+            "luck_points": 0,
+            "health": 0
+          },
+          "requirements": {
+            "requiresTarget": false,
+            "requiresEquippedWeapon": false,
+            "requiresMelee": false,
+            "requiresRanged": false,
+            "requiresHitLocation": false
+          },
+          "flags": {
+            "npcLuckAllowed": false,
+            "npcEliteAllowed": false
+          },
+          "usage": {
+            "max": 0,
+            "period": "none",
+            "current": 0
+          },
+          "roll": {
+            "mode": "none",
+            "hitLocationMode": "roll",
+            "skillKey": "",
+            "opposed": {
+              "actor": "target",
+              "skillKey": ""
+            },
+            "formula": "",
+            "tags": []
+          },
+          "damage": {
+            "mode": "none",
+            "formula": "",
+            "type": "physical",
+            "qualitiesStructured": [],
+            "qualitiesTraits": []
+          },
+          "text": {
+            "short": "",
+            "full": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "The Lover",
+      "type": "trait",
+      "img": "systems/uesrpg-3ev4/images/dialogue/signs/sign-lover.webp",
+      "effects": [],
+      "folder": "dL6da9p51Y0PHm0T",
+      "sort": 500000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "featureConfig": {
+            "enabled": true,
+            "applyMode": "auto",
+            "promptMode": "owner",
+            "combatOnly": false,
+            "outOfCombatAllowed": true,
+            "visibility": "all",
+            "stackingOverride": "default",
+            "debug": {
+              "showInInspector": true
+            }
+          },
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 2,
+            "page": 50,
+            "rule": "Lover"
+          }
+        }
+      },
+      "_id": "wbAPvCrZhdq0XKTi",
+      "_stats": {
+        "coreVersion": "13.351",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v1.0.0-RC.84",
+        "createdTime": null,
+        "modifiedTime": 1770842682837,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.rJsPUPqP5FyTYKHs",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "xfxQc6sVhNVKRNeU": 3
+      },
+      "system": {
+        "mpBonus": 0,
+        "hpBonus": 0,
+        "spBonus": 0,
+        "lpBonus": 0,
+        "wtBonus": 0,
+        "iniBonus": 0,
+        "speedBonus": 0,
+        "flyBonus": 0,
+        "swimBonus": 0,
+        "diseaseR": 0,
+        "fireR": 0,
+        "frostR": 0,
+        "shockR": 0,
+        "poisonR": 0,
+        "magicR": 0,
+        "natToughnessR": 0,
+        "silverR": 0,
+        "sunlightR": 0,
+        "replace": {
+          "ini": {
+            "iniToggle": false,
+            "value": 0,
+            "characteristic": ""
+          },
+          "wt": {
+            "wtToggle": false,
+            "value": 0,
+            "characteristic": ""
+          }
+        },
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 5,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "skillArray": [],
+        "description": "<p>Those born under the sign of the Lover gain +5 Agility.</p>",
+        "halfSpeed": false,
+        "addHalfSpeed": false,
+        "halfFatiguePenalty": false,
+        "mechanical": false,
+        "crpCost": 0,
+        "traitKey": "",
+        "traitParam": "",
+        "traitValue": 0,
+        "traitUnit": "",
+        "traitNotes": "",
+        "halfWoundPenalty": false,
+        "painIntolerant": false,
+        "activation": {
+          "enabled": false,
+          "actionType": "passive",
+          "spendCosts": false,
+          "consumeUse": false,
+          "costs": {
+            "action_points": 0,
+            "stamina": 0,
+            "magicka": 0,
+            "luck_points": 0,
+            "health": 0
+          },
+          "requirements": {
+            "requiresTarget": false,
+            "requiresEquippedWeapon": false,
+            "requiresMelee": false,
+            "requiresRanged": false,
+            "requiresHitLocation": false
+          },
+          "flags": {
+            "npcLuckAllowed": false,
+            "npcEliteAllowed": false
+          },
+          "usage": {
+            "max": 0,
+            "period": "none",
+            "current": 0
+          },
+          "roll": {
+            "mode": "none",
+            "hitLocationMode": "roll",
+            "skillKey": "",
+            "opposed": {
+              "actor": "target",
+              "skillKey": ""
+            },
+            "formula": "",
+            "tags": []
+          },
+          "damage": {
+            "mode": "none",
+            "formula": "",
+            "type": "physical",
+            "qualitiesStructured": [],
+            "qualitiesTraits": []
+          },
+          "text": {
+            "short": "",
+            "full": ""
+          }
+        }
+      }
+    }
+  ]
+}

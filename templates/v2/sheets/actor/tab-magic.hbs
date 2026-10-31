@@ -97,10 +97,15 @@
                                             {{#each schoolData.spells as |spell|}}
                                                 <tr class="spell-row item active" data-item-id="{{spell._id}}">
                                                     <td class="spell-name-cell">
+                                                        {{#if spell.system.uiIsRitual}}
+                                                        {{> "systems/uesrpg-3ev4/templates/partials/sheets/skill-roll-icon.hbs" action="itemOpen" rollTargetClass="uesrpg-spell-roll-icon magic-roll" rollLabel=(localize "UESRPG.Sheets.Magic.OpenRitualReference") img=spell.img label=spell.name}}
+                                                        {{else}}
                                                         {{> "systems/uesrpg-3ev4/templates/partials/sheets/skill-roll-icon.hbs" action="castMagic" rollTargetClass="uesrpg-spell-roll-icon magic-roll" rollLabel=(localize "UESRPG.Sheets.Magic.CastSpellPostDescription") img=spell.img label=spell.name}}
+                                                        {{/if}}
                                                         <button type="button" data-action="itemOpen" class="item-name uesrpg-semantic-control uesrpg-plain-control">{{spell.name}}</button>
                                                     </td>
                                                     <td class="spell-rank-cell">
+                                                        {{#if spell.system.uiIsRitual}}{{localize "UESRPG.Sheets.Magic.Ritual"}}{{else}}
                                                         {{#if (eq spell.system.level 1)}}{{localize "UESRPG.Choices.Ranks.novice"}}{{/if}}
                                                         {{#if (eq spell.system.level 2)}}{{localize "UESRPG.Choices.Ranks.apprentice"}}{{/if}}
                                                         {{#if (eq spell.system.level 3)}}{{localize "UESRPG.Choices.Ranks.adept"}}{{/if}}
@@ -108,8 +113,9 @@
                                                         {{#if (eq spell.system.level 5)}}{{localize "UESRPG.Choices.Ranks.master"}}{{/if}}
                                                         {{#if (eq spell.system.level 6)}}{{localize "UESRPG.Choices.Ranks.grandmaster"}}{{/if}}
                                                         {{#if (eq spell.system.level 7)}}{{localize "UESRPG.Choices.Ranks.legendary"}}{{/if}}
+                                                        {{/if}}
                                                     </td>
-                                                    <td class="spell-mp-cell">{{spell.system.cost}}</td>
+                                                    <td class="spell-mp-cell">{{#if spell.system.uiIsRitual}}{{localize "UESRPG.Sheets.Magic.SeeDescription"}}{{else}}{{spell.system.cost}}{{/if}}</td>
                                                     <td class="spell-actions-cell">
                                                         <button type="button" data-action="itemDelete" class="item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.Delete" aria-label="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash"></i></button>
                                                     </td>

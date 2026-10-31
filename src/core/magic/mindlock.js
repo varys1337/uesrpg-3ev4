@@ -23,6 +23,7 @@ import { createDebugLogger } from "./_primitives.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
 import { buildEffectChange } from "../../utils/compat.js";
 import { buildGenericAEData } from "../active-effects/modifier-evaluator.js";
+import { hasTalent } from "../traits/talents-api.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
@@ -59,8 +60,8 @@ export function spellHasMindlock(spell) {
 export async function applyMindlockEffects({ caster, spell, originAE = null, context = {}, strict = false } = {}) {
   if (!caster || !spell) return null;
 
-  const mindlockValue = context.mindlockOverride ?? (Number(spell.system?.mindlockValue ?? 0) || 0);
-  if (mindlockValue <= 0) {
+  const baseMindlock = Math.max(0, Number(context.mindlockOverride ?? spell.system?.mindlockValue ?? 0) || 0);
+  if (baseMindlock <= 0) {
     _debug("No mindlock value for spell:", spell.name);
     return null;
   }
@@ -68,19 +69,27 @@ export async function applyMindlockEffects({ caster, spell, originAE = null, con
   // Idempotent: skip if a Mindlock AE for this spell already exists on the caster.
   const existing = caster.effects?.find(e =>
     e.flags?.[_FLAG_NS]?.isMindlock &&
-    e.flags?.[_FLAG_NS]?.spellUuid === spell.uuid
+    (originAE ? e.flags?.[_FLAG_NS]?.originAEId === originAE.id : e.flags?.[_FLAG_NS]?.spellUuid === spell.uuid)
   );
   if (existing) {
     _debug("Mindlock AE already present for spell:", spell.name);
     return existing;
   }
 
+  const wpBonus = Math.max(0, Number(caster.system?.characteristics?.wp?.bonus ?? 0) || 0);
+  const usedMasterSlots = Array.from(caster.effects ?? []).filter(effect => !effect.disabled
+    && effect.flags?.[_FLAG_NS]?.mindlockTalent === "masterofthehordes").length;
+  const isSummon = context.forSummon === true || spell.system?.engine?.conjure?.mode === "creature";
+  const useMaster = isSummon && context.useMasterOfTheHordes !== false && hasTalent(caster, "masterofthehordes") && usedMasterSlots < wpBonus;
+  const talent = useMaster ? "masterofthehordes" : hasTalent(caster, "taskmaster") ? "taskmaster" : "";
+  const mindlockValue = talent ? Math.max(talent === "taskmaster" ? 1 : 0, baseMindlock - 1) : baseMindlock;
+
   // Mirror origin AE duration when provided (so both AEs expire together).
   const originDuration = originAE?.duration
     ? foundry.utils.deepClone(originAE.duration)
     : {};
 
-  const effectGroup = `spell.mindlock.${spell.id || spell.uuid}`;
+  const effectGroup = `spell.mindlock.${originAE?.id ?? spell.id ?? spell.uuid}`;
   const effectData = buildGenericAEData({
     source: "spell",
     stack: {
@@ -99,6 +108,9 @@ export async function applyMindlockEffects({ caster, spell, originAE = null, con
         spellEffect: true,
         isMindlock: true,
         mindlockValue,
+        baseMindlock,
+        mindlockTalent: talent,
+        originAEId: originAE?.id ?? null,
         spellUuid: spell.uuid,
         spellName: spell.name,
         casterUuid: caster.uuid,
@@ -161,6 +173,7 @@ async function _onCastResolved(payload) {
   if (!spellHasMindlock(spell)) return;
 
   // Summon spells are handled by summon-binding.js — skip.
+  if (spell.system?.engine?.conjure?.mode === "creature") return;
   try {
     const { normalizeSpellConfig } = await import("./spell-config.js");
     if (normalizeSpellConfig(spell).summon?.isSummon) return;

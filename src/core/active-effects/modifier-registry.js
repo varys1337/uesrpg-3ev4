@@ -37,6 +37,7 @@ function _capitalize(value) {
 
 for (const c of CHARACTERISTIC_KEYS) {
   _reg(`system.modifiers.characteristics.${c}`, CHARACTERISTIC_LABELS[c], "characteristics", "numeric", true);
+  _reg(`system.modifiers.tests.characteristics.${c}`, `${CHARACTERISTIC_LABELS[c]} Tests`, "tests", "numeric", true);
 }
 
 _reg("system.modifiers.combat.attackTN", "Attack TN", "combat", "numeric", true);
@@ -96,6 +97,9 @@ _reg("system.modifiers.damage.fromMagic", "Damage from Magic", "damage", "numeri
 
 _reg("system.modifiers.combat.armorRating", "Armor Rating (Global)", "armor", "numeric", true);
 _reg("system.modifiers.combat.magicArmorRating", "Magic Armor Rating (Global)", "armor", "numeric", true);
+for (const type of ["fire", "frost", "shock", "poison"]) {
+  _reg(`system.modifiers.combat.magicArmorRating.${type}`, `${_capitalize(type)} Armor Rating`, "armor", "numeric", true);
+}
 
 const _RES_TYPES = Object.freeze([
   ["fireR", "Fire"],
@@ -177,6 +181,8 @@ _reg("system.modifiers.encumbrance.testPenalty", "Encumbrance Test Penalty", "en
 _reg("system.modifiers.encumbrance.penalty", "Encumbrance Penalty (Legacy)", "encumbrance");
 _reg("system.modifiers.encumbrance.speedPenalty", "Encumbrance Speed Penalty", "encumbrance");
 _reg("system.modifiers.encumbrance.staminaPenalty", "Encumbrance Stamina Penalty", "encumbrance");
+_reg("system.modifiers.encumbrance.level", "Encumbrance Level Adjustment", "encumbrance", "numeric", true);
+_reg("system.modifiers.encumbrance.armorWeightClass", "Armor Weight Class Adjustment", "encumbrance", "numeric", true);
 
 _reg("system.modifiers.fatigue.bonus", "Fatigue Bonus", "fatigue");
 _reg("system.modifiers.fatigue.penalty", "Fatigue Penalty", "fatigue");

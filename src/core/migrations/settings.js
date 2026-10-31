@@ -2,6 +2,7 @@ import { AUTOMATION_DEFAULTS } from "../config/automation-policy.js";
 import { SYSTEM_ID } from "../constants.js";
 import { isActiveGMUser } from "../../utils/users.js";
 import { MIGRATION_REVISIONS } from "./revisions.js";
+import { stableStringify } from "../../utils/authority-proxy/shared.js";
 import {
   getAppliedMigrationRevision,
   getMigrationState,
@@ -25,6 +26,15 @@ function assertSettingRegistered(key) {
   }
 }
 
+async function setMigratedSetting(key, value) {
+  if (!isActiveGMUser(game.user)) throw new Error(`Only the active GM may migrate setting ${key}.`);
+  const assigned = await game.settings.set(SYSTEM_ID, key, value);
+  if (stableStringify(assigned) !== stableStringify(value)
+    || stableStringify(game.settings.get(SYSTEM_ID, key)) !== stableStringify(value)) {
+    throw new Error(`Migrated setting ${key} was not confirmed; its revision remains pending.`);
+  }
+}
+
 async function migrateTimeDefaultsIfNeeded() {
   const revision = MIGRATION_REVISIONS[TIME_SETTINGS_MIGRATION_KEY];
   let state = getMigrationState();
@@ -40,7 +50,7 @@ async function migrateTimeDefaultsIfNeeded() {
       preservedKeys.push(key);
       continue;
     }
-    await game.settings.set(SYSTEM_ID, key, true);
+    await setMigratedSetting(key, true);
     changedKeys.push(key);
   }
 
@@ -97,7 +107,7 @@ async function migrateAutomationProfileRemovalDefaultsIfNeeded() {
       preservedKeys.push(key);
       continue;
     }
-    await game.settings.set(SYSTEM_ID, key, value);
+    await setMigratedSetting(key, value);
     changedKeys.push(key);
   }
 

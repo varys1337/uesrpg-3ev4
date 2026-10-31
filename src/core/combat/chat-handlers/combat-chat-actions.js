@@ -22,7 +22,7 @@ import { registerDelegatedChatLogClickHandler } from "./actions/handle-click.js"
 import { isApplyDamageButton } from "./cards/attack-card.js";
 import { isApplyHealingButton } from "./cards/damage-card.js";
 import { getMessageIdFromContextLi } from "../../../utils/chat/contextmenu.js";
-import { resolveActor, onApplyDamage, onApplyHealing } from "./combat-chat-apply.js";
+import { resolveActor, onApplyDamageResult, onApplyHealingResult } from "./combat-chat-apply.js";
 import { onOpposedAction, onSkillOpposedAction, onCharOpposedAction, onMagicOpposedAction } from "./combat-chat-opposed.js";
 import { asyncGuard } from "../../../utils/async-guard.js";
 
@@ -30,10 +30,10 @@ const _FLAG_NS = FLAG_SCOPE;
 
 let _delegatedChatClickRegistered = false;
 let _regenerationAuthorityRegistered = false;
-const _guardedApplyDamage = asyncGuard(onApplyDamage, {
+const _guardedApplyDamage = asyncGuard(onApplyDamageResult, {
   onError: () => ui.notifications?.error?.("Damage application failed. Review the target before retrying."),
 });
-const _guardedApplyHealing = asyncGuard(onApplyHealing, {
+const _guardedApplyHealing = asyncGuard(onApplyHealingResult, {
   onError: () => ui.notifications?.error?.("Healing application failed. Review the target before retrying."),
 });
 
@@ -257,15 +257,25 @@ async function _onAlchemyAction(event, message) {
 
   const actorUuid = String(el?.dataset?.actorUuid ?? "").trim();
   const itemUuid = String(el?.dataset?.itemUuid ?? "").trim();
-  if (!actorUuid || !itemUuid) return;
+  if (!actorUuid || !itemUuid) {
+    if (action === "alchemyDrink" && el instanceof HTMLButtonElement) el.disabled = false;
+    return;
+  }
 
   const actor = await fromUuid(actorUuid).catch(() => null);
   const item = await fromUuid(itemUuid).catch(() => null);
-  if (!actor || !item) return;
+  if (!actor || !item) {
+    if (action === "alchemyDrink" && el instanceof HTMLButtonElement) el.disabled = false;
+    return;
+  }
 
   if (action === "alchemyDrink") {
-    const { drinkPotion } = await import("../../alchemy/runtime.js");
-    await drinkPotion(actor, item);
+    try {
+      const { drinkPotion } = await import("../../alchemy/runtime.js");
+      await drinkPotion(actor, item);
+    } finally {
+      if (el instanceof HTMLButtonElement) el.disabled = false;
+    }
     return;
   }
 
@@ -392,6 +402,7 @@ export function registerCombatChatClickHandler() {
   try {
     const SELECTOR = [
       "[data-ues-chat-outcome]",
+      "[data-ues-special-review]",
       ".apply-damage-btn",
       ".apply-healing-btn",
       "[data-ues-opposed-action]",
@@ -402,6 +413,8 @@ export function registerCombatChatClickHandler() {
       "[data-ues-death-action]",
       "[data-ues-disease-action]",
       "[data-ues-regeneration-action]",
+      "[data-ues-summon-binding-action]",
+      "[data-ues-origin-cleanup-action]",
       "[data-ues-upkeep-action]",
       "[data-ues-special-action]",
       "[data-ues-action-card-toggle]",
@@ -436,9 +449,13 @@ export function registerCombatChatClickHandler() {
       },
       dispatch: async (delegatedEv, btn, message) => {
         try {
+          if (btn.hasAttribute("data-ues-special-review")) {
+            delegatedEv.preventDefault();
+            return await ChatOutcomeApplicationService.reviewSpecial(message, btn.dataset.uesSpecialReview);
+          }
           if (btn.hasAttribute("data-ues-chat-outcome")) {
             delegatedEv.preventDefault();
-            return await ChatOutcomeApplicationService.apply(message, { outcomeId: btn.dataset.uesChatOutcome });
+            return await ChatOutcomeApplicationService.applyResult(message, { outcomeId: btn.dataset.uesChatOutcome });
           }
           if (isApplyDamageButton(btn)) return await _guardedApplyDamage(delegatedEv, message);
           if (isApplyHealingButton(btn)) return await _guardedApplyHealing(delegatedEv, message);
@@ -453,6 +470,18 @@ export function registerCombatChatClickHandler() {
           if (btn.hasAttribute("data-ues-death-action")) return await _onDeathAction(delegatedEv, message);
           if (btn.hasAttribute("data-ues-disease-action")) return await _onDiseaseAction(delegatedEv, message);
           if (btn.hasAttribute("data-ues-regeneration-action")) return await _onRegenerationAction(delegatedEv, message);
+          if (btn.hasAttribute("data-ues-summon-binding-action")) {
+            delegatedEv.preventDefault();
+            const { resolveSummonBindingFromChat, releaseSummonBindingFromChat, resumeSummonBindingFromChat } = await import("../../magic/conjuration/summon-binding.js");
+            if (btn.dataset.uesSummonBindingAction === "release") return await releaseSummonBindingFromChat(message);
+            if (btn.dataset.uesSummonBindingAction === "resume") return await resumeSummonBindingFromChat(message);
+            return await resolveSummonBindingFromChat(message);
+          }
+          if (btn.hasAttribute("data-ues-origin-cleanup-action")) {
+            delegatedEv.preventDefault();
+            const { retryOriginCleanupFromChat } = await import("../../magic/effects/origin-effect.js");
+            return await retryOriginCleanupFromChat(message);
+          }
           if (btn.hasAttribute("data-ues-upkeep-action")) return await _onUpkeepAction(delegatedEv, message);
           if (btn.hasAttribute("data-ues-alchemy-poison-action")) return await _onAlchemyPoisonAction(delegatedEv, message);
           if (btn.hasAttribute("data-ues-alchemy-toxin-action")) return await _onAlchemyToxinAction(delegatedEv, message);

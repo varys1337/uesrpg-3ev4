@@ -13,7 +13,9 @@ import {
   acquireLock,
   releaseLock,
   lockKeyForDoc,
+  stableStringify,
   isAllowedGenericDocument,
+  getUnconfirmedDocumentIds,
   warnLog as _dwarn,
 } from "./authority-proxy/shared.js";
 import { deleteEmbeddedDocumentsIdempotent } from "./authority-proxy/embedded-docs.js";
@@ -37,6 +39,7 @@ const CHAT_TRANSITION_COMMAND = "chat.transition";
 const CHAT_WORKFLOW_LANES = Object.freeze([
   "opposed",
   "skillOpposed",
+  "specialActionOpposed",
   "magicOpposed",
   "charOpposed",
   "warfareClash",
@@ -70,7 +73,7 @@ function _workflowLane(payload) {
 function _laneState(flags, lane) {
   const value = flags?.[lane];
   if (!value || typeof value !== "object") return null;
-  if (lane === "skillOpposed" || lane === "magicOpposed" || lane === "charOpposed") {
+  if (lane === "skillOpposed" || lane === "specialActionOpposed" || lane === "magicOpposed" || lane === "charOpposed") {
     return value.state && typeof value.state === "object" ? value.state : null;
   }
   return value;
@@ -128,7 +131,7 @@ async function _handleChatTransitionIntent({ requester, data, expectedRevision }
 
   const systemId = game.system?.id ?? "uesrpg-3ev4";
   const incomingFlags = payload.flags?.[systemId];
-  if (!requester.isGM && Object.keys(incomingFlags ?? {}).some(key => ["chatOutcomes", "regenerationPrompt", "regenerationPromptBatch", "specialActionOpposed", "alchemyPoisonCard", "alchemyToxinCard"].includes(key))) {
+  if (!requester.isGM && Object.keys(incomingFlags ?? {}).some(key => ["chatOutcomes", "regenerationPrompt", "regenerationPromptBatch", "alchemyPoisonCard", "alchemyToxinCard", "imperialLuck"].includes(key))) {
     return { ok: false, code: AUTHORITY_RESULT_CODES.UNAUTHORIZED };
   }
   const currentFlags = message.flags?.[systemId];
@@ -164,6 +167,34 @@ async function _handleChatTransitionIntent({ requester, data, expectedRevision }
     if (!isChatMessageUpdateFresh(liveMessage, payload)) {
       return { ok: false, code: AUTHORITY_RESULT_CODES.STALE_REVISION, data: { currentRevision: currentSeq } };
     }
+    if (lane === "specialActionOpposed" && !requester.isGM) {
+      // A participant may commit only their own previously unrolled lane.
+      // Derive the opposed result from those saved rolls on the authority.
+      for (const key of new Set([...Object.keys(liveState), ...Object.keys(incomingState)])) {
+        if (!["attacker", "defender", "context", "outcome"].includes(key)
+          && stableStringify(liveState[key]) !== stableStringify(incomingState[key])) return { ok: false, code: AUTHORITY_RESULT_CODES.UNAUTHORIZED };
+      }
+      let committed = false;
+      for (const side of ["attacker", "defender"]) {
+        const before = liveState[side], after = incomingState[side];
+        if (stableStringify(before) === stableStringify(after)) continue;
+        const owner = before?.actorUuid ? await fromUuid(before.actorUuid) : null;
+        if (!_canOwn(requester, owner) || before?.result || !after?.result
+          || [...new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})])].some(key => !["result", "testLabel"].includes(key)
+            && stableStringify(before[key]) !== stableStringify(after[key]))) return { ok: false, code: AUTHORITY_RESULT_CODES.UNAUTHORIZED };
+        committed = true;
+      }
+      if (!committed) return { ok: false, code: AUTHORITY_RESULT_CODES.INVALID_REQUEST };
+      if (incomingState.attacker?.result && incomingState.defender?.result) {
+        const { resolveSpecialActionOpposedResult } = await import("../core/combat/special-actions-helper.js");
+        incomingState.outcome = { ...resolveSpecialActionOpposedResult(incomingState.attacker.result, incomingState.defender.result),
+          text: incomingState.outcome?.text ?? "", effectMessage: "Outcome resolved; application pending." };
+      } else incomingState.outcome = null;
+      incomingState.context ??= {};
+      incomingState.context.specialActionOperationsVersion = 1;
+    }
+    const { stampSpecialActionCardUpdate } = await import("../core/combat/special-action-outcomes.js");
+    stampSpecialActionCardUpdate(liveMessage, payload);
     if (!await liveMessage.update(payload, { render: data.render !== false })) return { ok: false, code: AUTHORITY_RESULT_CODES.FAILED };
     return { ok: true, data: { revision: incomingSeq } };
   } catch (error) {
@@ -221,7 +252,7 @@ export function registerAuthorityProxy() {
   registerAuthorityIntentCommand(CHAT_TRANSITION_COMMAND, _handleChatTransitionIntent);
 }
 
-export async function requestUpdateChatMessage(message, payload, { timeout = 5_000, render = true } = {}) {
+export async function requestUpdateChatMessage(message, payload, { timeout = 5_000, render = true, reconcileSpecial = false } = {}) {
   if (!message) return false;
   const sanitized = sanitizeChatMessageUpdatePayload(payload);
   if (!Object.keys(sanitized).length) return false;
@@ -230,8 +261,11 @@ export async function requestUpdateChatMessage(message, payload, { timeout = 5_0
     if (!isChatMessageUpdateFresh(message, sanitized)) return false;
     const systemId = game.system.id;
     const incoming = sanitized.flags?.[systemId]?.chatOutcomes;
-    if (incoming) sanitized.flags[systemId].chatOutcomes = mergeChatOutcomeEnvelope(message.flags?.[systemId]?.chatOutcomes, incoming);
+    if (incoming) sanitized.flags[systemId].chatOutcomes = mergeChatOutcomeEnvelope(message.flags?.[systemId]?.chatOutcomes, incoming,
+      { reconcileSpecial: reconcileSpecial && game.user.isGM });
     try {
+      const { stampSpecialActionCardUpdate } = await import("../core/combat/special-action-outcomes.js");
+      stampSpecialActionCardUpdate(message, sanitized);
       return Boolean(await message.update(sanitized, { render: render !== false }));
     } catch (error) {
       console.error("UESRPG | authority-proxy | Direct ChatMessage update failed", { messageId: message.id, error });
@@ -469,9 +503,10 @@ export async function requestUpdateEmbeddedDocuments(parent, embeddedName, updat
   if (!cleaned.length) return false;
   const startedAt = isPerfEnabled() ? monoMs() : null;
   let updated;
+  const expectedIds = cleaned.map(row => row._id);
   try {
     updated = await parent.updateEmbeddedDocuments(embeddedName, cleaned, updateOptions);
-    return !requireUpdated || cleaned.every(row => updated?.some(doc => doc.id === row._id));
+    return !requireUpdated || getUnconfirmedDocumentIds(expectedIds, updated?.map(doc => doc.id)).length === 0;
   } catch (error) {
     console.error("UESRPG | authority-proxy | Embedded-document update failed", { uuid: parent.uuid, embeddedName, error });
     return false;
@@ -496,9 +531,10 @@ export async function requestDeleteEmbeddedDocuments(parent, embeddedName, ids, 
   let ok = false;
   try {
     if (requireDeleted) {
+      const expectedIds = [...ids];
       const deleted = await parent.deleteEmbeddedDocuments(embeddedName, ids, deleteOptions);
       confirmedCount = deleted?.length ?? 0;
-      ok = ids.every(id => deleted?.some(doc => doc.id === id));
+      ok = getUnconfirmedDocumentIds(expectedIds, deleted?.map(doc => doc.id)).length === 0;
       return ok;
     }
     const result = await deleteEmbeddedDocumentsIdempotent(parent, embeddedName, ids, deleteOptions);

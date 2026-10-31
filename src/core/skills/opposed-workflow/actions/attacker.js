@@ -9,6 +9,7 @@
  */
 
 import { doTestRoll } from "../../../../utils/degree-roll-helper.js";
+import { applyConjurationTalentResult } from "../../../traits/spellcasting-talents.js";
 import { requireUserCanRollActor } from "../../../../utils/permissions.js";
 import { buildSkillRollRequest, normalizeSkillRollOptions, skillRollDebug, validateSkillRollRequest } from "../../roll-request.js";
 import { buildResistanceBonusMods } from "../../../traits/trait-resistance-ui.js";
@@ -25,6 +26,7 @@ import {
   _defaultSelectedCharacteristicForSkill,
   _filterSkillsForSpecialAction,
   _getSpecialActionLegalityForSide,
+  _isSnareContextCurrent,
   _isSpecialActionSelectionLegal
 } from "../context.js";
 import { consumeConcussiveNextBash } from "../helpers.js";
@@ -100,6 +102,13 @@ export async function handleAttackerRoll(ctx, action) {
   if (isCommittedRoll) {
     decl = readCommittedDeclaration(data.attacker, "Attacker");
     if (!decl) return;
+
+    if (!requireUserCanRollActor(game.user, attacker)) return;
+
+    if (!_isSnareContextCurrent(_getMessageState(game.messages.get(message.id) ?? message) ?? data, attacker, "attacker", data)) {
+      ui.notifications.warn("The Snare weapon or range changed. Start a new Special Action.");
+      return;
+    }
   } else {
     if (quick) {
       decl = buildQuickDeclaration({ selectedSkillUuid, defaults, defaultCharacteristic });
@@ -213,9 +222,17 @@ export async function handleAttackerRoll(ctx, action) {
   const rollMode = _getCoreRollMode();
   const res = await doTestRoll(attacker, { rollFormula, target: tn.finalTN, allowLucky: true, allowUnlucky: true });
 
+  if (!requireUserCanRollActor(game.user, attacker)) return;
+
+  if (!_isSnareContextCurrent(_getMessageState(game.messages.get(message.id) ?? message) ?? data, attacker, "attacker", data)) {
+    ui.notifications.warn("The Snare weapon or range changed during the roll. Start a new Special Action.");
+    return;
+  }
+
   await applyKeenIntuitionToResult(attacker, skillLabel, res, { allowPrompt: true });
   await applyHyperAwarenessToResult(attacker, skillLabel, res, { allowPrompt: true });
   await applyIntellectualTalentDoSOverrides({ actor: attacker, skillName: skillLabel, result: res, isInterrogationTest: Boolean(decl?.isInterrogationTest), allowPrompt: true });
+  await applyConjurationTalentResult(attacker, res, { skillName: skillLabel });
 
   if (concussiveApplied > 0) {
     await consumeConcussiveNextBash(attacker);

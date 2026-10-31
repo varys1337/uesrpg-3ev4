@@ -222,7 +222,9 @@ export async function createPending(cfg = {}) {
       user: game.user.id,
       speaker: ChatMessage.getSpeaker({ actor: attacker, token: aToken?.document ?? null }),
       content: _renderCard(data, ""),
-      flags: { "uesrpg-3ev4": { opposed: data } }
+      whisper: cfg.whisper ?? [], blind: cfg.blind === true,
+      flags: { "uesrpg-3ev4": { opposed: data,
+        ...(cfg.specialActionOperation ? { specialActionOperation: cfg.specialActionOperation } : {}) } }
     });
 
     await updateCard(message, liveState => liveState, _renderCard, { renderIfUnchanged: true });

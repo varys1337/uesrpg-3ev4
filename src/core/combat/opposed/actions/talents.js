@@ -7,6 +7,8 @@ import { _safeGetSetting } from "../helpers/util.js";
 import { _getDefenderEntries } from "../schema.js";
 import { spendStaminaPoints as _spendStaminaPoints } from "../helpers/workflow.js";
 
+const FOLLOWUP_STRIKE_MANUAL = true;
+
 /**
  * Handle "followup-strike" action - spend 1 SP to spawn follow-up attack.
  */
@@ -14,7 +16,7 @@ export async function handleFollowUpStrike(ctx, workflow) {
   const { data, message, attacker, opts, workflow: ctxWorkflow, _updateCard } = ctx;
   const wf = workflow ?? ctxWorkflow;
 
-  if (!_safeGetSetting("uesrpg-3ev4", "enableFollowupStrike", false)) return false;
+  if (!_safeGetSetting("uesrpg-3ev4", "enableFollowUpStrike", false)) return false;
 
   const fctx = data?.context ?? {};
   const fus = fctx.followUpStrike;
@@ -26,6 +28,10 @@ export async function handleFollowUpStrike(ctx, workflow) {
 
   if (!attacker) {
     ui.notifications.warn("Unable to resolve attacker.");
+    return false;
+  }
+  if (FOLLOWUP_STRIKE_MANUAL) {
+    ui.notifications.warn("Follow-up Strike needs manual resolution. Confirm a failed Combat Style attack while dual wielding, spend 1 SP, and attack with the other weapon at -20 as a Free Action without counting toward the round limit. Inspect prior SP, attacks and chat before retrying.");
     return false;
   }
 

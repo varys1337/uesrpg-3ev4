@@ -23,11 +23,15 @@ import { getEffectiveWeaponHands, getAttackModeFromWeapon } from "../../combat-u
 import { hasTalent } from "../../../traits/talents-api.js";
 import { getMeleeReachMeters, countOpponentsInMeleeRange } from "../../../traits/combat-proximity.js";
 import { _safeGetSetting, _getSystemId } from "./util.js";
-import { promptYesNo, promptSelectToken } from "../dialogs/common.js";
+import { promptSelectToken } from "../dialogs/common.js";
 import { t, tf } from "../../../../utils/i18n.js";
+import { confirmDialog } from "../../../../utils/dialog-v2-helper.js";
 import { _measureTokenDistance } from "./docs.js";
 import { peekFreeNextDefenseCommit } from "../../activation-state-flags.js";
 import { getActorCapabilityFlag } from "../../../active-effects/modifier-evaluator.js";
+
+const MIGHTY_CLEAVE_MANUAL = true;
+export const UNSTOPPABLE_MIGHT_MANUAL_GUIDANCE = "Unstoppable Might needs manual resolution. Confirm the chosen wield mode, weapon damage and Dual Fighter restriction; weapons used in that mode cannot Parry or Counter-Attack. Inspect prior costs, choices, rolls and damage before proceeding.";
 
 /**
  * _getActiveCombatRoundContext
@@ -115,6 +119,8 @@ export function _getGladiatorRoundContext() {
  * @param {string} params.attackMode - "melee" or "ranged"
  * @returns {object} { mode, triggered, available, usedThisRound, roundCtx }
  */
+export const GLADIATOR_MANUAL_GUIDANCE = "Gladiator's free defense needs manual resolution. Confirm the melee attack, two opponents in range and the once-per-round use; review earlier reactions and AP before recording the result with the GM.";
+
 export function _getGladiatorContext({ defender, defenderToken, attackMode } = {}) {
   const mode = _getGladiatorAutomationMode();
   const base = { mode, triggered: false, available: false, usedThisRound: false, roundCtx: null };
@@ -244,13 +250,13 @@ export function _hasUnstoppableMightEligibleWeapons(actor) {
  * @param {object} params
  * @param {string} params.actorName - Name for the prompt
  * @param {string} params.purpose - "attack" or "defense"
- * @returns {Promise<boolean>} True if using special wield mode
+ * @returns {Promise<boolean|null>} True for special wield, false for normal wield, null if closed
  */
 export async function _promptUnstoppableMightUsage({ actorName = "Actor", purpose = "attack" } = {}) {
   const details = purpose === "defense"
     ? `<p>${t("UESRPG.Dialogs.Opposed.UnstoppableDefenseDetail", "If yes, Parry and Counter-Attack are unavailable while wielding this way.")}</p>`
     : `<p>${t("UESRPG.Dialogs.Opposed.UnstoppableAttackDetail", "If yes, two-handed damage will be used for this attack.")}</p>`;
-  return await promptYesNo({
+  return await confirmDialog({
     title: t("UESRPG.Dialogs.Opposed.UnstoppableMight", "Unstoppable Might"),
     content: `
       <div class="uesrpg">
@@ -289,7 +295,7 @@ export async function _maybeEnableFollowUpStrike({ data, attacker, attackerResul
   if (!data || !attacker || !attackerResult) return;
   if (data?.context?.followUpStrike?.active) return; // this is already the follow-up attack
   if (data?.context?.followUpStrike?.eligible) return; // already enabled on this card
-  if (!_safeGetSetting("uesrpg-3ev4", "enableFollowupStrike", false)) return;
+  if (!_safeGetSetting("uesrpg-3ev4", "enableFollowUpStrike", false)) return;
   if (attackerResult.isSuccess !== false) return;
   const followupAttackFree = getActorCapabilityFlag(attacker, "flags.uesrpg-3ev4.combat.followupAttackFree");
   if (!followupAttackFree && !hasTalent(attacker, "followupstrike")) return;
@@ -327,16 +333,19 @@ export async function _maybeEnableFollowUpStrike({ data, attacker, attackerResul
  * @param {object} params.primaryDefenderToken - The first defender token
  * @param {object} params.weapon - The attacking weapon
  * @param {object} params.declaration - Attack declaration (variant = "allOut")
- * @returns {Promise<boolean>} True if Mighty Cleave is enabled and applied
+ * @returns {Promise<boolean|string>} True if enabled, or a reason for stopping the attack
  */
 export async function _maybeApplyMightyCleave({ data, attacker, attackerToken, primaryDefenderToken, weapon, declaration } = {}) {
+  if (MIGHTY_CLEAVE_MANUAL && data?.context?.mightyCleave?.enabled) {
+    ui.notifications.warn("Mighty Cleave needs manual resolution. Inspect the existing attack, targets, AP, rolls and damage before continuing.");
+    return "manual";
+  }
   if (!data || !attacker || !attackerToken || !primaryDefenderToken || !weapon || !declaration) return false;
   if (!_safeGetSetting("uesrpg-3ev4", "enableMightyCleave", false)) return false;
   if (!hasTalent(attacker, "mightycleave")) return false;
   if (String(declaration.variant ?? "normal") !== "allOut") return false;
   if (String(data?.context?.attackMode ?? "melee") !== "melee") return false;
-  if (Number(getEffectiveWeaponHands(weapon)) < 2) return false;
-  if (data?.context?.mightyCleave?.enabled) return true;
+  if (Number(getEffectiveWeaponHands(weapon)?.effectiveHands ?? 0) < 2 || data?.context?.unstoppableMight?.active === true) return false;
 
   // Build candidate token list.
   const primary = primaryDefenderToken;
@@ -367,13 +376,19 @@ export async function _maybeApplyMightyCleave({ data, attacker, attackerToken, p
   const pool = targeted.length ? targeted : (Array.isArray(canvas?.tokens?.placeables) ? canvas.tokens.placeables.filter(isValidCandidate) : []);
   if (pool.length === 0) return false;
 
-  const use = await promptYesNo({
+  const use = await confirmDialog({
     title: t("UESRPG.Dialogs.Opposed.MightyCleave", "Mighty Cleave"),
     content: `<p>${tf("UESRPG.Dialogs.Opposed.MightyCleaveBody", { target: foundry.utils.escapeHTML(primary.name) }, `Use <b>Mighty Cleave</b> to add a second target within 2m of ${foundry.utils.escapeHTML(primary.name)}?`)}</p>`,
     yesLabel: t("UESRPG.Dialogs.Opposed.UseMightyCleave", "Use Mighty Cleave"),
     noLabel: t("UESRPG.UI.No", "No")
   });
+  if (use == null) return "cancelled";
   if (!use) return false;
+
+  if (MIGHTY_CLEAVE_MANUAL) {
+    ui.notifications.warn("Mighty Cleave needs manual resolution. Confirm two-handed use, both targets and their distances; use one attack roll, separate defenses and damage, no attacker Advantage, and one attack for the round. Check prior costs and rolls first.");
+    return "manual";
+  }
 
   const chosen = await promptSelectToken({
     title: t("UESRPG.Dialogs.Opposed.MightyCleave", "Mighty Cleave"),

@@ -2,14 +2,13 @@ import { UESRPG } from "../../constants.js";
 import {
   addDiceBonus,
   halveDiceExpression,
-  hasLegacyQuality,
-  hasStructuredQuality,
   normalizeDiceExpression,
   parseRangeTriplet,
   roundPriceUp,
   safeNumber,
 } from "../item-utils.js";
 import { getInjectedQualities, hasRunedQuality } from "./shared.js";
+import { resolveWeaponMaterialRule } from "../../items/weapon-material.js";
 
 export function prepareWeaponItem(itemDoc, actorData, itemData) {
   itemData.weapon2H ? itemData.damage3 = itemData.damage2 : itemData.damage3 = itemData.damage;
@@ -22,23 +21,9 @@ export function prepareWeaponItem(itemDoc, actorData, itemData) {
   const qualityKey = String(itemData.qualityLevel || "common").toLowerCase();
   const qRule = UESRPG.WEAPON_QUALITY_RULES?.[qualityKey] ?? UESRPG.WEAPON_QUALITY_RULES.common;
 
-  const matKey = String(itemData.material || "iron").toLowerCase();
   const attackMode = String(itemData.attackMode || "melee").toLowerCase();
-
-  const isThrown = hasStructuredQuality(itemData.qualitiesStructured, "thrown") || hasLegacyQuality(itemData.qualities, "thrown");
-  const useMeleeMaterial = (attackMode === "melee") || (attackMode === "ranged" && isThrown);
-
   const injected = getInjectedQualities(itemData);
-  const traits = Array.isArray(itemData.qualitiesTraits) ? itemData.qualitiesTraits : [];
-  const isSling = injected.some(q => String(q?.key ?? q ?? "").toLowerCase() === "sling")
-    || traits.some(t => String(t ?? "").toLowerCase() === "sling")
-    || hasLegacyQuality(itemData.qualities, "sling");
-
-  const mRule = isSling
-    ? (UESRPG.WEAPON_MATERIAL_RULES_SLING?.[matKey] ?? null)
-    : (useMeleeMaterial
-      ? (UESRPG.WEAPON_MATERIAL_RULES_MELEE?.[matKey] ?? null)
-      : (UESRPG.WEAPON_MATERIAL_RULES_RANGED?.[matKey] ?? null));
+  const { rule: mRule, isThrown, useMeleeMaterial } = resolveWeaponMaterialRule(itemData);
 
   const damageMod = safeNumber(mRule?.damageMod, 0);
   const encDelta = safeNumber(mRule?.encDelta, 0);

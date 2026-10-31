@@ -125,7 +125,7 @@ export async function autoRollBanked(message, workflow, _updateCard, { reason = 
   for (let idx = 0; idx < defenderCount; idx++) {
     const currentDefenders = getDefenderEntries(currentData);
     const def = currentDefenders[idx];
-    if (!def) continue;
+    if (!def || getDefenderOutcome(currentData, def)?.needsReview === true) continue;
 
     const defActor = resolveActor(def?.actorUuid);
     if (!defActor) continue;

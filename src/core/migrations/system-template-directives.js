@@ -1,5 +1,6 @@
 import { collectionContents } from "../../utils/coerce.js";
 import { SYSTEM_ID } from "../constants.js";
+import { assertDocumentWriteConfirmed } from "../../utils/authority-proxy/shared.js";
 import { isActiveGMUser } from "../../utils/users.js";
 import { MIGRATION_REVISIONS } from "./revisions.js";
 import {
@@ -119,7 +120,9 @@ export async function migrateSystemTemplateDirectivesIfNeeded() {
     }
 
     if (actorCandidates.length) {
-      await Actor.updateDocuments(actorCandidates.map(_deletion), { diff: false });
+      const expectedIds = actorCandidates.map(row => row.id);
+      const updated = await Actor.updateDocuments(actorCandidates.map(_deletion), { diff: false });
+      assertDocumentWriteConfirmed(expectedIds, updated, "Actor");
       telemetry.actors.updated = actorCandidates.length;
       for (const candidate of actorCandidates) {
         _verifyCandidate(candidate, game.actors.get(candidate.id), failures);
@@ -132,7 +135,9 @@ export async function migrateSystemTemplateDirectivesIfNeeded() {
         failures.push(...candidates.map((candidate) => candidate.reference));
         continue;
       }
-      await actor.updateEmbeddedDocuments("Item", candidates.map(_deletion), { diff: false });
+      const expectedIds = candidates.map(row => row.id);
+      const updated = await actor.updateEmbeddedDocuments("Item", candidates.map(_deletion), { diff: false });
+      assertDocumentWriteConfirmed(expectedIds, updated, `${actor.uuid}.Item`);
       telemetry.embeddedItems.updated += candidates.length;
       for (const candidate of candidates) {
         _verifyCandidate(candidate, actor.items.get(candidate.id), failures);
@@ -140,7 +145,9 @@ export async function migrateSystemTemplateDirectivesIfNeeded() {
     }
 
     if (worldItemCandidates.length) {
-      await Item.updateDocuments(worldItemCandidates.map(_deletion), { diff: false });
+      const expectedIds = worldItemCandidates.map(row => row.id);
+      const updated = await Item.updateDocuments(worldItemCandidates.map(_deletion), { diff: false });
+      assertDocumentWriteConfirmed(expectedIds, updated, "Item");
       telemetry.worldItems.updated = worldItemCandidates.length;
       for (const candidate of worldItemCandidates) {
         _verifyCandidate(candidate, game.items.get(candidate.id), failures);

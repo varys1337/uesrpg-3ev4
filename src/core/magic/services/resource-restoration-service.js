@@ -11,6 +11,8 @@ import { evaluateNumericExpression } from "../../../utils/numeric-expression.js"
 import { requestAtomicUpdateDocument } from "../../../utils/authority-proxy.js";
 import { adjustCurrentResource } from "../../system/resource-updates.js";
 import { escapeHtml as _escapeHtml } from "../../../utils/html.js";
+import { isCoreRejuvenateSpell, requireRejuvenateChoice } from "../rejuvenate-choice.js";
+import { hasCoreCompendiumSource } from "../../compendium/access-service.js";
 
 const RESOURCE_RESTORE_DEFAULTS = Object.freeze({
   enabled: false,
@@ -152,7 +154,11 @@ function _normalizeResourceKey(resourceKey) {
 
 function _normalizeKind(value) {
   const raw = _norm(value);
-  return raw === "restoreStaminaOrRemoveFatigue" ? raw : "restoreResource";
+  if (!raw || raw === "restoreResource") return "restoreResource";
+  if (raw === "restoreStaminaOrRemoveFatigue") return raw;
+  // Legacy restoration metadata also describes cures, traits and other
+  // operations. An unrelated kind must never become a default HP restore.
+  return null;
 }
 
 function _normalizeTarget(value) {
@@ -170,6 +176,7 @@ function _normalizeConfiguredOperation(spell) {
   if (!raw || typeof raw !== "object" || !_isTruthy(raw.enabled)) return null;
 
   const kind = _normalizeKind(raw.kind);
+  if (!kind) return null;
   const resource = kind === "restoreStaminaOrRemoveFatigue"
     ? "stamina"
     : _normalizeResourceKey(raw.resource || "hp");
@@ -197,6 +204,7 @@ function _normalizeLegacyOperation(spell, payload = {}) {
   if (!raw || typeof raw !== "object") return null;
 
   const kind = _normalizeKind(raw.kind);
+  if (!kind) return null;
   const resource = kind === "restoreStaminaOrRemoveFatigue"
     ? "stamina"
     : _normalizeResourceKey(raw.resource || "hp");
@@ -253,6 +261,34 @@ function _getOperation(spell, payload = {}) {
     ?? _normalizeRecipeOperation(spell, payload);
 }
 
+export function isCoreReplenishSpell(spell) {
+  return hasCoreCompendiumSource(spell, { type: "spell", packId: "uesrpg-3ev4.spells-revised", itemId: "IXw80OpptWLYbZVy", rule: "Replenish" });
+}
+
+export function getCoreReplenishConfigurationIssue(spell, payload = {}) {
+  if (!isCoreReplenishSpell(spell)) return null;
+  if (payload?.castSource?.type === "enchantment" || payload?.spellOptions?.consumeMagicka === false) {
+    return "Replenish from an enchanted Item or a no-Magicka cast needs GM resolution of its Casting Cost. No automatic restoration was applied.";
+  }
+  const operation = _getOperation(spell, payload);
+  if (!operation || operation.kind !== "restoreResource" || operation.resource !== "magicka"
+    || operation.target !== "target" || operation.amount !== "SS" || operation.capMode !== "castingCost") {
+    return "This Core Replenish Item has altered or incomplete restoration settings. The GM must inspect it and resolve the effect manually.";
+  }
+  return null;
+}
+
+/** A source identity does not guarantee that an imported Item kept its rule fields. */
+export function getCoreRejuvenateConfigurationIssue(spell, payload = {}) {
+  if (!isCoreRejuvenateSpell(spell)) return null;
+  const operation = _getOperation(spell, payload);
+  if (!operation || operation.kind !== "restoreStaminaOrRemoveFatigue" || operation.target !== "target"
+    || operation.amount !== "1" || operation.removeFatigueLevels !== 1) {
+    return "This Core Rejuvenate Item has altered or incomplete restoration settings. The GM must inspect it and resolve the effect manually.";
+  }
+  return null;
+}
+
 /** Use the same canonical operation resolution as application, including legacy rules. */
 export function hasSpellResourceRestoration(spell, payload = {}) {
   return Boolean(_getOperation(spell, payload));
@@ -283,27 +319,41 @@ async function _restoreResource(actor, resourceKey, amount, lines) {
   return true;
 }
 
-async function _removeFatigueOrRestoreStamina(actor, operation, spell, caster, payload, lines) {
+/** Shared restoration operation for spells and fixed-effect consumables. */
+export async function restoreStaminaOrRemoveFatigue(actor, { removeFatigueLevels = 1, amount = 1, lines = [], fallbackToStamina = true, choice = "auto" } = {}) {
   if (!actor) return false;
+  if (choice !== "auto") requireRejuvenateChoice(choice);
+  if (choice === "stamina") return _restoreResource(actor, "stamina", amount, lines);
+  if (choice === "fatigue") fallbackToStamina = false;
 
   let actualReduction = 0;
-  const removeLevels = _positiveInt(operation.removeFatigueLevels, 1);
+  let previousLevel = 0;
+  const removeLevels = _positiveInt(removeFatigueLevels, 1);
   const fatigueOk = await requestAtomicUpdateDocument(actor, (fresh) => {
     const current = _readNumber(fresh, "system.fatigue.level", 0);
+    previousLevel = current;
     if (current <= 0) return null;
     const next = Math.max(0, current - removeLevels);
     actualReduction = current - next;
-    return actualReduction > 0 ? { "system.fatigue.level": next } : null;
+    // Level is derived from negative Stamina, the authored bonus and active
+    // modifiers. Change the same authored counter as the sheet's Fatigue control;
+    // persisting the derived level is overwritten by the next preparation pass.
+    const sourceBonus = Number(fresh.toObject(true).system?.fatigue?.bonus ?? 0) || 0;
+    return actualReduction > 0 ? { "system.fatigue.bonus": sourceBonus - actualReduction } : null;
   });
 
   if (!fatigueOk && actualReduction > 0) throw new Error(`Fatigue reduction failed for ${actor.name}.`);
   if (fatigueOk && actualReduction > 0) {
+    if (_readNumber(actor, "system.fatigue.level", 0) !== previousLevel - actualReduction) {
+      throw Object.assign(new Error(`The Fatigue counter changed, but active modifiers prevent the requested reduction for ${actor.name}.`), {
+        committed: true, uncertain: true,
+      });
+    }
     lines.push(`${actor.name} reduces Fatigue by ${actualReduction}`);
     return true;
   }
 
-  const amount = _resolveAmount(operation.amount || "SS", spell, caster, payload);
-  return _restoreResource(actor, "stamina", amount, lines);
+  return fallbackToStamina ? _restoreResource(actor, "stamina", amount, lines) : false;
 }
 
 async function _postReport({ caster, spell, lines, strict = false }) {
@@ -326,8 +376,13 @@ async function _postReport({ caster, spell, lines, strict = false }) {
 export async function applySpellResourceRestoration({ caster, target, spell, payload = {}, message = null, strict = false } = {}) {
   if (!spell) return false;
 
+  const configurationIssue = getCoreRejuvenateConfigurationIssue(spell, payload) ?? getCoreReplenishConfigurationIssue(spell, payload);
+  if (configurationIssue) throw Object.assign(new Error(configurationIssue), { committed: false });
   const operation = _getOperation(spell, payload);
   if (!operation) return false;
+  const coreChoice = isCoreRejuvenateSpell(spell) && operation.kind === "restoreStaminaOrRemoveFatigue";
+  const rejuvenateChoice = payload?.spellOptions?.rejuvenateChoice;
+  if (coreChoice) requireRejuvenateChoice(rejuvenateChoice);
 
   const actor = operation.target === "self" ? caster : target;
   if (!actor) {
@@ -342,7 +397,11 @@ export async function applySpellResourceRestoration({ caster, target, spell, pay
   let applied = false;
 
   if (operation.kind === "restoreStaminaOrRemoveFatigue") {
-    applied = await _removeFatigueOrRestoreStamina(actor, operation, spell, caster, payload, lines);
+    applied = await restoreStaminaOrRemoveFatigue(actor, {
+      removeFatigueLevels: operation.removeFatigueLevels,
+      amount: _resolveAmount(operation.amount || "SS", spell, caster, payload), lines,
+      choice: coreChoice ? rejuvenateChoice : "auto",
+    });
   } else {
     let amount = _resolveAmount(operation.amount || "SS", spell, caster, payload);
     if (operation.capMode === "castingCost") {
@@ -353,7 +412,10 @@ export async function applySpellResourceRestoration({ caster, target, spell, pay
     applied = await _restoreResource(actor, operation.resource, amount, lines);
   }
 
-  if (applied && operation.chat !== false) {
+  if (coreChoice && !applied) lines.push(rejuvenateChoice === "fatigue"
+    ? `${actor.name} has no Fatigue to remove` : `${actor.name}'s Stamina is already full`);
+  if (isCoreReplenishSpell(spell) && !applied) lines.push(`${actor.name} regains no MP (full Magicka or no restoration amount)`);
+  if (lines.length && operation.chat !== false) {
     await _postReport({ caster, spell, lines, message, strict });
   }
   return applied;

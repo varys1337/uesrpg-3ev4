@@ -1,4 +1,6 @@
 import { SYSTEM_ID } from "../constants.js";
+import { isActiveGMUser } from "../../utils/users.js";
+import { assertDocumentWriteConfirmed } from "../../utils/authority-proxy/shared.js";
 import {
   getMigrationState,
   isMigrationRevisionApplied,
@@ -54,7 +56,7 @@ function _buildOriginPatch(effect) {
 }
 
 export async function migrateAoeRegionLinksIfNeeded() {
-  if (!game.user?.isGM) return;
+  if (!isActiveGMUser(game.user)) return;
 
   const state = getMigrationState();
   if (isMigrationRevisionApplied(_AOE_REGION_LINK_MIGRATION_KEY, _AOE_REGION_LINK_MIGRATION_REVISION, state)) return;
@@ -68,7 +70,9 @@ export async function migrateAoeRegionLinksIfNeeded() {
         if (patch) updates.push(patch);
       }
       if (updates.length) {
-        await actor.updateEmbeddedDocuments("ActiveEffect", updates, { diff: false });
+        const expectedIds = updates.map(row => row._id);
+        const updated = await actor.updateEmbeddedDocuments("ActiveEffect", updates, { diff: false });
+        assertDocumentWriteConfirmed(expectedIds, updated, `${actor.uuid}.ActiveEffect`);
         updatedActorEffects += updates.length;
       }
     }
@@ -81,6 +85,6 @@ export async function migrateAoeRegionLinksIfNeeded() {
     console.log(`${MODULE_ID} | AoE region link migration complete`, { updatedActorEffects });
   } catch (err) {
     console.error(`${MODULE_ID} | AoE region link migration failed`, err);
-    ui.notifications?.error?.("UESRPG AoE region link migration failed; check console for details.");
+    throw err;
   }
 }

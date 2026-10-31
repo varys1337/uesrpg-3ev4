@@ -26,7 +26,7 @@ import { escapeHtml } from "../../../utils/html.js";
  * Target: Foundry VTT v14.368+
  */
 
-import { registerLinkedEntity, findOriginAE } from "../effects/origin-effect.js";
+import { findOriginAE } from "../effects/origin-effect.js";
 import { requestCreateEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { _num, _str, createDebugLogger } from "../_primitives.js";
 import { customDialog } from "../../../utils/dialog-v2-helper.js";
@@ -173,7 +173,9 @@ export async function spawnSummon(cfg = {}) {
         originAEId: originAE.id,
         originAEUuid: originAE.uuid,
         spellUuid: _str(originAE.flags?.[_FLAG_NS]?.spellUuid),
-        spellName: _str(originAE.flags?.[_FLAG_NS]?.spellName)
+        spellName: _str(originAE.flags?.[_FLAG_NS]?.spellName),
+        summonKind: _str(cfg.spell?.flags?.[_FLAG_NS]?.summonType).toLowerCase(),
+        binding: { status: "pending" }
       }
     }
   });
@@ -192,25 +194,18 @@ export async function spawnSummon(cfg = {}) {
       return { token: null, error: "Token creation returned null" };
     }
 
-    // Register the summoned token as a linked entity on the Origin AE
-    const linked = await registerLinkedEntity(originAE, {
-      type: "summon",
-      uuid: tokenDoc.uuid,
-      label: `${summonActor.name} (Summoned)`
-    }, { strict: cfg.strict === true });
-    if (cfg.strict && !linked) throw new Error("Summon origin registration was not confirmed.");
-
     _debug("Summon spawned:", tokenDoc.uuid);
 
     const notification = { casterActor, originAE, summonActor, tokenDoc,
       spellUuid: _str(originAE.flags?.[_FLAG_NS]?.spellUuid), spellName: _str(originAE.flags?.[_FLAG_NS]?.spellName),
       handledDomains: ["summonBinding"] };
     let bindingError = null;
+    let bindingStatus = "pending";
     try {
       const { applySummonBinding } = await import("./summon-binding.js");
-      await applySummonBinding(notification, { strict: cfg.strict === true });
+      bindingStatus = await applySummonBinding(notification, { strict: cfg.strict === true });
     } catch (error) { bindingError = error; }
-    Hooks.callAll("uesrpg.spell.summonSpawned", { ...notification, completion: { status: bindingError ? "partial" : "completed" } });
+    Hooks.callAll("uesrpg.spell.summonSpawned", { ...notification, completion: { status: bindingError ? "partial" : ["pending", "manual"].includes(bindingStatus) ? "pending" : "completed" } });
     if (bindingError) {
       bindingError.committed = true;
       bindingError.token = tokenDoc;
@@ -221,9 +216,10 @@ export async function spawnSummon(cfg = {}) {
     // Log to chat
     try {
       const createdMessage = await ChatMessage.create({
-        content: `<div class="uesrpg"><h3>Creature Summoned</h3><p><strong>${casterActor.name}</strong> summons <strong>${summonActor.name}</strong>.</p></div>`,
+        content: `<div class="uesrpg"><h3>Creature Summoned</h3><p><strong>${escapeHtml(casterActor.name)}</strong> summons <strong>${escapeHtml(summonActor.name)}</strong>. Binding: ${escapeHtml(bindingStatus)}.</p><p>Roll initiative for the creature when appropriate.${bindingStatus === "unbound" ? " Resolve its end-of-round Willpower tests manually." : ""}</p>${bindingStatus === "bound" ? '<button type="button" data-ues-summon-binding-action="release">Record hostile action</button>' : ""}</div>`,
         speaker: ChatMessage.getSpeaker({ actor: casterActor }),
-        style: CONST.CHAT_MESSAGE_STYLES.OTHER
+        style: CONST.CHAT_MESSAGE_STYLES.OTHER,
+        flags: { [_FLAG_NS]: { summonBinding: { tokenUuid: tokenDoc.uuid } } }
       });
       if (!createdMessage) throw new Error("Summon summary creation was not confirmed.");
     } catch (error) {
@@ -231,7 +227,7 @@ export async function spawnSummon(cfg = {}) {
       console.warn("UESRPG | Summon summary failed", error);
     }
 
-    return { token: tokenDoc, error: null };
+    return { token: tokenDoc, error: null, bindingStatus };
   } catch (err) {
     console.error("UESRPG | summon-service | Failed to create summon token", err);
     return { token: tokenDoc ?? err.token ?? null, error: err.message ?? "Token creation failed", execution: { status: tokenDoc || err.committed ? "partial" : "failed", committed: Boolean(tokenDoc || err.committed) } };
@@ -246,13 +242,7 @@ export async function spawnSummon(cfg = {}) {
  * @param {Actor} casterActor
  * @returns {TokenDocument[]}
  */
-export function getSummonedTokens(casterActor) {
-  if (!casterActor || !canvas?.scene) return [];
-  return (canvas.scene.tokens ?? []).filter(td => {
-    const flags = td.flags?.[_FLAG_NS];
-    return flags?.isSummonedToken === true && _str(flags.summonerActorUuid) === casterActor.uuid;
-  });
-}
+export { getSummonedTokens } from "./conjuration-state.js";
 
 /**
  * Get all summoned tokens linked to a specific Origin AE.

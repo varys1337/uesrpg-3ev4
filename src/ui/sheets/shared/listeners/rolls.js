@@ -11,6 +11,9 @@ import { SYSTEM_ROLL_FORMULA, UESRPG } from "../../../../core/constants.js";
 import { getCachedSetting } from "../../../../core/config/settings-cache.js";
 import { isLucky, isUnlucky } from "../../../../utils/skillCalcHelper.js";
 import { SkillOpposedWorkflow } from "../../../../core/skills/opposed-workflow/index.js";
+import { showSpellOptionsDialog } from "../../../../core/magic/dialogs/spell-options-dialog.js";
+import { getRitualCastingBlockReason } from "../../../../core/magic/magicka-utils.js";
+import { castAttackSpell } from "./magic-cast.js";
 import { computeSkillTN, SKILL_DIFFICULTIES } from "../../../../core/skills/skill-tn.js";
 import { doTestRoll, formatDegree, formatResultOutcomeLabel, formatResultSummary, computeResultFromRollTotal } from "../../../../utils/degree-roll-helper.js";
 import { requireUserCanRollActor } from "../../../../utils/permissions.js";
@@ -22,6 +25,7 @@ import { buildSkillRollRequest, normalizeSkillRollOptions, skillRollDebug } from
 import { applyKeenIntuitionToResult, applyHyperAwarenessToResult } from "../../../../core/traits/awareness-talents.js";
 import { hasTalent } from "../../../../core/traits/talents-api.js";
 import { applyIntellectualTalentDoSOverrides } from "../../../../core/traits/intellectual-talents.js";
+import { applyConjurationTalentResult } from "../../../../core/traits/spellcasting-talents.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { systemTooltipAttributes } from "../../../shared/system-tooltips.js";
 import { asyncGuardSheet } from "../../../../utils/async-guard.js";
@@ -426,6 +430,7 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
     isQuestioningTest: Boolean(decl?.isQuestioningTest),
     allowPrompt: true
   });
+  await applyConjurationTalentResult(this.actor, res, { skillName: skillItem?.name ?? "" });
 
   skillRollDebug("untargeted result", { rollTotal: res.rollTotal, target: res.target, isSuccess: res.isSuccess, degree: res.degree, critS: res.isCriticalSuccess, critF: res.isCriticalFailure });
 
@@ -542,25 +547,25 @@ export const onSpellRoll = asyncGuardSheet(async function onSpellRoll(event, tar
     );
   }
 
+  const ritualReason = getRitualCastingBlockReason(spellToCast);
+  if (ritualReason) { ui.notifications.warn(ritualReason); return; }
   const targets = getUserSpellTargets();
   debugMagicRoutingLog({ source: "onSpellRoll", actor: this.actor, spell: spellToCast, targets });
   if (shouldUseTargetedSpellWorkflow(spellToCast, targets)) {
-    const spellOptions = await this._showSpellOptionsDialog(spellToCast);
+    const spellOptions = await showSpellOptionsDialog(this.actor, spellToCast);
     if (spellOptions === null) return;
-    await this._castAttackSpell(spellToCast, targets, spellOptions, "primary");
-    return;
+    return castAttackSpell(this, spellToCast, targets, spellOptions, "primary");
   }
   if (shouldUseModernSpellWorkflow(spellToCast)) {
-    const spellOptions = await this._showSpellOptionsDialog(spellToCast);
+    const spellOptions = await showSpellOptionsDialog(this.actor, spellToCast);
     if (spellOptions === null) return;
-    await MagicOpposedWorkflow.castUnopposed({
+    return MagicOpposedWorkflow.castUnopposedResult({
       attackerActorUuid: this.actor.uuid,
       attackerTokenUuid: this.token?.document?.uuid ?? this.token?.uuid ?? null,
       spellUuid: spellToCast.uuid,
       spellOptions,
       castActionType: "primary"
     });
-    return;
   }
 });
 

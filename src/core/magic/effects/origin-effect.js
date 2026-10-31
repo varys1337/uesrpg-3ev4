@@ -19,7 +19,7 @@ import { prepareSpellStrengthForUse } from "../opposed/spell-helpers.js";
  *  - Linked cleanup must stay idempotent and tolerate already-missing docs.
  */
 
-import { requestUpdateDocument, requestCreateEmbeddedDocuments, requestAtomicUpdateDocument } from "../../../utils/authority-proxy.js";
+import { requestUpdateDocument, requestAtomicUpdateDocument, requestUpdateChatMessage } from "../../../utils/authority-proxy.js";
 import { _num, _str, createDebugLogger } from "../_primitives.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { buildSpellExpirationAnchor } from "../../../utils/document-resolution.js";
@@ -27,8 +27,8 @@ import { isMissingDocError, safeDeleteEmbeddedDocument } from "../../../utils/ae
 import { getEffectChanges } from "../../../utils/compat.js";
 import { createUuidResolver, resolveUuidSync } from "../../../utils/uuid-cache.js";
 import { getLinkedAreaEntities } from "../region-links.js";
-import { buildGenericAEData } from "../../active-effects/modifier-evaluator.js";
-import { buildSpellEffectMetadataFlags, parseUpkeepGroupKey } from "./spell-effect-metadata.js";
+import { buildGenericAEData, applyGenericStackPolicy } from "../../active-effects/modifier-evaluator.js";
+import { buildSpellEffectMetadataFlags, parseUpkeepGroupKey, getSpellEffectIdentity } from "./spell-effect-metadata.js";
 import {
   buildSpellActiveEffectDuration,
   buildSpellActiveEffectDurationFromValues,
@@ -45,12 +45,130 @@ import { measurePerfStage } from "../../../utils/perf-tracker.js";
 import { createChatOutcome } from "../../config/outcome-application-policy.js";
 import { persistChatOutcomes } from "../../../application/combat/chat-outcome-application-service.js";
 import { escapeHtml } from "../../../utils/html.js";
+import { customDialog } from "../../../utils/dialog-v2-helper.js";
 import { captureItemOutcomeContext, restoreOutcomeItem } from "../../../utils/item-outcome-snapshot.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 const _teardowns = new Map();
 const _cancellations = new Map();
 const _hookTeardownFailures = [];
+const _CLEANUP_FLAG = "originCleanup";
+
+async function _updateCleanupRecord(caster, originUuid, mutate) {
+  if (!caster?.uuid || !originUuid) throw new Error("The caster is unavailable for cleanup recovery.");
+  let completed = false;
+  let changed = false;
+  const saved = await requestAtomicUpdateDocument(caster, fresh => {
+    const raw = fresh.flags?.[_FLAG_NS]?.[_CLEANUP_FLAG];
+    if (raw != null && !Array.isArray(raw)) throw new Error("The origin cleanup record has an unsupported format.");
+    const records = foundry.utils.deepClone(raw ?? []);
+    const index = records.findIndex(record => record.originUuid === originUuid);
+    const result = mutate(index < 0 ? null : records[index]);
+    completed = true;
+    if (result === undefined) return {};
+    changed = true;
+    if (index >= 0) records.splice(index, 1);
+    if (result) records.push(result);
+    return { [`flags.${_FLAG_NS}.${_CLEANUP_FLAG}`]: records };
+  }, { render: false, perfKind: "spellLifecycle" });
+  if (!completed || !saved && changed) throw new Error("Origin cleanup recovery could not be saved.");
+}
+
+function _cleanupSnapshot(originEffect) {
+  const flags = originEffect.flags?.[_FLAG_NS] ?? {};
+  return { originUuid: originEffect.uuid, originId: originEffect.id, name: originEffect.name,
+    flags: foundry.utils.deepClone({ isOriginAE: true, spellUuid: flags.spellUuid, spellName: flags.spellName,
+      casterUuid: flags.casterUuid, originalCastWorldTime: flags.originalCastWorldTime,
+      castSource: flags.castSource ?? null, linkedEntities: flags.linkedEntities ?? [] }) };
+}
+
+async function _trackOriginCleanup(originEffect, links, status = "tracking") {
+  const snapshot = _cleanupSnapshot(originEffect);
+  await _updateCleanupRecord(originEffect.parent, originEffect.uuid, previous => {
+    if (status === "tracking" && previous && previous.status !== "tracking") throw new Error("This spell is already being cleaned up.");
+    const entries = new Map((previous?.links ?? []).map(link => [link.uuid, link]));
+    for (const link of links) if (link?.uuid && !entries.has(link.uuid)) entries.set(link.uuid, { ...link, status: "pending" });
+    return { ...previous, ...snapshot, status, links: [...entries.values()] };
+  });
+}
+
+async function _setCleanupLink(originEffect, linkUuid, status, error = "") {
+  await _updateCleanupRecord(originEffect.parent, originEffect.uuid, record => {
+    if (!record) throw new Error("The origin cleanup record is unavailable.");
+    const link = record.links?.find(entry => entry.uuid === linkUuid);
+    if (!link) throw new Error("The linked cleanup stage is unavailable.");
+    link.status = status;
+    link.error = error;
+    record.status = status === "failed" ? "partial" : "cleaning";
+    return record;
+  });
+}
+
+async function _postCleanupReview(originEffect, errors) {
+  if (!isActiveGMUser(game.user)) return;
+  const caster = originEffect.parent;
+  const record = caster.flags?.[_FLAG_NS]?.[_CLEANUP_FLAG]?.find?.(entry => entry.originUuid === originEffect.uuid);
+  const stages = (record?.links ?? []).filter(link => link && typeof link === "object").map(link => `<li>${escapeHtml(link.label || link.uuid)}: ${escapeHtml(link.status || "pending")}${link.error ? ` — ${escapeHtml(link.error)}` : ""}</li>`).join("");
+  const content = `<div class="uesrpg"><h3>Spell cleanup requires review</h3><p>${escapeHtml(originEffect.name)}: ${escapeHtml(errors.join("; "))}</p>${stages ? `<ul>${stages}</ul>` : ""}<p>Review the surviving entities and retry only when their state is understood.</p><button type="button" data-ues-origin-cleanup-action="retry">Retry linked cleanup</button></div>`;
+  let message = record?.reviewMessageId ? game.messages?.get?.(record.reviewMessageId) : null;
+  if (message) {
+    if (message.content !== content && !await requestUpdateChatMessage(message, { content })) throw new Error("The cleanup review card could not be updated.");
+    return;
+  }
+  message = await ChatMessage.create({
+    speaker: ChatMessage.getSpeaker({ actor: caster }), style: CONST.CHAT_MESSAGE_STYLES.OTHER,
+    whisper: game.users.filter(user => user.isGM).map(user => user.id),
+    content,
+    flags: { [_FLAG_NS]: { originCleanup: { casterUuid: caster.uuid, originUuid: originEffect.uuid } } }
+  });
+  if (!message) throw new Error("The cleanup review card was not created.");
+  await _updateCleanupRecord(caster, originEffect.uuid, current => current ? { ...current, reviewMessageId: message.id } : undefined);
+}
+
+function _originFromCleanupRecord(caster, record) {
+  return { uuid: record.originUuid, id: record.originId, name: record.name, parent: caster,
+    flags: { [_FLAG_NS]: { ...record.flags, linkedEntities: (record.links ?? []).map(link => ({ ...link })) } } };
+}
+
+export async function retryOriginCleanupFromChat(message) {
+  if (!isActiveGMUser(game.user)) throw new Error("Only the active GM can retry spell cleanup.");
+  const reference = message?.flags?.[_FLAG_NS]?.originCleanup;
+  let caster = reference?.casterUuid ? await fromUuid(reference.casterUuid) : null;
+  let record = caster?.flags?.[_FLAG_NS]?.[_CLEANUP_FLAG]?.find?.(entry => entry.originUuid === reference?.originUuid);
+  if (!record) {
+    ui.notifications?.info?.("This spell cleanup is already resolved or its record is unavailable.");
+    return;
+  }
+  const confirmed = await customDialog({ title: "Retry Spell Cleanup", layout: "choices",
+    content: `<p>Confirm that you inspected the surviving linked entities for ${escapeHtml(record.name)} and that the previous processor has stopped.</p>`,
+    buttons: { retry: { label: "Retry cleanup", callback: () => true }, cancel: { label: "Cancel", callback: () => false } },
+    defaultButton: "cancel" });
+  if (!confirmed) return;
+  if (!isActiveGMUser(game.user)) throw new Error("The active GM changed before cleanup could be retried.");
+  caster = await fromUuid(reference.casterUuid);
+  record = caster?.flags?.[_FLAG_NS]?.[_CLEANUP_FLAG]?.find?.(entry => entry.originUuid === reference.originUuid);
+  if (!record) throw new Error("The cleanup record changed while the confirmation was open.");
+  const live = caster.effects?.get?.(record.originId);
+  const ok = live ? await cancelOriginAEUpkeep(live) : !(await teardownOriginAE(_originFromCleanupRecord(caster, record))).errors.length;
+  if (!ok) throw new Error("Linked cleanup remains incomplete. Review the surviving entities before retrying.");
+  if (!await requestUpdateChatMessage(message, { content: `<div class="uesrpg"><h3>Spell cleanup resolved</h3><p>${escapeHtml(record.name)}</p></div>` })) {
+    ui.notifications?.warn?.("Cleanup completed, but its review card could not be updated.");
+  }
+}
+
+async function _recoverOriginCleanupReviews() {
+  if (!isActiveGMUser(game.user)) return;
+  for (const caster of MagicTimekeeping.collectRelevantActors()) {
+    const records = caster.flags?.[_FLAG_NS]?.[_CLEANUP_FLAG];
+    if (!Array.isArray(records)) continue;
+    for (const record of records) {
+      if (!record?.originUuid || !record.originId || !Array.isArray(record.links)) continue;
+      if (record.status === "tracking" && caster.effects?.has?.(record.originId)) continue;
+      if (record.reviewMessageId && game.messages?.get?.(record.reviewMessageId)) continue;
+      await _postCleanupReview(_originFromCleanupRecord(caster, record), ["A previous cleanup was interrupted; inspect its saved stages."]);
+    }
+  }
+}
 
 export async function executeChatOutcome(outcome, context) {
   const casterActor = resolveUuidSync(outcome.sourceActorUuid);
@@ -75,14 +193,17 @@ async function queueOriginConsequences(casterActor, spell, originEffect, options
   const targets = mode === "item" ? resolveConjureTargets(casterActor, originEffect) : [casterActor];
   const storedOptions = { ...options };
   delete storedOptions.message;
+  delete storedOptions.onOutcome;
   const preparedOptions = { ...storedOptions, ...await prepareConjurationOptions(casterActor, spell, originEffect) };
   const recipients = bound ? [casterActor] : targets;
   const entries = recipients.map(target => createChatOutcome({ adapter: "magic.origin", kind: "effect",
     sourceActorUuid: casterActor.uuid, targetUuid: target.uuid, label: spell.name,
     payload: { originEffectUuid: originEffect.uuid, spellSnapshot: spell.toObject(), spellSnapshotContext: captureItemOutcomeContext(spell), options: preparedOptions,
       targetUuids: (bound ? targets : [target]).map(actor => actor.uuid) } }));
-  await persistChatOutcomes({ actor: casterActor, entries,
+  const message = await persistChatOutcomes({ actor: casterActor, entries,
     content: `<div class="uesrpg"><b>${escapeHtml(spell.name)}</b></div>` });
+  if (!message) throw new Error("The origin consequences were not confirmed.");
+  options.onOutcome?.(message);
   return { operationCount: 0, committed: [], failed: [], pending: true, handledDomains: ["conjuration", "boundItem"] };
 }
 
@@ -149,6 +270,8 @@ export function spellRequiresOriginAE(spell) {
 export async function createOriginAE(casterActor, spell, options = {}) {
   if (!casterActor || !spell) return null;
   if (!spellRequiresOriginAE(spell)) return null;
+  options = { ...options, castContext: { ...options.castContext,
+    castInstanceId: options.castContext?.castInstanceId || foundry.utils.randomID() } };
 
   const conjureMode = String(spell.system?.engine?.conjure?.mode ?? "none");
   const legacyConjure = spell.flags?.[_FLAG_NS]?.conjureType;
@@ -200,11 +323,11 @@ export async function createOriginAE(casterActor, spell, options = {}) {
   const castLevel = Number(options?.castContext?.castLevel ?? options?.scalingChoices?.level ?? null) || null;
   const resolvedCost = _num(options.costPaid, _num(getSpellCost(spell, castLevel), _num(spell.system?.cost, 0)));
 
-  const originGroup = `spell.origin.${spell.id ?? spell.uuid}`;
+  const originGroup = `spell.origin.${getSpellEffectIdentity(spell)}`;
   const effectData = buildGenericAEData({
     source: "spell",
     stack: {
-      policy: "replace",
+      policy: spell.system?.engine?.stackingPolicy === "stack" ? "none" : "replace",
       group: originGroup,
       max: null,
       strengthKey: null,
@@ -260,8 +383,7 @@ export async function createOriginAE(casterActor, spell, options = {}) {
   });
 
   try {
-    const results = await requestCreateEmbeddedDocuments(casterActor, "ActiveEffect", [effectData]);
-    const created = Array.isArray(results) ? results[0] : (results ?? null);
+    const created = await applyGenericStackPolicy(casterActor, effectData);
     if (options.strict && !created) throw new Error("Origin effect creation was not confirmed.");
 
     if (created) {
@@ -309,6 +431,14 @@ export async function registerLinkedEntity(originEffect, link, { strict = false 
   const flags = originEffect.flags?.[_FLAG_NS];
   if (!flags?.isOriginAE) return false;
 
+  try {
+    await _trackOriginCleanup(originEffect, [link]);
+  } catch (error) {
+    if (strict) throw error;
+    console.warn("UESRPG | Linked entity recovery could not be recorded", error);
+    return false;
+  }
+
   let needed = false;
   let calculated = false;
   const updated = await requestAtomicUpdateDocument(originEffect, fresh => {
@@ -319,7 +449,30 @@ export async function registerLinkedEntity(originEffect, link, { strict = false 
     existing.push({ type: _str(link.type), uuid: _str(link.uuid), actorUuid: _str(link.actorUuid), label: _str(link.label), registeredAt: Date.now() });
     return { [`flags.${_FLAG_NS}.linkedEntities`]: existing };
   }, { render: false, perfKind: "spellLifecycle" });
-  return strict ? Boolean(updated || (calculated && !needed)) : true;
+  return Boolean(updated || (calculated && !needed));
+}
+
+/** Remove a released summon from its origin without affecting other links. */
+export async function unregisterLinkedEntity(originEffect, uuid) {
+  if (!originEffect?.flags?.[_FLAG_NS]?.isOriginAE || !uuid) return false;
+  if (!isActiveGMUser(game.user)) throw new Error("The active GM is required to detach a summon link.");
+  let calculated = false;
+  let needed = false;
+  const updated = await requestAtomicUpdateDocument(originEffect, fresh => {
+    calculated = true;
+    const links = Array.isArray(fresh.flags?.[_FLAG_NS]?.linkedEntities) ? fresh.flags[_FLAG_NS].linkedEntities : [];
+    needed = links.some(link => link.uuid === uuid);
+    return needed ? { [`flags.${_FLAG_NS}.linkedEntities`]: links.filter(link => link.uuid !== uuid) } : {};
+  }, { render: false, perfKind: "spellLifecycle" });
+  if (!updated && (!calculated || needed)) throw new Error("The summon could not be detached from its origin.");
+  if (!isActiveGMUser(game.user)) throw new Error("The active GM changed while detaching a summon link.");
+  await _updateCleanupRecord(originEffect.parent, originEffect.uuid, record => {
+    if (!record) return undefined;
+    record.links = (record.links ?? []).filter(link => link.uuid !== uuid);
+    record.flags.linkedEntities = (record.flags?.linkedEntities ?? []).filter(link => link.uuid !== uuid);
+    return record;
+  });
+  return true;
 }
 
 /**
@@ -373,10 +526,13 @@ export async function settlePendingOriginTeardowns() {
 }
 
 async function _teardownOriginAE(originEffect, options) {
+  if (!isActiveGMUser(game.user)) return { deletedCount: 0, errors: ["The active GM is required for linked cleanup."] };
   const flags = originEffect.flags[_FLAG_NS];
   const errors = [];
   let deletedCount = 0;
   const links = new Map();
+  const previous = originEffect.parent?.flags?.[_FLAG_NS]?.[_CLEANUP_FLAG]?.find?.(entry => entry.originUuid === originEffect.uuid);
+  for (const link of previous?.links ?? []) if (link?.uuid) links.set(link.uuid, link);
   for (const link of [...(flags.linkedEntities ?? []), ...getLinkedAreaEntities(originEffect)]) {
     if (link?.uuid) links.set(link.uuid, link);
   }
@@ -390,8 +546,21 @@ async function _teardownOriginAE(originEffect, options) {
       links.set(effect.uuid, { type: "targetAE", uuid: effect.uuid });
     }
   }
+  try {
+    await _trackOriginCleanup(originEffect, [...links.values()], "cleaning");
+  } catch (error) {
+    return { deletedCount: 0, errors: [`Cleanup recovery could not be saved: ${error.message}`] };
+  }
   const buffers = new Map();
+  for (const entry of previous?.buffers ?? []) {
+    const actor = resolveUuidSync(entry.actorUuid);
+    if (actor?.documentName === "Actor") buffers.set(actor.uuid, { actor, types: new Set(entry.types ?? []) });
+    else errors.push(`Buffer owner ${entry.actorUuid} could not be resolved.`);
+  }
   for (const link of links.values()) {
+    const stage = originEffect.parent?.flags?.[_FLAG_NS]?.[_CLEANUP_FLAG]
+      ?.find?.(entry => entry.originUuid === originEffect.uuid)?.links?.find?.(entry => entry.uuid === link.uuid);
+    if (stage?.status === "done") continue;
     const doc = resolveUuidSync(link.uuid);
     const f = doc?.flags?.[_FLAG_NS];
     if (f?.bufferApplied && doc.parent?.documentName === "Actor") {
@@ -400,17 +569,39 @@ async function _teardownOriginAE(originEffect, options) {
       buffers.set(doc.parent.uuid, entry);
     }
     try {
-      const present = Boolean(doc);
-      if (!await _deleteLinkedEntity(link)) throw new Error("Deletion was not confirmed.");
-      if (present) deletedCount++;
-    } catch (error) { errors.push(`Linked ${link.type} ${link.uuid}: ${error.message}`); }
+      if (!isActiveGMUser(game.user)) throw new Error("The active GM changed during linked cleanup.");
+      if (f?.bufferApplied && doc.parent?.documentName === "Actor") {
+        await _updateCleanupRecord(originEffect.parent, originEffect.uuid, record => {
+          if (!record) throw new Error("The origin cleanup record is unavailable.");
+          const entries = new Map((record.buffers ?? []).map(entry => [entry.actorUuid, entry]));
+          const entry = entries.get(doc.parent.uuid) ?? { actorUuid: doc.parent.uuid, types: [] };
+          entry.types = [...new Set([...entry.types, f.bufferType])];
+          entries.set(entry.actorUuid, entry);
+          record.buffers = [...entries.values()];
+          return record;
+        });
+      }
+      await _setCleanupLink(originEffect, link.uuid, "started");
+      const result = await _deleteLinkedEntity(link, originEffect.uuid);
+      if (!result.ok) throw new Error("Deletion was not confirmed.");
+      if (!isActiveGMUser(game.user)) throw new Error("The active GM changed after linked deletion; review the started stage.");
+      await _setCleanupLink(originEffect, link.uuid, "done");
+      if (result.deleted) deletedCount++;
+    } catch (error) {
+      const detail = `Linked ${link.type} ${link.uuid}: ${error.message}`;
+      errors.push(detail);
+      try { if (isActiveGMUser(game.user)) await _setCleanupLink(originEffect, link.uuid, "failed", detail); }
+      catch (recordError) { errors.push(`Cleanup checkpoint: ${recordError.message}`); }
+    }
   }
   for (const { actor, types } of buffers.values()) {
+    if (!isActiveGMUser(game.user)) { errors.push("The active GM changed before buffer reconciliation."); break; }
     try { await reconcileSpellBuffers(actor, types, { strict: true }); }
     catch (error) { errors.push(error.message); }
   }
   const source = flags.castSource;
-  if (source?.type === "enchantment") {
+  if (source?.type === "enchantment" && !isActiveGMUser(game.user)) errors.push("The active GM changed before enchantment cleanup.");
+  else if (source?.type === "enchantment") {
     const item = resolveUuidSync(_str(source.enchantedItemUuid));
     const lane = _str(source.sourceLane || "workshop").toLowerCase();
     const path = lane === "extension" ? "itemSpellcasting.activeUpkeepSlotId" : "enchanting.cast.activeUpkeepSpellId";
@@ -423,12 +614,26 @@ async function _teardownOriginAE(originEffect, options) {
         return needed ? { [`flags.${_FLAG_NS}.${path}`]: null } : {};
       }, { render: false, perfKind: "spellLifecycle" });
       if (!ok && (!calculated || needed)) errors.push("Enchantment upkeep pointer cleanup was not confirmed.");
+    } else if (source.enchantedItemUuid && !_confirmedLinkAbsence(source.enchantedItemUuid)) {
+      errors.push("The enchantment upkeep source could not be resolved or confirmed absent.");
+    }
+  }
+  if (errors.length) {
+    try { if (isActiveGMUser(game.user)) await _updateCleanupRecord(originEffect.parent, originEffect.uuid, record => record ? { ...record, status: "partial", errors } : undefined); }
+    catch (error) { errors.push(`Cleanup failure could not be recorded: ${error.message}`); }
+    try { await _postCleanupReview(originEffect, errors); }
+    catch (error) { console.warn("UESRPG | Cleanup review card failed", error); }
+    if (!options.silent) ui.notifications?.warn?.("Spell ended with unresolved linked cleanup.");
+  } else {
+    try { await _updateCleanupRecord(originEffect.parent, originEffect.uuid, () => null); }
+    catch (error) {
+      errors.push(`Cleanup completion could not be recorded: ${error.message}`);
+      try { await _postCleanupReview(originEffect, errors); } catch (_reviewError) { /* The cleanup record remains available. */ }
     }
   }
   Hooks.callAll("uesrpg.spell.ended", { spellUuid: _str(flags.spellUuid), spellName: _str(flags.spellName || originEffect.name),
     casterUuid: _str(flags.casterUuid), originEffectId: originEffect.id, deletedCount, errors,
     completion: { status: errors.length ? "partial" : "completed" } });
-  if (errors.length && !options.silent) ui.notifications?.warn?.("Spell ended with unresolved linked cleanup.");
   return { deletedCount, errors };
 }
 
@@ -441,11 +646,12 @@ async function _teardownOriginAE(originEffect, options) {
  * @param {string} spellUuid - The spell UUID
  * @returns {ActiveEffect|null}
  */
-export function findOriginAE(casterActor, spellUuid) {
+export function findOriginAE(casterActor, spellUuid, castContext = null) {
   if (!casterActor || !spellUuid) return null;
   for (const ef of (casterActor.effects ?? [])) {
     const f = ef.flags?.[_FLAG_NS];
-    if (f?.isOriginAE && _str(f.spellUuid) === _str(spellUuid)) return ef;
+    if (f?.isOriginAE && _str(f.spellUuid) === _str(spellUuid)
+      && (!castContext?.castInstanceId || f.castContext?.castInstanceId === castContext.castInstanceId)) return ef;
   }
   return null;
 }
@@ -626,6 +832,8 @@ export function cancelOriginAEUpkeep(originEffect, { strict = false } = {}) {
     const parent = originEffect.parent;
     if (!parent) return false;
     const live = parent.effects?.get?.(originEffect.id);
+    await _trackOriginCleanup(live ?? originEffect, (live ?? originEffect).flags?.[_FLAG_NS]?.linkedEntities ?? [], "cleaning");
+    if (!isActiveGMUser(game.user)) throw new Error("The active GM changed before the origin was removed.");
     if (live) {
       const deleted = await safeDeleteEmbeddedDocument(parent, "ActiveEffect", live.id, {
         context: "UESRPG | cancel spell origin",
@@ -650,7 +858,7 @@ export function cancelOriginAEUpkeep(originEffect, { strict = false } = {}) {
  */
 export function findOriginAEByGroupKey(groupKey) {
   if (!groupKey) return null;
-  const { casterUuid, casterTokenUuid, spellUuid, originalCastWorldTime: castTime } = parseUpkeepGroupKey(groupKey);
+  const { casterUuid, casterTokenUuid, spellUuid, originalCastWorldTime: castTime, castInstanceId } = parseUpkeepGroupKey(groupKey);
   if (!casterUuid || !spellUuid) return null;
 
   const casterDoc = resolveUuidSync(casterUuid);
@@ -663,6 +871,7 @@ export function findOriginAEByGroupKey(groupKey) {
     if (_str(f.spellUuid) !== spellUuid) continue;
     if (casterTokenUuid && _str(f.casterTokenUuid) !== casterTokenUuid) continue;
     if (castTime > 0 && _num(f.originalCastWorldTime, 0) !== castTime) continue;
+    if (castInstanceId && f.castContext?.castInstanceId !== castInstanceId) continue;
     return ef;
   }
   return null;
@@ -712,7 +921,7 @@ function _buildCasterBuffData(targetEffect, spell, casterActor) {
   const spellName = String(spell.name ?? "");
   const buffName = spellName.replace("(Drain)", "(Buff)").replace(/\s*$/, " (Buff)");
 
-  const pairedGroup = `spell.paired.${spell.id || spell.uuid}`;
+  const pairedGroup = `spell.paired.${getSpellEffectIdentity(spell)}`;
   const targetFlags = targetEffect?.flags?.[_FLAG_NS] ?? {};
   const pairedSourceTargetUuids = Array.isArray(targetFlags.targetUuids)
     ? foundry.utils.deepClone(targetFlags.targetUuids)
@@ -805,8 +1014,7 @@ export async function applyPairedCasterEffects(payload, { strict = false } = {})
     if (!buffData) continue;
 
     try {
-      const results = await requestCreateEmbeddedDocuments(caster, "ActiveEffect", [buffData]);
-      const created = Array.isArray(results) ? results[0] : (results ?? null);
+      const created = await applyGenericStackPolicy(caster, buffData);
 
       if (!created) {
         if (strict) throw new Error("Caster buff creation was not confirmed.");
@@ -856,7 +1064,10 @@ export function initializeOriginAELifecycle() {
     if (!origin) {
       const pending = _teardowns.get(data.originUuid);
       const settled = pending ? await pending : null;
-      return { ok: !settled?.errors?.length };
+      if (settled) return { ok: !settled.errors.length };
+      const record = caster.flags?.[_FLAG_NS]?.[_CLEANUP_FLAG]?.find?.(entry => entry.originUuid === data.originUuid);
+      if (record) return { ok: !(await teardownOriginAE(_originFromCleanupRecord(caster, record))).errors.length };
+      return { ok: true };
     }
     if (!origin.flags?.[_FLAG_NS]?.isOriginAE || origin.parent?.uuid !== caster.uuid) return { ok: false, code: AUTHORITY_RESULT_CODES.INVALID_REQUEST };
     return { ok: await cancelOriginAEUpkeep(origin) };
@@ -881,6 +1092,11 @@ export function initializeOriginAELifecycle() {
     }
   });
 
+  const recover = () => { void _recoverOriginCleanupReviews()
+    .catch(error => console.warn("UESRPG | Origin cleanup recovery failed", error)); };
+  recover();
+  Hooks.on("userConnected", recover);
+
   // Paired AE hook for Absorb [Characteristic] spells
   Hooks.on("uesrpg.spell.effectApplied", payload => {
     if (payload?.handledDomains?.includes("paired")) return;
@@ -897,87 +1113,107 @@ export function initializeOriginAELifecycle() {
  * @param {object} link
  * @returns {Promise<boolean>}
  */
-async function _deleteLinkedEntity(link) {
-  if (!link?.uuid) return false;
+function _confirmedLinkAbsence(uuid) {
+  const parts = String(uuid ?? "").split(".");
+  if (parts.length < 4 || parts[0] === "Compendium") return false;
+  const id = parts.pop();
+  const type = parts.pop();
+  const parent = resolveUuidSync(parts.join("."));
+  if (!parent || typeof parent.getEmbeddedCollection !== "function") return false;
+  try {
+    const collection = parent.getEmbeddedCollection(type);
+    return Boolean(collection && !collection.has(id));
+  } catch (_error) { return false; }
+}
+
+async function _deleteLinkedEntity(link, originUuid) {
+  if (!link?.uuid) return { ok: false, deleted: false };
 
   try {
     const resolver = createUuidResolver();
     const doc = resolver.resolveSync(link.uuid);
-    if (!doc) return true; // Confirmed absence is idempotent success
+    if (!doc) {
+      if (_confirmedLinkAbsence(link.uuid)) return { ok: true, deleted: false };
+      throw new Error("The linked document could not be resolved or confirmed absent.");
+    }
 
     switch (link.type) {
       case "targetAE": {
         const parent = doc.parent;
-        if (!parent) return false;
+        if (!parent) return { ok: false, deleted: false };
         // Verify the effect still exists on the parent
         const existing = parent.effects?.get?.(doc.id);
-        if (!existing) return true;
-        return await safeDeleteEmbeddedDocument(parent, "ActiveEffect", doc.id, {
+        if (!existing) return { ok: true, deleted: false };
+        return { ok: await safeDeleteEmbeddedDocument(parent, "ActiveEffect", doc.id, {
           context: "UESRPG | origin-effect | delete linked targetAE",
           deleteOptions: { uesrpgExpirationSweep: true, uesrpgBufferCleanupHandled: true }
-        });
+        }), deleted: true };
       }
       case "template": {
         // Legacy compatibility cleanup for old template-linked worlds only.
         if (doc.documentName === "MeasuredTemplate") {
           const scene = doc.parent;
           if (scene) {
-            return await safeDeleteEmbeddedDocument(scene, "MeasuredTemplate", doc.id, {
+            return { ok: await safeDeleteEmbeddedDocument(scene, "MeasuredTemplate", doc.id, {
               context: "UESRPG | origin-effect | delete linked template"
-            });
+            }), deleted: true };
           }
         }
-        return false;
+        return { ok: false, deleted: false };
       }
       case "region": {
         if (doc.documentName === "Region") {
           const scene = doc.parent;
           if (scene) {
-            return await safeDeleteEmbeddedDocument(scene, "Region", doc.id, {
+            return { ok: await safeDeleteEmbeddedDocument(scene, "Region", doc.id, {
               context: "UESRPG | origin-effect | delete linked region"
-            });
+            }), deleted: true };
           }
         }
-        return false;
+        return { ok: false, deleted: false };
       }
       case "summon": {
         // Token deletion for summoned creatures
         if (doc.documentName === "Token" || doc.documentName === "TokenDocument") {
+          const summon = doc.flags?.[_FLAG_NS];
+          if (summon?.isSummonedToken !== true || summon.originAEUuid !== originUuid) throw new Error("The token's summon origin cannot be confirmed.");
+          if (summon.binding?.status === "unbound") return { ok: true, deleted: false };
+          if (summon.binding?.status !== "bound") throw new Error("The summon is not confirmed bound; review it before deletion.");
           const scene = doc.parent;
           if (scene) {
-            return await safeDeleteEmbeddedDocument(scene, "Token", doc.id, {
+            return { ok: await safeDeleteEmbeddedDocument(scene, "Token", doc.id, {
               context: "UESRPG | origin-effect | delete linked summon"
-            });
+            }), deleted: true };
           }
         }
-        return false;
+        return { ok: false, deleted: false };
       }
       case "casterBuff": {
         // ActiveEffect on the caster (e.g. Absorb [Char] paired buff)
         const buffParent = doc.parent;
-        if (!buffParent) return false;
+        if (!buffParent) return { ok: false, deleted: false };
         const existingBuff = buffParent.effects?.get?.(doc.id);
-        if (!existingBuff) return true;
-        return await safeDeleteEmbeddedDocument(buffParent, "ActiveEffect", doc.id, {
+        if (!existingBuff) return { ok: true, deleted: false };
+        return { ok: await safeDeleteEmbeddedDocument(buffParent, "ActiveEffect", doc.id, {
           context: "UESRPG | origin-effect | delete linked casterBuff",
           deleteOptions: { uesrpgExpirationSweep: true, uesrpgBufferCleanupHandled: true }
-        });
+        }), deleted: true };
       }
       case "boundItem": {
         // Temporary item on the caster (e.g. Conjure [Weapon/Armor])
         const itemParent = doc.parent;
-        if (!itemParent) return false;
+        if (!itemParent) return { ok: false, deleted: false };
         const existingItem = itemParent.items?.get?.(doc.id);
-        if (!existingItem) return true;
-        return await safeDeleteEmbeddedDocument(itemParent, "Item", doc.id, {
+        if (!existingItem) return { ok: true, deleted: false };
+        return { ok: await safeDeleteEmbeddedDocument(itemParent, "Item", doc.id, {
           context: "UESRPG | origin-effect | delete linked boundItem"
-        });
+        }), deleted: true };
       }
       default:
-        return false;
+        return { ok: false, deleted: false };
     }
   } catch (err) {
-    if (isMissingDocError(err) && !resolveUuidSync(link.uuid)) return true;
+    if (isMissingDocError(err) && _confirmedLinkAbsence(link.uuid)) return { ok: true, deleted: false };
     throw err;
   }
 }

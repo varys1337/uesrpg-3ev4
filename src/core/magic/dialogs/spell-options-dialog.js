@@ -3,7 +3,7 @@ import { escapeHtml as _escapeHtml } from '../../../utils/html.js';
  * Canonical spell options dialog used by core and UI casting flows.
  */
 
-import { getKnownSpellScalingLevels, getSpellCost, getSpellLevel, computeMagicCastingTN } from "../magicka-utils.js";
+import { getKnownSpellScalingLevels, getSpellCost, getSpellLevel, computeMagicCastingTN, getMatchingSpellSpecialization } from "../magicka-utils.js";
 import { SKILL_DIFFICULTIES } from "../../skills/skill-tn.js";
 import { resolveSpellProfile } from "../spell-profile.js";
 import { buildCastingOptionPresentation } from "./casting-option-presentation.js";
@@ -82,6 +82,8 @@ export async function showSpellOptionsDialog(actor, spell, castContext = null) {
   const hasOverchargeTalent = hasTalent(actor, "overcharge");
   const hasMagickaCyclingTalent = hasTalent(actor, "magickacycling");
   const hasMasterOfMagickaTalent = hasTalent(actor, "masterofmagicka");
+  const hasSpellSpecialization = castContext?.disableSpellSpecialization !== true
+    && castContext?.castSource?.type !== "enchantment" && Boolean(getMatchingSpellSpecialization(actor, spell));
   const resourcePresentation = _getCastSourceResourcePresentation(castContext, spell);
   const learnedScalingLevels = getKnownSpellScalingLevels(spell);
   const baseLevel = Number(learnedScalingLevels[0]?.level ?? getSpellLevel(spell)) || 1;
@@ -101,7 +103,6 @@ export async function showSpellOptionsDialog(actor, spell, castContext = null) {
     fixedCost: resourcePresentation.fixedCost,
     resourceLabel: resourcePresentation.fixedCost != null ? resourcePresentation.label : "MP",
   });
-  const baseProfile = initialPresentation.profile;
   const formatPreviewCostValue = (cost) => {
     const safeCost = Math.max(0, Number(cost ?? 0) || 0);
     if (resourcePresentation.fixedCost != null) {
@@ -130,7 +131,7 @@ export async function showSpellOptionsDialog(actor, spell, castContext = null) {
         </div>
         <div class="uesrpg-spell-profile-card__item">
           <span class="uesrpg-spell-profile-card__label">${t("UESRPG.Dialogs.SpellOptions.SpellStrength", "Spell Strength")}</span>
-          <span id="previewDamage" class="uesrpg-spell-profile-card__value">${_escapeHtml(baseProfile.damage.formula || t("UESRPG.UI.NotAvailable", "N/A"))}</span>
+          <span id="previewDamage" class="uesrpg-spell-profile-card__value">${_escapeHtml(initialPresentation.spellStrengthFormula || t("UESRPG.UI.NotAvailable", "N/A"))}</span>
         </div>
         <div class="uesrpg-spell-profile-card__item">
           <span class="uesrpg-spell-profile-card__label">${t("UESRPG.Dialogs.SpellOptions.DurationLabel", "Duration")}</span>
@@ -165,6 +166,11 @@ export async function showSpellOptionsDialog(actor, spell, castContext = null) {
         <label><b>${t("UESRPG.Chat.Common.ManualModifier", "Manual modifier")}</b></label>
         <input type="number" name="manualModifier" value="0" />
       </div>
+      ${hasSpellSpecialization ? `
+      <label class="uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: t("UESRPG.Dialogs.SpellOptions.SpecializationHint", "Applies only to the matched spell. Do not also include this bonus in the manual modifier.") })}>
+        <input type="checkbox" name="useSpellSpecialization" />
+        <span class="uesrpg-adv-choice__label"><b>${t("UESRPG.Dialogs.SpellOptions.Specialization", "Use spell specialization (+10)")}</b></span>
+      </label>` : ""}
       <div class="uesrpg-dialog-section-header">${t("UESRPG.Dialogs.SpellOptions.CastingOptions", "Casting Options")}</div>
       <div class="uesrpg-spell-option-grid ${hasOverload || hasOverchargeTalent ? "" : "uesrpg-spell-option-grid--single"}">
         <label class="uesrpg-adv-choice uesrpg-choice-bar" id="restrainGroup" ${systemTooltipAttributes({ text: initialPresentation.restraintHelp })}>
@@ -220,6 +226,7 @@ export async function showSpellOptionsDialog(actor, spell, castContext = null) {
             difficultyKey,
             circumstanceMod: 0,
             manualModifier,
+            useSpellSpecialization: Boolean(root?.querySelector('[name="useSpellSpecialization"]')?.checked),
             restraintValue: Number(isRestrained)
               ? (Number(resolveSpellProfile(spell, actor, {
                   level: castLevel,
@@ -253,6 +260,7 @@ export async function showSpellOptionsDialog(actor, spell, castContext = null) {
       const previewDuration = root?.querySelector("#previewDuration");
       const difficultySelect = root?.querySelector('[name="difficultyKey"]');
       const manualInput = root?.querySelector('[name="manualModifier"]');
+      const specializationCheckbox = root?.querySelector('[name="useSpellSpecialization"]');
 
       const syncCastingOptionState = (changed = null) => {
         if (!hasOverload || !restrainCheckbox || !overloadCheckbox) return;
@@ -283,6 +291,7 @@ export async function showSpellOptionsDialog(actor, spell, castContext = null) {
           difficultyKey: difficultySelect?.value ?? "average",
           circumstanceMod: 0,
           manualModifier: Number.parseInt(manualInput?.value, 10) || 0,
+          useSpellSpecialization: Boolean(specializationCheckbox?.checked),
           isRestrained, isOverloaded, useOvercharge,
           useMagickaCycling: hasMagickaCyclingTalent,
         });
@@ -312,7 +321,7 @@ export async function showSpellOptionsDialog(actor, spell, castContext = null) {
             }
             setSystemTooltip(previewCost, { text: presentation.costHelp });
           }
-          if (previewDamage) previewDamage.textContent = profile.damage.formula || t("UESRPG.UI.NotAvailable", "N/A");
+          if (previewDamage) previewDamage.textContent = presentation.spellStrengthFormula || t("UESRPG.UI.NotAvailable", "N/A");
           if (previewDuration) previewDuration.textContent = tf("UESRPG.Dialogs.SpellOptions.DurationValue", { value: profile.duration.value || 0, unit: profile.duration.unit || t("UESRPG.Dialogs.SpellOptions.Instant", "instant") }, `${profile.duration.value || 0} ${profile.duration.unit || "instant"}`);
         } catch (err) {
           LOG.debug("Failed to update spell profile preview", {
@@ -327,6 +336,7 @@ export async function showSpellOptionsDialog(actor, spell, castContext = null) {
       if (castLevelSelect) castLevelSelect.addEventListener("change", updatePreview);
       difficultySelect?.addEventListener("change", updatePreview);
       manualInput?.addEventListener("input", updatePreview);
+      specializationCheckbox?.addEventListener("change", updatePreview);
       if (restrainCheckbox) {
         restrainCheckbox.addEventListener("change", () => {
           syncCastingOptionState("restrain");

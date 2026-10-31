@@ -34,7 +34,9 @@ export function readDamageReceipts(actor) {
 }
 
 export function retainDamageReceipts(receipts) {
-  const pending = receipts.filter(entry => entry?.outcomeId && entry.cardSynchronized !== true);
+  const pending = receipts.filter(entry => entry?.outcomeId && (entry.cardSynchronized !== true
+    || entry.adapter === "combat.special" && (entry.status !== "applied"
+      || !game.user?.isGM || !game.messages || game.messages.has(entry.messageId))));
   const settled = receipts.filter(entry => !pending.includes(entry)).slice(-50);
   return [...settled, ...pending];
 }
@@ -92,6 +94,7 @@ export async function commitHealthUpdate(actor, updateData, { application = null
     }
     const hasUpdates = Object.keys(updates).length > 0;
     if (hasUpdates) {
+      if (application && Object.keys(updateData).length) application.writeAttempted = true;
       const startedAt = isPerfEnabled() ? monoMs() : null;
       const confirmRefresh = perfExpectHealthRefresh(actor, application, updateData["system.hp.value"]);
       let updated;
@@ -117,6 +120,7 @@ export async function commitHealthUpdate(actor, updateData, { application = null
         durationMs: monoMs() - context.outcomeStartedAt,
       });
       if (!updated) return false;
+      if (application && Object.keys(updateData).length) application.writeConfirmed = true;
     }
     if (application) application.committed = { ...result, actor };
     return true;

@@ -8,6 +8,9 @@ import { runWorldReadyMaintenance } from "./hooks/ready/run-world-ready-maintena
 import { registerReadyRuntimeDevApi } from "./hooks/ready/register-ready-runtime-api.js";
 import { registerMagicRuntime } from "./hooks/ready/register-magic-runtime.js";
 import { registerSystemDeferredTasks } from "./hooks/ready/register-system-deferred-tasks.js";
+import { registerPolyglotProvider } from "./core/integrations/polyglot.js";
+
+registerPolyglotProvider();
 
 function registerSystemHandlebarsHelpers() {
   Handlebars.registerHelper("capitalize", function(str) {

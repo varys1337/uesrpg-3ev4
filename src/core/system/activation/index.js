@@ -18,6 +18,11 @@ export async function executeItemMacroBestEffort(...args) {
   return mod.executeItemMacroBestEffort(...args);
 }
 
+export async function executeItemMacroBestEffortResult(...args) {
+  const mod = await import("./activation-executor.js");
+  return mod.executeItemMacroBestEffortResult(...args);
+}
+
 // Keep sync behavior for callsites that build activation payloads inline.
 export function buildSpecialActionActivation({ actionType = "action", apCost = 1, requiresTarget = true } = {}) {
   const mappedType = (actionType === "secondary" || actionType === "reaction" || actionType === "free")

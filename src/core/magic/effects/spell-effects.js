@@ -20,7 +20,7 @@ import { getFlagValueWithFallback } from "../../system/flags.js";
 import { buildSpellExpirationAnchor } from "../../../utils/document-resolution.js";
 import { buildEffectChange, getEffectChanges } from "../../../utils/compat.js";
 import { buildGenericAEData } from "../../active-effects/modifier-evaluator.js";
-import { buildSpellEffectMetadataFlags } from "./spell-effect-metadata.js";
+import { buildSpellEffectMetadataFlags, getSpellEffectIdentity } from "./spell-effect-metadata.js";
 import { buildSpellActiveEffectDuration, isFiniteDuration, SPELL_EFFECT_DURATION_FLAG_KEY } from "./spell-effect-duration.js";
 import { resolveNumericSpellStrength, resolveMagicCastContext } from "../opposed/cast-context.js";
 import { getSpellCost, getSpellScalingEntry } from "../magicka-utils.js";
@@ -28,6 +28,11 @@ import { createChatOutcome } from "../../config/outcome-application-policy.js";
 import { persistChatOutcomes } from "../../../application/combat/chat-outcome-application-service.js";
 import { escapeHtml } from "../../../utils/html.js";
 import { captureItemOutcomeContext } from "../../../utils/item-outcome-snapshot.js";
+import { getSpellBufferPath, getSpellBufferValue } from "./spell-buffers.js";
+import { STATIC_CONDITIONS } from "../../conditions/catalog.js";
+import { isImmuneToCondition } from "../../conditions/condition-engine.js";
+import { toNumericEffectValue } from "../../active-effects/reducers.js";
+import { findCoreMagicArmorSpellConflict, findPotionArmorConflict } from "../../active-effects/potion-armor-conflicts.js";
 
 const _anchorDebug = createDebugLogger("aeLifecycleDebug", "[UESRPG][SpellEffects]");
 
@@ -131,7 +136,7 @@ function _getSpellStrength(spell, options = {}) {
   );
 
   if (!Number.isFinite(n) || n <= 0) n = 0;
-  return Math.max(0, Math.min(10, Math.floor(n) || 0));
+  return Math.max(0, Math.floor(n) || 0);
 }
 
 function _normalizeSpellEffectApplicationOptions(payload = {}) {
@@ -183,9 +188,10 @@ export async function applyResolvedSpellEffects({ casterActor, targetActor, spel
       targetUuid: targetActor.uuid, label: spell.name, payload: { ...stored, spellSnapshot: spell.toObject(),
         spellSnapshotContext: captureItemOutcomeContext(spell),
         spellUuid: spell.uuid, casterUuid: casterActor.uuid, needsEffects: true, isDamaging: false, isHealing: false } });
-    await persistChatOutcomes({ actor: casterActor, message, entries: [entry],
+    const savedMessage = await persistChatOutcomes({ actor: casterActor, message, entries: [entry],
       content: `<div class="uesrpg"><b>${escapeHtml(spell.name)}</b><p>${escapeHtml(targetActor.name)}</p></div>` });
-    return { pending: true, effects: [], castContext: prepared.castContext };
+    if (!savedMessage) throw new Error("The spell effect submission was not confirmed.");
+    return { pending: true, effects: [], castContext: prepared.castContext, messageId: savedMessage.id, outcomeId: entry.id };
   }
   return applySpellEffectsToTarget(casterActor, targetActor, spell, { ..._normalizeSpellEffectApplicationOptions(payload), message: payload.message, parentMessageId: payload.parentMessageId, strict, deferOwnedStages });
 }
@@ -205,6 +211,11 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
   let committed = false;
   try {
     const spellUuid = spell.uuid;
+    const effectIdentity = getSpellEffectIdentity(spell);
+    const armorConflict = findPotionArmorConflict(targetActor, Array.from(spell.effects ?? [])
+      .filter(effect => !effect.disabled).flatMap(getEffectChanges))
+      ?? findCoreMagicArmorSpellConflict(targetActor, effectIdentity);
+    if (armorConflict) throw Object.assign(new Error(`This spell does not stack with ${armorConflict.name}. The GM must decide which effect applies; remove the other effect before retrying this outcome.`), { committed: false });
     const hasUpkeep = Boolean(spell.system?.hasUpkeep);
     const forcedDuration = (_isSpellAbsorptionSpell(spell) || _isReflectSpell(spell))
       ? { value: 1, unit: "rounds" }
@@ -256,8 +267,9 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
     // Skip Origin AEs — they are lifecycle trackers on the caster and are managed
     // separately via origin-effect.js teardown.  Deleting them here would cascade
     // and destroy linked entities (conjured items, summons, target AEs).
-    const existing = targetActor.effects.filter(e => {
-      if (e.origin !== spellUuid) return false;
+    const stacks = spell.system?.engine?.stackingPolicy === "stack";
+    const existing = stacks ? [] : targetActor.effects.filter(e => {
+      if (e.origin !== spellUuid && getFlagValueWithFallback(e, "spellEffectIdentity") !== effectIdentity) return false;
       if (getFlagValueWithFallback(e, "isOriginAE")) return false;
       return true;
     });
@@ -281,12 +293,20 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
   
     for (const ef of spellEffects) {
       if (ef.disabled) continue;
+      const authoredCondition = ef.flags?.[FLAG_SCOPE]?.condition;
+      const condition = authoredCondition?.key ? { ...authoredCondition,
+        value: Math.max(0, toNumericEffectValue(authoredCondition.value, { actor: targetActor, item: spell,
+          effect: { flags: { [FLAG_SCOPE]: buildSpellEffectMetadataFlags(baseMetadataOptions) } } }) ?? 1) } : null;
+      if (condition?.key && isImmuneToCondition(targetActor, condition.key)) continue;
     
       const effectKey = ef.name || ef.id || String(toCreate.length);
       const effectGroup = `spell.effect.${spell.id || spellUuid}.${effectKey}`;
     
       // Validate changes against the modifier registry (dev-mode warnings)
       const clonedChanges = foundry.utils.deepClone(getEffectChanges(ef));
+      for (const change of STATIC_CONDITIONS[condition?.key]?.changes ?? []) {
+        if (!clonedChanges.some(existing => existing.key === change.key)) clonedChanges.push(foundry.utils.deepClone(change));
+      }
       if (toCreate.length === 0) {
         clonedChanges.push(..._buildOverTimeChanges(spell));
       }
@@ -318,7 +338,7 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
         const effectData = buildGenericAEData({
           source: "spell",
           stack: {
-            policy: "replace",
+            policy: stacks ? "none" : "replace",
             group: effectGroup,
             max: null,
             strengthKey: null,
@@ -338,7 +358,8 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
               hasUpkeep: Boolean(spell.system?.hasUpkeep),
               upkeepCost: resolvedCost,
               owner: "system",
-              source: "spell"
+              source: "spell",
+              ...(condition?.key ? { condition: foundry.utils.deepClone(condition) } : {}),
             }
           },
           changes: clonedChanges
@@ -451,7 +472,7 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
 
     if (toCreate.length) {
       // Add back-link to Origin AE if one exists for this spell on the caster
-      const originAE = findOriginAE(casterActor, spellUuid);
+      const originAE = findOriginAE(casterActor, spellUuid, options.castContext);
       if (originAE) {
         for (const data of toCreate) {
           data.flags = data.flags ?? {};
@@ -503,8 +524,8 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
             : await resolveSpellBufferValue(casterActor, spell, options);
 
           if (bufferValue > 0) {
-            const bufferPath = `system.buffers.${bufferType}`;
-            const currentBuffer = Number(targetActor.system?.buffers?.[bufferType] ?? 0);
+            const bufferPath = getSpellBufferPath(bufferType);
+            const currentBuffer = getSpellBufferValue(targetActor, bufferType);
             // Buffer does not stack — set to the higher of current or new value
             const newValue = Math.max(currentBuffer, bufferValue);
             if (!await requestUpdateDocument(targetActor, { [bufferPath]: newValue })) throw new Error("Spell buffer update failed.");

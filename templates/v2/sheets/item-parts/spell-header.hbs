@@ -8,15 +8,23 @@
       <div class="spell-stats-row">
         <div class="spell-stat spell-stat-wide">
           <label>{{localize "UESRPG.Sheets.Item.School"}}</label>
+          {{#if isRitualReference}}
+          <span>{{localize "UESRPG.Sheets.Magic.SeeDescription"}}</span>
+          {{else}}
           <select name="system.school" data-dtype="String" data-spell-structure>
             {{selectOptions spellSchoolOptions selected=item.system.school localize=true}}
           </select>
+          {{/if}}
         </div>
         <div class="spell-stat spell-stat-wide">
           <label>{{localize "UESRPG.Sheets.Equipment.Type"}}</label>
+          {{#if isRitualReference}}
+          <span>{{localize "UESRPG.Sheets.Magic.Ritual"}}</span>
+          {{else}}
           <select name="system.spellType" data-dtype="String">
             {{selectOptions item.system.spellTypes selected=item.system.spellType localize=true}}
           </select>
+          {{/if}}
         </div>
       </div>
     </div>

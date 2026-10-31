@@ -29,21 +29,6 @@ const _initiativeDebug = createDebugLogger("skillRollDebug", "[UESRPG][Initiativ
 
 export class SystemCombat extends Combat {
   /**
-   * In-session initiative choice cache (per user, per combat).
-   *
-   * Goal: When using Combat Tracker "Roll All", avoid spamming a dialog per
-   * combatant. We cache the user's choice for the current combat only.
-   *
-   * IMPORTANT:
-   * - This is NOT persisted to documents (no flags).
-   * - Cache scope is per browser session and per combat id.
-   *
-   * Key: `${userId}|${combatId}`
-   * Value: { useCombatSenses: boolean }
-   */
-  static _initiativeChoiceCache = new Map();
-
-  /**
    * Deduplication map for round-based AP restoration.
    * Prevents double-processing when both the nextRound() override and the
    * updateCombat hook fire for the same round advancement.
@@ -59,22 +44,6 @@ export class SystemCombat extends Combat {
 
   static async _emitDynamicInitiativeRoundSummary(summary, { combatId = null, round = null } = {}) {
     return emitDynamicInitiativeRoundSummary(summary, { combatId, round });
-  }
-
-  static _initiativeCacheKey(combat, user) {
-    const uid = user?.id ?? "";
-    const cid = combat?.id ?? "";
-    return `${uid}|${cid}`;
-  }
-
-  static _getInitiativeChoice(combat, user) {
-    const key = SystemCombat._initiativeCacheKey(combat, user);
-    return SystemCombat._initiativeChoiceCache.get(key) ?? null;
-  }
-
-  static _setInitiativeChoice(combat, user, choice) {
-    const key = SystemCombat._initiativeCacheKey(combat, user);
-    SystemCombat._initiativeChoiceCache.set(key, choice);
   }
 
   /**
@@ -250,8 +219,7 @@ export class SystemCombat extends Combat {
    * IMPORTANT:
    *  - We keep this implementation self-contained and conservative.
    *  - Combat Senses selection is an assisted player choice.
-   *  - When rolling multiple combatants at once ("Roll All"), we prompt at most once per user per combat
-   *    and cache the selection for the browser session.
+   *  - When rolling multiple combatants at once ("Roll All"), we prompt once for that operation.
    *
    * @override
    */
@@ -271,7 +239,7 @@ export class SystemCombat extends Combat {
     // Important: The system expects initiative to derive from actor.system.initiative.value
     // so Active Effects can influence initiative deterministically.
 
-    // Combat Senses: for multi-combatant rolls, prompt once (per user session) and apply to eligible combatants.
+    // Combat Senses: for multi-combatant rolls, prompt once for this operation.
     let batchCombatSensesChoice = null;
 
     // "Roll All" in the combat tracker is usually GM-driven, but players can also roll
@@ -282,21 +250,15 @@ export class SystemCombat extends Combat {
     });
     const canBatchPrompt = idList.length > 1 && anyOwnedInBatch;
     if (canBatchPrompt) {
-      const cached = SystemCombat._getInitiativeChoice(this, game.user);
-      if (cached && typeof cached.useCombatSenses === "boolean") {
-        batchCombatSensesChoice = cached;
-      } else {
-        // Only prompt if at least one combatant has Combat Senses.
-        const hasAnyCombatSenses = idList.some((id) => {
-          const c = this.combatants?.get(id);
-          const a = c?.actor;
-          return !!(c && a && hasTalent(a, "combatsenses"));
-        });
-        if (hasAnyCombatSenses) {
-          const useCombatSenses = await this._promptCombatSensesBatchChoice();
-          batchCombatSensesChoice = { useCombatSenses };
-          SystemCombat._setInitiativeChoice(this, game.user, batchCombatSensesChoice);
-        }
+      const hasAnyCombatSenses = idList.some((id) => {
+        const c = this.combatants?.get(id);
+        const a = c?.actor;
+        return !!(c && a && hasTalent(a, "combatsenses"));
+      });
+      if (hasAnyCombatSenses) {
+        const useCombatSenses = await this._promptCombatSensesBatchChoice();
+        if (useCombatSenses === null) return rolls;
+        batchCombatSensesChoice = { useCombatSenses };
       }
     }
 
@@ -341,9 +303,15 @@ export class SystemCombat extends Combat {
 	      const isSurprised = surpriseState?.onlyReactions === true;
 	      const canPromptSingle = idList.length === 1 && (game.user?.isGM === true || actor.isOwner);
 	      if (!isSurprised && !tacticianChoice && canPromptSingle && hasTalent(actor, "combatsenses")) {
-	        useCombatSenses = await this._promptCombatSensesChoice(actor);
+	        const choice = await this._promptCombatSensesChoice(actor);
+	        if (choice === null) return;
+	        useCombatSenses = choice;
 	      } else if (!isSurprised && !tacticianChoice && batchCombatSensesChoice?.useCombatSenses === true && hasTalent(actor, "combatsenses")) {
 	        useCombatSenses = true;
+	      }
+	      if (useCombatSenses) {
+	        ui.notifications.warn(`${actor.name}: resolve Combat Senses initiative manually with the GM. Roll 1d6 plus twice Perception Bonus plus 2; apply Lightning Reflexes if eligible. Check prior rolls and initiative before recording the result and tie-break.`);
+	        return;
 	      }
 
 	      const normalIR = Number(actor?.system?.initiative?.value ?? 0) || 0;
@@ -484,13 +452,13 @@ export class SystemCombat extends Combat {
       },
       defaultButton: "normal",
     });
-    return result === true;
+    return typeof result === "boolean" ? result : null;
   }
 
   /**
    * Batch Combat Senses choice used by Combat Tracker "Roll All".
    *
-   * This prompt is shown at most once per user per combat (session-cached).
+   * This prompt is shown once for each batch operation.
    * The selected option is applied only to combatants who actually have the
    * Combat Senses talent.
    */
@@ -499,7 +467,7 @@ export class SystemCombat extends Combat {
 	    const content = `
         <p>One or more combatants have <b>Combat Senses</b>.</p>
         <p>Choose which Initiative Rating to use for this <b>Roll All</b> operation.</p>
-        <p><i>This choice is remembered for this combat for the current browser session.</i></p>
+        <p><i>This choice applies to this operation only.</i></p>
       `;
       const result = await customDialog({
         layout: "workflow",
@@ -523,7 +491,7 @@ export class SystemCombat extends Combat {
         },
         defaultButton: "normal",
       });
-      return result === true;
+      return typeof result === "boolean" ? result : null;
 	  }
 
 	  /**

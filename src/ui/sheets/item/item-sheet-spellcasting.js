@@ -305,7 +305,7 @@ export async function onCastScroll(sheet, event, target) {
     castActionType: "primary",
   });
 
-  if (result?.error) {
+  if (result?.error && !result.notificationHandled && result.actionResult?.status !== "cancelled") {
     ui.notifications.warn(result.error);
     return;
   }

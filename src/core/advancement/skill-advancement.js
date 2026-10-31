@@ -113,6 +113,14 @@ export function discountCostIfFavored(cost, favored) {
   return Math.floor((base * 0.75) / 5) * 5;
 }
 
+/** Existing Spend XP characteristic cost, shared by staging and execution. */
+export function computeCharacteristicAdvancementCost(characteristic) {
+  const bonus = _asNumber(characteristic?.bonus, Math.floor(_asNumber(characteristic?.total, 0) / 10));
+  const baseCost = 30 * bonus;
+  const favored = Boolean(characteristic?.favored);
+  return { bonus, baseCost, favored, xpCost: discountCostIfFavored(baseCost, favored) };
+}
+
 function _parseGoverningKeys(governingRaw) {
   const raw = String(governingRaw ?? "").trim().toLowerCase();
   if (!raw) return new Set();

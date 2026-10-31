@@ -3,10 +3,9 @@ import { initSettingsCache } from "../../core/config/settings-cache.js";
 import { AUTOMATION_DEFAULTS, isCombatBoundaryOrchestratorPolicyEnabled, isCompositeBoundaryTickEnabled } from "../../core/config/automation-policy.js";
 import { STARTUP_PENDING_MIGRATION_KEYS } from "../../core/migrations/revisions.js";
 import { getMigrationState, getPendingMigrationKeys } from "../../core/migrations/state.js";
-import { migrateWorldSettingsIfNeeded } from "../../core/migrations/settings.js";
+import { runStartupMigrationMaintenance } from "../../core/migrations/runner.js";
 import { SYSTEM_ID } from "../../core/system/namespace.js";
 import { isActiveGMUser } from "../../utils/users.js";
-import { migrateNpcArmorCoverageDefaultsIfNeeded } from "../../core/migrations/items.js";
 import { tf } from "../../utils/i18n.js";
 
 let _startupAttackTrackerPolicyLogged = false;
@@ -93,7 +92,7 @@ async function ensureWorldVersionStamp() {
 }
 
 function notifyPendingMigrationsIfNeeded() {
-  if (!game.user?.isGM) return;
+  if (!isActiveGMUser(game.user)) return;
 
   const pendingKeys = getPendingMigrationKeys(STARTUP_PENDING_MIGRATION_KEYS, getMigrationState());
   if (!pendingKeys.length) return;
@@ -109,14 +108,14 @@ function notifyPendingMigrationsIfNeeded() {
 }
 
 export async function runWorldReadyMaintenance() {
-  // Critical path - must complete before world is usable
+  // Sequence this client's existing maintenance; the ready hook is not a
+  // global gameplay barrier or proof that all document migrations ran.
   await ensureWorldVersionStamp();
-  await migrateWorldSettingsIfNeeded();
-  await migrateNpcArmorCoverageDefaultsIfNeeded();
+  await runStartupMigrationMaintenance();
   notifyPendingMigrationsIfNeeded();
   initSettingsCache();
   logAttackTrackerPolicyDiagnosticsOnce();
   
   // Deferrable tasks are now scheduled via registerSystemDeferredTasks()
-  // They will run after the critical path completes
+  // They will run after this maintenance callback completes.
 }

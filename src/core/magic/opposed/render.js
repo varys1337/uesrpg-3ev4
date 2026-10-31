@@ -307,6 +307,7 @@ function renderMultiDefenderCard(data, messageId, ctx) {
   const a = data.attacker ?? {};
   const bankMode = isBankChoicesEnabledForData(data);
   const anyOutcome = defenders.some(d => getDefenderOutcome(data, d));
+  const anyNeedsReview = defenders.some(d => getDefenderOutcome(data, d)?.needsReview === true);
   const { aCommitted } = getBankCommitState(data, defenders[0] ?? null);
   const revealAttacker = !bankMode || aCommitted || anyOutcome;
   const isAoE = Boolean(data?.context?.aoe?.isAoE || data?.context?.isAoE);
@@ -328,7 +329,9 @@ function renderMultiDefenderCard(data, messageId, ctx) {
   const attackerCommitLine = (() => {
     if (!bankMode || !shouldShowStatusLine()) return "";
     const rolled = !!a.result;
-    const statusText = anyOutcome
+    const statusText = anyNeedsReview
+      ? t("UESRPG.Chat.DamageExplanation.NeedsReview", "Needs review")
+      : anyOutcome
       ? t("UESRPG.Chat.Status.Resolved", "Resolved")
       : rolled
         ? t("UESRPG.Chat.Status.Rolled", "Rolled")
@@ -365,7 +368,9 @@ function renderMultiDefenderCard(data, messageId, ctx) {
     const dDefenseLabel = !revealDefender
       ? "??"
       : (isCharSave ? t("UESRPG.Chat.Magic.CharacteristicSave", "Characteristic Save") : (d.noDefense ? t("UESRPG.Chat.Opposed.NoDefense", "No Defense") : (d.defenseType ?? "-")));
-    const dRollLine = isCharSave
+    const dRollLine = outcome?.needsReview && !d.result
+      ? renderRow(`${t("UESRPG.Chat.Common.Roll", "Roll")}:`, `<i>${t("UESRPG.Chat.DamageExplanation.NeedsReview", "Needs review")}</i>`)
+      : isCharSave
       ? (d.result ? renderRollLine(d.result) : renderRow(`${t("UESRPG.Chat.Common.Roll", "Roll")}:`, `<i style="opacity:0.8;">${t("UESRPG.Chat.Magic.AwaitingTest", "Awaiting test...")}</i>`, { nowrapValue: true }))
       : (d.noDefense
         ? renderRollSummary(100, { isSuccess: false, degree: 1 })
@@ -375,7 +380,7 @@ function renderMultiDefenderCard(data, messageId, ctx) {
       if (!bankMode || !shouldShowStatusLine()) return "";
       const rolled = !!d.result || !!d.noDefense;
       const statusText = outcome
-        ? t("UESRPG.Chat.Status.Resolved", "Resolved")
+        ? (outcome.needsReview ? t("UESRPG.Chat.DamageExplanation.NeedsReview", "Needs review") : t("UESRPG.Chat.Status.Resolved", "Resolved"))
         : rolled
           ? t("UESRPG.Chat.Status.Rolled", "Rolled")
           : (dCommitted ? t("UESRPG.Chat.Status.Committed", "Committed") : t("UESRPG.Chat.Status.AwaitingChoice", "Awaiting choice"));
@@ -385,7 +390,7 @@ function renderMultiDefenderCard(data, messageId, ctx) {
     const defenseCommitGate = isCharSave ? { allowed: true } : getMagicDefenderCommitDefenseGate(data, d, messageId);
     const canRollDefender = Boolean(a.result &&!d.result && !d.noDefense);
     const defenderControls = (() => {
-      if (d.result || d.noDefense) return "";
+      if (outcome || d.result || d.noDefense) return "";
       
       // BANK MODE: Handle commit buttons
       if (bankMode) {
@@ -469,7 +474,7 @@ function renderMultiDefenderCard(data, messageId, ctx) {
       `;
     }
 
-    const damagePanel = _buildDamagePanel(getMagicDefenderDamage(data, d));
+    const damagePanel = _buildDamagePanel(getMagicDefenderDamage(data, d), { showApplication: !outcome?.needsReview });
 
     return renderOpposedParticipant({
       role: "defender", defenderCard: true, name: d.tokenName ?? d.name,
@@ -479,7 +484,7 @@ function renderMultiDefenderCard(data, messageId, ctx) {
         { label: t("UESRPG.Chat.Opposed.Defense", "Defense"), value: dDefenseLabel }
       ]),
       tn: renderTNLine(d.noDefense ? "-" : dTN, (d.noDefense || !revealDefender) ? null : (d.tn?.breakdown ?? d.tn?.modifiers)),
-      roll: dRollLine, status: renderAutomaticNoDefenseNotice(d) + defenderCommitLine + renderUnavailableCommitNotice({ active: bankMode && !dCommitted && !d.result, gate: defenseCommitGate }), actions: defenderControls, compactActions: bankMode && !d.result,
+      roll: dRollLine, status: renderAutomaticNoDefenseNotice(d) + defenderCommitLine + renderUnavailableCommitNotice({ active: bankMode && !outcome && !dCommitted && !d.result, gate: defenseCommitGate }), actions: defenderControls, compactActions: bankMode && !d.result,
       aftermath: outcomeLine + damagePanel
     });
   }).join("");
@@ -494,7 +499,7 @@ function renderMultiDefenderCard(data, messageId, ctx) {
     roll: aRollLine, status: attackerCommitLine + renderUnavailableCommitNotice({ active: bankMode && !aCommitted && !a.result, gate: attackerCommitGate, kind: "casting" }), actions: attackerControls, compactActions: bankMode && !a.result,
     extra: (revealAttacker ? renderMagicCostRow(a) : "") + renderEffectLinks(attackerSpell?.effects)
   });
-  const defendersCommitted = defenders.every(d => d.banked?.committed || d.result || d.noDefense);
+  const defendersCommitted = defenders.every(d => d.banked?.committed || d.result || d.noDefense || getDefenderOutcome(data, d));
   const waitingFooter = bankMode && (!aCommitted || !defendersCommitted)
     ? renderCommitWaitingStatus({ attackerCommitted: aCommitted, defendersCommitted }) : "";
   return `<div class="ues-opposed-card ues-magic-opposed-card uesrpg-chat-surface" data-message-id="${String(messageId ?? "")}" data-ues-magic-opposed="1">
@@ -543,7 +548,9 @@ function renderSingleDefenderCard(data, messageId, ctx) {
 
   const aRollLine = renderRollLine(a.result);
 
-  const dRollLine = isCharSave
+  const dRollLine = data.outcome?.needsReview && !d.result
+    ? renderRow(`${t("UESRPG.Chat.Common.Roll", "Roll")}:`, `<i>${t("UESRPG.Chat.DamageExplanation.NeedsReview", "Needs review")}</i>`)
+    : isCharSave
     ? (d.result ? renderRollLine(d.result) : renderRow(`${t("UESRPG.Chat.Common.Roll", "Roll")}:`, `<i style="opacity:0.8;">${t("UESRPG.Chat.Magic.AwaitingTest", "Awaiting test...")}</i>`, { nowrapValue: true }))
     : (d.noDefense
       ? renderRollSummary(100, { isSuccess: false, degree: 1 })
@@ -557,7 +564,9 @@ function renderSingleDefenderCard(data, messageId, ctx) {
   const attackerCommitLine = (() => {
     if (!bankMode || !shouldShowStatusLine()) return "";
     const rolled = !!a.result;
-    const statusText = resolved
+    const statusText = data.outcome?.needsReview
+      ? t("UESRPG.Chat.DamageExplanation.NeedsReview", "Needs review")
+      : resolved
       ? t("UESRPG.Chat.Status.Resolved", "Resolved")
       : rolled
         ? t("UESRPG.Chat.Status.Rolled", "Rolled")
@@ -569,7 +578,9 @@ function renderSingleDefenderCard(data, messageId, ctx) {
   const defenderCommitLine = (() => {
     if (!bankMode || !shouldShowStatusLine()) return "";
     const rolled = !!d.result || !!d.noDefense;
-    const statusText = resolved
+    const statusText = data.outcome?.needsReview
+      ? t("UESRPG.Chat.DamageExplanation.NeedsReview", "Needs review")
+      : resolved
       ? t("UESRPG.Chat.Status.Resolved", "Resolved")
       : rolled
         ? t("UESRPG.Chat.Status.Rolled", "Rolled")
@@ -595,7 +606,7 @@ function renderSingleDefenderCard(data, messageId, ctx) {
 
   const defenseCommitGate = isCharSave ? { allowed: true } : getMagicDefenderCommitDefenseGate(data, d, messageId);
   const defenderControls = (() => {
-    if (d.result || d.noDefense) return "";
+    if (hasOutcome || d.result || d.noDefense) return "";
     
     // BANK MODE: Handle commit buttons
     if (bankMode) {
@@ -679,7 +690,7 @@ function renderSingleDefenderCard(data, messageId, ctx) {
     `;
   }
 
-  const singleDamagePanel = _buildDamagePanel(getMagicDefenderDamage(data, d));
+  const singleDamagePanel = _buildDamagePanel(getMagicDefenderDamage(data, d), { showApplication: !data.outcome?.needsReview });
   const attackerPanel = renderOpposedParticipant({
     name: a.tokenName ?? a.name, title: t("UESRPG.Chat.Magic.Caster", "Caster"),
     context: renderParticipantContext([
@@ -697,7 +708,7 @@ function renderSingleDefenderCard(data, messageId, ctx) {
       { label: t("UESRPG.Chat.Opposed.Defense", "Defense"), value: dDefenseLabel }
     ]),
     tn: renderTNLine(d.noDefense ? "-" : dTN, dBreakdownEntries), roll: dRollLine,
-    status: renderAutomaticNoDefenseNotice(d) + defenderCommitLine + renderUnavailableCommitNotice({ active: bankMode && !dCommitted && !d.result, gate: defenseCommitGate }), actions: defenderControls, compactActions: bankMode && !d.result
+    status: renderAutomaticNoDefenseNotice(d) + defenderCommitLine + renderUnavailableCommitNotice({ active: bankMode && !hasOutcome && !dCommitted && !d.result, gate: defenseCommitGate }), actions: defenderControls, compactActions: bankMode && !d.result
   });
   return `<div class="ues-opposed-card ues-magic-opposed-card uesrpg-chat-surface" data-message-id="${String(messageId ?? "")}" data-ues-magic-opposed="1">
     ${renderOpposedLayout({ attacker: attackerPanel, defender: defenderPanel, after: outcomeLine + singleDamagePanel + renderAutomationCompletion(data) })}

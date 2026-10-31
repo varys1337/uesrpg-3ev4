@@ -11,7 +11,7 @@ import { buildGenericAEMetadata, isConditionEffect } from "./metadata.js";
 
 const COMBAT_ACTION_KEYS = new Set(["defensiveStance", "aim", "powerAttack", "powerBlock", "powerDraw"]);
 
-export async function createOrUpdateStatusEffect(actor, { statusId, name, img, duration = null, flags = {}, changes = [] } = {}) {
+export async function createOrUpdateStatusEffect(actor, { statusId, name, img, duration = null, flags = {}, changes = [], refreshStart = false, start = null } = {}) {
   if (!actor) return null;
 
   const sid = typeof statusId === "string" && statusId.trim().length ? statusId.trim() : null;
@@ -97,12 +97,15 @@ export async function createOrUpdateStatusEffect(actor, { statusId, name, img, d
   };
 
   if (sid) effectData.statuses = [sid];
+  // A refreshed timed effect starts when the new outcome is actually applied.
+  if (refreshStart) effectData.start = start ?? CONFIG.ActiveEffect.documentClass.getEffectStart();
 
   if (existing) {
-    await requestUpdateDocument(existing, {
+    const saved = await requestUpdateDocument(existing, {
       ...effectData,
       ...buildEffectChangesUpdate(nextChanges)
     });
+    if (!saved) throw new Error("The existing status effect could not be updated.");
     return existing;
   }
 

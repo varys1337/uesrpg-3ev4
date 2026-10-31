@@ -14,6 +14,8 @@ import {
   resetPerfEntries,
   summarizePerfEntries,
   summarizeRenderImpact,
+  beginPerfMeasurement,
+  measurePerfCall,
   getPerfHelpText
 } from "./perf-tracker-support.js";
 
@@ -87,6 +89,15 @@ export function isPerfEnabled() {
 
 export function monoMs() {
   return performance.now();
+}
+
+/** Begin a gated diagnostic span; never authorizes or schedules application work. */
+export function startPerfSpan(event, details = {}) {
+  return beginPerfMeasurement({ enabled: isPerfEnabled(), now: monoMs, record: perfRecord, event, details });
+}
+
+export function measurePerfSync(event, details, run) {
+  return measurePerfCall({ enabled: isPerfEnabled(), now: monoMs, record: perfRecord, event, details }, run);
 }
 
 export function perfRecord(record) {

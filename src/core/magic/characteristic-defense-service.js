@@ -30,6 +30,7 @@ import { _num, _strTrim as _str, createDebugLogger } from "./_primitives.js";
 import { buildMagicCastContext, resolveMagicCastContext } from "./opposed/cast-context.js";
 import { getSpellLevel, getSpellStrengthFormula } from "./magicka-utils.js";
 import { resolveActorFromUuidSync } from "../../utils/uuid-cache.js";
+import { computeCharacteristicTN } from "../characteristics/opposed/helpers.js";
 
 const _CHA_LABELS = {
   str: "Strength", end: "Endurance", agi: "Agility", int: "Intelligence",
@@ -83,8 +84,8 @@ function _resolveModifierFromCastContext(spell, charDefConfig, opts = {}) {
     actor: opts?.caster ?? null
   });
   const spellStrengthValue = Number(castContext?.spellStrengthValue ?? 0);
-  if (Number.isFinite(spellStrengthValue) && spellStrengthValue > 0) {
-    return Math.floor(spellStrengthValue);
+  if (Number.isFinite(spellStrengthValue)) {
+    return Math.floor(spellStrengthValue) * (mode === "add" ? -1 : 1);
   }
   return 0;
 }
@@ -121,19 +122,19 @@ export function computeCharacteristicDefenseTN(defender, spell, opts = {}) {
     0
   );
   const modifier = _resolveModifierFromCastContext(spell, charDef, opts);
-  const effectiveTN = Math.max(1, charTotal - modifier);
+  const characteristicTN = computeCharacteristicTN(defender, chaKey, 0, 0, -modifier);
+  const effectiveTN = Math.max(1, characteristicTN.finalTN);
   const modLabel = charDef.modifierMode === "formula"
     ? "Modifier (formula)"
     : "Spell Strength";
   return {
     finalTN: effectiveTN,
     baseTN: charTotal,
-    totalMod: -modifier,
+    totalMod: effectiveTN - charTotal,
     chaLabel,
-    breakdown: [
-      { key: "base", label: `${chaLabel}`, value: charTotal, source: "characteristic" },
-      { key: "modifier", label: modLabel, value: -modifier, source: "spell" }
-    ]
+    breakdown: characteristicTN.breakdown.map((entry, index) => ({ ...entry,
+      key: index === 0 ? "base" : `modifier-${index}`, source: index === 0 ? "characteristic" : "effect",
+      ...(entry.label === "Spell Strength Modifier" ? { label: modLabel, source: "spell" } : {}) }))
   };
 }
 
@@ -173,7 +174,8 @@ export async function executeCharacteristicDefense(defender, spell, opts = {}) {
   const modifier = _resolveModifierFromCastContext(spell, charDef, opts);
 
   // Final TN = characteristic - modifier (harder save = lower TN)
-  const effectiveTN = Math.max(1, charTotal - modifier);
+  const resolvedTN = computeCharacteristicDefenseTN(defender, spell, opts);
+  const effectiveTN = resolvedTN.finalTN;
 
   _debug("Characteristic defense:", {
     defender: defender.name,
@@ -187,18 +189,7 @@ export async function executeCharacteristicDefense(defender, spell, opts = {}) {
   });
 
   // Build TN breakdown for opposed card display
-  const modLabel = charDef.modifierMode === "formula"
-    ? "Modifier (formula)"
-    : "Spell Strength";
-  const tnData = {
-    finalTN: effectiveTN,
-    baseTN: charTotal,
-    totalMod: -modifier,
-    breakdown: [
-      { key: "base", label: `${chaLabel}`, value: charTotal, source: "characteristic" },
-      { key: "modifier", label: modLabel, value: -modifier, source: "spell" }
-    ]
-  };
+  const tnData = resolvedTN;
 
   // Roll the defense test
   const result = await doTestRoll(defender, {

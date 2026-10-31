@@ -174,6 +174,14 @@ function createSchema(seed, htmlFields = [], options = {}) {
       });
       continue;
     }
+    if (options.decimalHands === true && key === "hands") {
+      schema[key] = new (getFieldsApi().NumberField)({
+        initial: Number(value) || 0,
+        integer: false,
+        min: 0,
+      });
+      continue;
+    }
     schema[key] = createFieldFromDefault(key, value, htmlFieldSet);
   }
 
@@ -243,7 +251,7 @@ const ShieldItemSystemModel = createTypedSystemDataModel(
 const WeaponItemSystemModel = createTypedSystemDataModel(
   ITEM_MODEL_SEEDS.weapon,
   ITEM_HTML_FIELDS.weapon,
-  { decimalEnc: true, structuredEntries: true }
+  { decimalEnc: true, decimalHands: true, structuredEntries: true }
 );
 
 const SpellItemSystemModel = createTypedSystemDataModel(

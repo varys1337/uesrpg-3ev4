@@ -29,6 +29,9 @@ import { isWarfareUnitActorType } from "../actors/types.js";
 import { hasTalent } from "../traits/talents-api.js";
 import { canActorAccessDomainSpell, isDomainSpellItem } from "../religion/ritual-domains.js";
 import { getNpcThreatDamageModifier } from "../rules/npc-threat-templates.js";
+import { resolveEffectiveSkillCharacteristicKey } from "../skills/skill-tn-characteristics.js";
+import { getCompendiumItemOriginIds } from "../compendium/access-service.js";
+import { parseSpecializations } from "../advancement/skill-advancement.js";
 
 // Re-export for backward compatibility - canonical definition lives in magic-modifiers.js
 export { getActorWillpowerBonus };
@@ -69,6 +72,7 @@ const SPELL_STRENGTH_DAMAGE_TYPES = new Set([
  * @property {boolean}      [useMagickaCycling]  - From dialog: magicka cycling toggle
  * @property {string}       [difficulty]         - Alias for difficultyKey
  * @property {number}       [manualMod]          - Alias for manualModifier
+ * @property {boolean}      [useSpellSpecialization] - Apply an explicitly selected, matched spell specialization
  */
 
 /**
@@ -123,6 +127,28 @@ export function getSpellCastingSchool(spell) {
     if (explicit) return explicit;
   }
   return _str(spell?.system?.school);
+}
+
+/** Classify spell learning and casting without rewriting older Item data. */
+export function normalizeSpellLearningType(spell) {
+  const raw = _str(spell?.system?.spellType || spell?.spellType).toLowerCase();
+  const systemFlags = spell?.flags?.[FLAG_SCOPE];
+  if (raw === "ritual" || systemFlags?.coreSource?.kind === "ritual"
+      || Boolean(spell?.system?.isRitual) || Boolean(systemFlags?.isRitual)) return "ritual";
+  // The original Core Soulsnare is a ritual but has a legacy soul-trap spell
+  // configuration. Exact source provenance permits safe classification without
+  // changing saved Items or identifying unrelated spells by name.
+  const coreSourceIds = getCompendiumItemOriginIds(spell, "uesrpg-3ev4.spells-revised", {
+    additionalOrigins: [systemFlags?.spellSourceUuid], includeDocumentStats: raw === "soul-trap"
+  });
+  if (coreSourceIds.includes("DuhDMjLPq2DuDodg")) return "ritual";
+  return raw === "unconventional" ? "unconventional" : "conventional";
+}
+
+/** Rituals have their own preparation and resolution, not an ordinary cast. */
+export function getRitualCastingBlockReason(spell) {
+  if (normalizeSpellLearningType(spell) !== "ritual") return null;
+  return `${spell?.name || "This ritual"} is a ritual. Follow its description to resolve preparation, resources, tests, and consequences with the GM.`;
 }
 
 export function canActorCastSpell(actor, spell) {
@@ -1013,7 +1039,7 @@ export async function applySpellRestraintRefund(actor, spell, options = {}, resu
   const current = getActorMagicka(actor);
   const max = _num(actor?.system?.magicka?.max, 0);
   const next = (max > 0) ? Math.min(max, current + refund) : (current + refund);
-  await requestUpdateDocument(actor, { "system.magicka.value": next });
+  const confirmed = await requestUpdateDocument(actor, { "system.magicka.value": next });
 
   const breakdownParts = snapshot?.restrained?.breakdown ?? [];
   const breakdown = breakdownParts.length > 0
@@ -1025,7 +1051,7 @@ export async function applySpellRestraintRefund(actor, spell, options = {}, resu
     magickaBeforeRefund: current,
     magickaAfterRefund: next
   });
-  return { refund, finalCost, breakdown };
+  return { refund, finalCost, breakdown, confirmed };
 }
 export async function consumeSpellMagicka(actor, spell, options = {}) {
   // Scroll mode: skip magicka deduction entirely.
@@ -1097,7 +1123,9 @@ if (activeNoDuration) {
     };
   }
 
-  await requestUpdateDocument(actor, { "system.magicka.value": remaining });
+  const confirmed = await requestUpdateDocument(actor, { "system.magicka.value": remaining });
+  if (!confirmed) return { ok: false, consumed: 0, remaining: current, previous: current,
+    required: attemptCost, baseCost, costSnapshot, uncertain: true };
   _buildCostDebugPayload(actor, spell, costSnapshot, "consume", {
     consumed: attemptCost,
     magickaBefore: current,
@@ -1289,6 +1317,36 @@ const RANK_TO_NUMERIC = Object.freeze({
   legendary: 7
 });
 
+function getCastingMagicSkill(actor, school) {
+  const normalized = _str(school).toLowerCase();
+  return actor?.items?.find(i => i.type === "magicSkill" && _str(i.name).toLowerCase().includes(normalized)) ?? null;
+}
+
+/**
+ * Match the existing free-text specialization to one learned spell and one
+ * school skill. Ambiguous or differently named legacy entries stay manual.
+ */
+export function getMatchingSpellSpecialization(actor, spell) {
+  if (!actor?.uuid || actor.type === "NPC" || spell?.type !== "spell"
+    || spell?.parent?.uuid !== actor.uuid || normalizeSpellLearningType(spell) === "ritual") return null;
+  const normalize = value => String(value ?? "").normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
+  const school = normalize(getSpellCastingSchool(spell));
+  const name = normalize(spell.name);
+  if (!school || !name) return null;
+  const items = Array.from(actor.items ?? []);
+  if (actor.items?.get?.(spell.id)?.uuid !== spell.uuid) return null;
+  const skills = items.filter(item => item.type === "magicSkill" && normalize(item.name) === school);
+  const skill = getCastingMagicSkill(actor, school);
+  if (skills.length !== 1 || skills[0]?.uuid !== skill?.uuid) return null;
+  const rank = _str(skill.system?.rank).toLowerCase();
+  if ((RANK_TO_NUMERIC[rank] ?? -1) < 0) return null;
+  const spells = items.filter(item => item.type === "spell" && normalize(item.name) === name
+    && normalize(getSpellCastingSchool(item)) === school && normalizeSpellLearningType(item) !== "ritual");
+  if (spells.length !== 1 || spells[0].uuid !== spell.uuid) return null;
+  const match = parseSpecializations(skill.system?.trainedItems).find(entry => normalize(entry) === name);
+  return match ? { skillUuid: skill.uuid, name: match } : null;
+}
+
 /**
  * Get the magic skill level for a given school.
  *
@@ -1322,10 +1380,7 @@ export function getMagicSkillLevel(actor, school) {
   }
 
   // --- PC branch: find embedded magicSkill item ---
-  const magicSkill = actor?.items?.find(i =>
-    i.type === "magicSkill" &&
-    _str(i.name).toLowerCase().includes(schoolNormalized)
-  );
+  const magicSkill = getCastingMagicSkill(actor, schoolNormalized);
 
   if (!magicSkill) return 0;
 
@@ -1395,15 +1450,19 @@ function _hasTwoFreeHandsForCasting(actor) {
     if (itemType === "armor" || itemType === "shield" || itemType === "equipment") {
       const isShield = isShieldItem(it, { allowLegacy: true });
       if (!isShield) return false;
-      // Chapter 7: Targe counts as functionally free for hand-use checks.
-      const shieldType = String(it.system?.shieldType ?? "").toLowerCase();
-      if (shieldType === "targe" || it.system?.treatAsFreeHandForSmallOrGrapple === true) return false;
+      // A targe is free only for Small weapons and grappling, not spellcasting.
       return true;
     }
     return false;
   });
 
-  return occupiedHandItems.length === 0;
+  const occupiedHands = occupiedHandItems.reduce((sum, item) => {
+    if (isShieldItem(item, { allowLegacy: true })) return sum + 1;
+    const hands = Number(item.system?.hands ?? 0);
+    return sum + (hands === 1.5 ? (item.system?.weapon2H ? 2 : 1) : Math.max(0, hands));
+  }, 0);
+  const requiredFreeHands = hasTalent(actor, "spellsword") ? 1 : 2;
+  return 2 - occupiedHands >= requiredFreeHands;
 }
 
 /**
@@ -1426,13 +1485,9 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
   // Resolve the embedded magic skill for this school (PCs). We also use the
   // resolved skill name as a fallback key for AE authoring, in case the school
   // label and the item name don't normalize to the same token.
-  const magicSkill = (actor?.type === "NPC")
-    ? null
-    : actor?.items?.find(i =>
-      i.type === "magicSkill" &&
-      _str(i.name).toLowerCase().includes(school)
-    );
+  const magicSkill = (actor?.type === "NPC") ? null : getCastingMagicSkill(actor, school);
   const magicSkillKey = magicSkill ? _normalizeKey(magicSkill.name) : "";
+  const characteristic = resolveEffectiveSkillCharacteristicKey(magicSkill, options?.selectedCharacteristicKey);
 
   // Active Effects can contribute to casting TN via deterministic modifier keys.
   // Supported keys (additive/override semantics are handled by the evaluator):
@@ -1449,6 +1504,7 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
     "system.modifiers.skills._all",
     "system.modifiers.magic.castingTN._all"
   ]);
+  if (characteristic) keySet.add(`system.modifiers.tests.characteristics.${characteristic}`);
   if (schoolKey) {
     keySet.add(`system.modifiers.skills.${schoolKey}`);
     keySet.add(`system.modifiers.magic.castingTN.${schoolKey}`);
@@ -1544,6 +1600,8 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
 
   // Manual modifier from options
   const manualMod = _num(options?.manualModifier ?? options?.manualMod, 0);
+  const specialization = options?.useSpellSpecialization === true ? getMatchingSpellSpecialization(actor, spell) : null;
+  const specializationMod = specialization ? 10 : 0;
 
   // RAW (Silence): Silenced characters suffer -20 casting TN (unable to speak).
   const isSilenced = Boolean(actor?.system?.traits?.condition?.silenced) && !ignoresVerbalComponents;
@@ -1575,11 +1633,15 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
     modifiers.push({ label: "Circumstance Modifier", value: circumstanceMod });
   }
 
+  if (specializationMod) {
+    modifiers.push({ label: "Spell Specialization", value: specializationMod });
+  }
+
   if (manualMod !== 0) {
     modifiers.push({ label: "Manual Modifier", value: manualMod });
   }
 
-  const finalTN = baseTN + difficultyMod + levelPenalty + fatiguePenalty + carryPenalty + woundPenalty + silencePenalty + noFreeHandsPenalty + aeModifier + circumstanceMod + manualMod;
+  const finalTN = baseTN + difficultyMod + levelPenalty + fatiguePenalty + carryPenalty + woundPenalty + silencePenalty + noFreeHandsPenalty + aeModifier + circumstanceMod + specializationMod + manualMod;
 
   return {
     baseTN,

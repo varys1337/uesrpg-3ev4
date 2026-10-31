@@ -1,4 +1,5 @@
-import { setSpecialActionContext } from "../../skills/opposed-workflow/core/card-updater.js";
+import { planSpecialAdvantageSource } from "../special-action-operations.js";
+import { createActionResult, aggregateActionResults } from "../../../application/action-results.js";
 /**
  * src/core/combat/opposed/special-actions-automation.js
  *
@@ -10,8 +11,9 @@ import { setSpecialActionContext } from "../../skills/opposed-workflow/core/card
  */
 
 import { getSpecialActionById } from "../combat-style-utils.js";
+import { _resolveToken } from "./helpers/docs.js";
 
-import { _resolveDoc } from "./helpers/docs.js";
+
 
 /**
  * Execute special actions selected during advantage spending.
@@ -27,6 +29,8 @@ import { _resolveDoc } from "./helpers/docs.js";
  */
 export async function executeAdvantageSpecialActions({
   specialActionIds = [],
+  sourceMessage = null,
+  sourceState = null,
   actor,
   opponent,
   role = "attacker",
@@ -38,67 +42,46 @@ export async function executeAdvantageSpecialActions({
   sourceWeaponUuid = null,
   freeActionCost = 0,
   freeActionReason = "Special Advantage",
-  onAutoWinSuccess = null
+  onAutoWinSuccess = null,
+  onAutoWinAccepted = null
 } = {}) {
-  if (!Array.isArray(specialActionIds) || specialActionIds.length === 0) return;
-  if (!actor) return;
+  const results = [];
+  const finish = status => ({ actionResult: results.length ? aggregateActionResults(results, { owner: "specialAdvantages", scope: "selected actions" })
+    : createActionResult({ owner: "specialAdvantages", scope: "selected actions", status }) });
+  if (!Array.isArray(specialActionIds) || specialActionIds.length === 0) return finish("complete");
+  if (!actor) return finish("rejected");
 
   try {
-    const { showSpecialAdvantageDialog, postSpecialActionOutcome } = await import("../special-actions-helper.js");
-    
-    for (const saId of specialActionIds) {
+    const { showSpecialAdvantageDialog, postSpecialActionOutcome, chooseSnareSpecialAction } = await import("../special-actions-helper.js");
+    for (const [index, saId] of specialActionIds.entries()) {
+      const plan = planSpecialAdvantageSource({ sourceUuid: sourceMessage?.uuid ?? `submission:${foundry.utils.randomID(24)}`,
+        state: sourceState ?? {}, role, specialActionId: saId, index, actorUuid: actor.uuid, opponentUuid: opponent?.uuid,
+        actorTokenUuid, opponentTokenUuid, entries: sourceMessage?.flags?.["uesrpg-3ev4"]?.chatOutcomes?.entries ?? [] });
+      if (!plan) continue;
+      const { sourceKind, slot, signature, resultRevision } = plan.operation;
       const choice = await showSpecialAdvantageDialog(saId);
-      if (!choice) continue;
+      if (!choice || !['free', 'autowin'].includes(choice.mode)) continue;
+      const snare = await chooseSnareSpecialAction({ specialActionId: saId, actor,
+        actorToken: _resolveToken(actorTokenUuid), targetToken: _resolveToken(opponentTokenUuid), sourceWeaponUuid });
+      if (!snare) continue;
       const def = getSpecialActionById(saId);
-      const apCost = choice.mode === "autowin" ? 1 : choice.mode === "free" ? Math.max(0, Number(freeActionCost) || 0) : 0;
-      if (apCost > 0) {
-        const { ActionEconomy } = await import("../action-economy.js");
-        const paid = await ActionEconomy.spendAP(actor, apCost, {
-          reason: choice.mode === "autowin" ? `Special Advantage: ${def?.name} (Auto-Win)` : `${freeActionReason} (${def?.name ?? saId})`,
-          silent: false,
-        });
-        if (!paid) continue;
+      const result = await postSpecialActionOutcome({ specialActionId: saId, actor, target: opponent ?? null,
+        isAutoWin: choice.mode === 'autowin', opposedResult: { winner: role }, sourceMessage, sourceKind,
+        slot, signature, resultRevision, actorTokenUuid, targetTokenUuid: opponentTokenUuid,
+        launch: { mode: choice.mode, apCost: choice.mode === 'autowin' ? 1 : Math.max(0, Number(freeActionCost) || 0),
+          reason: choice.mode === 'autowin' ? 'Special Advantage: ' + def?.name + ' (Auto-Win)' : freeActionReason + ' (' + (def?.name ?? saId) + ')',
+          context: { source, attackerStyleUuid, defenderStyleUuid, sourceWeaponUuid, snareWeaponUuid: snare.weaponUuid,
+            snareRangeSnapshot: snare.rangeSnapshot ?? null } } });
+      results.push(result);
+      if (!result.replayed && choice.mode === 'autowin') {
+        if (result.actionResult.accepted && !["blocked", "rejected", "cancelled"].includes(result.actionResult.status) && onAutoWinAccepted) await onAutoWinAccepted(result);
+        if (result.actionResult.ok && onAutoWinSuccess) await onAutoWinSuccess(result);
       }
-
-      if (choice.mode === "autowin") {
-        // Auto-Win: consume 1 AP, skip test, auto-succeed
-        const result = await postSpecialActionOutcome({
-          specialActionId: saId, actor, target: opponent ?? null,
-          isAutoWin: true, opposedResult: { winner: role },
-        });
-        if (result.success && onAutoWinSuccess) await onAutoWinSuccess(result);
-      } else if (choice.mode === "free") {
-        // Free Action: 0 AP, initiate test with dropdown selection
-        const actorToken = actorTokenUuid ? _resolveDoc(actorTokenUuid)?.object : null;
-        const opponentToken = opponentTokenUuid ? _resolveDoc(opponentTokenUuid)?.object : null;
-
-        if (actorToken && opponentToken) {
-          const { SkillOpposedWorkflow } = await import("../../skills/opposed-workflow/index.js");
-          
-          // Actor initiates the free action test against opponent
-          const message = await SkillOpposedWorkflow.createPending({
-            attackerTokenUuid: actorToken?.document?.uuid ?? actorToken?.uuid,
-            defenderTokenUuid: opponentToken?.document?.uuid ?? opponentToken?.uuid,
-            attackerSkillUuid: null,  // Let user choose from dropdown in card
-            attackerSkillLabel: `${def?.name} (Special Action)`
-          });
-
-          const state = message?.flags?.["uesrpg-3ev4"]?.skillOpposed?.state;
-          if (state) {
-            await setSpecialActionContext(message, {
-              id: saId,
-              source,
-              attackerStyleUuid: attackerStyleUuid ?? null,
-              defenderStyleUuid: defenderStyleUuid ?? null,
-              sourceWeaponUuid,
-            });
-          }
-
-          ui.notifications.info(`Special Advantage: ${def?.name} used as free action.`);
-        }
-      }
+      if (!result.actionResult.accepted || ["blocked", "rejected", "partial", "needsReview"].includes(result.actionResult.status)) ui.notifications?.warn?.(result.message);
     }
   } catch (err) {
     console.error("UESRPG | Failed to execute Special Advantage automation", err);
+    results.push({ actionResult: createActionResult({ owner: "specialAdvantages", scope: "submission", status: "needsReview", commitment: "uncertain", reason: String(err.message ?? err) }) });
   }
+  return finish("cancelled");
 }

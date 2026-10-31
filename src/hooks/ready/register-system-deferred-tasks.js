@@ -1,23 +1,34 @@
-import { isPerfEnabled, monoMs, perfRecord } from "../../utils/perf-tracker.js";
+import { isPerfEnabled, monoMs, perfRecord, startPerfSpan } from "../../utils/perf-tracker.js";
 import { registerOnce } from "../_internal/hook-registry.js";
 
 function scheduleDeferredReadyTask(label, task, options = {}) {
+  const scheduledAt = isPerfEnabled() ? monoMs() : null;
+  perfRecord({ event: "system.deferred.scheduled", label, requestedCount: 1 });
   const scheduler = typeof requestIdleCallback === 'function'
     ? requestIdleCallback
     : (cb) => setTimeout(cb, 0);
   
   scheduler(async () => {
-    const startedAt = isPerfEnabled() ? monoMs() : 0;
+    const startedAt = isPerfEnabled() ? monoMs() : null;
+    perfRecord({
+      event: "system.deferred.started", label,
+      ...(scheduledAt !== null && startedAt !== null ? { durationMs: startedAt - scheduledAt } : {}),
+    });
+    const finish = startPerfSpan("system.deferred.finished", { label });
+    let failed = false;
     try {
       await task();
       if (isPerfEnabled()) {
-        perfRecord({ event: `system.ready.deferred.${label}`, ok: true, durationMs: monoMs() - startedAt });
+        perfRecord({ event: `system.ready.deferred.${label}`, ok: true, ...(startedAt !== null ? { durationMs: monoMs() - startedAt } : {}) });
       }
     } catch (err) {
+      failed = true;
       console.warn(`UESRPG | Deferred ready task failed: ${label}`, err);
       if (isPerfEnabled()) {
-        perfRecord({ event: `system.ready.deferred.${label}`, ok: false, durationMs: monoMs() - startedAt });
+        perfRecord({ event: `system.ready.deferred.${label}`, ok: false, ...(startedAt !== null ? { durationMs: monoMs() - startedAt } : {}) });
       }
+    } finally {
+      finish({ completedCount: failed ? 0 : 1, failedCount: failed ? 1 : 0 });
     }
   }, { timeout: options.timeout ?? 1000 });
 }

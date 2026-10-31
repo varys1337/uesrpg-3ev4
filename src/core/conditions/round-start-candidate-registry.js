@@ -17,6 +17,7 @@ import { hasCondition } from "./condition-engine.js";
 import { getActorCapabilityFlag } from "../active-effects/modifier-evaluator.js";
 import { resolveUuidSync } from "../../utils/uuid-cache.js";
 import { isRoundStartCandidateRegistryEnabled } from "../config/automation-policy.js";
+import { getSummonState } from "../magic/conjuration/conjuration-state.js";
 
 /** @typedef {{ actorId: string, actorUuid: string, regenValue: number }} CandidateEntry */
 
@@ -75,7 +76,9 @@ function _refreshActorCandidates(actor) {
   if (!uuid) return;
   const regenValue = _hasRegeneration(actor) || _hasRegenerationFlag(actor);
   const entry = _makeEntry(actor, regenValue);
-  if (regenValue > 0 && entry) _actorsWithRegeneration.set(uuid, entry);
+  // Keep summons as potential candidates: their caster's WB and talents can
+  // change without any update to the synthetic summon Actor.
+  if ((regenValue > 0 || getSummonState(actor)) && entry) _actorsWithRegeneration.set(uuid, entry);
   else _actorsWithRegeneration.delete(uuid);
   if (hasCondition(actor, "silenced") && entry) _actorsSilencedInCombat.set(uuid, entry);
   else _actorsSilencedInCombat.delete(uuid);
@@ -176,9 +179,11 @@ function _queryCandidates(mapRef, combat, type) {
         type
       };
     }
+    const traitValue = type === "regeneration" ? (_hasRegeneration(actor) || _hasRegenerationFlag(actor)) : 0;
+    if (type === "regeneration" && traitValue <= 0) continue;
     candidates.push({
       actor,
-      traitValue: Number(entry.regenValue ?? 0) || 0
+      traitValue
     });
   }
 
@@ -214,6 +219,10 @@ export function initializeRoundStartCandidateRegistry() {
 
   Hooks.on("deleteActor", (actor) => {
     _removeActorEverywhere(actor?.uuid);
+  });
+
+  Hooks.on("updateToken", token => {
+    if (token.actor) _refreshActorCandidates(token.actor);
   });
 
   Hooks.on("createItem", (item) => {

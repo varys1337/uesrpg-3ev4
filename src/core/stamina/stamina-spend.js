@@ -213,6 +213,10 @@ async function spendPersistentEffect(actor, option, cost, spAmount) {
 }
 
 export async function spendStaminaOption(actor, option, spAmount = 1) {
+  if (option?.id === "power-attack" && hasTalent(actor, "killingblow")) {
+    ui.notifications.warn("Killing Blow needs manual resolution. Choose up to 3 SP and include +3 damage per SP in the power attack. Check existing Power Attack effects, Stamina, prior rolls and damage with the GM before making changes or retrying.");
+    return;
+  }
   const cost = option.allowAmount ? spAmount : option.cost;
   if (option.immediate) {
     await spendHeroicAction(actor, option, cost);

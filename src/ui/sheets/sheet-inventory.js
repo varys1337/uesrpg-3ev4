@@ -4,6 +4,7 @@
  * Shared across actor sheet modules. No schema changes.
  */
 import { createDebugLogger } from "../../utils/debug.js";
+import { isValidInventoryContainment } from "../../core/items/inventory-encumbrance.js";
 
 const _debug = createDebugLogger("shieldDebug", "[UESRPG][ShieldDebug][Inventory]");
 
@@ -12,23 +13,6 @@ const _debug = createDebugLogger("shieldDebug", "[UESRPG][ShieldDebug][Inventory
  * @type {Set<string>}
  */
 const CONTAINABLE_ITEM_TYPES = new Set(["item", "equipment", "scroll", "weapon", "armor", "shield", "ammunition", "container"]);
-
-function _resolveOwnedContainer(item, { actor = null, items = null } = {}) {
-  const cs = item?.system?.containerStats;
-  const containerId = String(cs?.container_id ?? "").trim();
-  if (!containerId) return null;
-
-  const owner = actor ?? item?.actor ?? item?.parent ?? null;
-  const container = owner?.items?.get?.(containerId)
-    ?? (Array.isArray(items)
-      ? items.find((candidate) => String(candidate?.id ?? candidate?._id ?? "").trim() === containerId)
-      : null);
-  if (!container) return null;
-  if (container.type !== "container") return null;
-  if (container.id === item?.id || container._id === item?._id) return null;
-
-  return container;
-}
 
 /**
  * Determine whether an item is marked as contained in a valid owned container.
@@ -39,9 +23,8 @@ function _resolveOwnedContainer(item, { actor = null, items = null } = {}) {
  * @returns {boolean}
  */
 function isContainedItem(item, options = {}) {
-  const cs = item?.system?.containerStats;
-  if (!String(cs?.container_id ?? "").trim()) return false;
-  return Boolean(_resolveOwnedContainer(item, options));
+  const owner = options.actor ?? item?.actor ?? item?.parent;
+  return isValidInventoryContainment(item, owner?.items ?? options.items ?? []);
 }
 
 /**

@@ -15,7 +15,8 @@ import { normalizeKey } from "./key-utils.js";
 import {
   getParsedGoverningData,
   isKnownCharacteristicKey,
-  canonicalCharacteristicToken
+  canonicalCharacteristicToken,
+  resolveEffectiveSkillCharacteristicKey
 } from "./skill-tn-characteristics.js";
 import {
   maybeAddObservantEvadeMod,
@@ -42,6 +43,16 @@ function asNumber(value) {
   return match ? Number(match[0]) : 0;
 }
 
+/** Characteristic substitution shared by skill and Combat Style TNs. */
+export function getSkillCharacteristicSelectionDelta({ actorSystem = {}, skill = null, selectedCharacteristicKey = null } = {}) {
+  const selected = canonicalCharacteristicToken(selectedCharacteristicKey);
+  const { baseNorm } = getParsedGoverningData(skill);
+  if (!isKnownCharacteristicKey(selected) || !isKnownCharacteristicKey(baseNorm) || selected === baseNorm
+    || !["skill", "magicSkill", "combatStyle"].includes(String(skill?.type ?? ""))) return 0;
+  return asNumber(actorSystem?.characteristics?.[selected]?.total ?? 0)
+    - asNumber(actorSystem?.characteristics?.[baseNorm]?.total ?? 0);
+}
+
 export function computeSkillTN({
   actor,
   skillItem,
@@ -54,7 +65,8 @@ export function computeSkillTN({
 } = {}) {
   const normalizedSkill = normalizeKey(skillItem?.name);
   const normalizedProfession = normalizeKey(skillItem?._professionKey);
-  const normalizedCharacteristic = normalizeKey(skillItem?._characteristicKey);
+  const effectiveCharacteristic = canonicalCharacteristicToken(skillItem?._characteristicKey)
+    || resolveEffectiveSkillCharacteristicKey(skillItem, selectedCharacteristicKey);
   const aeSkillKeys = new Set([
     "system.modifiers.tests.all",
     "system.modifiers.skills._all",
@@ -63,7 +75,7 @@ export function computeSkillTN({
   ]);
   if (normalizedSkill) aeSkillKeys.add(`system.modifiers.skills.${normalizedSkill}`);
   if (normalizedProfession) aeSkillKeys.add(`system.modifiers.skills.${normalizedProfession}`);
-  if (normalizedCharacteristic) aeSkillKeys.add(`system.modifiers.characteristics.${normalizedCharacteristic}`);
+  if (effectiveCharacteristic) aeSkillKeys.add(`system.modifiers.tests.characteristics.${effectiveCharacteristic}`);
   const aeSkillResolved = actor ? evaluateAEModifierKeys(actor, Array.from(aeSkillKeys)) : {};
 
   const fallbackSituational = [];
@@ -99,7 +111,8 @@ export function computeSkillTN({
       name: skillItem?.name,
       type: skillItem?.type,
       system: skillItem?.system ?? {},
-      _professionKey: skillItem?._professionKey
+      _professionKey: skillItem?._professionKey,
+      _characteristicKey: skillItem?._characteristicKey
     },
     itemBonuses,
     aeSkillResolved,
@@ -141,30 +154,20 @@ function computeSkillTNFromData({
 
   const selectedCharKey = canonicalCharacteristicToken(String(selectedCharacteristicKey ?? "").trim().toLowerCase());
   const { baseNorm: currentBaseCharKey } = getParsedGoverningData(skill);
-  if (
-    selectedCharKey &&
-    isKnownCharacteristicKey(selectedCharKey) &&
-    currentBaseCharKey &&
-    selectedCharKey !== currentBaseCharKey &&
-    ["skill", "magicSkill", "combatStyle"].includes(String(skill?.type ?? "")) &&
-    isKnownCharacteristicKey(currentBaseCharKey)
-  ) {
-    const oldTotal = asNumber(actorSystem?.characteristics?.[currentBaseCharKey]?.total ?? 0);
-    const newTotal = asNumber(actorSystem?.characteristics?.[selectedCharKey]?.total ?? 0);
-    const delta = newTotal - oldTotal;
-    if (delta !== 0) {
-      baseSkill = baseSkillRaw + delta;
-      breakdown.push({
-        label: `Characteristic (${selectedCharKey.toUpperCase()})`,
-        value: delta,
-        source: "characteristicSelection"
-      });
-    }
+  const characteristicDelta = getSkillCharacteristicSelectionDelta({ actorSystem, skill, selectedCharacteristicKey: selectedCharKey });
+  if (characteristicDelta !== 0) {
+    baseSkill = baseSkillRaw + characteristicDelta;
+    breakdown.push({
+      label: `Characteristic (${selectedCharKey.toUpperCase()})`,
+      value: characteristicDelta,
+      source: "characteristicSelection"
+    });
   }
 
   breakdown.push({
     label: isCharacteristic ? (skill?.name ?? "Characteristic") : "Rank",
-    value: baseSkill,
+    // The selection delta is already its own breakdown entry.
+    value: baseSkillRaw,
     source: isCharacteristic ? "characteristic" : "rank"
   });
 
@@ -200,13 +203,13 @@ function computeSkillTNFromData({
     });
   }
 
-  const normalizedCharacteristic = normalizeKey(skill?._characteristicKey);
-  if (normalizedCharacteristic) {
-    const characteristicBonus = asNumber(resolved[`system.modifiers.characteristics.${normalizedCharacteristic}`] ?? 0);
+  const effectiveCharacteristic = canonicalCharacteristicToken(skill?._characteristicKey)
+    || resolveEffectiveSkillCharacteristicKey(skill, selectedCharacteristicKey);
+  if (effectiveCharacteristic) {
+    const characteristicBonus = asNumber(resolved[`system.modifiers.tests.characteristics.${effectiveCharacteristic}`] ?? 0);
     if (characteristicBonus) {
-      const characteristicLabel = String(skill?.name ?? normalizedCharacteristic).trim();
       breakdown.push({
-        label: `Effects: ${characteristicLabel}`,
+        label: `Effects: ${effectiveCharacteristic.toUpperCase()} Tests`,
         value: characteristicBonus,
         source: "aeCharacteristic"
       });
@@ -291,7 +294,7 @@ function computeSkillTNFromData({
   if (mobilityAgilityPenalty) breakdown.push({ label: "Armor: Penalty", value: mobilityAgilityPenalty, source: "armorAgility" });
 
   if (nameKey === "acrobatics") {
-    const armoredAgilityBonus = getArmoredAgilityAcrobaticsBonus(actor, mobility);
+    const armoredAgilityBonus = getArmoredAgilityAcrobaticsBonus(actor, mobility, { includeAgilityPenalty: mobilityAgilityPenalty !== 0 });
     if (armoredAgilityBonus > 0) {
       breakdown.push({ label: "Talent: Armored Agility", value: armoredAgilityBonus, source: "talentArmoredAgility" });
     }

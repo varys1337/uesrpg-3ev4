@@ -298,7 +298,11 @@ export async function handleBrewChatAction(messageId) {
     ui.notifications.info(t("UESRPG.Notifications.Alchemy.BrewAlreadyResolved"));
     return;
   }
-  await message.update({ [`flags.${FLAG_NS}.alchemy.resolving`]: true });
+  const claimed = await message.update({ [`flags.${FLAG_NS}.alchemy.resolving`]: true });
+  if (!claimed || game.messages.get(messageId)?.flags?.[FLAG_NS]?.alchemy?.resolving !== true) {
+    ui.notifications.warn("The brew could not be claimed. Inspect the card before trying again.");
+    return;
+  }
 
   const talents = getAlchemyTalents(actor, { items: itemSnapshot.items });
   const skillSnapshot = getAlchemySkillSnapshot(actor, { skill, items: itemSnapshot.items });
@@ -347,9 +351,9 @@ export async function handleBrewChatAction(messageId) {
       talents,
     });
   } catch (err) {
-    await message.update({ [`flags.${FLAG_NS}.alchemy.resolving`]: false });
+    try { await message.update({ [`flags.${FLAG_NS}.alchemy.reviewRequired`]: true }); } catch (_error) { /* Keep the existing resolving hold. */ }
     console.error("UESRPG | Brew resolution failed", err);
-    ui.notifications.error(t("UESRPG.Notifications.Alchemy.BrewResolutionFailed"));
+    ui.notifications.error("Brew requires GM review. Do not retry: inspect the roll, card, ingredients and any created Item first.");
     return;
   }
 
@@ -359,6 +363,14 @@ export async function handleBrewChatAction(messageId) {
     [`flags.${FLAG_NS}.alchemy.adjustedTN`]: adjustedTN,
     [`flags.${FLAG_NS}.alchemy.rollTotal`]: rollTotal,
     [`flags.${FLAG_NS}.alchemy.success`]: success,
+    ...(result.requiresManualBackfire ? {
+      [`flags.${FLAG_NS}.alchemy.manualBackfire`]: {
+        d4: result.backfireResult?.d4 ?? null,
+        highestSL: result.backfireResult?.highestSL ?? null,
+        total: result.backfireResult?.total ?? null,
+        key: result.backfireResult?.entry?.key ?? null,
+      },
+    } : {}),
   });
 
   await _postBrewResultMessage(actor, recipe, roll, rollTotal, adjustedTN, success, criticalSuccess, criticalFail, result);
@@ -396,22 +408,19 @@ export async function resolveBrew(actor, recipe, rollCtx) {
     isMasterAlchemist: talents.isMasterAlchemist && !useNothingVentured,
   });
 
+  if (backfires) {
+    // No ingredients or resulting Item are changed until the GM applies the
+    // table and any affected-area consequences. The caller records the roll.
+    // The poison section does not establish this potion-table procedure.
+    if (recipe.mode === "poison") return { success: false, item: null, backfireResult: null, requiresManualBackfire: true };
+    const backfireResult = await rollCreationBackfire(highestSL);
+    _emitAlchemyRoll3d(backfireResult?.d4Roll ?? null, { actor });
+    return { success: false, item: null, backfireResult, requiresManualBackfire: true };
+  }
+
   await _consumeIngredients(actor, recipe);
 
-  let backfireResult = null;
   let createdItem = null;
-
-  if (backfires) {
-    backfireResult = await rollCreationBackfire(highestSL);
-    _emitAlchemyRoll3d(backfireResult?.d4Roll ?? null, { actor });
-    _emitAlchemyRoll3d(backfireResult?.minorEffect?.rollObject ?? null, { actor });
-    if ((backfireResult.entry?.outcome ?? "lost") !== "lost") {
-      createdItem = await _createAlchemyItem(actor, recipe, { backfired: true, backfireResult, skill, talents });
-    }
-
-    if (talents.hasTrialAndError) await _incrementTrialAndError(actor, recipe);
-    return { success: false, item: createdItem, backfireResult };
-  }
 
   if (success) {
     createdItem = await _createAlchemyItem(actor, recipe, { backfired: false, skill, talents });
@@ -557,13 +566,13 @@ async function _postBrewResultMessage(actor, recipe, roll, rollTotal, adjustedTN
 
   const outcomeColor = success ? "#388e3c" : "#c62828";
 
-  const backfireHtml = result.backfireResult
-    ? `<div class="uesrpg-alchemy-note is-danger"><div class="label">${t("UESRPG.Alchemy.BackfireLabel")}</div><div class="text">${formatCreationBackfire(result.backfireResult)}</div></div>`
-    : "";
+  const backfireHtml = result.requiresManualBackfire
+    ? `<div class="uesrpg-alchemy-note is-danger"><div class="label">${t("UESRPG.Alchemy.BackfireLabel")}</div><div class="text">${result.backfireResult ? formatCreationBackfire(result.backfireResult) : "The poison backfire procedure requires a GM decision."}<br>GM review: check whether this backfire applies, resolve its consequences, and handle the ingredients, resulting Item and Trial and Error manually. No ingredients or resulting Item were changed by this resolution. Inspect the card and prior actions before retrying.</div></div>`
+    : result.backfireResult ? `<div class="uesrpg-alchemy-note is-danger"><div class="label">${t("UESRPG.Alchemy.BackfireLabel")}</div><div class="text">${formatCreationBackfire(result.backfireResult)}</div></div>` : "";
 
   const itemHtml = result.item
     ? `<div class="uesrpg-alchemy-note"><div class="label">${t("UESRPG.Alchemy.CreatedLabel")}</div><div class="text">${result.item.name}</div></div>`
-    : !success
+    : !success && !result.requiresManualBackfire
     ? `<div class="uesrpg-alchemy-note is-warning"><div class="label">${t("UESRPG.Alchemy.ResultLabel")}</div><div class="text">${t("UESRPG.Alchemy.NothingCreated")}</div></div>`
     : "";
 

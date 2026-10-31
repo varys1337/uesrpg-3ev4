@@ -1,0 +1,2397 @@
+{
+  "pack": "uesrpg-3ev4.core-skills",
+  "documentName": "Item",
+  "folders": [
+    {
+      "type": "Item",
+      "folder": null,
+      "name": "Core",
+      "color": null,
+      "sorting": "a",
+      "_id": "UvyPmtkXL5is98VA",
+      "description": "",
+      "sort": 0,
+      "flags": {},
+      "_stats": {
+        "compendiumSource": null,
+        "duplicateSource": null,
+        "exportSource": null,
+        "coreVersion": "13.351",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v1.0.0-RC.84",
+        "createdTime": 1770540798641,
+        "modifiedTime": 1770540798641,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce"
+      }
+    },
+    {
+      "type": "Item",
+      "folder": null,
+      "name": "Elite",
+      "color": null,
+      "sorting": "a",
+      "_id": "lq0zc8DR2p5AshCS",
+      "description": "",
+      "sort": 0,
+      "flags": {},
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776708191615,
+        "modifiedTime": 1776708191615,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": null,
+        "duplicateSource": null,
+        "exportSource": null
+      }
+    }
+  ],
+  "documents": [
+    {
+      "name": "Thu'um",
+      "type": "skill",
+      "img": "icons/magic/sonic/scream-wail-shout-teal.webp",
+      "effects": [],
+      "folder": "lq0zc8DR2p5AshCS",
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 8,
+            "page": 206,
+            "rule": "Skill: Thu’um (Wp)"
+          }
+        }
+      },
+      "_id": "4GutgOf9vIdUcm1u",
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776708199956,
+        "modifiedTime": 1776764759173,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "exportSource": null,
+        "compendiumSource": null,
+        "duplicateSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "eeXhsDlbzUBZOXZT": 3,
+        "6RSmA9WKEAJfI3Ce": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p>Example Specializations: Linguistics, War-Shouts, Lore The Thu’um skill reflects a character’s potency of using their Voice, as well as their knowledge of the dragon tongue and their ability to read and decipher draconic runes. Your GM may ask you to test Thu’um when: • Attempting to understand or translate draconic runes and markings. • Attempting to write in draconic script. • Attempting to Shout. Characters who have Dovahzul as a language alongside the Thu’um skill need not make a thu’um test to speak, write or understand it.</p>",
+        "baseCha": "wp",
+        "governingCha": "WP",
+        "trainedItems": ""
+      },
+      "sort": 0
+    },
+    {
+      "_id": "5ylPj9FtdbIgPwSi",
+      "name": "Conjuration",
+      "type": "magicSkill",
+      "img": "icons/magic/unholy/barrier-fire-pink.webp",
+      "effects": [],
+      "folder": "UvyPmtkXL5is98VA",
+      "sort": 700000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 3,
+            "page": null,
+            "rule": "Skills table: Conjuration; Willpower"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776764371180,
+        "modifiedTime": 1776764397727,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.s1V72XGzOYXo8ddF",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "zrZomzLbu6XsebKn": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p style=\"text-align: justify;\"><span style=\"color: rgb(25, 24, 19)\"><em>Example Specializations: Atronach Summoning, Spirit Summoning</em></span> </p><p style=\"text-align: justify;\"><span style=\"color: rgb(25, 24, 19)\">This skill influences the use of spells from the school of Conjuration. As a school, Conjuration focuses on calling upon and interacting with various otherworldly entities. Your GM may ask you to test Conjuration when you try to accomplish tasks like the following...</span></p><ul><li><p><span style=\"color: rgb(25, 24, 19)\">Cast a Conjuration spell</span></p></li><li><p><span style=\"color: rgb(25, 24, 19)\">Identify a summoned entity</span></p></li></ul>",
+        "baseCha": "wp",
+        "governingCha": "WP",
+        "trainedItems": ""
+      }
+    },
+    {
+      "name": "Hemomancy",
+      "type": "magicSkill",
+      "img": "icons/skills/wounds/blood-drip-droplet-red.webp",
+      "effects": [],
+      "folder": "lq0zc8DR2p5AshCS",
+      "flags": {
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 8,
+            "page": 225,
+            "rule": "Hemomancy (Wp)"
+          }
+        }
+      },
+      "_id": "6O7yQlytNPQLcvcf",
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776708195602,
+        "modifiedTime": 1776708196798,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "exportSource": null,
+        "compendiumSource": null,
+        "duplicateSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "eeXhsDlbzUBZOXZT": 3,
+        "6RSmA9WKEAJfI3Ce": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p>Blood magic is a profane art known only to the most vile vampiric sorcerers. Using a Hemomancy spell requires that the vampire pass a Hemomancy skill test. Regardless of the result, the full MP and AP cost is spent. Hemomancy spells cannot benefit from spell restraint.</p>",
+        "baseCha": "wp",
+        "governingCha": "WP",
+        "trainedItems": ""
+      },
+      "sort": 300000
+    },
+    {
+      "_id": "8BKBGg6F8WhtELsJ",
+      "name": "Acrobatics",
+      "type": "skill",
+      "img": "systems/uesrpg-3ev4/images/Icons/lightningReflexes.webp",
+      "effects": [],
+      "folder": "UvyPmtkXL5is98VA",
+      "sort": 100000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 3,
+            "page": null,
+            "rule": "Skills table: Acrobatics; Strength, Agility"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776763381713,
+        "modifiedTime": 1776763446036,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.T2Tnips3skDxgFWZ",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "zrZomzLbu6XsebKn": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p>Governing characteristics: Strength, Agility.</p><p>Example Specializations: Contortion, Balance, Jumping</p><p>Acrobatics covers the spectrum of physical activities involving explosive body movements and feats of flexibility and balance. Your GM may ask you to test Acrobatics when you try to accomplish tasks like the following...</p><p>- Leaping deftly between rooftops or over an enemy\n- Escaping from bonds\n- Squeezing into a small space\n- Balancing on the edge of a cliff</p><p>For rules regarding jumping, see Movement (page 115).</p>",
+        "baseCha": "str",
+        "governingCha": "STR, AGI",
+        "trainedItems": ""
+      }
+    },
+    {
+      "folder": "lq0zc8DR2p5AshCS",
+      "name": "Flesh Magic",
+      "type": "skill",
+      "_id": "AIfZ7DoZ38pxhYMl",
+      "img": "icons/magic/unholy/strike-body-explode-disintegrate.webp",
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p>Wielded by ancient Ayleid sorcerers, Flesh Magic is used to twist, gnarl, warp, and change the living form. Fueled by agonies and foul murder, Flesh Magic is potent, cruel, and terrible. The GM may ask you to test Flesh Magic when: • Casting a Flesh Magic Spell. • Identifying the effects of a Flesh Magic Spell. • Performing Flesh Magic Rituals.</p>",
+        "baseCha": "int",
+        "governingCha": "INT, WP",
+        "trainedItems": ""
+      },
+      "effects": [],
+      "sort": 0,
+      "ownership": {
+        "default": 0,
+        "6RSmA9WKEAJfI3Ce": 3
+      },
+      "flags": {
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 8,
+            "page": 193,
+            "rule": "New Skill: Flesh Magic (Int, Wp)"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776764604964,
+        "modifiedTime": 1776764640028,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": null,
+        "duplicateSource": null,
+        "exportSource": null
+      }
+    },
+    {
+      "_id": "APIH3ShpkNbcJrh1",
+      "name": "Restoration",
+      "type": "magicSkill",
+      "img": "icons/magic/life/heart-red-blue.webp",
+      "effects": [],
+      "folder": "UvyPmtkXL5is98VA",
+      "sort": 2100000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 3,
+            "page": null,
+            "rule": "Skills table: Restoration; Willpower"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776764520039,
+        "modifiedTime": 1776764520039,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.s1V72XGzOYXo8ddF",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "zrZomzLbu6XsebKn": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p style=\"text-align: justify;\"><span style=\"color: rgb(25, 24, 19)\"><em>Example Specializations: Heal Ally, Replenish, Resistance to Fire</em></span></p><p style=\"text-align: justify;\"><span style=\"color: rgb(25, 24, 19)\">This skill influences the use of spells from the school of Restoration. Restoration is focused on healing and restoring targets and harming the undead. Your GM may ask you to test Restoration when you try to accomplish tasks like the following...</span></p><ul><li><p><span style=\"color: rgb(25, 24, 19)\">Cast a Restoration spell</span> </p></li><li><p><span style=\"box-sizing: border-box; user-select: text; color: rgb(25, 24, 19)\">Identify the effects of Restoration magic</span></p></li></ul>",
+        "baseCha": "wp",
+        "governingCha": "WP",
+        "trainedItems": ""
+      }
+    },
+    {
+      "_id": "AxEOqrsgGw7pigzq",
+      "name": "Illusion",
+      "type": "magicSkill",
+      "img": "systems/uesrpg-3ev4/images/Icons/observant.webp",
+      "effects": [],
+      "folder": "UvyPmtkXL5is98VA",
+      "sort": 1200000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 3,
+            "page": null,
+            "rule": "Skills table: Illusion; Willpower"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776764475482,
+        "modifiedTime": 1776764475482,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.s1V72XGzOYXo8ddF",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "zrZomzLbu6XsebKn": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p style=\"text-align: justify;\"><em>Example Specializations: Blind, Horror, Sanctuary</em></p><p style=\"text-align: justify;\">This skill inﬂuences the use of spells from the school of Illusion. As a school, Illusion focuses on manipulation and deception to aﬀect the minds of targets and the light around them. Your GM may ask you to test Illusion when you try to accomplish tasks like the following...</p><ul><li><p>Cast an Illusion spell</p></li><li><p>Identify the eﬀects of Illusion magic</p></li></ul>",
+        "baseCha": "wp",
+        "governingCha": "WP",
+        "trainedItems": ""
+      }
+    },
+    {
+      "name": "Instinct",
+      "type": "skill",
+      "img": "icons/creatures/mammals/beast-horned-scaled-glowing-orange.webp",
+      "effects": [],
+      "folder": "lq0zc8DR2p5AshCS",
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 5,
+            "page": 123,
+            "rule": "Bestial Instinct (Str, Ag, Prc)"
+          }
+        }
+      },
+      "_id": "BDjfqAKdNCKIGt99",
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776708196773,
+        "modifiedTime": 1776708196798,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "exportSource": null,
+        "compendiumSource": null,
+        "duplicateSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "eeXhsDlbzUBZOXZT": 3,
+        "6RSmA9WKEAJfI3Ce": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p>This skill represents the lycanthrope’s instinctual abilities while in beast form. Unlike other skills, ranks in this skill can only be increased through the purchase of talents and cannot be purchased directly. Only while they are in their beast form, the lycanthrope can choose to test this skill instead of any of the following, using the appropriate governing characteristic: • Unarmed Combat Style • Evade • Survival • Stealth • Athletics • Acrobatics • Navigate • Observe</p>",
+        "baseCha": "str",
+        "governingCha": "STR, AGI, PRC",
+        "trainedItems": ""
+      },
+      "sort": 200000
+    },
+    {
+      "_id": "EZuO9cRbZ12sdLCj",
+      "name": "Command",
+      "type": "skill",
+      "img": "icons/sundries/flags/banner-pink.webp",
+      "effects": [],
+      "folder": "UvyPmtkXL5is98VA",
+      "sort": 500000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 3,
+            "page": null,
+            "rule": "Skills table: Command; Strength, Intelligence, Personality"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776763747617,
+        "modifiedTime": 1776763747617,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.pXXlRpjJ9A5pF3A1",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "zrZomzLbu6XsebKn": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p>Governing characteristics: Strength, Intelligence, Personality.</p><p>Example Specializations: Battlefield Commander, Inspiration</p><p>Command measures a character’s skill at coordinating allies, inspiring them and, if necessary, instilling fear in order to motivate them. Your GM may ask you to test Command when you try to accomplish tasks like the following...</p><p>- Giving effective orders during a battle\n- Organizing civilians to defend their homes\n- Riling up a crowd with an inspiring speech\n- Convincing cowards to stand and fight</p>",
+        "baseCha": "str",
+        "governingCha": "STR, INT, PRS",
+        "trainedItems": ""
+      }
+    },
+    {
+      "folder": "lq0zc8DR2p5AshCS",
+      "name": "Shehai Shen She Ru",
+      "type": "skill",
+      "_id": "FFuY3C13QHJ6KSTC",
+      "img": "icons/skills/melee/strike-sword-steel-yellow.webp",
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p>The core of the Shehai Shen She Ru is a simple devotion to swordsmanship. This is how every Sword-Singer begins their journey: through intense study, and eventual mastery, of the art of the blade. Characters can utilize the Shehai Shen She Ru skill (with either Strength or Agility) as if it were the Combat Style [Field] skill whenever wielding any type of sword (larger or smaller weapons, such as daggers and greatswords, also count). “We are the ansu, the greatest warriors that live in men. Our swords sent the Left-Handers into the oceans, whose empire was four times the size of the white king. When we fight, our swords can kill the laws of nature itself. Yokuda is as you see it because our hira-dirg swords can cut the atomos, the uncuttable, and we did.” -The Hira-Dirge Ansei to Cyrus the Restless</p>",
+        "baseCha": "str",
+        "governingCha": "STR, AGI, WP",
+        "trainedItems": ""
+      },
+      "effects": [],
+      "sort": 0,
+      "ownership": {
+        "default": 0,
+        "6RSmA9WKEAJfI3Ce": 3
+      },
+      "flags": {
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 8,
+            "page": 199,
+            "rule": "Skill: Shehai Shen She Ru (Str, Ag, Wp)"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776764684955,
+        "modifiedTime": 1776764700456,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": null,
+        "duplicateSource": null,
+        "exportSource": null
+      }
+    },
+    {
+      "_id": "FRKUXWQeKvXExfiO",
+      "name": "Stealth",
+      "type": "skill",
+      "img": "systems/uesrpg-3ev4/images/Icons/invisible.webp",
+      "effects": [],
+      "folder": "UvyPmtkXL5is98VA",
+      "sort": 2300000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 3,
+            "page": null,
+            "rule": "Skills table: Stealth; Agility, Perception"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776764283586,
+        "modifiedTime": 1776764293520,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.pXXlRpjJ9A5pF3A1",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "zrZomzLbu6XsebKn": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p>Governing characteristics: Agility, Perception.</p><p>Example Specializations: Camouflage, Shadowing, Infiltration</p><p>Stealth is a measure of a character’s ability to remain unnoticed in a variety of settings and environments through the employment of specific techniques. This test can be opposed by an Observe test when appropriate. Your GM may ask you to test Stealth when you try to accomplish tasks like the following...</p><p>- Shadowing someone through a marketplace\n- Sneaking up on an enemy camp\n- Camouflaging yourself in the undergrowth\n- Sneaking past a sleeping monster</p><p>For rules regarding the use of Stealth in combat, see Combat in Chapter 5.</p>",
+        "baseCha": "agi",
+        "governingCha": "AGI, PRC",
+        "trainedItems": ""
+      }
+    },
+    {
+      "_id": "FcKVbn7yrmNsk794",
+      "name": "Enchant",
+      "type": "magicSkill",
+      "img": "icons/commodities/gems/gem-cluster-pink.webp",
+      "effects": [],
+      "folder": "UvyPmtkXL5is98VA",
+      "sort": 1000000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 3,
+            "page": null,
+            "rule": "Skills table: Enchant; Intelligence"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776763824853,
+        "modifiedTime": 1776763831638,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.s1V72XGzOYXo8ddF",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "zrZomzLbu6XsebKn": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p>Governing characteristics: Intelligence.</p><p>Example Specializations: Destruction Enchantments, Enchanting Weapons, Creating Scrolls</p><p>Enchanting is the arcane art of creating enchanted items by binding the energy contained within soul gems to another physical object. Your GM may ask you to test Enchant when you try to accomplish tasks like the following...</p><p>- Create an enchanted item\n- Identify the effects of an enchantment\n- Learn how to use a mysterious enchanted item\n- Repair an enchanted item</p><p>The specific uses of the Enchanting skill for creating enchanted items are handled under Enchanting in Chapter 6.</p>",
+        "baseCha": "int",
+        "governingCha": "INT",
+        "trainedItems": ""
+      }
+    },
+    {
+      "name": "Conte Y’ffre",
+      "type": "skill",
+      "img": "icons/creatures/mammals/elk-moose-marked-green.webp",
+      "effects": [],
+      "folder": "lq0zc8DR2p5AshCS",
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 8,
+            "page": 219,
+            "rule": "Skill: Conte Y’ffre (Willpower, Personality)"
+          }
+        }
+      },
+      "_id": "FcNvImNhrbTCpnkL",
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776708193377,
+        "modifiedTime": 1776765141298,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "exportSource": null,
+        "compendiumSource": null,
+        "duplicateSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "eeXhsDlbzUBZOXZT": 3,
+        "6RSmA9WKEAJfI3Ce": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p>Example Specializations: Bears, Cliff Racers, Familiar Striking pacts with beasts and plants alike, the Warden tells tales of nature’s warmth and compassion, its capacity for growth, or the wrath of nature scorned. Your GM may ask you to test Conte Y’ffre when: • Attempting to convey your intent to an animal. • Attempting to gauge the state of nature around you. • Attempting to use Conte Y’ffre spells or talents.</p>",
+        "baseCha": "wp",
+        "governingCha": "WP, PRS",
+        "trainedItems": ""
+      },
+      "sort": 100000
+    },
+    {
+      "_id": "FuSofFr8hoCHWVXb",
+      "name": "Destruction",
+      "type": "magicSkill",
+      "img": "icons/magic/fire/projectile-fireball-red-yellow.webp",
+      "effects": [],
+      "folder": "UvyPmtkXL5is98VA",
+      "sort": 900000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 3,
+            "page": null,
+            "rule": "Skills table: Destruction; Willpower"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776764443065,
+        "modifiedTime": 1776764443065,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.s1V72XGzOYXo8ddF",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "zrZomzLbu6XsebKn": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p style=\"text-align: justify;\"><span style=\"color: rgb(25, 24, 19)\"><em>Example Specializations: Fire Bolt, Shock Ball, Disintegrate Armor</em></span></p><p style=\"text-align: justify;\"><span style=\"color: rgb(25, 24, 19)\">This skill influences the use of spells from the school of Destruction. As a school, Destruction focuses on harming targeted objects and beings through the use of various kinds of elemental and magical attacks. Your GM may ask you to test Destruction when you try to accomplish tasks like the following...</span></p><ul><li><p><span style=\"color: rgb(25, 24, 19)\">Cast a Destruction spell</span> <span style=\"box-sizing: border-box; user-select: text; color: rgb(25, 24, 19)\">Identify the effects of Destruction magic</span></p></li></ul>",
+        "baseCha": "wp",
+        "governingCha": "WP",
+        "trainedItems": ""
+      }
+    },
+    {
+      "_id": "HSaFQhd8RASmWTtg",
+      "name": "Necromancy",
+      "type": "magicSkill",
+      "img": "icons/magic/death/skull-flames-white-blue.webp",
+      "effects": [],
+      "folder": "UvyPmtkXL5is98VA",
+      "sort": 1800000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 3,
+            "page": null,
+            "rule": "Skills table: Necromancy; Intelligence"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "13.351",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v1.0.0-RC.61",
+        "createdTime": null,
+        "modifiedTime": 1770540809262,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.accrDR52Vb6rfZjr",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "KoTybT0dunV5wS6T": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p>Necromancy is the study and art of raising the dead. While it is not traditionally recognized as a school of magic, it functions similarly and thus is treated as one for all purposes, including talents found in the Core Rulebook. Your GM may ask you to test Necromancy when you try to accomplish tasks like the following...</p>\n<ul>\n<li>Casting Necromancy spells</li>\n<li>Performing Necromancy Rituals</li>\n<li>Identifying undead and reciting undead lore</li>\n<li>Using Black Soul Gems while Enchanting</li>\n</ul>",
+        "baseCha": "int",
+        "governingCha": "INT",
+        "trainedItems": ""
+      }
+    },
+    {
+      "_id": "I9NqzPniSESRdc5R",
+      "name": "Logic",
+      "type": "skill",
+      "img": "systems/uesrpg-3ev4/images/Icons/depthOfUnderstanding.webp",
+      "effects": [],
+      "folder": "UvyPmtkXL5is98VA",
+      "sort": 1400000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 3,
+            "page": null,
+            "rule": "Skills table: Logic; Intelligence, Perception"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776763984315,
+        "modifiedTime": 1776763984315,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.pXXlRpjJ9A5pF3A1",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "zrZomzLbu6XsebKn": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p>Governing characteristics: Intelligence, Perception.</p><p>Example Specializations: Puzzles, Gambling, Riddles</p><p>The Logic skill represents a character’s ability to think logically, solve puzzles, and dissect information rationally and quickly. Your GM may ask you to test Logic when you try to accomplish tasks like the following...</p><p>- Solve a puzzle or riddle\n- Perform mathematical calculations\n- Make sense of a confusing situation\n- Realize something simple you may have overlooked\n- Improve your odds in a game of chance</p>",
+        "baseCha": "int",
+        "governingCha": "INT, PRC",
+        "trainedItems": ""
+      }
+    },
+    {
+      "_id": "IGJdGxyFwp8cve9w",
+      "name": "Commerce",
+      "type": "skill",
+      "img": "icons/skills/social/trading-justice-scale-yellow.webp",
+      "effects": [],
+      "folder": "UvyPmtkXL5is98VA",
+      "sort": 600000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 3,
+            "page": null,
+            "rule": "Skills table: Commerce; Intelligence, Personality"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776763762533,
+        "modifiedTime": 1776763768550,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.pXXlRpjJ9A5pF3A1",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "zrZomzLbu6XsebKn": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p>Governing characteristics: Intelligence, Personality.</p><p>Example Specializations: Haggling, Acquisition, Sales</p><p>Commerce reflects a character’s ability to engage in business related activities and covers anything involving the practical application of economics. Your GM may ask you to test Commerce when you try to accomplish tasks like the following...</p><p>- Haggling for a better price on an item\n- Locating an item for sale\n- Running a business\n- Appraising an item</p><p>The rules for using the Commerce skill to buy and sell items are handled in Pricing &amp; Acquisition in Chapter 7.</p>",
+        "baseCha": "prs",
+        "governingCha": "INT, PRS",
+        "trainedItems": ""
+      }
+    },
+    {
+      "_id": "JPkd5mcQZ3Fnrwm8",
+      "name": "Ride",
+      "type": "skill",
+      "img": "icons/environment/creatures/horse-brown.webp",
+      "effects": [],
+      "folder": "UvyPmtkXL5is98VA",
+      "sort": 2200000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 3,
+            "page": null,
+            "rule": "Skills table: Ride; Agility"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776764228481,
+        "modifiedTime": 1776764228481,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.pXXlRpjJ9A5pF3A1",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "zrZomzLbu6XsebKn": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p>Governing characteristics: Agility.</p><p>Example Specializations: Horse Racing, Mounted Fighter</p><p>The Ride skill is a measure of your character’s ability to control various mounts. The difficulty is associated with the demands being placed upon the creature and its level of familiarity to the rider. Your GM may ask you to test Ride when you try to accomplish tasks like the following...</p><p>- Push a horse to ride faster.\n- Leap over an obstacle on a mount.\n- Attempt to ride a strange beast.</p>",
+        "baseCha": "agi",
+        "governingCha": "AGI",
+        "trainedItems": ""
+      }
+    },
+    {
+      "_id": "LCjopeIS1gUytIXo",
+      "name": "Athletics",
+      "type": "skill",
+      "img": "systems/uesrpg-3ev4/images/Icons/unarmedProwess.webp",
+      "effects": [],
+      "folder": "UvyPmtkXL5is98VA",
+      "sort": 400000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 3,
+            "page": null,
+            "rule": "Skills table: Athletics; Strength, Endurance"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776763664371,
+        "modifiedTime": 1776763679459,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.pXXlRpjJ9A5pF3A1",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "zrZomzLbu6XsebKn": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p>Governing characteristics: Strength, Endurance.</p><p>Example Specializations: Running, Swimming, Climbing</p><p>Athletics represents a character’s ability to perform physically taxing activities, often under stress or with little to no preparation. Your GM may ask you to test Athletics when you try to accomplish tasks like the following...</p><p>- Jumping a particularly long distance through brute strength\n- Walking a long distance without stopping\n- Lifting a heavy object\n- Climbing up the side of a cliff</p><p>For more information, see Movement &amp; Size in Chapter 5.</p>",
+        "baseCha": "str",
+        "governingCha": "STR, END",
+        "trainedItems": ""
+      }
+    },
+    {
+      "_id": "Lg40qtjaXo4QbOJr",
+      "name": "Evade",
+      "type": "skill",
+      "img": "icons/skills/movement/feet-winged-boots-brown.webp",
+      "effects": [],
+      "folder": "UvyPmtkXL5is98VA",
+      "sort": 1100000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 3,
+            "page": null,
+            "rule": "Skills table: Evade; Agility"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776763864708,
+        "modifiedTime": 1776763956497,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.pXXlRpjJ9A5pF3A1",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "zrZomzLbu6XsebKn": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p>Governing characteristics: Agility.</p><p>Characters may not acquire specializations for this skill.</p><p>Evade measures a character’s ability to escape from observed, impending danger through the use of fluid movement and quick reaction times. This skill is most often used to defend against attacks in combat, or to avoid other physical dangers. Your GM may ask you to test Evade when you try to accomplish tasks like the following...</p><p>- Duck beneath an incoming spell\n- Dodge a sword swing\n- Avoid falling debris\n- Stay out of reach of multiple attackers</p><p>For rules regarding its use in combat, see Combat in Chapter 5.</p>",
+        "baseCha": "agi",
+        "governingCha": "AGI",
+        "trainedItems": ""
+      }
+    },
+    {
+      "_id": "NLFxzvAAx671FR0w",
+      "name": "Alchemy",
+      "type": "magicSkill",
+      "img": "systems/uesrpg-3ev4/images/Icons/alchemist.webp",
+      "effects": [],
+      "folder": "UvyPmtkXL5is98VA",
+      "sort": 200000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 3,
+            "page": null,
+            "rule": "Skills table: Alchemy; Intelligence"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776763592825,
+        "modifiedTime": 1776763592825,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.s1V72XGzOYXo8ddF",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "zrZomzLbu6XsebKn": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p>Governing characteristics: Intelligence.</p><p>Example Specializations: Healing, Fortifying, Poisons</p><p>Alchemy is the arcane art of brewing potions and poisons by combining ingredients in order to exploit their magical effects. This skill can be used to create a variety of concoctions with dramatic effects ranging from potions of levitation or healing to magical poisons. Your GM may ask you to test Alchemy when you try to accomplish tasks like the following...</p><p>- Brewing a potion or poison\n- Identifying magical ingredients\n- Identifying the effects of an unknown potion\n- Creating alchemical explosives</p><p>The rules for potions are found under Alchemy in Chapter 6.</p>",
+        "baseCha": "int",
+        "governingCha": "INT",
+        "trainedItems": ""
+      }
+    },
+    {
+      "_id": "WsDEaltE3qO9CpBx",
+      "name": "Subterfuge",
+      "type": "skill",
+      "img": "icons/skills/social/theft-pickpocket-bribery-brown.webp",
+      "effects": [],
+      "folder": "UvyPmtkXL5is98VA",
+      "sort": 2400000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 3,
+            "page": null,
+            "rule": "Skills table: Subterfuge; Agility, Intelligence"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776764307557,
+        "modifiedTime": 1776764307557,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.pXXlRpjJ9A5pF3A1",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "zrZomzLbu6XsebKn": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p>Governing characteristics: Agility, Intelligence.</p><p>Example Specializations: Lockpicking, Sleight of Hand, Traps</p><p>The Subterfuge skill is a measure of the character’s ability to use artifice, guile, and manual dexterity to circumvent normal limits and restrictions. Your GM may ask you to test Subterfuge when you try to accomplish tasks like the following...</p><p>- Disguising yourself as someone else\n- Picking a lock on a door\n- Palming a small object unnoticed\n- Disarming a trap</p>",
+        "baseCha": "agi",
+        "governingCha": "AGI, INT",
+        "trainedItems": ""
+      }
+    },
+    {
+      "_id": "bh3tusY3KpEHksaP",
+      "name": "Alteration",
+      "type": "magicSkill",
+      "img": "systems/uesrpg-3ev4/images/Icons/masterOfMagicka.webp",
+      "effects": [],
+      "folder": "UvyPmtkXL5is98VA",
+      "sort": 300000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 3,
+            "page": null,
+            "rule": "Skills table: Alteration; Willpower"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776763713613,
+        "modifiedTime": 1776764416647,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.s1V72XGzOYXo8ddF",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "zrZomzLbu6XsebKn": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p style=\"text-align: justify;\"><span style=\"color: rgb(25, 24, 19)\"><em>Example Specializations: Shields, Flight, Weight Manipulation, Spell Creation</em></span> </p><p style=\"text-align: justify;\"><span style=\"color: rgb(25, 24, 19)\">This skill influences the use of spells from the school of Alteration. As a school, Alteration focuses on altering the physical and magical properties of things. Your GM may ask you to test Alteration when you try to accomplish tasks like the following...</span></p><ul><li><p><span style=\"color: rgb(25, 24, 19)\">Cast an Alteration spell</span> </p></li><li><p><span style=\"box-sizing: border-box; user-select: text; color: rgb(25, 24, 19)\">Identify the effects of Alteration magic</span></p></li></ul>",
+        "baseCha": "wp",
+        "governingCha": "WP",
+        "trainedItems": ""
+      }
+    },
+    {
+      "_id": "c7tAX26P3K1vH1jk",
+      "name": "Investigate",
+      "type": "skill",
+      "img": "icons/tools/scribal/magnifying-glass.webp",
+      "effects": [],
+      "folder": "UvyPmtkXL5is98VA",
+      "sort": 1300000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 3,
+            "page": null,
+            "rule": "Skills table: Investigate; Intelligence, Perception"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776763971414,
+        "modifiedTime": 1776763971414,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.pXXlRpjJ9A5pF3A1",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "zrZomzLbu6XsebKn": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p>Governing characteristics: Intelligence, Perception.</p><p>Example Specializations: Canvassing, Research</p><p>Investigate reflects the character’s skill at conducting an investigation. This encompasses everything from simple inquiries to coordinating a complex investigation and searching through piles of clues to find an answer. Your GM may ask you to test Investigate when you try to accomplish tasks like the following...</p><p>- Gather information from a crowd\n- Sift through an archive searching for information\n- Locate a person or place in a large city\n- Use clues to solve a mystery</p>",
+        "baseCha": "int",
+        "governingCha": "INT, PRC",
+        "trainedItems": ""
+      }
+    },
+    {
+      "_id": "cSD72Y3mJ5z94MgM",
+      "name": "Navigate",
+      "type": "skill",
+      "img": "icons/tools/navigation/map-chart-tan.webp",
+      "effects": [],
+      "folder": "UvyPmtkXL5is98VA",
+      "sort": 1700000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 3,
+            "page": null,
+            "rule": "Skills table: Navigate; Intelligence, Perception"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776764033918,
+        "modifiedTime": 1776764033918,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.pXXlRpjJ9A5pF3A1",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "zrZomzLbu6XsebKn": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p>Governing characteristics: Intelligence, Perception.</p><p>Example Specializations: Cartography, Marine Navigation, Direction Sense</p><p>The Navigate skill reflects a character’s ability to plot and follow a course from one point to another, as well as the ability to provide directions and lead others along the plotted course. Your GM may ask you to test Navigation when you try to accomplish tasks like the following...</p><p>- Find your way out of a dungeon\n- Plot a course for a ship\n- Create a map of a mountain range\n- Lead your party through a fores</p>",
+        "baseCha": "int",
+        "governingCha": "INT, PRC",
+        "trainedItems": ""
+      }
+    },
+    {
+      "_id": "lQRAhHXgsveGlXMA",
+      "name": "Observe",
+      "type": "skill",
+      "img": "systems/uesrpg-3ev4/images/Icons/attentionToDetail.webp",
+      "effects": [],
+      "folder": "UvyPmtkXL5is98VA",
+      "sort": 1900000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 3,
+            "page": null,
+            "rule": "Skills table: Observe; Perception"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776764076957,
+        "modifiedTime": 1776764076957,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.pXXlRpjJ9A5pF3A1",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "zrZomzLbu6XsebKn": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p>Governing characteristics: Perception.</p><p>Example Specializations: Awareness, Scrutiny, Searching, Hearing, Smell, Sight</p><p>Observe represents a character’s general awareness of their surroundings and their ability to notice things that others might dismiss. Your GM may ask you to test Observe when you try to accomplish tasks like the following...</p><p>- Spot an ambush before it happens\n- Identify when someone is acting strangely\n- Locate a hidden switch or trap in a room\n- Notice a strange creature in the distance</p>",
+        "baseCha": "prc",
+        "governingCha": "PRC",
+        "trainedItems": ""
+      }
+    },
+    {
+      "_id": "nBKfSkOrFhY0G8Ie",
+      "name": "Persuade",
+      "type": "skill",
+      "img": "icons/skills/social/diplomacy-handshake-yellow.webp",
+      "effects": [],
+      "folder": "UvyPmtkXL5is98VA",
+      "sort": 2000000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 3,
+            "page": null,
+            "rule": "Skills table: Persuade; Strength, Personality"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776764090489,
+        "modifiedTime": 1776764090489,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.pXXlRpjJ9A5pF3A1",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "zrZomzLbu6XsebKn": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p>Governing characteristics: Strength, Personality.</p><p>Example Specializations: Charm, Intimidation, Seduction</p><p>Persuade is a measure of the character’s knack for influencing people through strength of personality or threat of intimidation. Persuade tests are most often opposed by Willpower tests if the target wishes to resist. Your GM may ask you to test Persuade when you try to accomplish tasks like the following...</p><p>- Impressing others with tales of one’s accomplishments\n- Intimidate someone into doing what you want\n- Making a new friend, or seducing a person of interest\n- Convincing others to agree with you</p>",
+        "baseCha": "prs",
+        "governingCha": "STR, PRS",
+        "trainedItems": ""
+      }
+    },
+    {
+      "_id": "ogTStmSN4toqvUIL",
+      "name": "Survival",
+      "type": "skill",
+      "img": "systems/uesrpg-3ev4/images/Icons/OnewithWild.webp",
+      "effects": [],
+      "folder": "UvyPmtkXL5is98VA",
+      "sort": 2500000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 3,
+            "page": null,
+            "rule": "Skills table: Survival; Intelligence, Perception"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776764334206,
+        "modifiedTime": 1776764334206,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.pXXlRpjJ9A5pF3A1",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "zrZomzLbu6XsebKn": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p>Governing characteristics: Intelligence, Perception.</p><p>Example Specializations: Desert Survival, Foraging, Tracking</p><p>The Survival skill is a measure of a character’s ability to subsist away from civilization. The difficulty is associated with the local environmental constraints. Your GM may ask you to test Survival when you try to accomplish tasks like the following...</p><p>- Gathering food and water from the environment\n- Tracking a person or animal through the woods\n- Identifying dangerous plants\n- Applying first aid to a character in order to stabilize them.</p>",
+        "baseCha": "int",
+        "governingCha": "INT, PRC",
+        "trainedItems": ""
+      }
+    },
+    {
+      "_id": "pYh3ORwL5gdO8x9G",
+      "name": "Mysticism",
+      "type": "magicSkill",
+      "img": "icons/magic/symbols/circled-gem-pink.webp",
+      "effects": [],
+      "folder": "UvyPmtkXL5is98VA",
+      "sort": 1600000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 3,
+            "page": null,
+            "rule": "Skills table: Mysticism; Willpower"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776764496617,
+        "modifiedTime": 1776764496617,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.s1V72XGzOYXo8ddF",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "zrZomzLbu6XsebKn": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p style=\"text-align: justify;\"><span style=\"color: rgb(25, 24, 19)\"><em>Example Specializations: Recall, Absorb Magicka, Soul Trap</em></span></p><p style=\"text-align: justify;\"><span style=\"color: rgb(25, 24, 19)\">This skill inﬂuences the use of spells from the school of Mysticism. As a school, Mysticism is a rather obscure discipline focused on manipulating magicka itself to produce a number of exotic eﬀects. Your GM may ask you to test Mysticism when you try to accomplish tasks like the following...</span></p><ul><li><p><span style=\"color: rgb(25, 24, 19)\">Cast a Mysticism spell</span> </p></li><li><p><span style=\"box-sizing: border-box; user-select: text; color: rgb(25, 24, 19)\">Identify the effects of Mysticism magic</span></p></li></ul>",
+        "baseCha": "wp",
+        "governingCha": "WP",
+        "trainedItems": ""
+      }
+    },
+    {
+      "name": "Nox Arcana",
+      "type": "magicSkill",
+      "img": "icons/magic/unholy/barrier-fire-pink.webp",
+      "effects": [],
+      "folder": "lq0zc8DR2p5AshCS",
+      "flags": {
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 8,
+            "page": 224,
+            "rule": "Nox Arcana (Wp)"
+          }
+        }
+      },
+      "_id": "q3dLIOgUERyZDQ6V",
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776708197871,
+        "modifiedTime": 1776708197871,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "exportSource": null,
+        "compendiumSource": null,
+        "duplicateSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "eeXhsDlbzUBZOXZT": 3,
+        "6RSmA9WKEAJfI3Ce": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p>Commonly called “night magic”, Nox Arcana is an ancient power that few vampires still have in recent generations. Gaining one of the Nox Arcana spells below requires that the vampire feed on the blood of another vampire and spend 100 XP. Using a Nox Arcana spell requires that the vampire pass a Nox Arcana skill test. Any associated SP cost is not spent on a failure.</p>",
+        "baseCha": "wp",
+        "governingCha": "WP",
+        "trainedItems": ""
+      },
+      "sort": 0
+    },
+    {
+      "name": "Conte Frostfall",
+      "type": "skill",
+      "img": "icons/creatures/mammals/elk-moose-marked-green.webp",
+      "effects": [],
+      "folder": "lq0zc8DR2p5AshCS",
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 8,
+            "page": 219,
+            "rule": "Skill: Conte Frostfall (Willpower, Personality)"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776765210132,
+        "modifiedTime": 1776765210132,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "exportSource": null,
+        "compendiumSource": null,
+        "duplicateSource": null
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p>Example Specializations: Same as Spell origin schools Embodying the Frostfall, the Wardens tale unleashes the wrath of harsh winter; frost, blizzards and decay upon foes. Characters can utilize the Conte Frostfall (using Willpower or Personality) as if it were the relevant Magic School skill when casting or purchasing Conventional Spells with the [Frost] Attribute, or which deals Frost based damage. Any talent that can affect the original spell still functions as if it was cast with the original School.</p>",
+        "baseCha": "wp",
+        "governingCha": "WP, PRS",
+        "trainedItems": ""
+      },
+      "ownership": {
+        "default": 0,
+        "6RSmA9WKEAJfI3Ce": 3
+      },
+      "_id": "seLT52UmSzr4r4HY",
+      "sort": 0
+    },
+    {
+      "_id": "xmBmafl3UGy1ZhNS",
+      "name": "Lore",
+      "type": "skill",
+      "img": "icons/sundries/books/book-stack.webp",
+      "effects": [],
+      "folder": "UvyPmtkXL5is98VA",
+      "sort": 1500000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 3,
+            "page": null,
+            "rule": "Skills table: Lore; Intelligence"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776764001654,
+        "modifiedTime": 1776764010334,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.pXXlRpjJ9A5pF3A1",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "zrZomzLbu6XsebKn": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p>Governing characteristics: Intelligence.</p><p>Example Specializations: Art, Daedra, History, Magic, Legends, The Black Marsh, Warfare, Altmer</p><p>Lore represents a character’s ability to recall information of all types. This includes any knowledge that they would possess due to their education or experience and is meant to represent a character’s general knowledge.</p><p>Specializations in this skill reflect a character’s focus on one particular subject. Remember that “general knowledge and education” is a relative term: no matter how smart a character is, they shouldn’t be able to roll to recall an obscure fact unless they would have reasonably encountered the fact before. Your GM may ask you to test Lore when you try to accomplish tasks like the following...</p><p>- Remember specific details about something you learned\n- Identify a creature that you have only read about\n- Reconcile new information with what you already know\n- Find similarities between two ancient legends</p>",
+        "baseCha": "int",
+        "governingCha": "INT",
+        "trainedItems": ""
+      }
+    },
+    {
+      "_id": "yYT0IKaNcZmbuYmV",
+      "name": "Deceive",
+      "type": "skill",
+      "img": "systems/uesrpg-3ev4/images/Icons/bigWords.webp",
+      "effects": [],
+      "folder": "UvyPmtkXL5is98VA",
+      "sort": 800000,
+      "flags": {
+        "core": {},
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 3,
+            "page": null,
+            "rule": "Skills table: Deceive; Intelligence, Personality"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776763784734,
+        "modifiedTime": 1776763795202,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": "Item.pXXlRpjJ9A5pF3A1",
+        "duplicateSource": null,
+        "exportSource": null
+      },
+      "ownership": {
+        "default": 0,
+        "zrZomzLbu6XsebKn": 3
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p>Governing characteristics: Intelligence, Personality.</p><p>Example Specializations: Blathering, Impersonation</p><p>Deceive measures a character’s aptitude for fooling others into believing something that is not true. A Deceive test should only be required if the character believes that they are lying. This test can be opposed by a Logic test or an Observe test, depending on the nature of the deception. Your GM may ask you to test Deceive when you try to accomplish tasks like the following...</p><p>- Pretend to be someone you are not\n- Talk your way out of trouble\n- Lie about something\n- Pretend to be an expert on a subject</p>",
+        "baseCha": "prs",
+        "governingCha": "INT, PRS",
+        "trainedItems": ""
+      }
+    },
+    {
+      "folder": "UvyPmtkXL5is98VA",
+      "name": "Profession [Field]",
+      "type": "skill",
+      "_id": "zaFQHUpWaw4Yb3n0",
+      "img": "icons/sundries/survival/corkscrew.webp",
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "untrained",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p>Governing characteristics: (Varies).</p><p>Profession [Field] represents the character’s formal or informal training and experience in a specific profession. It is used to perform work related tasks, or to reference specialized knowledge that someone trained in that profession might have. The following table contains a list of common fields and their governing characteristics. Feel free to invent your own with GM permission.</p><p>##### Profession Fields</p><p>| Field | Governing Characteristic |\n|---|---|\n| Acting | Personality |\n| Animal Training | Intelligence |\n| Art | Personality |\n| Bureaucracy | Intelligence |\n| (Physical Crafts) | Agility |\n| Engineering | Intelligence |\n| Linguistics | Intelligence |\n| Medicine | Intelligence |\n| Musicianship | Agility |\n| Seamanship | Intelligence |\n| Smithing | Strength |</p><p>For information regarding the use of the Profession [Medicine] skill to care for injured characters, see Physical Health in Chapter 5. For information regarding the various crafting oriented professions, see Crafting in Chapter 7.</p>",
+        "baseCha": "",
+        "governingCha": "",
+        "trainedItems": ""
+      },
+      "effects": [],
+      "sort": 0,
+      "ownership": {
+        "default": 0,
+        "6RSmA9WKEAJfI3Ce": 3
+      },
+      "flags": {
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 3,
+            "page": null,
+            "rule": "Skills table: Profession [Field]; (Varies)"
+          }
+        }
+      },
+      "_stats": {
+        "coreVersion": "14.360",
+        "systemId": "uesrpg-3ev4",
+        "systemVersion": "v14.0.0",
+        "createdTime": 1776764116256,
+        "modifiedTime": 1776764212189,
+        "lastModifiedBy": "6RSmA9WKEAJfI3Ce",
+        "compendiumSource": null,
+        "duplicateSource": null,
+        "exportSource": null
+      }
+    },
+    {
+      "_id": "f25b5880710fe05d",
+      "name": "Combat Style [Field]",
+      "type": "combatStyle",
+      "img": "icons/svg/item-bag.svg",
+      "folder": null,
+      "sort": 0,
+      "ownership": {
+        "default": 0
+      },
+      "effects": [],
+      "flags": {
+        "uesrpg-3ev4": {
+          "coreSource": {
+            "book": "UESRPG 3e v4 - Rules Compendium",
+            "chapter": 3,
+            "page": null,
+            "rule": "Skills table: Combat Style [Field]; Strength, Agility"
+          }
+        }
+      },
+      "system": {
+        "characteristics": {
+          "none": "None",
+          "str": "STR",
+          "end": "END",
+          "agi": "AGI",
+          "int": "INT",
+          "wp": "WP",
+          "prc": "PRC",
+          "prs": "PRS",
+          "lck": "LCK"
+        },
+        "characteristicBonus": {
+          "strChaBonus": 0,
+          "endChaBonus": 0,
+          "agiChaBonus": 0,
+          "intChaBonus": 0,
+          "wpChaBonus": 0,
+          "prcChaBonus": 0,
+          "prsChaBonus": 0,
+          "lckChaBonus": 0
+        },
+        "value": 0,
+        "rank": "",
+        "bonus": 0,
+        "miscValue": 0,
+        "specialization": "",
+        "description": "<p>Governing characteristics: Strength, Agility.</p><p>Example Specializations: Dueling, Mounted Combat, Formation Fighting</p><p>For the purposes of game balance, allowing characters to specialize in the use of specific weapons is not generally recommended.</p><p>Fighting skills are packaged into Combat Styles, which represent the complete package of training, tactics, and experience that constitutes a specific style of combat. Combat Styles can be associated with culture, careers, or even schools of combat.</p><p>Specifically, individual Combat Styles are represented by the Combat Style [Field] skill, where the field represents the name of the combat style. This skill is used to make melee or ranged attack and defense tests in combat when using the equipment associated with the style. For full information on Combat Styles, see Combat Styles (page 69).</p>",
+        "baseCha": "str",
+        "trainedItems": "",
+        "governingCha": "STR, AGI",
+        "trainedEquipment": [
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ],
+        "specialAdvantages": {}
+      }
+    }
+  ]
+}

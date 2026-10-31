@@ -8,8 +8,9 @@ import { doTestRoll } from "../../../../utils/degree-roll-helper.js";
 import { getCoreRollMode } from "../../../../utils/chat-roll-mode.js";
 import { ensureBurningTurnActionAllowed } from "../../../conditions/condition-engine.js";
 import { hasTalent } from "../../../traits/talents-api.js";
+import { collectWeaponExpertiseNotes } from "../../../traits/weapon-expertise/index.js";
 import { listCombatStyles, computeTN, variantMod as computeVariantMod } from "../../tn.js";
-import { applyCombatTalentDoSAdjustments } from "../../../traits/combat-talents.js";
+import { applyCombatTalentDoSAdjustments, applyTalentDamageModifiers } from "../../../traits/combat-talents.js";
 import { AttackTracker } from "../../attack-tracker.js";
 import { ActionEconomy } from "../../action-economy.js";
 import { isActorInStartedCombatEncounter } from "../../combat-scope.js";
@@ -33,7 +34,7 @@ import {
 import { _variantLabel, _circumstanceLabel } from "../render.js";
 import { 
   _getUnstoppableMightWeaponEligibility,
-  _promptUnstoppableMightUsage,
+  _promptUnstoppableMightUsage, UNSTOPPABLE_MIGHT_MANUAL_GUIDANCE,
   _maybeApplyMightyCleave,
   _maybeEnableFollowUpStrike
 } from "../helpers/talents.js";
@@ -44,7 +45,7 @@ import {
 } from "../helpers/combat.js";
 import { consumeOneShotAdvantageEffects as _consumeOneShotAdvantageEffects, consumeInspireHeroismEffect as _consumeInspireHeroismEffect, consumeOrBreakAimAfterAttack as _consumeOrBreakAimAfterAttack } from "../effects.js";
 import { markWeaponNeedsReload as _markWeaponNeedsReload } from "../damage/ammunition.js";
-import { rollWeaponDamage as _rollWeaponDamage } from "../damage/roller.js";
+import { rollWeaponDamage as _rollWeaponDamage, getNaturalWeaponProfileIssue } from "../damage/roller.js";
 import { applyLengthPenaltyToTN } from "../../../homebrew/reach-length/weapon.js";
 import { cloneFlagState } from "../../../../utils/clone.js";
 import { commitLaneToFreshCardState } from "../../../opposed/shared/fresh-commit.js";
@@ -358,6 +359,13 @@ export async function handleAttackerAction(action, ctx) {
       }
     }
 
+    // A source-defined natural-weapon profile must be configured before paying for an attack.
+    const naturalWeaponIssue = getNaturalWeaponProfileIssue(declaredWeapon);
+    if (naturalWeaponIssue) {
+      ui.notifications.warn(naturalWeaponIssue);
+      return;
+    }
+
     // Early gate: block unloaded ranged weapons before committing the attack.
     if (declaredWeapon && getWeaponCombatCapabilities(declaredWeapon).requiresReload) {
       const reloadState = declaredWeapon.system?.reloadState;
@@ -374,6 +382,11 @@ export async function handleAttackerAction(action, ctx) {
       const wCtx = _getUnstoppableMightWeaponEligibility(declaredWeapon);
       if (String(data.context?.attackMode ?? "melee").toLowerCase() === "melee" && attackMode === "melee" && wCtx.eligible) {
         const useSpecial = await _promptUnstoppableMightUsage({ actorName: attacker.name, purpose: "attack" });
+        if (useSpecial == null) return;
+        if (useSpecial) {
+          ui.notifications.warn(UNSTOPPABLE_MIGHT_MANUAL_GUIDANCE);
+          return;
+        }
         data.context.unstoppableMight = { active: Boolean(useSpecial), weaponUuid: declaredWeapon.uuid };
       }
     }
@@ -389,20 +402,8 @@ export async function handleAttackerAction(action, ctx) {
     // Thunder Charge (simplified): talent-driven dialog toggle waives All Out AP surcharge.
     try {
       if (String(decl.variant ?? "") === "allOut" && Boolean(decl.thunderChargeToggle) && hasTalent(attacker, "thundercharge")) {
-        pendingApCost = Math.max(0, pendingApCost - 1);
-        data.context = data.context ?? {};
-        data.context.thunderCharge = {
-          consumed: true,
-          consumedAt: Date.now(),
-          reason: "all-out-surcharge-waived",
-          source: "dialog-toggle"
-        };
-        await ChatMessage.create({
-          user: game.user.id,
-          speaker: ChatMessage.getSpeaker({ actor: attacker, token: aToken?.document ?? null }),
-          content: `<div class="uesrpg"><b>Thunder Charge</b>: All Out surcharge waived for this attack.</div>`,
-          style: CONST.CHAT_MESSAGE_STYLES.OTHER
-        });
+        ui.notifications.warn("Thunder Charge needs manual resolution. Confirm a Dash this turn, that the target began outside melee reach and the movement covered at least half base Speed toward them; then resolve the All Out Attack for 1 AP. Inspect prior costs and rolls first.");
+        return;
       }
     } catch (err) {
       console.warn("UESRPG | Thunder Charge application failed", err);
@@ -444,7 +445,7 @@ export async function handleAttackerAction(action, ctx) {
       // Mighty Cleave (Chapter 4): optional second target for All Out Attack while wielding a weapon in two hands.
       // This must be selected at declaration time, rolls once, and each defender defends separately.
       if (String(data.context?.attackMode ?? "melee") === "melee") {
-        await _maybeApplyMightyCleave({
+        const cleave = await _maybeApplyMightyCleave({
           data,
           attacker,
           attackerToken: aToken,
@@ -452,6 +453,7 @@ export async function handleAttackerAction(action, ctx) {
           weapon,
           declaration: decl
         });
+        if (cleave === "manual" || cleave === "cancelled") return;
       }
 
       if (String(data.context?.attackMode ?? "melee") === "ranged") {
@@ -734,6 +736,17 @@ export async function handleAttackerAction(action, ctx) {
     }
   } catch (err) {
     console.warn("UESRPG | combat talent DoS adjustment (attacker) failed", err);
+  }
+
+  // These choices can matter on a hit or a shield block even when no damage
+  // is applied. Keep their reminders on the attack card, not only the damage card.
+  if (res.isSuccess && attackWeapon) {
+    const talentContext = { attackFromHidden: data?.context?.attackFromHidden, talentNotes: [] };
+    applyTalentDamageModifiers({ attacker, attackerToken: aToken, weapon: attackWeapon, damageContext: talentContext });
+    const notes = [...talentContext.talentNotes, ...collectWeaponExpertiseNotes(attacker, attackWeapon, {
+      slugs: ["hammerblow", "deathbyathousandcuts", "redlegionthrow", "whirlingschool", "executioner", "knifefighter", "bruiser", "beardedwarrior", "fromoblivionsheart"]
+    })];
+    if (notes.length) res.talentNotes = [...(Array.isArray(res.talentNotes) ? res.talentNotes : []), ...notes];
   }
 
   _emitSuppressedSubRollDice(res.roll, { rollMode: getCoreRollMode(), actor: attacker, message, user: game.user });

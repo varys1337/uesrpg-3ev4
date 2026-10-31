@@ -1,6 +1,7 @@
 import { requestDeleteEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
 import { canonicalizeShockKind, isShockKind } from "../../../../core/wounds/wound-schema.js";
 import { getBloodLossStatus } from "../../../../core/wounds/engine/state.js";
+import { woundTreatmentNeedsReview } from "../../../../core/wounds/treatment-helpers.js";
 import { t, tf } from "../../../../utils/i18n.js";
 
 const FLAG_SCOPE = "uesrpg-3ev4";
@@ -40,6 +41,7 @@ function _buildWoundRecord(effect, wf) {
     damage: Number(wf?.damage ?? 0) || 0,
     progress,
     treated: wf?.treated === true,
+    treatmentNeedsReview: woundTreatmentNeedsReview(wf?.treatmentAttempt),
     shockResolved: wf?.shockResolved === true,
     shockPassed: wf?.shockPassed === true,
     createdAt: Number(wf?.createdAt ?? 0) || null,
@@ -114,8 +116,10 @@ function _finalizeRow(row, { isGM = false } = {}) {
     chips.push(_chip("shock", shockLabel, shockTone));
     if (w.maimed) chips.push(_chip("maimed", t("UESRPG.Sheets.Wounds.Maimed", "Maimed"), "danger"));
     else chips.push(_chip(w.treated ? "treated" : "untreated", w.treated ? t("UESRPG.Sheets.Wounds.Treated", "Treated") : t("UESRPG.Sheets.Wounds.Untreated", "Untreated"), w.treated ? "ok" : "warn"));
+    if (w.treatmentNeedsReview) chips.push(_chip("treatment-review", t("UESRPG.Sheets.Wounds.TreatmentNeedsReview", "Treatment in progress or needs review"), "warn"));
 
-    actions.push({ type: "treat", label: t("UESRPG.Sheets.Wounds.Treat", "Treat"), wiAction: "treatWound", effectId: w.id, disabled: w.treated === true, gmOnly: false });
+    actions.push({ type: "treat", label: t("UESRPG.Sheets.Wounds.Treat", "Treat"), wiAction: "treatWound", effectId: w.id, disabled: w.treated === true || w.treatmentNeedsReview, gmOnly: false });
+    if (w.treatmentNeedsReview && isGM) actions.push({ type: "review-treatment", label: t("UESRPG.Sheets.Wounds.ReviewTreatment", "Review treatment"), wiAction: "reviewTreatment", effectId: w.id, disabled: false, gmOnly: true });
     actions.push({ type: "remove-wound", label: t("UESRPG.UI.Remove", "Remove"), wiAction: "removeWound", effectId: w.id, disabled: false, gmOnly: false });
   }
 
@@ -254,6 +258,10 @@ export function isWoundsOrShockEffect(effect) {
   return isShockKind(rawKind);
 }
 
+export function notifyWoundTreatmentResult(result) {
+  if (result?.ok === false && !result.suppressUiWarning) ui.notifications?.warn?.(String(result.reasonText ?? "Wound treatment failed."));
+}
+
 export async function onWoundsInjuriesControl(event, target) {
   event?.preventDefault?.();
 
@@ -271,6 +279,13 @@ export async function onWoundsInjuriesControl(event, target) {
     return;
   }
 
+  if (action === "reviewTreatment") {
+    if (!isGM) return;
+    const review = game?.uesrpg?.wounds?.reviewWoundTreatment;
+    if (typeof review === "function") notifyWoundTreatmentResult(await review(actor, effectId));
+    return;
+  }
+
   if (action === "treatWound") {
     const attempt = game?.uesrpg?.wounds?.attemptTreatWound;
     if (typeof attempt === "function") {
@@ -285,7 +300,7 @@ export async function onWoundsInjuriesControl(event, target) {
           const fallbackByReason = {
             invalidWound: t("UESRPG.Notifications.Sheets.InvalidWoundTarget", "Invalid wound target."),
             missingKit: t("UESRPG.Notifications.Sheets.MissingHealersKit", "Missing healer's kit/supplies."),
-            invalidTestTarget: t("UESRPG.Notifications.Sheets.InvalidMedicineTarget", "No valid Profession[Medicine] / Survival test target."),
+            invalidTestTarget: t("UESRPG.Notifications.Sheets.InvalidMedicineTarget", "No recognized Profession [Medicine] test target."),
             longRestLimit: t("UESRPG.Notifications.Sheets.WoundLongRestLimit", "This cripple-related wound can only be treated once per long rest."),
             failedTest: t("UESRPG.Notifications.Sheets.TreatWoundFailedTest", "Treat Wound test failed."),
             dramaticFailure: t("UESRPG.Notifications.Sheets.TreatWoundDramaticFailure", "Dramatic failure: body part immediately maimed.")

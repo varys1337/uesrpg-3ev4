@@ -34,11 +34,11 @@ import { canDefenderRoll, markDefenderIneligibleForHidden, markDefenderNoDefense
 import { DefenseDialog } from "../../defense-dialog.js";
 import { computeTN, hasEquippedShield, listCombatStyles } from "../../tn.js";
 import { getDefenseTalentOverrides, applyDefenderTalentTNMods, applyCombatTalentDoSAdjustments, getEvadeOverrideContext } from "../../../traits/combat-talents.js";
-import { _promptUnstoppableMightUsage, _hasUnstoppableMightEligibleWeapons, _getGladiatorContext, _getFreeDefenseReactionContext, _markGladiatorFreeReactionUsed } from "../helpers/talents.js";
+import { _promptUnstoppableMightUsage, _hasUnstoppableMightEligibleWeapons, _getGladiatorContext, _getFreeDefenseReactionContext, GLADIATOR_MANUAL_GUIDANCE, UNSTOPPABLE_MIGHT_MANUAL_GUIDANCE } from "../helpers/talents.js";
 import { computeDefenseAvailability, normalizeDefenseType } from "../../defense-options.js";
 import { applyHyperAwarenessToResult } from "../../../traits/awareness-talents.js";
 import { hasTalent } from "../../../traits/talents-api.js";
-import { shouldDeferEvadeApForStepAside } from "../../../traits/mobility-talents.js";
+import { shouldDeferEvadeApForStepAside, STEP_ASIDE_MANUAL_GUIDANCE } from "../../../traits/mobility-talents.js";
 import { ActionEconomy } from "../../action-economy.js";
 import { breakAimChainIfPresent as _breakAimChainIfPresent, consumeInspireHeroismEffect as _consumeInspireHeroismEffect } from "../effects.js";
 import { consumeFreeNextDefenseCommit } from "../../activation-state-flags.js";
@@ -134,6 +134,11 @@ export async function handleDefenderRoll(ctx) {
   if (isHybridOpposed(ctx?.data) && !requireMassCombatEnabled()) return;
   const { message, data, defenderIndex, aToken, _updateCard } = ctx;
   const { attacker, defender, defenderData, dToken } = ctx;
+
+  if (data.defender?.stepAside?.deferredAp === 1 || defenderData?.stepAside?.deferredAp === 1) {
+    ui.notifications.warn(STEP_ASIDE_MANUAL_GUIDANCE);
+    return;
+  }
 
   if (isHybridOpposed(data) && getHybridDomain(data, "defender", defender) === "warfare") {
     if (data.defender.result || data.defender.noDefense) return;
@@ -286,12 +291,10 @@ export async function handleDefenderRoll(ctx) {
   const allowsParryCounter = !allowedDefenseTypes || allowedDefenseTypes.includes("parry") || allowedDefenseTypes.includes("counter");
   if (umEligible && allowsParryCounter) {
     const useSpecial = await _promptUnstoppableMightUsage({ actorName: defender.name, purpose: "defense" });
+    if (useSpecial == null) return;
     if (useSpecial) {
-      const base = ["evade", "block"]; // block will be disabled automatically if no shield
-      allowedDefenseTypes = allowedDefenseTypes
-        ? allowedDefenseTypes.filter((t) => base.includes(t))
-        : base;
-      data.defender.unstoppableMight = { disallowParryCounter: true };
+      ui.notifications.warn(UNSTOPPABLE_MIGHT_MANUAL_GUIDANCE);
+      return;
     }
   }
 
@@ -496,12 +499,12 @@ export async function handleDefenderRoll(ctx) {
           }
         }
       } else if (freeCtx.source === "gladiator" && freeCtx.gladiatorCtx) {
-        await _markGladiatorFreeReactionUsed(defender, freeCtx.gladiatorCtx);
-        defenderData.gladiator = { freeReactionApplied: true, ...freeCtx.gladiatorCtx };
+        ui.notifications.warn(GLADIATOR_MANUAL_GUIDANCE);
+        return;
       }
     } else if (deferStepAside) {
-      defenderData.stepAside = { deferredAp: 1, deferredAt: Date.now() };
-      data.defender.stepAside = defenderData.stepAside;
+      ui.notifications.warn(STEP_ASIDE_MANUAL_GUIDANCE);
+      return;
     } else {
       const ok = await ActionEconomy.spendAP(defender, 1, { reason: `reaction:${choice.defenseType}`, silent: true });
       if (!ok) {
@@ -577,19 +580,6 @@ export async function handleDefenderRoll(ctx) {
     // Hyper Awareness: Evade tests may choose rolled DoS or Observe rank.
     if (choice.defenseType === "evade") {
       await applyHyperAwarenessToResult(defender, "Evade", res, { allowPrompt: true });
-    }
-
-    // Step Aside (Chapter 4): AoO Evade costs 0 AP unless the Evade test fails.
-    const stepAside = defenderData?.stepAside ?? data.defender?.stepAside ?? null;
-    if (stepAside?.deferredAp === 1 && choice.defenseType === "evade" && res.isSuccess !== true) {
-      const ok = await ActionEconomy.spendAP(defender, 1, { reason: "reaction:evade:stepAsideFail", silent: true });
-      stepAside.paid = Boolean(ok);
-      stepAside.paidAt = Date.now();
-      defenderData.stepAside = stepAside;
-      data.defender.stepAside = stepAside;
-      if (!ok) {
-        ui.notifications?.warn?.(`${defender.name} could not pay the deferred AP cost for Step Aside after failing the Evade reaction.`);
-      }
     }
 
     // Combat talents: post-roll DoS adjustments (bonus DoS / skill-rank replacement prompts).

@@ -10,8 +10,11 @@ export const LANGUAGE_CHOICES = [
   _choice("aldmeri", "Aldmeri", "UESRPG.Choices.Languages.aldmeri"),
   _choice("dunmeri", "Dunmeri", "UESRPG.Choices.Languages.dunmeri"),
   _choice("bosmeri", "Bosmeri", "UESRPG.Choices.Languages.bosmeri"),
-  _choice("yokudan", "Yokudan", "UESRPG.Choices.Languages.yokudan"),
-  _choice("taagra", "Ta'agra", "UESRPG.Choices.Languages.taagra"),
+  _choice("bretic", "Bretic", "UESRPG.Choices.Languages.bretic"),
+  _choice("ayleidoon", "Ayleidoon", "UESRPG.Choices.Languages.ayleidoon"),
+  _choice("akaviri", "Akaviri", "UESRPG.Choices.Languages.akaviri"),
+  _choice("yokudan", "Yoku", "UESRPG.Choices.Languages.yokudan"),
+  _choice("taagra", "Ta’Agra", "UESRPG.Choices.Languages.taagra"),
   _choice("jel", "Jel", "UESRPG.Choices.Languages.jel"),
   _choice("orcish", "Orcish", "UESRPG.Choices.Languages.orcish"),
   _choice("nedic", "Nedic", "UESRPG.Choices.Languages.nedic"),
@@ -19,11 +22,17 @@ export const LANGUAGE_CHOICES = [
   _choice("daedric", "Daedric", "UESRPG.Choices.Languages.daedric"),
   _choice("dovahzul", "Dovahzul", "UESRPG.Choices.Languages.dovahzul"),
   _choice("dwemeris", "Dwemeris", "UESRPG.Choices.Languages.dwemeris"),
-  _choice("falmeris", "Falmeris", "UESRPG.Choices.Languages.falmeris"),
-  _choice("reach-tongue", "Reach Tongue", "UESRPG.Choices.Languages.reachTongue"),
+  _choice("falmeris", "Falmer", "UESRPG.Choices.Languages.falmeris"),
+  _choice("reach-tongue", "Reach-tongue", "UESRPG.Choices.Languages.reachTongue"),
   _choice("nibenese", "Nibenese", "UESRPG.Choices.Languages.nibenese"),
   _choice("colovian", "Colovian", "UESRPG.Choices.Languages.colovian"),
 ];
+
+/** Compare book names with saved aliases without rewriting saved language text. */
+export function getLanguageComparisonKey(value) {
+  const key = String(value ?? "").trim().toLowerCase().replace(/[’']/g, "").replace(/[\s-]+/g, "");
+  return ({ yoku: "yokudan", falmer: "falmeris" })[key] ?? key;
+}
 
 export const FACTION_CHOICES = [
   _choice("fighters-guild", "Fighters Guild", "UESRPG.Choices.Factions.fightersGuild"),

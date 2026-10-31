@@ -1,4 +1,5 @@
 import { MagicOpposedWorkflow } from "../../magic/opposed-workflow.js";
+import { createActionResult, addActionErrorContext } from "../../../application/action-results.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { getCastEnchantmentPool, resolveStoredEnchantmentSpell } from "./cast-enchantment-sources.js";
 
@@ -135,7 +136,23 @@ function _buildItemCastContext(item, slot, sourceLane) {
   };
 }
 
-export async function castFromEnchantedItem({
+export async function castFromEnchantedItem(options = {}) {
+  return (await castFromEnchantedItemResult(options)).value;
+}
+
+export async function castFromEnchantedItemResult(options = {}) {
+  try {
+    const result = await castEnchantedItem(options);
+    return result ?? { value: null, actionResult: createActionResult({ owner: "enchantment", scope: "cast and consequences", status: "blocked",
+      references: { actorUuid: options.actor?.uuid, itemUuid: options.item?.uuid }, reason: "The stored enchantment could not be cast." }) };
+  } catch (error) {
+    if (error.actionResult) throw error;
+    throw addActionErrorContext(error, { owner: "enchantment", scope: "cast and consequences", status: "needsReview", commitment: "uncertain",
+      references: { actorUuid: options.actor?.uuid, itemUuid: options.item?.uuid }, reason: String(error.message ?? error) });
+  }
+}
+
+async function castEnchantedItem({
   actor,
   token,
   item,
@@ -187,7 +204,7 @@ export async function castFromEnchantedItem({
   const targetRefs = Array.isArray(options?.targetTokenUuids) ? options.targetTokenUuids.filter(Boolean) : [];
 
   if (targetRefs.length) {
-    return MagicOpposedWorkflow.createPending({
+    return MagicOpposedWorkflow.createPendingResult({
       attackerActorUuid: actor.uuid,
       attackerTokenUuid: activeToken?.document?.uuid ?? activeToken?.uuid ?? null,
       defenders: targetRefs,
@@ -201,7 +218,7 @@ export async function castFromEnchantedItem({
     });
   }
 
-  return MagicOpposedWorkflow.castUnopposed({
+  return MagicOpposedWorkflow.castUnopposedResult({
     attackerActorUuid: actor.uuid,
     attackerTokenUuid: activeToken?.document?.uuid ?? activeToken?.uuid ?? null,
     spellUuid,

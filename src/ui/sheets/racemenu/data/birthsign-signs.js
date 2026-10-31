@@ -13,8 +13,7 @@
  */
 
 const imgPath = "systems/uesrpg-3ev4/images/dialogue/signs";
-const SIGNS_PACK = "uesrpg-3ev4.signs";
-const POWERS_PACK = "uesrpg-3ev4.powers-revised";
+const POWERS_PACK = "uesrpg-3ev4.powers-talents-traits";
 
 // Common item icons
 const pwIcon = "icons/magic/defensive/shield-barrier-glowing-blue.webp";
@@ -288,8 +287,10 @@ const atronach = {
       desc: "The character increases their maximum Magicka Points by 50.",
       data: { "system.mpBonus": 50 },
     },
-    { pack: SIGNS_PACK, name: "Spell Absorption (5)" },
-    { pack: SIGNS_PACK, name: "Stunted Magicka" },
+    { name: "Spell Absorption (5)", type: "trait", img: pwIcon,
+      desc: "Roll a d10 when affected by magic from another source. On 5 or less, absorb the magic and recover missing MP up to its cost.",
+      data: { "system.traitKey": "spellAbsorption", "system.traitValue": 5 } },
+    { pack: POWERS_PACK, name: "Stunted Magicka" },
   ],
   starCursed: [
     {
@@ -305,8 +306,10 @@ const atronach = {
       desc: "The character increases their maximum Magicka Points by 75.",
       data: { "system.mpBonus": 75 },
     },
-    { pack: SIGNS_PACK, name: "Spell Absorption (5)" },
-    { pack: SIGNS_PACK, name: "Stunted Magicka" },
+    { name: "Spell Absorption (5)", type: "trait", img: pwIcon,
+      desc: "Roll a d10 when affected by magic from another source. On 5 or less, absorb the magic and recover missing MP up to its cost.",
+      data: { "system.traitKey": "spellAbsorption", "system.traitValue": 5 } },
+    { pack: POWERS_PACK, name: "Stunted Magicka" },
   ],
   starCursedChoices: {
     attributes: ["agility", "endurance"],
@@ -372,7 +375,7 @@ const thief = {
       desc: "Extra permanent lucky number. Replace Luck score with 50. Gain Akaviri Danger-Sense and Running Out of Luck.",
     },
     { pack: POWERS_PACK, name: "Akaviri Danger-Sense" },
-    { pack: SIGNS_PACK, name: "Running Out of Luck" },
+    { pack: POWERS_PACK, name: "Running Out of Luck" },
   ],
   // Special: Star-Cursed Thief sets Luck base to 50 — handled in onBirthSignMenu callback.
 };

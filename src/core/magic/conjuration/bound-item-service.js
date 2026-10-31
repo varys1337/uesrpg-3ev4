@@ -100,6 +100,7 @@ async function _createBoundItem(casterActor, originAE, spell, profileName, conju
   itemData.flags[_FLAG_NS] ??= {};
   Object.assign(itemData.flags[_FLAG_NS], {
     isBoundItem: true, conjureType, spellUuid: spell.uuid, spellName: spell.name,
+    conjureSourceFamily: spell.flags?.[_FLAG_NS]?.coreSource?.family ?? null,
     originAEId: originAE.id, profileName,
   });
   if (templateItem && itemData.system) itemData.system.equipped = true;

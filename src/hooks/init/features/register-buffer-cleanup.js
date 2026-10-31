@@ -2,10 +2,11 @@ import { FLAG_SCOPE } from "../../../core/constants.js";
 import { registerOnce } from "../../_internal/hook-registry.js";
 import { requestAtomicUpdateDocument } from "../../../utils/authority-proxy.js";
 import { isActiveGMUser } from "../../../utils/users.js";
+import { getSpellBufferPath, getSpellBufferValue, SPELL_BUFFER_TYPES } from "../../../core/magic/effects/spell-buffers.js";
 
 const pending = new Map();
 const failures = [];
-const BUFFER_TYPES = new Set(["physical", "magical", "elemental"]);
+const BUFFER_TYPES = new Set(SPELL_BUFFER_TYPES);
 
 /** Recompute each affected pool once from fresh surviving effects. */
 export async function reconcileSpellBuffers(actor, types, { strict = false } = {}) {
@@ -13,22 +14,31 @@ export async function reconcileSpellBuffers(actor, types, { strict = false } = {
   if (!actor || !wanted.size) return true;
   let changed = false;
   let calculated = false;
+  let reviewTypes = [];
   const confirmed = await requestAtomicUpdateDocument(actor, fresh => {
     calculated = true;
     const updates = {};
+    reviewTypes = [];
     for (const type of wanted) {
       const values = Array.from(fresh.effects ?? [])
         .filter(effect => effect.flags?.[FLAG_SCOPE]?.bufferApplied && effect.flags[FLAG_SCOPE].bufferType === type)
         .map(effect => Number(effect.flags[FLAG_SCOPE].bufferOriginalValue ?? 0))
         .filter(Number.isFinite);
-      const value = values.length ? Math.max(...values) : 0;
-      if (Number(fresh.system?.buffers?.[type] ?? 0) !== value) updates[`system.buffers.${type}`] = value;
+      const current = getSpellBufferValue(fresh, type);
+      // The pool does not record each effect's remaining HP. Deleting one
+      // overlap cannot refresh another; keep at most the surviving maximum.
+      const value = values.length ? Math.min(current, Math.max(0, ...values)) : 0;
+      if (values.length) reviewTypes.push(type);
+      if (current !== value) updates[getSpellBufferPath(type)] = value;
     }
     changed = Object.keys(updates).length > 0;
     return updates;
   }, { perfKind: "spellLifecycle" });
   const ok = confirmed || (calculated && !changed);
   if (strict && !ok) throw new Error("Spell buffer reconciliation was not confirmed.");
+  if (ok && reviewTypes.length) {
+    ui.notifications?.warn?.(`A ${reviewTypes.join(", ")} barrier remains after another ended. Its shared pool does not identify each spell's remaining HP; the GM must review it.`);
+  }
   return ok;
 }
 

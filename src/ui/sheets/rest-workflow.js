@@ -2,6 +2,7 @@ import { createDamageAftermathBundle } from "../../core/combat/damage/aftermath-
 import { measurePerfStage } from "../../utils/perf-tracker.js";
 import { hasTalent } from "../../core/traits/talents-api.js";
 import { clearRacialTalentUsageOnRest } from "../../core/traits/racial-talents.js";
+import { resetActivationUsageOnRest } from "../../core/system/activation/costs-and-usage.js";
 import { _num } from "../../utils/coerce.js";
 import { _canPromptForActor } from "../../core/traits/index.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
@@ -368,9 +369,16 @@ function _restResult(actor, meta, confirmed, summary = null) {
     line, updatesApplied: Boolean(settled && confirmed && meta.hasUpdates),
     recovery: settled ? (meta.recovered ? "confirmed" : "none") : "failed",
     hpHealed: settled ? meta.hpHealed : 0,
-    execution: { status, committed: Boolean(confirmed), operationId: meta.operationId },
+    execution: { status, committed: Boolean(confirmed || summary?.committed?.some(entry => entry.result?.reset?.length)), operationId: meta.operationId },
     aftermathSummary: summary,
   };
+}
+
+async function _resetConfiguredFeatureUses(actor, restType, meta) {
+  const result = await resetActivationUsageOnRest(actor, { restType, operationId: meta.operationId });
+  if (result.reset.length) meta.line = _appendRestLineNote(meta.line, `Feature uses restored: ${result.reset.join(", ")}`);
+  if (!result.ok) throw new Error(`Could not confirm use resets for ${result.failures.join(", ")}. Review those items before retrying.`);
+  return result;
 }
 
 async function _applyShortRest(actor, opts = {}) {
@@ -494,6 +502,7 @@ async function _applyShortRest(actor, opts = {}) {
     return applyNatural(actor, meta.hpHealed, { source: "shortRest", strict: true });
   } });
   aftermath.stage({ key: "racialUsage", label: "Racial usage reset", run: () => clearRacialTalentUsageOnRest(actor, { restType: "short", strict: true }) });
+  aftermath.stage({ key: "featureUsage", label: "Feature use reset", run: () => _resetConfiguredFeatureUses(actor, "short", meta) });
   return _restResult(actor, meta, confirmed, await aftermath.commit());
 }
 
@@ -609,6 +618,7 @@ async function _applyLongRest(actor, opts = {}) {
     return result;
   } });
   aftermath.stage({ key: "racialUsage", label: "Racial usage reset", run: () => clearRacialTalentUsageOnRest(actor, { restType: "long", strict: true }) });
+  aftermath.stage({ key: "featureUsage", label: "Feature use reset", run: () => _resetConfiguredFeatureUses(actor, "long", meta) });
   const summary = await aftermath.commit();
   if (meta.untreatedWoundsNoHeal) _notifyHpHealingSkipped(actor);
   if (fastingFactor < 1) meta.line = _appendRestLineNote(meta.line, "Fasting halved HP/SP/MP recovery");

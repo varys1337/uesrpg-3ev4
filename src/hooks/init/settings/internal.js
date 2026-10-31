@@ -4,10 +4,10 @@ const _reg = createSystemSettingRegistrar("Internal");
 
 export function registerInternalSettings() {
   // Hidden rollback/internal state: preserve migration and compatibility bookkeeping.
-  // World data version stamp for the new-world-only compatibility gate.
+  // Informational version stamp; per-revision migrationState owns completion.
   _reg("worldDataVersion", {
     name: "World Data Version",
-    hint: "Records the system version that last initialized this world. Used by the compatibility gate.",
+    hint: "Records the system version that last initialized this world. Informational only; it does not indicate migration completion.",
     scope: "world",
     config: false,
     default: "",

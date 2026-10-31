@@ -56,13 +56,10 @@ export async function setSpellcastingPrimedState(actor, state) {
  */
 export async function clearSpellcastingPrimedState(actor) {
   if (!actor) return;
-  try {
-    await requestUpdateDocument(actor, {
-      [`flags.${FLAG_SCOPE}.-=${SPELLCASTING_PRIMED_FLAG}`]: null
-    });
-  } catch (_e) {
-    // Safe no-op when the flag is already absent.
-  }
+  if (!actor.getFlag?.(FLAG_SCOPE, SPELLCASTING_PRIMED_FLAG)) return;
+  if (!await requestUpdateDocument(actor, {
+    [`flags.${FLAG_SCOPE}.${SPELLCASTING_PRIMED_FLAG}`]: foundry.data.ForcedDeletion.create()
+  })) throw new Error("Spellcasting talent state could not be cleared.");
 }
 
 /**

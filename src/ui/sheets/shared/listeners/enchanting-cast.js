@@ -5,7 +5,7 @@ import { getFearActionRestrictions } from "../../../../core/fear/index.js";
 import { ensureBurningTurnActionAllowed } from "../../../../core/conditions/condition-engine.js";
 import { AoEService, AOE_SOURCE_TYPES } from "../../../../core/aoe/index.js";
 import { getSpellRangeType, getSpellAoEConfig, getSpellMaxRangeMeters, filterTargetsBySpellRange } from "../../../../core/magic/spell-range.js";
-import { castFromEnchantedItem } from "../../../../core/enchanting/runtime/cast-enchantment-runtime.js";
+import { castFromEnchantedItemResult } from "../../../../core/enchanting/runtime/cast-enchantment-runtime.js";
 import { showSpellOptionsDialog } from "../../../../core/magic/dialogs/spell-options-dialog.js";
 import {
   canAffordCastEnchantmentSlot,
@@ -239,7 +239,7 @@ export const onCastEnchantmentAction = asyncGuardSheet(async function onCastEnch
     .map((t) => t?.document?.uuid ?? t?.uuid)
     .filter(Boolean);
 
-  await castFromEnchantedItem({
+  return castFromEnchantedItemResult({
     actor,
     token: attackerToken,
     item,

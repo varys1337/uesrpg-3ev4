@@ -9,15 +9,14 @@
 import {
   clearAllItemsFromContainer,
   removeItemFromContainer,
-  rebuildContainerSnapshot,
 } from "./item/listeners/containment.js";
 
 export async function unlinkItemFromContainer(actor, item) {
-  await removeItemFromContainer(actor, item);
+  return removeItemFromContainer(actor, item);
 }
 
 export async function unlinkAllItemsFromContainer(actor, container) {
-  if (!actor || !container || container.type !== "container") return;
-  await clearAllItemsFromContainer(actor, container);
-  await rebuildContainerSnapshot(actor, container);
+  if (!actor || !container || container.type !== "container") return false;
+  if (!await clearAllItemsFromContainer(actor, container)) return false;
+  return removeItemFromContainer(actor, container);
 }

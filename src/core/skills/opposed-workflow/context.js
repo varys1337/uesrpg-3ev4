@@ -8,6 +8,8 @@
  */
 
 import { buildSpecialActionTestChoicesForActor } from "../../combat/combat-style-utils.js";
+import { _resolveActorViaToken } from "../../combat/opposed/helpers/docs.js";
+import { isSnareActionCurrent } from "../../combat/special-actions-helper.js";
 
 /**
  * Determine default governing characteristic selection for a given skill UUID.
@@ -28,7 +30,7 @@ export function _defaultSelectedCharacteristicForSkill(skills, skillUuid) {
 /**
  * Normalize Special Action context from either the new context object or legacy id.
  * @param {object} data
- * @returns {{id:string,source:string,attackerStyleUuid:string|null,defenderStyleUuid:string|null}|null}
+ * @returns {{id:string,source:string,attackerStyleUuid:string|null,defenderStyleUuid:string|null,snareWeaponUuid:string|null}|null}
  */
 export function _getSpecialActionContext(data) {
   const ctx = data?.specialActionContext;
@@ -37,7 +39,9 @@ export function _getSpecialActionContext(data) {
       id: String(ctx.id).trim(),
       source: String(ctx.source ?? "unknown"),
       attackerStyleUuid: String(ctx.attackerStyleUuid ?? "").trim() || null,
-      defenderStyleUuid: String(ctx.defenderStyleUuid ?? "").trim() || null
+      defenderStyleUuid: String(ctx.defenderStyleUuid ?? "").trim() || null,
+      snareWeaponUuid: String(ctx.snareWeaponUuid ?? "").trim() || null,
+      snareRangeSnapshot: ctx.snareRangeSnapshot ?? null
     };
   }
   return null;
@@ -56,11 +60,20 @@ export function _getSpecialActionLegalityForSide(data, actor, side) {
 
   const lane = String(side ?? "").toLowerCase() === "defender" ? "defender" : "attacker";
   const preferredStyleUuid = lane === "attacker" ? context.attackerStyleUuid : context.defenderStyleUuid;
+  const attacker = lane === "attacker" ? actor : _resolveActorViaToken(data?.attacker?.actorUuid, data?.attacker?.tokenUuid);
+  const defender = lane === "defender" ? actor : _resolveActorViaToken(data?.defender?.actorUuid, data?.defender?.tokenUuid);
+  const validSnare = context.snareWeaponUuid && isSnareActionCurrent({ actor: attacker, target: defender,
+    weaponUuid: context.snareWeaponUuid, rangeSnapshot: context.snareRangeSnapshot,
+    actorTokenUuid: data?.attacker?.tokenUuid, targetTokenUuid: data?.defender?.tokenUuid });
+  if (context.snareWeaponUuid && !validSnare) {
+    return { context, choices: [], allowedSet: new Set() };
+  }
 
   const choices = buildSpecialActionTestChoicesForActor(actor, {
     specialActionId: context.id,
     side: lane,
-    preferredStyleUuid
+    preferredStyleUuid,
+    snare: Boolean(validSnare)
   });
 
   const allowedSet = new Set(
@@ -95,5 +108,17 @@ export function _isSpecialActionSelectionLegal(decl, legality) {
   if (!legality) return true;
   const selectedUuid = String(decl?.skillUuid ?? "").trim();
   return Boolean(selectedUuid && legality.allowedSet.has(selectedUuid));
+}
+
+/** Recheck a pending Snare decision after an interactive roll dialog. */
+export function _isSnareContextCurrent(data, actor, side, expected = data) {
+  const original = _getSpecialActionContext(expected);
+  if (!original?.snareWeaponUuid) return true;
+  const current = _getSpecialActionContext(data);
+  if (current?.id !== original.id || current?.snareWeaponUuid !== original.snareWeaponUuid
+    || current?.snareRangeSnapshot?.fingerprint !== original.snareRangeSnapshot?.fingerprint
+    || data?.attacker?.tokenUuid !== expected?.attacker?.tokenUuid
+    || data?.defender?.tokenUuid !== expected?.defender?.tokenUuid) return false;
+  return Boolean(_getSpecialActionLegalityForSide(data, actor, side)?.allowedSet?.size);
 }
 

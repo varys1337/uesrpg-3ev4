@@ -7,6 +7,7 @@
       <div class="uesrpg-settings__summary">
         <p class="setting-row__label">{{localize "UESRPG.Apps.MigrationSettings.StatusLabel" currentVersion=currentVersion}}</p>
         <p class="setting-help">{{localize "UESRPG.Apps.MigrationSettings.PendingSummary" count=pendingCount}}</p>
+        <p class="setting-help">{{localize "UESRPG.Apps.MigrationSettings.ActiveGMHint"}}</p>
       </div>
 
       <ul class="uesrpg-migration-status-list">
@@ -14,9 +15,15 @@
         <li class="uesrpg-migration-status-row" data-migration-key="{{entry.key}}">
           <strong class="setting-row__label">{{entry.label}}</strong>
           <span class="uesrpg-migration-status-badge {{#if entry.upToDate}}uesrpg-migration-status-badge--current{{else}}uesrpg-migration-status-badge--pending{{/if}}">
-            {{#if entry.upToDate}}{{localize "UESRPG.UI.UpToDate"}}{{else}}{{localize "UESRPG.UI.Outdated"}}{{/if}}
+            {{#if entry.upToDate}}{{localize "UESRPG.UI.UpToDate"}}{{else}}{{localize "UESRPG.Apps.MigrationSettings.Pending"}}{{/if}}
           </span>
           <p class="setting-help">{{localize "UESRPG.Apps.MigrationSettings.RevisionStatus" applied=entry.appliedRevision required=entry.requiredRevision}}</p>
+          {{#if entry.failureCount}}
+          <p class="setting-help">{{localize "UESRPG.Apps.MigrationSettings.FailedRecord" count=entry.failureCount}}</p>
+          {{/if}}
+          {{#if entry.reviewRequired}}
+          <p class="setting-help">{{localize "UESRPG.Apps.MigrationSettings.ReviewRequired"}}</p>
+          {{/if}}
         </li>
         {{/each}}
       </ul>

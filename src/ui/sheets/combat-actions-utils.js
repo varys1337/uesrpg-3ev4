@@ -227,6 +227,10 @@ export async function spendActionPoints(actor, amount = 1, { reason = "" } = {})
   return ActionEconomy.spendAP(actor, amount, { reason, silent: false });
 }
 
+export async function spendActionPointsResult(actor, amount = 1, { reason = "" } = {}) {
+  return ActionEconomy.spendAPResult(actor, amount, { reason, silent: false });
+}
+
 /**
  * Build a collapsed (expandable) action card HTML string.
  *

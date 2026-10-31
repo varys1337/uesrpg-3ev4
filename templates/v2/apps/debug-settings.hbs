@@ -26,6 +26,14 @@
         <input id="uesrpg-client-debug" aria-describedby="uesrpg-client-debug-hint" type="checkbox" name="client.debugClientEnabled" {{checked client.debugClientEnabled.value}}>
       </div>
     </fieldset>
+    {{#if isGM}}
+    <fieldset class="uesrpg-settings__section">
+      <legend>{{localize "UESRPG.Apps.DebugSettings.Export.Title"}}</legend>
+      <p id="uesrpg-support-hint" class="setting-help">{{localize "UESRPG.Apps.DebugSettings.Export.Hint"}}</p>
+      <label for="uesrpg-support-modules"><input id="uesrpg-support-modules" type="checkbox" name="support.includeModules" aria-describedby="uesrpg-support-hint"> {{localize "UESRPG.Apps.DebugSettings.Export.Modules"}}</label>
+      <button type="button" data-action="exportSupportReport" aria-describedby="uesrpg-support-hint"><i class="fas fa-download" aria-hidden="true"></i> {{localize "UESRPG.Apps.DebugSettings.Export.Button"}}</button>
+    </fieldset>
+    {{/if}}
   </div>
 
   <footer class="uesrpg-settings__footer">

@@ -7,6 +7,7 @@ const zlib = require("node:zlib");
 const { buildSchemaSeeds } = require("./schema-seeds.js");
 const { checkJavaScriptSyntax } = require("./javascript-syntax.js");
 const { checkDataCatalogs } = require("./generate-data-catalogs.js");
+const { verifyCoreCompendia } = require("./verify-core-compendia.js");
 const { checkConsolidation } = require("./consolidation-checks.js");
 const { getReleaseMetadata } = require("../automation/release-metadata.js");
 
@@ -14,7 +15,7 @@ const ROOT = path.resolve(__dirname, "..");
 const SYSTEM_PREFIX = "systems/uesrpg-3ev4/";
 const RELEASE_FOLDER_NAME = "uesrpg-3ev4";
 const GITHUB_SOURCE_FOLDER_NAME = "github-source";
-const SEMVER_PATTERN = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const RELEASE_DIRECTORIES = Object.freeze(["docs", "fonts", "images", "lang", "packs", "src", "styles", "templates"]);
 const RELEASE_FILES = Object.freeze(["system.json", "template.json"]);
 const OPTIONAL_RELEASE_FILES = Object.freeze(["CHANGELOG.md", "LICENSE.txt", "README.md"]);
@@ -30,6 +31,7 @@ const GITHUB_SOURCE_DIRECTORIES = Object.freeze([
   "src",
   "styles",
   "templates",
+  "tests",
 ]);
 const GITHUB_SOURCE_FILES = Object.freeze([
   ".editorconfig",
@@ -57,6 +59,7 @@ const ARCHIVE_EXCLUDED_PREFIXES = [
   "node_modules/",
   "release/",
   "scripts/",
+  "tests/",
 ];
 const ARCHIVE_EXCLUDED_FILES = new Set([
   "build-release-folder.cmd",
@@ -477,6 +480,7 @@ function validateStaticImportGraph() {
     "src/core/homebrew/index.js",
     "src/core/magic/index.js",
     "src/ui/sheets/v2/_delegated-bindings.js", // Retained public ESM helper; native sheets no longer need it.
+    "src/utils/dev/core-compendium-authoring.js", // Explicit macro entry point; never runs at startup.
   ]);
   const unreachable = [...graph.keys()]
     .filter((file) => !reachable.has(file))
@@ -760,11 +764,15 @@ function validateIncrementalUiSafety() {
   if (!/filterAllowedFormPaths\(formData\.object,\s*ALLOW_ITEM_FORM_PATH\)/.test(itemSheetSource)) {
     fail("src/ui/sheets/v2/item-sheet.js does not allow-list submit-on-close document fields");
   }
-  if (!/exact:\s*\["name"\]/.test(itemSheetSource)
+  if (!/exact:\s*\["name",\s*"containerLimitQuantity",\s*"containerMaxQuantity"\]/.test(itemSheetSource)
       || !/"system\."/.test(itemSheetSource)
       || !/"flags\."/.test(itemSheetSource)
       || /exact:\s*\[[^\]]*"img"/.test(itemSheetSource)) {
     fail("src/ui/sheets/v2/item-sheet.js has an unsafe Item form path allow-list");
+  }
+  const itemNormalizer = fs.readFileSync(path.join(ROOT, "src/ui/sheets/item/normalize-item-form-data.js"), "utf8");
+  for (const control of ["containerLimitQuantity", "containerMaxQuantity"]) {
+    if (!itemNormalizer.includes(`delete formData.${control}`)) fail(`Container presentation control ${control} must be removed before Item persistence`);
   }
 
   const localizedNotificationSources = [
@@ -841,6 +849,7 @@ function validateModernRuntimeSafety() {
     "src/core/enchanting/stored-spell-doc.js",
     "src/core/religion/content-sync.js",
     "src/data/religion/content-builders.js",
+    "src/utils/dev/core-compendium-authoring.js", // Cleans serialized JSON timestamps, not Document internals.
     "src/ui/shared/stored-spell-options.js",
   ]);
 
@@ -1027,17 +1036,18 @@ function validateReleaseAutomation() {
 function validateSourceLayout(manifest, packageJson, packageLock) {
   if (!manifest || !packageJson || !packageLock) return;
 
+
   if (manifest.id !== packageJson.name) fail(`Manifest id ${manifest.id} does not match package name ${packageJson.name}`);
+  if (manifest.version !== packageJson.version) fail(`Manifest version ${manifest.version} does not match package version ${packageJson.version}`);
   if (packageLock.name !== packageJson.name || packageLock.packages?.[""]?.name !== packageJson.name) {
     fail(`package-lock.json package name does not match package.json name ${packageJson.name}`);
   }
   if (packageLock.version !== packageJson.version || packageLock.packages?.[""]?.version !== packageJson.version) {
     fail(`package-lock.json version does not match package.json version ${packageJson.version}`);
   }
-  if (!SEMVER_PATTERN.test(String(manifest.version ?? ""))) fail(`Manifest version ${manifest.version} must be a v-prefixed release tag`);
+  if (!SEMVER_PATTERN.test(String(manifest.version ?? ""))) fail(`Manifest version ${manifest.version} is not plain SemVer`);
   try {
     const metadata = getReleaseMetadata(packageJson.version);
-    if (manifest.version !== metadata.tag) fail(`Manifest version ${manifest.version} does not match release tag ${metadata.tag}`);
     if (manifest.manifest !== metadata.manifestUrl) fail(`Manifest URL must be ${metadata.manifestUrl}`);
     if (manifest.download !== metadata.downloadUrl) fail(`Download URL must be ${metadata.downloadUrl}`);
   } catch (error) {
@@ -1106,7 +1116,7 @@ function collectReleaseSourceFiles() {
     optionalFiles: OPTIONAL_RELEASE_FILES,
     requiredDirectories: RELEASE_DIRECTORIES,
     label: "release",
-  });
+  }).filter(file => !normalizePackagePath(path.relative(ROOT, file)).startsWith("packs/_source/"));
 }
 
 function collectGithubSourceFiles() {
@@ -1202,12 +1212,9 @@ function validateBuiltGithubSourceFolder(destination, sourceFiles, manifest) {
     const stagedManifest = JSON.parse(fs.readFileSync(path.join(destination, "system.json"), "utf8"));
     const stagedPackage = JSON.parse(fs.readFileSync(path.join(destination, "package.json"), "utf8"));
     const stagedLock = JSON.parse(fs.readFileSync(path.join(destination, "package-lock.json"), "utf8"));
-    const metadata = getReleaseMetadata(stagedPackage.version);
-    const versionsMatch = stagedManifest.version === metadata.tag
-      && stagedPackage.version === stagedLock.version
-      && stagedPackage.version === stagedLock.packages?.[""]?.version;
-    if (!versionsMatch) {
-      fail(`GitHub source requires manifest ${metadata.tag} and consistent npm version ${stagedPackage.version}`);
+    const versions = [stagedManifest.version, stagedPackage.version, stagedLock.version, stagedLock.packages?.[""]?.version];
+    if (versions.some((version) => version !== manifest?.version)) {
+      fail(`GitHub source version metadata must consistently equal ${manifest?.version}`);
     }
   } catch (error) {
     fail(`GitHub source version metadata is missing or invalid: ${error.message}`);
@@ -1371,7 +1378,7 @@ function validateArchive(archiveArgument, manifest) {
       fail(`Archived manifest version ${archivedManifest.version} does not match source manifest version ${manifest?.version}`);
     }
     if (!SEMVER_PATTERN.test(String(archivedManifest.version ?? ""))) {
-      fail(`Archived manifest version ${archivedManifest.version} must be a v-prefixed release tag`);
+      fail(`Archived manifest version ${archivedManifest.version} is not plain SemVer`);
     }
   } catch (error) {
     fail(`Archived system.json is missing or invalid: ${error.message}`);
@@ -1414,6 +1421,13 @@ function main() {
   validateReleaseAutomation();
   validateSchemaDrift(manifest, template);
   validateMigrationRegistry();
+  try {
+    const compiled = verifyCoreCompendia();
+    for (const pack of compiled.packs.filter(entry => entry.status !== "passed")) {
+      fail(`${pack.pack} differs from its JSON source (${pack.differences.length} authored fields, ${pack.extraRecords.length} extra records)`);
+    }
+    if (compiled.status === "passed") notes.push("Validated all five compiled core Item packs against their JSON authoring sources, including embedded identities and native defaults.");
+  } catch (error) { fail(`Core compendium source comparison failed: ${error.message}`); }
   try {
     notes.push(...checkDataCatalogs({ root: ROOT }));
     const consolidationErrors = checkConsolidation(ROOT, {

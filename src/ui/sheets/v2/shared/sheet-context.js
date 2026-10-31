@@ -8,6 +8,7 @@
 
 import { getGenericAEMetadata, isConditionEffect, isGenericAESuppressed } from "../../../../core/active-effects/metadata.js";
 import { FLAG_SCOPE } from "../../../../core/system/namespace.js";
+import { getContainerCapacityState } from "../../../../core/items/container-capacity.js";
 
 function _effectClassification(effect) {
   const flags = effect?.flags?.[FLAG_SCOPE] ?? effect?.flags?.uesrpg ?? {};
@@ -85,6 +86,7 @@ export function buildActorSheetItemView(item) {
     img: item?.img ?? CONST.DEFAULT_TOKEN,
     type: item?.type ?? "",
     flags: item?.flags ?? {},
+    ...(item?.type === "container" ? { containerCapacity: getContainerCapacityState(item.actor, item) } : {}),
     // Presentation annotations and AE skill bonuses must never mutate the Item.
     system: { ...(item?.system ?? {}) },
   };

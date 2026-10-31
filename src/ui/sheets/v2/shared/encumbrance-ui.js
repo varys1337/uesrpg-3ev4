@@ -22,7 +22,7 @@ function _getVisibleBucketItems(sheetContextActorBuckets) {
 
   pushArray(actorBuckets.container);
 
-  for (const key of ["weapon", "armor", "ammunition", "gear"]) {
+  for (const key of ["weapon", "armor", "shield", "ammunition", "gear"]) {
     const bucket = actorBuckets[key];
     if (!bucket) continue;
     pushArray(bucket.equipped);
@@ -85,15 +85,18 @@ export async function openEncumbranceBreakdownDialog(actor) {
       const countable = _toFiniteNumber(row?.contributedEnc, 0);
       const flags = [];
       if (row?.isContained) flags.push("Contained");
+      if (row?.invalidContainment) flags.push("Invalid container link");
       if (row?.isWornArmor) flags.push("Worn Armor");
+      if (row?.isWornClothing) flags.push("Worn Clothing");
+      if (row?.nonportable) flags.push("Not Portable");
       if (row?.isShield) flags.push("Shield");
       return `<tr>
         <td>${_escapeHtml(row?.name ?? "")}</td>
         <td>${_escapeHtml(row?.type ?? "")}</td>
         <td class="num">${_toFiniteNumber(row?.qty, 0)}</td>
-        <td class="num">${_toFiniteNumber(row?.enc, 0).toFixed(1)}</td>
-        <td class="num">${_toFiniteNumber(row?.contributedEnc, 0).toFixed(1)}</td>
-        <td class="num">${countable.toFixed(1)}</td>
+        <td class="num">${_toFiniteNumber(row?.enc, 0).toLocaleString(undefined, { maximumFractionDigits: 6 })}</td>
+        <td class="num">${_toFiniteNumber(row?.contributedEnc, 0).toLocaleString(undefined, { maximumFractionDigits: 6 })}</td>
+        <td class="num">${countable.toLocaleString(undefined, { maximumFractionDigits: 6 })}</td>
         <td>${_escapeHtml(flags.join(", "))}</td>
       </tr>`;
     })
@@ -119,12 +122,12 @@ export async function openEncumbranceBreakdownDialog(actor) {
       </table>
     </div>
     <div class="uesrpg-enc-breakdown__totals">
-      <div><strong>Total Effective ENC:</strong> ${_toFiniteNumber(totals?.totalEnc, 0).toFixed(1)}</div>
-      <div><strong>Excluded ENC:</strong> ${_toFiniteNumber(totals?.excludedEnc, 0).toFixed(1)}</div>
-      <div><strong>Counted ENC:</strong> ${countedTotal.toFixed(1)}</div>
-      <div><strong>Worn Armor ENC (Raw):</strong> ${_toFiniteNumber(totals?.armorEncRaw, 0).toFixed(1)}</div>
+      <div><strong>Total Effective ENC:</strong> ${_toFiniteNumber(totals?.totalEnc, 0).toLocaleString(undefined, { maximumFractionDigits: 6 })}</div>
+      <div><strong>Excluded ENC:</strong> ${_toFiniteNumber(totals?.excludedEnc, 0).toLocaleString(undefined, { maximumFractionDigits: 6 })}</div>
+      <div><strong>Counted ENC:</strong> ${countedTotal.toLocaleString(undefined, { maximumFractionDigits: 6 })}</div>
+      <div><strong>Worn Armor ENC (Raw):</strong> ${_toFiniteNumber(totals?.armorEncRaw, 0).toLocaleString(undefined, { maximumFractionDigits: 6 })}</div>
       <div><strong>Zero-ENC Item Count:</strong> ${_toFiniteNumber(totals?.zeroEncItemCount, 0)}</div>
-      <div><strong>Zero-ENC Effective ENC:</strong> ${_toFiniteNumber(totals?.zeroEncEffectiveEnc, 0).toFixed(1)}</div>
+      <div><strong>Zero-ENC Effective ENC:</strong> ${_toFiniteNumber(totals?.zeroEncEffectiveEnc, 0).toLocaleString(undefined, { maximumFractionDigits: 6 })}</div>
     </div>
   </div>`;
 

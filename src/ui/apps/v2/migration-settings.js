@@ -1,6 +1,7 @@
-import { SYSTEM_ID, templatePath } from "../../constants.js";
+import { templatePath } from "../../constants.js";
 import {
   getAppliedMigrationRevision,
+  getMigrationFailureCount,
   getMigrationState,
   getSystemVersionString,
   isMigrationRevisionApplied,
@@ -11,6 +12,7 @@ import {
   runSystemMigrations,
 } from "../../../core/migrations/runner.js";
 import { t } from "../../../utils/i18n.js";
+import { isActiveGMUser } from "../../../utils/users.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -31,6 +33,8 @@ function _stateSummary(state, key) {
     requiredRevision,
     version,
     upToDate: isMigrationRevisionApplied(key, requiredRevision, state),
+    failureCount: getMigrationFailureCount(raw),
+    reviewRequired: Boolean(raw?.reviewRequired),
   };
 }
 
@@ -72,7 +76,7 @@ export class MigrationSettingsAppV2 extends HandlebarsApplicationMixin(Applicati
     return {
       ...context,
       isRunning: isSystemMigrationRunning(),
-      canRun: Boolean(game.user?.isGM),
+      canRun: isActiveGMUser(game.user),
       currentVersion,
       statuses,
       pendingCount: statuses.filter((entry) => !entry.upToDate).length,
@@ -83,22 +87,23 @@ export class MigrationSettingsAppV2 extends HandlebarsApplicationMixin(Applicati
     event?.preventDefault?.();
     void target;
 
-    if (!game.user?.isGM) {
-      ui.notifications?.warn?.(t("UESRPG.Notifications.MigrationsOnlyGM", "Only a GM can run migrations."));
+    if (!isActiveGMUser(game.user)) {
+      ui.notifications?.warn?.(t("UESRPG.Notifications.MigrationsOnlyActiveGM", "Only the selected active GM can run migrations."));
       return;
     }
 
-    if (isSystemMigrationRunning()) {
-      ui.notifications?.info?.(t("UESRPG.Notifications.MigrationsAlreadyRunning", "Migration pass is already running."));
-      return;
-    }
-
-    const result = await runSystemMigrations({
+    const request = runSystemMigrations({
       origin: "manual",
       notifyStart: true,
       notifySuccess: true,
       notifyFailure: true,
     });
-    if (result?.ok) this.render(false);
+    try {
+      await this.render({ force: false });
+    } finally {
+      // A presentation failure must not detach the in-flight migration. Refresh
+      // from persisted revisions after either a successful or failed pass.
+      try { await request; } finally { await this.render({ force: false }); }
+    }
   }
 }

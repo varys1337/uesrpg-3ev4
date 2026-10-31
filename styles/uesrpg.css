@@ -1,4 +1,34 @@
 @charset "UTF-8";
+
+/* Prepared-value disclosure: bounded inside the existing combat scroll region. */
+.worldbuilding.sheet.actor .uesrpg-prepared-values {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.worldbuilding.sheet.actor .uesrpg-prepared-values__body {
+  max-height: 24rem;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+.worldbuilding.sheet.actor .uesrpg-prepared-values summary {
+  cursor: pointer;
+}
+.worldbuilding.sheet.actor .uesrpg-prepared-values summary:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+.worldbuilding.sheet.actor .uesrpg-prepared-values dl > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(4em, auto);
+  gap: 0.5rem;
+}
+.worldbuilding.sheet.actor .uesrpg-prepared-values dd {
+  margin: 0;
+  text-align: end;
+}
+
 /*!
  * UESRPG production stylesheet.
  * This file is the canonical style source shipped by the system.
@@ -3424,6 +3454,23 @@ button[data-ues-char-opposed-action]) {
   margin-top: 2px;
   text-align: right;
   opacity: 0.9;
+}
+
+/* Recorded explanations stay inside the existing disclosure at narrow widths. */
+.chat-message :is(.dmg-weapon-details, .uesrpg-gm-damage-breakdown) :is(.uesrpg-chat-kv-row, .dmg-component-line) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 2px 8px;
+}
+
+.chat-message :is(.dmg-weapon-details, .uesrpg-gm-damage-breakdown) :is(span, b, p) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.chat-message details.dmg-details > summary:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
 }
 
 @container uesrpg-card (max-width: 18.125rem) {

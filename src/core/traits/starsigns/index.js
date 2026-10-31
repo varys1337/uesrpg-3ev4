@@ -2,8 +2,10 @@
  * src/core/traits/starsigns/index.js
  *
  * Small read-only helpers for starsign-driven workflow behavior.
- * Target: Foundry VTT v13.351
+ * Target: Foundry VTT v14.368+
  */
+
+import { isPassiveFeatureActive } from "../features/feature-config.js";
 
 const RITUAL_BLESSING_NAMES = Object.freeze([
   "Blessed Touch",
@@ -100,7 +102,7 @@ export function hasRunningOutOfLuck(actor) {
 }
 
 export function hasAkaviriDangerSense(actor) {
-  return _getBirthsignNamedItems(actor, "Akaviri Danger-Sense", { includePowers: true }).length > 0;
+  return _getBirthsignNamedItems(actor, "Akaviri Danger-Sense", { includePowers: true }).some(isPassiveFeatureActive);
 }
 
 export function getNaturalHealingStarsignProfile(actor) {

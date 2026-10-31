@@ -1,3 +1,4 @@
+import { projectPreparedDerivedExplanation } from "../../../core/actors/prepare/derived-explanation.js";
 import { prepareSpellEffectsBreakdown } from "../shared/spell-effects-breakdown.js";
 import { buildFeatureInspectorContext } from "../shared/feature-inspector.js";
 import { normalizeActorFormValue as normalizePcFormValue, buildAllowedChangePatch, buildAllowedSubmitPatch, getChangedTrackerFormValues, createFormPathMatcher } from './shared/form-pipeline.js';
@@ -50,7 +51,7 @@ import { onToggle2H, onItemEquip, onWeaponAmmoSelect, onWeaponDamageRoll } from 
 import { onWealthCalc } from "../shared/listeners/economy-handlers.js";
 import { onToggleGroupCollapse, onLoadoutSave, onLoadoutApply, onLoadoutDelete } from "../shared/helpers/ui-state-handlers.js";
 import { onItemCreate } from "../shared/dialogs/equipment-dialogs.js";
-import { onDropItemIntoContainer, removeItemFromContainer } from "../item/listeners/containment.js";
+import { onDropItemIntoContainer, removeItemFromContainer, prepareInventoryItemCopy } from "../item/listeners/containment.js";
 
 import { registerResourceButtonHandlers } from "../shared/listeners/resource-button-handlers.js";
 import { buildSocialDisplay } from "../../../core/social/social-data.js";
@@ -68,7 +69,7 @@ import { registerCombatTrackerSheetRefresh, unregisterCombatTrackerSheetRefresh 
 import {
   buildWoundsInjuriesPanelContext,
   isWoundsOrShockEffect,
-  onWoundsInjuriesControl
+  onWoundsInjuriesControl, notifyWoundTreatmentResult
 } from "./shared/wounds-injuries-panel.js";
 import { activateProseMirrorEditors, openProseMirrorEditor } from "../shared/editor-activation.js";
 import {
@@ -709,6 +710,8 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       }
 
       tracePhase("diagnostics:features", perfFeatureStart);
+      context.preparedValueExplanation = _needs("combat") && (game.user?.isGM || actor.isOwner)
+        ? projectPreparedDerivedExplanation(actor.system, { includeContributions: true }) : null;
       return context;
     } finally {
       const finishedAt = performance.now();
@@ -926,11 +929,11 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     const id = String(target?.dataset?.woundId ?? "").trim();
     if (!id) return;
     const fn = game?.uesrpg?.wounds?.attemptTreatWound;
-    if (typeof fn === "function") await fn(this.document, id, {});
+    if (typeof fn === "function") notifyWoundTreatmentResult(await fn(this.document, id, {}));
   }
   async _onWoundTreatAll() {
     const fn = game?.uesrpg?.wounds?.attemptTreatAllWounds;
-    if (typeof fn === "function") await fn(this.document, {});
+    if (typeof fn === "function") notifyWoundTreatmentResult(await fn(this.document, {}));
   }
   async _onWoundClear(_event, target) {
     const id = String(target?.dataset?.woundId ?? "").trim();
@@ -1076,7 +1079,10 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       content: `<p>${tf("UESRPG.Dialogs.DuplicateItem.Content", { item: foundry.utils.escapeHTML(item.name) })}</p>`,
     });
     if (confirmed) {
-      const created = await requestCreateEmbeddedDocuments(this.document, "Item", [item.toObject()]);
+      let data;
+      try { data = prepareInventoryItemCopy(this.document, item); }
+      catch (error) { ui.notifications?.warn?.(String(error.message ?? error)); return; }
+      const created = await requestCreateEmbeddedDocuments(this.document, "Item", [data]);
       await created?.[0]?.sheet?.render?.(true);
     }
   }

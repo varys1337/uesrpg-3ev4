@@ -50,6 +50,7 @@ import {
   getFeatureConfigOptions,
   getFeatureConfigCapabilities
 } from "../../../core/traits/features/feature-config.js";
+import { normalizeUsage } from "../../../core/system/activation/helpers.js";
 import { cachedEnrichHTML } from "../../../utils/enrich-cache.js";
 import { t } from "../../../utils/i18n.js";
 import { getAllCharacteristicOptions } from "../../../utils/maps/characteristics.js";
@@ -73,6 +74,7 @@ import {
 import { buildActorSheetEffectView } from "../v2/shared/sheet-context.js";
 import { buildStoredSpellOptionState } from "../../shared/stored-spell-options.js";
 import { getKnownSpellScalingLevels } from "../../../core/magic/magicka-utils.js";
+import { getContainerCapacityState } from "../../../core/items/container-capacity.js";
 
 function _buildStoredSpellLevelOptions(spellLike, currentLevel) {
   const levels = Array.from(new Set(
@@ -109,6 +111,7 @@ export function prepareItemSheetHeaderData(sheet, data) {
   const itemDoc = sheet.document;
   const itemType = itemDoc?.type ?? data.item?.type ?? null;
   const actorDoc = itemDoc?.actor ?? null;
+  if (itemType === "container") data.containerCapacity = getContainerCapacityState(actorDoc, itemDoc);
   data.enableRuleElements = getCachedSetting("enableRuleElementsRuntime") === true;
 
   if (["skill", "magicSkill", "combatStyle"].includes(itemType)) {
@@ -155,6 +158,7 @@ export async function prepareItemSheetData(sheet, data) {
   const actorDoc = itemDoc?.actor ?? null;
   const itemData = data.item;
   const itemType = data.item ? data.item.type : null;
+  if (itemType === "container") data.containerCapacity = getContainerCapacityState(actorDoc, itemDoc);
 
   // Convenience flags for templates.
   data.canEditReloadAPCost = Boolean(
@@ -269,7 +273,7 @@ export async function prepareItemSheetData(sheet, data) {
     data.resourceRestoreCapModeOptions = getResourceRestoreCapModeOptions();
     data.defenseModelOptions = getDefenseModelOptions();
     data.selectedDefenseModel = itemDoc?.system?.isDirect ? "direct" : data.spellEngine.defenseModel;
-    data.charDefModifierModeOptions = { spellStrength: "Spell Strength (SS)", formula: "Custom Formula" };
+    data.charDefModifierModeOptions = { spellStrength: "Spell Strength penalty (subtract SS)", add: "Spell Strength modifier (add SS)", formula: "Custom Formula" };
     data.charDefSuccessOptions = getCharacteristicDefenseSuccessOptions();
     data.charDefFailureOptions = getCharacteristicDefenseFailureOptions();
     data.consequenceConditionOptions = getConsequenceConditionOptions();
@@ -398,6 +402,12 @@ export async function prepareItemSheetData(sheet, data) {
     if (selected && !Object.hasOwn(data.damageTypeOptions, selected)) {
       data.ammunitionDamageTypeOptions.push({ value: selected, label: selected, selected: true });
     }
+    const arrowType = String(data.item?.system?.arrowType ?? "");
+    data.ammunitionArrowTypeOptions = Object.entries({ "": "—", ...AMMO_ARROW_TYPE_LABELS })
+      .map(([value, label]) => ({ value, label, selected: value === arrowType }));
+    if (arrowType && !Object.hasOwn(AMMO_ARROW_TYPE_LABELS, arrowType)) {
+      data.ammunitionArrowTypeOptions.push({ value: arrowType, label: arrowType, selected: true });
+    }
   }
 
   // Normalize damageInstances for rendering (spells only)
@@ -424,21 +434,19 @@ export async function prepareItemSheetData(sheet, data) {
   );
   
   // Activation options for traits/talents/powers
-  data.talentActionTypeOptions = {
+  const featureActionTypeOptions = {
     passive: t("UESRPG.Sheets.Feature.ActionType.Passive", "Passive"),
+    free: t("UESRPG.Sheets.Feature.ActionType.Free", "Free"),
+    secondary: t("UESRPG.Sheets.Feature.ActionType.Secondary", "Secondary"),
     action: t("UESRPG.Sheets.Feature.ActionType.Action", "Action"),
-    reaction: t("UESRPG.Sheets.Feature.ActionType.Reaction", "Reaction")
+    reaction: t("UESRPG.Sheets.Feature.ActionType.Reaction", "Reaction"),
+    special: t("UESRPG.Sheets.Feature.ActionType.Special", "Special")
   };
-  data.traitActionTypeOptions = {
-    passive: t("UESRPG.Sheets.Feature.ActionType.Passive", "Passive"),
-    action: t("UESRPG.Sheets.Feature.ActionType.Action", "Action"),
-    reaction: t("UESRPG.Sheets.Feature.ActionType.Reaction", "Reaction")
-  };
-  data.powerActionTypeOptions = {
-    passive: t("UESRPG.Sheets.Feature.ActionType.Passive", "Passive"),
-    action: t("UESRPG.Sheets.Feature.ActionType.Action", "Action"),
-    reaction: t("UESRPG.Sheets.Feature.ActionType.Reaction", "Reaction")
-  };
+  const selectedAction = String(itemDoc?.system?.activation?.actionType ?? "");
+  if (selectedAction && !Object.hasOwn(featureActionTypeOptions, selectedAction)) featureActionTypeOptions[selectedAction] = selectedAction;
+  data.talentActionTypeOptions = featureActionTypeOptions;
+  data.traitActionTypeOptions = featureActionTypeOptions;
+  data.powerActionTypeOptions = featureActionTypeOptions;
   
   data.activationUsagePeriodOptions = {
     "": t("UESRPG.Sheets.Feature.UsagePeriod.NotSet", "\u2014 Not Set \u2014"),
@@ -447,6 +455,24 @@ export async function prepareItemSheetData(sheet, data) {
     longRest: t("UESRPG.Sheets.Feature.UsagePeriod.LongRest", "Long Rest"),
     day: t("UESRPG.Sheets.Feature.UsagePeriod.Day", "Day")
   };
+  const activation = itemDoc?.system?.activation ?? {};
+  const legacyUsage = normalizeUsage(activation).source === "uses";
+  const usageData = legacyUsage ? activation.uses ?? {} : activation.usage ?? {};
+  const period = String(legacyUsage ? usageData.reset ?? "" : usageData.period ?? "");
+  // Keep the underlying source path and any legacy/custom period when editing.
+  data.activationUsage = {
+    currentPath: legacyUsage ? "system.activation.uses.value" : "system.activation.usage.current",
+    maxPath: legacyUsage ? "system.activation.uses.max" : "system.activation.usage.max",
+    periodPath: legacyUsage ? "system.activation.uses.reset" : "system.activation.usage.period",
+    current: legacyUsage ? usageData.value ?? 0 : usageData.current ?? 0,
+    max: usageData.max ?? 0,
+    period,
+  };
+  if (period && !Object.hasOwn(data.activationUsagePeriodOptions, period)) {
+    const label = period === "daily" ? data.activationUsagePeriodOptions.day
+      : period === "none" ? data.activationUsagePeriodOptions[""] : period;
+    data.activationUsagePeriodOptions[period] = label;
+  }
   data.activationHitLocationModeOptions = {
     roll: t("UESRPG.Sheets.Feature.HitLocationMode.Roll", "Roll Location"),
     manual: t("UESRPG.Sheets.Feature.HitLocationMode.Manual", "Manual Location")

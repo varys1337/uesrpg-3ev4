@@ -7,6 +7,10 @@
  */
 
 import { CONDITION_KEYS as CANONICAL_CONDITION_KEYS } from "../conditions/catalog.js";
+import { isPassiveFeatureActive } from "./features/feature-config.js";
+import { reduceAllByStacking } from "./features/stacking.js";
+import { getSummonedRegeneration } from "../magic/conjuration/conjuration-state.js";
+import { getFlagValueWithFallback } from "../system/flags.js";
 
 const DAMAGE_TYPE_MAP = {
   // RAW: "Resistance (Normal Weapons, X)" is treated as Physical resistance.
@@ -213,6 +217,16 @@ function _getTraitSignature(item) {
   };
 }
 
+/** Numeric X-traits use their parameter, rather than a second authored bonus. */
+export function getTraitNumericBonuses(item) {
+  if (item?.type !== "trait") return {};
+  const key = _normalizeToken(item.system?.traitKey);
+  const value = Number(item.system?.traitValue ?? 0);
+  if (!Number.isFinite(value)) return {};
+  const field = { powerwell: "mpBonus", naturaltoughness: "natToughnessR", tough: "wtBonus", flyer: "flyBonus" }[key];
+  return field ? { [field]: Math.max(0, value) } : {};
+}
+
 function _matchesTraitSignature(sig, key, param = null) {
   const desiredKeyRaw = _normalizeKey(key).replace(/[/:]+/g, ".");
   const desiredKeyFlat = _normalizeToken(desiredKeyRaw);
@@ -296,6 +310,7 @@ export function collectTraitDamageModifiers(items = []) {
     if (!item) continue;
     const itemType = String(item.type ?? "");
     if (!["trait", "talent", "power"].includes(itemType)) continue;
+    if (!isPassiveFeatureActive(item)) continue;
 
     const traitKey = item.system?.traitKey ?? "";
     const traitParam = item.system?.traitParam ?? "";
@@ -427,6 +442,7 @@ export function hasActorTrait(actor, key, { param = null } = {}) {
   for (const item of (actor.items ?? [])) {
     if (!item) continue;
     if (!["trait", "talent", "power"].includes(String(item.type ?? ""))) continue;
+    if (!isPassiveFeatureActive(item)) continue;
     const sig = _getTraitSignature(item);
     if (_matchesTraitSignature(sig, key, param)) return true;
   }
@@ -456,6 +472,7 @@ export function getActorTraitValue(actor, key, { param = null, mode = "sum" } = 
   for (const item of (actor.items ?? [])) {
     if (!item) continue;
     if (!["trait", "talent", "power"].includes(String(item.type ?? ""))) continue;
+    if (!isPassiveFeatureActive(item)) continue;
     const sig = _getTraitSignature(item);
     if (!_matchesTraitSignature(sig, key, param)) continue;
     const value = Number(item.system?.traitValue);
@@ -468,7 +485,10 @@ export function getActorTraitValue(actor, key, { param = null, mode = "sum" } = 
     }
   }
 
-  return useMax ? (found ? max : 0) : total;
+  // Chapter 4 p84 grants the same X-trait; equivalent regeneration sources use
+  // the strongest value in its existing round-start consumer, never two heals.
+  const granted = _normalizeToken(key) === "regeneration" && !param ? getSummonedRegeneration(actor) : 0;
+  return useMax ? Math.max(found ? max : 0, granted) : total + granted;
 }
 
 export function getDiseaseResistancePercent(actor) {
@@ -482,10 +502,30 @@ export function getResistanceBonusOptions(actor) {
   const profile = getActorTraitDamageProfile(actor);
   const resist = profile?.resistance ?? {};
   const out = [];
+  const items = Array.from(actor?.items ?? []).filter(item => item?.type === "trait" && isPassiveFeatureActive(item));
+  const featureMods = Array.isArray(actor?.system?.ui?.featureMods) ? actor.system.ui.featureMods : [];
+  const racialUpgrades = {
+    magic: new Set(["lionheart", "racial-talent:lionheart"]),
+    poison: new Set(["highmen", "racial-talent:highmen", "naturesblessing", "racial-talent:naturesblessing"]),
+    frost: new Set(["sonsofskyrim", "racial-talent:sonsofskyrim"]),
+  };
 
   for (const [typeKey, def] of Object.entries(DAMAGE_TYPE_MAP)) {
-    const value = Number(resist?.[typeKey] ?? 0);
-    if (!Number.isFinite(value) || value <= 0) continue;
+    // Legacy racial traits store Resistance (X) in their numeric field.
+    // Disease Resistance is a percentage, not a Resistance (Disease, X).
+    const legacy = typeKey === "disease" ? 0 : Math.max(0, ...items.map(item => Number(item.system?.[def.resistanceKey]) || 0));
+    const base = Math.max(legacy, Number(resist?.[typeKey] ?? 0) || 0);
+    if (base <= 0) continue;
+    const upgradeMods = featureMods.filter(mod => mod?.path === `system.resistance.${def.resistanceKey}`
+      && racialUpgrades[typeKey]?.has(mod.source?.key) && mod.mode === "add" && Number(mod.value) > 0);
+    const { totals } = reduceAllByStacking(upgradeMods);
+    const upgrade = Math.max(0, Number(totals.get(`system.resistance.${def.resistanceKey}`)) || 0);
+    // Malacath's Fury explicitly increases the Magic Resistance trait. Other
+    // Active Effect resistance changes do not necessarily grant that trait.
+    const fury = typeKey === "magic" ? Math.max(0, ...Array.from(actor?.effects ?? [])
+      .filter(effect => !effect.disabled && getFlagValueWithFallback(effect, "key") === "talent:malacathsFury")
+      .map(effect => Number(getFlagValueWithFallback(effect, "malacathsFury.magicR")) || 0)) : 0;
+    const value = base + upgrade + fury;
     out.push({
       key: typeKey,
       label: def?.label ?? typeKey,

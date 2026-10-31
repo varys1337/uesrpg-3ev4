@@ -1,5 +1,11 @@
 # Changelog
 
+## v14.3.2
+
+- Incorporates the Core rules, combat, character creation, inventory, magic and compendium workflow corrections prepared in the current workspace, with safeguards that stop selected unsafe or incomplete activations for manual resolution.
+- Retains the existing compiled Core packs matched to their authoring sources. Additional source-only compendium corrections are not included in these packs and need a future native rebuild and verification.
+- Documents the remaining manual rules and incomplete feature review in the Core compendium review ledger. The changes have passed static checks; the current Foundry scenarios have not been run.
+
 ## v14.2.0
 
 ### Interface preferences

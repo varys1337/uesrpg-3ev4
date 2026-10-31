@@ -190,6 +190,7 @@ export function computeAdvantageRAW(data, outcome, defender = null, opts = {}) {
   // Defender Advantage is still permitted (e.g., against ranged attacks).
   const attackMode = _getContextAttackMode(data?.context);
   if (winnerKey === "attacker" && attackMode !== "melee") adv = 0;
+  if (winnerKey === "attacker" && data?.context?.mightyCleave?.enabled === true) adv = 0;
 
   // Buckler: defender always gains Advantage on a successful Parry win.
   if (winnerKey === "defender" && _hasEquippedShieldType && _resolveDoc) {

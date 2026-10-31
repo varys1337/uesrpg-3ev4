@@ -16,13 +16,14 @@
  * Determine whether a transfer=true Active Effect on an Item should be considered active for the Actor.
  *
  * Current v1 rules:
- *  - talent / trait / power: always active (passive features)
+ *  - talent / trait / power: active when their feature configuration allows it
  *  - weapon / armor / shield: active only when item.system.equipped === true
  *  - spell: inactive by default; spell AEs are cast-applied, not passively transferred
  *  - other item types: inactive by default (conservative; we whitelist types deliberately)
  */
 
 import { getRuntimeSystemId } from "../system/namespace.js";
+import { getFeatureConfig, isPassiveFeatureActive } from "../traits/features/feature-config.js";
 
 // Module-level cache for the passive-transfer setting. Invalidated on settings
 // change so we avoid re-parsing the setting string on every isTransferEffectActive
@@ -56,23 +57,14 @@ export function isTransferEffectActive(actor, item, effect) {
   const type = String(item.type ?? "").toLowerCase();
   const passiveTypes = getPassiveTransferItemTypes();
 
-  // If configured as passive-transfer, it's always active while owned (in inventory).
-  if (passiveTypes.has(type)) return true;
-
-  // PASSIVE FEATURE TYPES: ALWAYS ACTIVE
-  // Talents, Traits, and Powers are inherent character abilities.
-  // They do NOT require equipment status - they are always "on".
-  // These represent passive character features like racial abilities, learned talents, etc.
-  // Exception: if suppressSelfTransfer is enabled, the item's AEs should NOT
-  // apply to the owning actor (they are meant to be transferred to targets instead).
+  // Feature configuration also governs passive effects, including when a
+  // feature type is listed in the passive-transfer setting.
   if (type === "talent" || type === "trait" || type === "power") {
-    try {
-      const suppress = item.getFlag?.(getRuntimeSystemId(), "featureConfig")?.suppressSelfTransfer
-        ?? item.getFlag?.("uesrpg-3ev4", "featureConfig")?.suppressSelfTransfer;
-      if (suppress === true) return false;
-    } catch (_e) { /* safe fallback — allow transfer */ }
-    return true;
+    return isPassiveFeatureActive(item) && !getFeatureConfig(item).suppressSelfTransfer;
   }
+
+  // Other explicitly configured types are active while owned.
+  if (passiveTypes.has(type)) return true;
   
   // EQUIPMENT TYPES: REQUIRE EQUIPPED STATUS
   // Weapons and armor must be equipped to provide their active effects.

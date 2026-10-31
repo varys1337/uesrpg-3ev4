@@ -1,3 +1,5 @@
+import { requestXpPurchase } from "../../../core/advancement/purchase-service.js";
+import { showXpPurchaseFailure } from "../../advancement/purchase-review.js";
 import { editSheetPortrait } from "./shared/file-picker.js";
 import { _inferTypedLaneFromText, _extractFirstNumber } from '../../../core/documents/item-utils.js';
 
@@ -29,6 +31,7 @@ import { getScalingLevelsArray, normalizeScalingEntry, logSpellDebug } from "../
 import { requestAtomicUpdateDocument, requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { activateProseMirrorEditors } from "../shared/editor-activation.js";
 import { ITEM_TYPE_MODEL_SEEDS } from "../../../core/data-models/defaults.generated.js";
+import { normalizeSpellLearningType } from "../../../core/magic/magicka-utils.js";
 
 import { readDropData, resolveDroppedItem } from "../../../utils/drop-data.js";
 import { onCastEnchantmentAction } from "../shared/listeners/enchanting-cast.js";
@@ -95,7 +98,7 @@ const ITEM_SHEET_PART_MAP = Object.freeze(Object.fromEntries(ITEM_SHEET_TYPES.ma
 })])));
 const DEFAULT_ITEM_SHEET_PARTS = ITEM_SHEET_PART_MAP.equipment;
 const ALLOW_ITEM_FORM_PATH = createFormPathMatcher({
-  exact: ["name"],
+  exact: ["name", "containerLimitQuantity", "containerMaxQuantity"],
   prefixes: [
     "system.",
     "flags.",
@@ -459,6 +462,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       context.isGM = game.user.isGM;
       context.owner = this.document.isOwner;
       context.limited = this.document.limited;
+      context.isRitualReference = this.document.type === "spell" && normalizeSpellLearningType(this.document) === "ritual";
       context.cssClass = this.isEditable ? "editable" : "locked";
       context.options = { editable: this.isEditable };
 
@@ -693,12 +697,17 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     } catch (cause) {
       throw new Error(`${t("UESRPG.Notifications.Sheets.FormSaveFailed")} (${this.document.uuid}): ${cause?.message ?? String(cause)}`, { cause });
     }
-    const updated = await requestUpdateDocument(this.document, flatData);
-    if (!updated) throw new Error(`${t("UESRPG.Notifications.Sheets.FormSaveFailed")} (${this.document.uuid})`);
-    if (advancement.xpCost > 0 && advancement.actor) {
-      const actorUpdated = await requestUpdateDocument(advancement.actor, { "system.xp": advancement.nextXp });
-      if (!actorUpdated) throw new Error(`The item was saved, but the XP update failed for ${advancement.actor.uuid}. Review the Actor's XP before further advancement.`);
-      ui.notifications?.info?.(game.i18n.format("UESRPG.Notifications.Items.SpentXp", { xp: advancement.xpCost }));
+    if (advancementChanged && this.document.actor?.type === "Player Character"
+        && ["skill", "magicSkill", "combatStyle"].includes(this.document.type)) {
+      const purchase = await requestXpPurchase(this.document.actor, "itemSheet", { itemId: this.document.id, flatData });
+      if (!purchase.ok) {
+        await showXpPurchaseFailure(this.document.actor, purchase, { sheet: this });
+        return { ok: false, notified: true };
+      }
+      if (purchase.xpCost > 0 && !purchase.replayed) ui.notifications?.info?.(game.i18n.format("UESRPG.Notifications.Items.SpentXp", { xp: purchase.xpCost }));
+    } else {
+      const updated = await requestUpdateDocument(this.document, flatData);
+      if (!updated) throw new Error(t("UESRPG.Notifications.Sheets.FormSaveFailed"));
     }
     return {
       ok: true,
@@ -858,7 +867,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     const actor = this.document.actor;
     if (!this.document.isOwned || !actor) return;
     try {
-      const updated = await requestUpdateDocument(actor, { [`flags.${SYSTEM_ID}.-=activeCombatStyleId`]: null });
+      const updated = await requestUpdateDocument(actor, { [`flags.${SYSTEM_ID}.activeCombatStyleId`]: foundry.data.operators.ForcedDeletion.create() });
       if (!updated) throw new Error(t("UESRPG.Notifications.Sheets.ActiveCombatStyleDeactivateFailed"));
       ui.notifications?.info?.(t("UESRPG.Notifications.Sheets.ActiveCombatStyleDeactivated"));
       actor.sheet?.render?.(false);

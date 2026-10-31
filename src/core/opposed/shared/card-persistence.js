@@ -7,6 +7,11 @@ import { stampInlineOutcomeApplications } from "../../config/outcome-application
 
 function protectLane(fresh, patch, family, preserveReports = true) {
   if (!fresh || !patch) return;
+  // A stale update must not silently release a characteristic-save review.
+  // Explicit, revision-checked card replacement remains available separately.
+  if (family === "magic" && fresh.outcome?.characteristicDefense === true && fresh.outcome?.needsReview === true) {
+    patch.outcome = cloneFlagState(fresh.outcome);
+  }
   if (fresh.damage?.application) {
     patch.damage ??= cloneFlagState(fresh.damage);
     if (patch.damage) patch.damage.application = cloneFlagState(fresh.damage.application);

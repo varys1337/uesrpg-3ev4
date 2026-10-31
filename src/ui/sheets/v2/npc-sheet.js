@@ -1,3 +1,4 @@
+import { projectPreparedDerivedExplanation } from "../../../core/actors/prepare/derived-explanation.js";
 import { buildFeatureInspectorContext } from "../shared/feature-inspector.js";
 import { renderTNSummary, bindTNEstimates } from "../../shared/tn-presentation.js";
 import { normalizeActorFormValue as normalizeNpcFormValue, buildAllowedChangePatch, buildAllowedSubmitPatch, getChangedTrackerFormValues, createFormPathMatcher } from './shared/form-pipeline.js';
@@ -63,7 +64,7 @@ import { onWealthCalc } from "../shared/listeners/economy-handlers.js";
 // Shared UI-state handlers (collapse, loadouts, item create)
 import { onToggleGroupCollapse, onLoadoutSave, onLoadoutApply, onLoadoutDelete } from "../shared/helpers/ui-state-handlers.js";
 import { onItemCreate } from "../shared/dialogs/equipment-dialogs.js";
-import { onDropItemIntoContainer, removeItemFromContainer } from "../item/listeners/containment.js";
+import { onDropItemIntoContainer, removeItemFromContainer, prepareInventoryItemCopy } from "../item/listeners/containment.js";
 
 // Shared resource / rest handlers — authority-proxy safe
 import {
@@ -95,7 +96,7 @@ import { setSystemTooltip } from "../../shared/system-tooltips.js";
 import {
   buildWoundsInjuriesPanelContext,
   isWoundsOrShockEffect,
-  onWoundsInjuriesControl
+  onWoundsInjuriesControl, notifyWoundTreatmentResult
 } from "./shared/wounds-injuries-panel.js";
 import { activateProseMirrorEditors, openProseMirrorEditor } from "../shared/editor-activation.js";
 
@@ -730,6 +731,8 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       }
 
       tracePhase("diagnostics:features", perfFeatureStart);
+      context.preparedValueExplanation = _needs("combat") && (game.user?.isGM || actor.isOwner)
+        ? projectPreparedDerivedExplanation(actor.system, { includeContributions: true }) : null;
 
       context.engagementFlankingEnabled = isEngagementFlankingHomebrewEnabled();
       context.engagementFlankingMaxES = (() => {
@@ -976,11 +979,11 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     const id = String(target?.dataset?.woundId ?? "").trim();
     if (!id) return;
     const fn = game?.uesrpg?.wounds?.attemptTreatWound;
-    if (typeof fn === "function") await fn(this.document, id, {});
+    if (typeof fn === "function") notifyWoundTreatmentResult(await fn(this.document, id, {}));
   }
   async _onWoundTreatAll() {
     const fn = game?.uesrpg?.wounds?.attemptTreatAllWounds;
-    if (typeof fn === "function") await fn(this.document, {});
+    if (typeof fn === "function") notifyWoundTreatmentResult(await fn(this.document, {}));
   }
   async _onWoundClear(_event, target) {
     const id = String(target?.dataset?.woundId ?? "").trim();
@@ -1104,7 +1107,10 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       content: `<p>${tf("UESRPG.Dialogs.DuplicateItem.Content", { item: foundry.utils.escapeHTML(item.name) })}</p>`,
     });
     if (confirmed) {
-      const created = await requestCreateEmbeddedDocuments(this.document, "Item", [item.toObject()]);
+      let data;
+      try { data = prepareInventoryItemCopy(this.document, item); }
+      catch (error) { ui.notifications?.warn?.(String(error.message ?? error)); return; }
+      const created = await requestCreateEmbeddedDocuments(this.document, "Item", [data]);
       await created?.[0]?.sheet?.render?.(true);
     }
   }
@@ -1242,21 +1248,19 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     if (shouldUseTargetedSpellWorkflow(spellToCast, targets)) {
       const spellOptions = await this._showSpellOptionsDialog(spellToCast);
       if (spellOptions === null) return;
-      await this._castAttackSpell(spellToCast, targets, spellOptions, "primary");
-      return;
+      return this._castAttackSpell(spellToCast, targets, spellOptions, "primary");
     }
 
     if (shouldUseModernSpellWorkflow(spellToCast)) {
       const spellOptions = await this._showSpellOptionsDialog(spellToCast);
       if (spellOptions === null) return;
-      await MagicOpposedWorkflow.castUnopposed({
+      return MagicOpposedWorkflow.castUnopposedResult({
         attackerActorUuid: this.document.uuid,
         attackerTokenUuid: this.token?.document?.uuid ?? this.token?.uuid ?? null,
         spellUuid: spellToCast.uuid,
         spellOptions,
         castActionType: "primary",
       });
-      return;
     }
     // Legacy spell casting removed — all spells now use modern pipeline
   }

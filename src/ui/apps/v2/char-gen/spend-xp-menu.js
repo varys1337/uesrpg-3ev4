@@ -1,7 +1,5 @@
-﻿import {
-  requestUpdateDocument,
-  requestCreateEmbeddedDocuments,
-} from "../../../../utils/authority-proxy.js";
+import { requestXpPurchase, getXpPurchaseSnapshot } from "../../../../core/advancement/purchase-service.js";
+import { showXpPurchaseFailure } from "../../../advancement/purchase-review.js";
 import { resolveDroppedItem } from "../../../../utils/drop-data.js";
 import { customDialog, confirmDialog } from "../../../../utils/dialog-v2-helper.js";
 import {
@@ -9,6 +7,8 @@ import {
   normalizeRank,
   parseSpecializations,
   discountCostIfFavored,
+  computeCharacteristicAdvancementCost,
+  isFavoredSkillForActor,
   getMaxPurchasableRankIndexFromXpTotal,
   SKILL_RANK_ORDER,
   SKILL_RANK_XP_COST,
@@ -27,8 +27,7 @@ import {
   buildKnownSpellIndex,
 } from "../../../../core/advancement/spell-learning.js";
 import { getCampaignRankFromXpTotal as campaignRankFromXpTotal } from "../../../../core/advancement/progression.js";
-import { appendChargenAudit } from "./audit-log.js";
-import { SYSTEM_ID, templatePath } from "../../../constants.js";
+import { templatePath } from "../../../constants.js";
 import { t, tf } from "../../../../utils/i18n.js";
 import { TRAINING_RANK_LABELS } from "../../../../core/config/label-catalog.js";
 import {
@@ -37,14 +36,12 @@ import {
   getEmbeddedCoreSkillFolderId,
 } from "../../../../core/compendium/core-skills.js";
 import {
-  buildAdministrativeCorrectionAudit,
   isChargenCompleted,
   promptAdministrativeCorrectionReason,
 } from "./racial-grants.js";
 import { withApplicationUniqueId } from "../application-identity.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
-const SPEND_XP_MANAGED_FLAG = "chargenSpendXpManaged";
 
 function _asNumber(value, fallback = 0) {
   const n = Number(value);
@@ -103,37 +100,6 @@ function _rankLabel(rank) {
   return t(TRAINING_RANK_LABELS[key] ?? key);
 }
 
-function _characteristicsSnapshot(actor) {
-  const out = {};
-  for (const key of Object.keys(actor?.system?.characteristics ?? {})) {
-    const c = actor.system.characteristics[key] ?? {};
-    out[key] = {
-      base: _asNumber(c.base, 0),
-      total: _asNumber(c.total, 0),
-      bonus: _asNumber(c.bonus, Math.floor(_asNumber(c.total, 0) / 10)),
-      favored: Boolean(c.favored),
-    };
-  }
-  return out;
-}
-
-function _skillLikeSnapshot(item) {
-  if (!item) return null;
-  return {
-    key: _buildSkillKey(item.id, null),
-    itemId: item.id,
-    tempId: null,
-    type: item.type,
-    name: item.name,
-    img: item.img,
-    system: _cloneSystem(item.system),
-  };
-}
-
-function _getPathValue(source, path) {
-  return foundry.utils.getProperty(source, path.replace(/^system\./, "system."));
-}
-
 function _setPathValue(source, path, value) {
   foundry.utils.setProperty(source, path.replace(/^system\./, "system."), value);
 }
@@ -146,50 +112,9 @@ function _applyFlatDataToSkillSnapshot(skill, flatData) {
   }
 }
 
-function _normalizeComparable(path, value) {
-  if (path === "system.rank") return normalizeRank(value);
-  if (path === "system.trainedItems") return parseSpecializations(value ?? "").map((v) => v.toLowerCase()).join("|");
-  if (path === "system.trainedEquipment") {
-    const arr = Array.isArray(value) ? value : [];
-    return arr.map((v) => String(v ?? "").trim().toLowerCase()).join("|");
-  }
-  return JSON.stringify(value ?? null);
-}
-
-function _pathLabel(path) {
-  if (path === "system.rank") return "rank";
-  if (path === "system.trainedItems") return "specializations";
-  if (path === "system.trainedEquipment") return "trained equipment";
-  return path;
-}
-
-function _formatPathValue(path, value) {
-  if (path === "system.rank") return _rankLabel(value);
-  if (path === "system.trainedItems") return parseSpecializations(value ?? "").join(", ") || "none";
-  if (path === "system.trainedEquipment") {
-    const arr = Array.isArray(value) ? value : [];
-    return arr.map((v) => String(v ?? "").trim()).filter(Boolean).join(", ") || "none";
-  }
-  return String(value ?? "");
-}
-
-function _stampSpendXpManagedTalent(itemData, entryId) {
-  const data = foundry.utils.deepClone(itemData ?? {});
-  data.flags = data.flags && typeof data.flags === "object" ? foundry.utils.deepClone(data.flags) : {};
-  data.flags[SYSTEM_ID] = data.flags[SYSTEM_ID] && typeof data.flags[SYSTEM_ID] === "object"
-    ? foundry.utils.deepClone(data.flags[SYSTEM_ID])
-    : {};
-  data.flags[SYSTEM_ID][SPEND_XP_MANAGED_FLAG] = {
-    managed: true,
-    validated: true,
-    source: "spend-xp-menu",
-    entryId: String(entryId ?? ""),
-  };
-  return data;
-}
-
 export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
   #actor;
+  #purchaseBase = null;
   #onClose = null;
   #dropZonesBound = false;
   #selectedCharacteristic = "str";
@@ -308,6 +233,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
   }
 
   #captureSessionBase() {
+    this.#purchaseBase = getXpPurchaseSnapshot(this.#actor).catch(() => null);
     const actor = this.#actor;
     const characteristics = {};
     for (const key of Object.keys(actor?.system?.characteristics ?? {})) {
@@ -499,24 +425,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     };
   }
 
-  #buildFinalizeValidationActor({ xp, wealth, characteristics, extraItems = [] } = {}) {
-    const items = (this.#sessionBase.validationItems ?? []).map((it) => _cloneItemLike(it));
-    for (const extra of extraItems) items.push(_cloneItemLike(extra));
-    return {
-      documentName: "Actor",
-      type: this.#actor?.type ?? "Player Character",
-      system: {
-        ...foundry.utils.deepClone(this.#actor?.system ?? {}),
-        xp: _asNumber(xp, 0),
-        wealth: _asNumber(wealth, 0),
-        characteristics: foundry.utils.deepClone(characteristics ?? this.#sessionBase?.characteristics ?? {}),
-      },
-      items,
-      getFlag: (...args) => this.#actor?.getFlag?.(...args),
-    };
-  }
-
-  #planSkillChange(skill, flatData, derived) {
+#planSkillChange(skill, flatData, derived) {
     const actorMock = {
       system: {
         xp: this.#isAdministrativeCorrection() ? Number.MAX_SAFE_INTEGER : derived.xp,
@@ -582,375 +491,17 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     return this.#buildLiveFingerprint() !== this.#sessionBase?.fingerprint;
   }
 
-  async #appendSpendLogEntries(entries) {
-    const flagData = this.#actor.getFlag(SYSTEM_ID, "chargen") ?? {};
-    const spendLog = Array.isArray(flagData.spendLog) ? [...flagData.spendLog] : [];
-    for (const row of entries) {
-      spendLog.push({
-        type: row.type,
-        name: row.name,
-        costXp: _asNumber(row.costXp, 0),
-        costWealth: _asNumber(row.costWealth, 0),
-        timestamp: new Date().toISOString(),
-        details: row.details ?? {},
-      });
-    }
-    await requestUpdateDocument(this.#actor, { "flags.uesrpg-3ev4.chargen.spendLog": spendLog });
-  }
-
-  async #preflightFinalizeDraft() {
-    const liveActor = this.#actor?.uuid
-      ? await fromUuid(this.#actor.uuid).catch(() => null)
-      : this.#actor;
-    if (!liveActor || liveActor.documentName !== "Actor") {
-      return { ok: false, reason: "Actor could not be resolved before confirming Spend XP." };
-    }
-
-    const liveItems = Array.from(liveActor.items?.contents ?? liveActor.items ?? []);
-    const liveSkills = new Map();
-    for (const item of this.#skillLikeItems(liveItems)) {
-      const snap = _skillLikeSnapshot(item);
-      if (snap) liveSkills.set(snap.key, snap);
-    }
-
-    const expectedSkills = new Map();
-    for (const skill of this.#sessionBase?.skills ?? []) {
-      expectedSkills.set(skill.key, {
-        key: skill.key,
-        itemId: skill.itemId,
-        tempId: skill.tempId,
-        type: skill.type,
-        name: skill.name,
-        img: skill.img,
-        system: _cloneSystem(skill.system),
-      });
-    }
-
-    const validationItems = liveItems.map((it) => _cloneItemLike(it));
-    const projectedCharacteristics = _characteristicsSnapshot(liveActor);
-    const expectedCharacteristics = foundry.utils.deepClone(this.#sessionBase?.characteristics ?? {});
-    const touchedCharacteristics = new Set();
-    const touchedSkillPaths = new Set();
-    let projectedXp = _asNumber(liveActor.system?.xp, 0);
-    let projectedWealth = _asNumber(liveActor.system?.wealth, 0);
-    const xpTotal = _asNumber(liveActor.system?.xpTotal, _asNumber(this.#sessionBase?.xpTotal, 0));
-
-    const administrativeCorrection = this.#isAdministrativeCorrection();
-    const buildActorMock = () => ({
-      documentName: "Actor",
-      type: liveActor?.type ?? this.#actor?.type ?? "Player Character",
-      system: {
-        ...foundry.utils.deepClone(liveActor?.system ?? {}),
-        xp: administrativeCorrection ? Number.MAX_SAFE_INTEGER : projectedXp,
-        wealth: projectedWealth,
-        xpTotal,
-        characteristics: foundry.utils.deepClone(projectedCharacteristics),
-      },
-      items: validationItems.map((it) => _cloneItemLike(it)),
-      getFlag: (...args) => liveActor?.getFlag?.(...args),
-    });
-
-    const spend = (entry) => {
-      const costXp = _asNumber(entry.costXp, 0);
-      const costWealth = _asNumber(entry.costWealth, 0);
-      if (!administrativeCorrection && costXp > projectedXp) {
-        return {
-          ok: false,
-          reason: `Not enough XP for ${entry.label}. Required ${costXp}, available ${projectedXp}.`,
-        };
-      }
-      if (costWealth > projectedWealth) {
-        return {
-          ok: false,
-          reason: `Not enough Drakes for ${entry.label}. Required ${costWealth}, available ${projectedWealth}.`,
-        };
-      }
-      if (!administrativeCorrection) projectedXp -= costXp;
-      projectedWealth -= costWealth;
-      return { ok: true };
-    };
-
-    const replaceValidationItem = (skill) => {
-      const plain = {
-        id: skill.itemId ?? skill.tempId ?? "",
-        name: skill.name,
-        type: skill.type,
-        img: skill.img,
-        system: _cloneSystem(skill.system),
-        flags: {},
-      };
-      const idx = validationItems.findIndex((it) => String(it.id ?? "") === String(plain.id));
-      if (idx >= 0) validationItems[idx] = plain;
-      else validationItems.push(plain);
-    };
-
-    for (const entry of this.#draftEntries) {
-      if (entry.kind === "characteristicAdvance") {
-        const key = String(entry.payload?.key ?? "").toLowerCase();
-        const liveCha = projectedCharacteristics?.[key];
-        const expectedCha = expectedCharacteristics?.[key];
-        if (!liveCha || !expectedCha) {
-          return { ok: false, reason: `Characteristic ${_chaLabel(key)} could not be resolved before confirming Spend XP.` };
-        }
-        if (!touchedCharacteristics.has(key)) {
-          const liveBase = _asNumber(liveCha.base, 0);
-          const expectedBase = _asNumber(expectedCha.base, 0);
-          const liveFavored = Boolean(liveCha.favored);
-          const expectedFavored = Boolean(expectedCha.favored);
-          if (liveBase !== expectedBase || liveFavored !== expectedFavored) {
-            return {
-              ok: false,
-              reason: `${_chaLabel(key)} changed while Spend XP was open (base ${expectedBase} -> ${liveBase}, favored ${expectedFavored ? "yes" : "no"} -> ${liveFavored ? "yes" : "no"}). Reopen Spend XP and stage again.`,
-            };
-          }
-          touchedCharacteristics.add(key);
-        }
-        const spent = spend(entry);
-        if (!spent.ok) return spent;
-        liveCha.base = _asNumber(liveCha.base, 0) + 1;
-        liveCha.total = _asNumber(liveCha.total, 0) + 1;
-        liveCha.bonus = Math.floor(_asNumber(liveCha.total, 0) / 10);
-        expectedCha.base = _asNumber(expectedCha.base, 0) + 1;
-        expectedCha.total = _asNumber(expectedCha.total, 0) + 1;
-        expectedCha.bonus = Math.floor(_asNumber(expectedCha.total, 0) / 10);
-        continue;
-      }
-
-      if (entry.kind === "addSkillLikeItem") {
-        const spent = spend(entry);
-        if (!spent.ok) return spent;
-        const itemData = foundry.utils.deepClone(entry.payload?.itemData ?? {});
-        const tempId = String(entry.payload?.tempId ?? "");
-        if (!tempId) return { ok: false, reason: `Staged item ${entry.label} is missing its temporary id.` };
-        const key = _buildSkillKey(null, tempId);
-        const skill = {
-          key,
-          itemId: null,
-          tempId,
-          type: String(itemData.type ?? ""),
-          name: String(itemData.name ?? "New Item"),
-          img: String(itemData.img ?? ""),
-          system: _cloneSystem(itemData.system),
-        };
-        liveSkills.set(key, skill);
-        expectedSkills.set(key, foundry.utils.deepClone(skill));
-        validationItems.push({
-          id: tempId,
-          name: skill.name,
-          type: skill.type,
-          img: skill.img,
-          system: _cloneSystem(skill.system),
-          flags: foundry.utils.deepClone(itemData.flags ?? {}),
-        });
-        continue;
-      }
-
-      if (entry.kind === "skillRankAdvance" || entry.kind === "skillAddSpec" || entry.kind === "combatStyleAddEquipment") {
-        const ref = String(entry.payload?.itemRef ?? "");
-        const liveSkill = liveSkills.get(ref);
-        const expectedSkill = expectedSkills.get(ref);
-        if (!liveSkill || !expectedSkill) {
-          return { ok: false, reason: `Staged skill target for ${entry.label} could not be resolved before confirming Spend XP.` };
-        }
-        const flatData = entry.payload?.flatData ?? {};
-        for (const [path, value] of Object.entries(flatData)) {
-          const touchKey = `${ref}:${path}`;
-          if (!touchedSkillPaths.has(touchKey) && ref.startsWith("id:")) {
-            const liveValue = _getPathValue(liveSkill, path);
-            const expectedValue = _getPathValue(expectedSkill, path);
-            if (_normalizeComparable(path, liveValue) !== _normalizeComparable(path, expectedValue)) {
-              return {
-                ok: false,
-                reason: `${liveSkill.name} ${_pathLabel(path)} changed while Spend XP was open (${_formatPathValue(path, expectedValue)} -> ${_formatPathValue(path, liveValue)}). Reopen Spend XP and stage again.`,
-              };
-            }
-            touchedSkillPaths.add(touchKey);
-          }
-        }
-
-        const projectedSkill = expectedSkill;
-        const actorMock = {
-          system: {
-            xp: projectedXp,
-            xpTotal,
-            characteristics: foundry.utils.deepClone(projectedCharacteristics),
-          },
-        };
-        const plan = buildSkillAdvancementPlan({
-          actor: actorMock,
-          item: {
-            type: projectedSkill.type,
-            system: _cloneSystem(projectedSkill.system),
-          },
-          flatData,
-          options: { bypassXpPayment: administrativeCorrection },
-        });
-        if (!plan.ok && !String(plan.reason ?? "").startsWith("Not enough XP.")) {
-          return { ok: false, reason: plan.reason ?? `Unable to confirm staged purchase: ${entry.label}.` };
-        }
-        const spent = spend(entry);
-        if (!spent.ok) return spent;
-        _applyFlatDataToSkillSnapshot(projectedSkill, flatData);
-        replaceValidationItem(projectedSkill);
-        continue;
-      }
-
-      if (entry.kind === "talentLearn") {
-        const itemData = foundry.utils.deepClone(entry.payload?.itemData ?? {});
-        const validation = validateTalentLearning(buildActorMock(), itemData, { source: "chargen-spendxp-confirm" });
-        if (validation.mode === TALENT_LEARNING_MODE.ENFORCE && !validation.ok) {
-          return { ok: false, reason: validation.reasons?.join(" ") || `Talent learning blocked for ${itemData?.name ?? "Talent"}.` };
-        }
-        if (validation.mode !== TALENT_LEARNING_MODE.ENFORCE && !validation.rulesOk) {
-          return { ok: false, reason: validation.reasons?.join(" ") || validation.guidance?.join(" ") || `Talent learning blocked for ${itemData?.name ?? "Talent"}.` };
-        }
-        const finalCost = Math.max(0, _asNumber(validation.xpCost, 0));
-        if (finalCost !== _asNumber(entry.costXp, 0)) {
-          return { ok: false, reason: `Talent XP cost changed for ${itemData?.name ?? "Talent"} (${entry.costXp} -> ${finalCost}). Reopen Spend XP and stage again.` };
-        }
-        const spent = spend(entry);
-        if (!spent.ok) return spent;
-        validationItems.push(_cloneItemLike({ ...itemData, id: `preflight-talent-${entry.id}` }));
-        continue;
-      }
-
-      if (entry.kind === "spellLearn") {
-        const itemData = foundry.utils.deepClone(entry.payload?.itemData ?? {});
-        const paymentMode = String(entry.payload?.paymentMode ?? "xp") === "drakes" ? "drakes" : "xp";
-        const actorMock = buildActorMock();
-        const knownSpellIndex = buildKnownSpellIndex(actorMock);
-        const validation = validateSpellLearningPurchase(actorMock, itemData, paymentMode, { knownSpellIndex });
-        if (!validation.ok) {
-          return { ok: false, reason: validation.reason || `Spell learning blocked for ${itemData?.name ?? "Spell"}.` };
-        }
-        const costXp = paymentMode === "xp" ? _asNumber(validation.costs?.xpCost, 0) : 0;
-        const costWealth = paymentMode === "drakes" ? _asNumber(validation.costs?.drakesCost, 0) : 0;
-        if (costXp !== _asNumber(entry.costXp, 0) || costWealth !== _asNumber(entry.costWealth, 0)) {
-          return {
-            ok: false,
-            reason: `Spell learning cost changed for ${itemData?.name ?? "Spell"} (XP ${entry.costXp} -> ${costXp}, Drakes ${entry.costWealth} -> ${costWealth}). Reopen Spend XP and stage again.`,
-          };
-        }
-        const spent = spend(entry);
-        if (!spent.ok) return spent;
-        validationItems.push(_cloneItemLike({ ...itemData, id: `preflight-spell-${entry.id}` }));
-      }
-    }
-
-    return {
-      ok: true,
-      actor: liveActor,
-      projectedXp,
-      projectedWealth,
-      projectedCharacteristics,
-    };
-  }
-
-  async #finalizeDraft() {
+async #finalizeDraft() {
     if (!this.#draftEntries.length) return { ok: true, applied: 0 };
-    const preflight = await this.#preflightFinalizeDraft();
-    if (!preflight.ok) return preflight;
-    this.#actor = preflight.actor ?? this.#actor;
-
-    const tempIdToRealId = new Map();
-    const spendRows = [];
-
-    try {
-      for (const entry of this.#draftEntries) {
-        if (entry.kind === "addSkillLikeItem") {
-          const created = await requestCreateEmbeddedDocuments(this.#actor, "Item", [foundry.utils.deepClone(entry.payload?.itemData ?? {})]);
-          const createdItem = created?.[0] ?? null;
-          if (!createdItem) throw new Error(`Failed to create item for staged operation ${entry.id}.`);
-          const tempId = String(entry.payload?.tempId ?? "");
-          if (tempId) tempIdToRealId.set(tempId, createdItem.id);
-          spendRows.push({ type: "item", name: createdItem.name, costXp: entry.costXp, costWealth: entry.costWealth, details: { stagedKind: entry.kind } });
-          continue;
-        }
-
-        if (entry.kind === "talentLearn") {
-          const itemData = foundry.utils.deepClone(entry.payload?.itemData ?? {});
-          const created = await requestCreateEmbeddedDocuments(this.#actor, "Item", [_stampSpendXpManagedTalent(itemData, entry.id)]);
-          const createdItem = created?.[0] ?? null;
-          if (!createdItem) throw new Error(`Failed to create item for staged operation ${entry.id}.`);
-          spendRows.push({
-            type: "talent",
-            name: createdItem.name,
-            costXp: entry.costXp,
-            costWealth: entry.costWealth,
-            details: { stagedKind: entry.kind },
-          });
-          continue;
-        }
-
-        if (entry.kind === "spellLearn") {
-          const created = await requestCreateEmbeddedDocuments(this.#actor, "Item", [foundry.utils.deepClone(entry.payload?.itemData ?? {})]);
-          const createdItem = created?.[0] ?? null;
-          if (!createdItem) throw new Error(`Failed to create item for staged operation ${entry.id}.`);
-          spendRows.push({
-            type: "spell",
-            name: createdItem.name,
-            costXp: entry.costXp,
-            costWealth: entry.costWealth,
-            details: { stagedKind: entry.kind, paymentMode: entry.payload?.paymentMode ?? "xp" },
-          });
-          continue;
-        }
-
-        if (entry.kind === "skillRankAdvance" || entry.kind === "skillAddSpec" || entry.kind === "combatStyleAddEquipment") {
-          const ref = String(entry.payload?.itemRef ?? "");
-          let itemId = null;
-          if (ref.startsWith("id:")) itemId = ref.slice(3);
-          if (ref.startsWith("temp:")) itemId = tempIdToRealId.get(ref.slice(5)) ?? null;
-          const item = itemId ? this.#actor.items.get(itemId) : null;
-          if (!item) throw new Error(`Failed to resolve staged item update ${entry.id}.`);
-          await requestUpdateDocument(item, entry.payload?.flatData ?? {});
-          spendRows.push({ type: entry.kind, name: item.name, costXp: entry.costXp, costWealth: entry.costWealth, details: { stagedKind: entry.kind } });
-        }
-      }
-
-      const actorUpdate = {
-        "system.xp": Math.max(0, _asNumber(preflight.projectedXp, 0)),
-        "system.wealth": Math.max(0, _asNumber(preflight.projectedWealth, 0)),
-      };
-      for (const key of ["str", "end", "agi", "int", "wp", "prc", "prs", "lck"]) {
-        const cha = preflight.projectedCharacteristics?.[key];
-        if (!cha) continue;
-        actorUpdate[`system.characteristics.${key}.base`] = _asNumber(cha.base, 0);
-      }
-      await requestUpdateDocument(this.#actor, actorUpdate);
-
-      const totalXp = this.#draftEntries.reduce((sum, e) => sum + _asNumber(e.costXp, 0), 0);
-      const totalWealth = this.#draftEntries.reduce((sum, e) => sum + _asNumber(e.costWealth, 0), 0);
-      await this.#appendSpendLogEntries(spendRows);
-      await appendChargenAudit(this.#actor, {
-        step: "spendxp",
-        action: "confirmDraft",
-        payload: {
-          appliedCount: this.#draftEntries.length,
-          totalXp,
-          totalWealth,
-          remainingXp: Math.max(0, _asNumber(preflight.projectedXp, 0)),
-          entries: this.#draftEntries.map((e) => ({ id: e.id, kind: e.kind, label: e.label, costXp: e.costXp, costWealth: e.costWealth })),
-          administrativeCorrection: Boolean(this.#administrativeCorrectionReason),
-          waivedXp: this.#administrativeCorrectionReason ? totalXp : 0,
-        },
-      });
-      if (this.#administrativeCorrectionReason) {
-        await appendChargenAudit(this.#actor, buildAdministrativeCorrectionAudit(this.#administrativeCorrectionReason, {
-          field: "spendXp",
-          waivedXp: totalXp,
-          entryCount: this.#draftEntries.length,
-        }));
-      }
-    } catch (err) {
-      return { ok: false, reason: String(err?.message ?? err ?? "Unknown finalize failure.") };
-    }
-
+    const result = await requestXpPurchase(this.#actor, "spendXpDraft", {
+      entries: foundry.utils.deepClone(this.#draftEntries), administrativeReason: this.#administrativeCorrectionReason,
+    }, { expected: await this.#purchaseBase });
+    if (!result.ok) return result;
     this.#draftEntries = [];
     this.#administrativeCorrectionReason = null;
     this.#captureSessionBase();
     this.#recomputeDraftDerived();
-    return { ok: true, applied: spendRows.length };
+    return result;
   }
 
   async _prepareContext(options) {
@@ -1201,12 +752,9 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     const c = derived?.characteristics?.[key];
     if (!c) return;
 
-    const bonus = _asNumber(c?.bonus, Math.floor(_asNumber(c?.total, 0) / 10));
-    const baseCost = 30 * bonus;
-    const favored = Boolean(c?.favored);
-    const xpCost = discountCostIfFavored(baseCost, favored);
+    const { bonus, baseCost, favored, xpCost } = computeCharacteristicAdvancementCost(c);
     const currentXp = _asNumber(derived?.xp, 0);
-    if (xpCost > currentXp) {
+    if (!this.#isAdministrativeCorrection() && xpCost > currentXp) {
       ui.notifications?.warn?.(tf("UESRPG.Notifications.SpendXp.NotEnoughXp", { required: xpCost, available: currentXp }));
       return;
     }
@@ -1384,29 +932,16 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     }
     const out = await this.#finalizeDraft();
     if (!out.ok) {
-      ui.notifications?.error?.(out.reason ?? t("UESRPG.Notifications.SpendXp.ConfirmFailed"));
+      await showXpPurchaseFailure(this.#actor, out);
       return;
     }
-    ui.notifications?.info?.(tf("UESRPG.Notifications.SpendXp.ConfirmedPurchases", { count: out.applied }));
+    if (!out.replayed) ui.notifications?.info?.(tf("UESRPG.Notifications.SpendXp.ConfirmedPurchases", { count: out.applied }));
     await this.render();
   }
 
   #isFavoredForSkillSystem(skillSystem, derived) {
-    const raw = String(skillSystem?.governingCha ?? skillSystem?.baseCha ?? "").toLowerCase();
-    const map = [
-      ["str", /\bstr\b|\bstrength\b/],
-      ["end", /\bend\b|\bendurance\b/],
-      ["agi", /\bagi\b|\bagility\b/],
-      ["int", /\bint\b|\bintelligence\b/],
-      ["wp", /\bwp\b|\bwillpower\b/],
-      ["prc", /\bprc\b|\bperception\b/],
-      ["prs", /\bprs\b|\bpersonality\b/],
-      ["lck", /\blck\b|\bluck\b/],
-    ];
-    for (const [key, rx] of map) {
-      if (rx.test(raw) && derived?.characteristics?.[key]?.favored) return true;
-    }
-    return false;
+    return isFavoredSkillForActor({ system: { characteristics: derived?.characteristics ?? {} } },
+      skillSystem?.governingCha ?? skillSystem?.baseCha ?? "");
   }
 
   #readDropData(event) {

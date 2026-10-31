@@ -1,4 +1,5 @@
 import { resolveSpellProfile } from "../spell-profile.js";
+import { resolveSpellStrengthFormulaForActor } from "../magicka-utils.js";
 import { buildCombatOptionTooltipText } from "../../../data/tooltips/index.js";
 import { t, tf } from "../../../utils/i18n.js";
 
@@ -33,7 +34,7 @@ export function buildCastingOptionPresentation(actor, spell, {
     if (isRestrained) modifiers.push(saving);
   }
   return {
-    profile, restraintLabel, refund,
+    profile, spellStrengthFormula: resolveSpellStrengthFormulaForActor(spell, level, actor), restraintLabel, refund,
     restraintHelp: buildCombatOptionTooltipText("restraint", [saving, compatibility].filter(Boolean).join(". ")),
     overloadHelp: buildCombatOptionTooltipText("overload", [String(spell?.system?.overloadEffect ?? "").trim(),
       !hasMasterOfMagicka && isRestrained ? t("UESRPG.Dialogs.SpellOptions.SelectOverloadClearsRestraint", "Selecting Overload clears Restraint.") : compatibility].filter(Boolean).join(" ")),

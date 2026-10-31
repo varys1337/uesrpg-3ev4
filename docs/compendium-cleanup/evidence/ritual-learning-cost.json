@@ -1,0 +1,45 @@
+{
+  "source": "Rite of Conjuring",
+  "costs": {
+    "type": "ritual",
+    "level": 1,
+    "xpCost": 25,
+    "drakesCost": 0,
+    "allowedPayments": [
+      "xp"
+    ],
+    "purchaseMode": "both"
+  },
+  "validation": {
+    "ok": false,
+    "reason": "Insufficient XP (0/25).",
+    "costs": {
+      "type": "ritual",
+      "level": 1,
+      "xpCost": 25,
+      "drakesCost": 0,
+      "allowedPayments": [
+        "xp"
+      ],
+      "purchaseMode": "both"
+    },
+    "gating": {
+      "school": "necromancy",
+      "trained": false,
+      "spellcastingLevel": 0,
+      "requiredSpellLevel": 1,
+      "withinSpellcastingLevel": true,
+      "duplicate": false,
+      "ritualAllowed": true,
+      "paymentAllowed": true,
+      "hasFunds": false
+    }
+  },
+  "importedUuid": "Actor.gL4EkpmdyCU386dA.Item.F2q1QChge2b8mikx",
+  "mp": {
+    "value": 20,
+    "max": 40,
+    "bonus": 0
+  },
+  "xp": 0
+}

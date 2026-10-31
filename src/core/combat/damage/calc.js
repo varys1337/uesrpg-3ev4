@@ -9,6 +9,7 @@ import { getDamageReduction, isItemMagicSource } from "./reduction.js";
 import { itemHasToken } from "./tokens.js";
 import { isActorIncorporeal, getActorTraitValue } from "../../traits/trait-registry.js";
 import { hasTalent } from "../../traits/talents-api.js";
+import { isBoundWeaponFromConjureWeapon } from "../../magic/conjuration/conjuration-state.js";
 import { DAMAGE_TYPES } from "./types.js";
 import { downgradeArmorCoverage } from "../armor-state.js";
 
@@ -29,6 +30,8 @@ import { downgradeArmorCoverage } from "../armor-state.js";
 export function computeBigThreeBonus({ damageType, weapon, ammo, attackerActor, originalArmor, triggerArmor, triggerArmorClass, triggerCoverageDowngradeSteps = 0, baseTotalDamage, reductionsTotal }) {
   if (String(damageType ?? "").toLowerCase() !== "physical") return 0;
   if (!weapon || !attackerActor) return 0;
+  const weaponMode = String(weapon?.system?.attackMode ?? weapon?.system?.weaponType ?? weapon?.system?.type ?? "").toLowerCase();
+  const isRangedWeapon = weaponMode.includes("ranged");
 
   // Resolve ammo from the weapon if not provided (non-persistent, best-effort).
   let ammoItem = ammo ?? null;
@@ -67,6 +70,10 @@ export function computeBigThreeBonus({ damageType, weapon, ammo, attackerActor, 
       if (!key) continue;
       out.push({ key, value: null });
     }
+    // Core arrows specify their Slashing or Splitting quality separately from
+    // the ammunition material's qualities. The map below deduplicates it.
+    const arrowType = String(sys.arrowType ?? "").trim().toLowerCase();
+    if (isRangedWeapon && item.type === "ammunition" && ["slashing", "splitting"].includes(arrowType)) out.push({ key: arrowType, value: null });
 
     if (includeActivation) {
       const activationStructured = Array.isArray(sys.activation?.damage?.qualitiesStructured)
@@ -124,17 +131,15 @@ export function computeBigThreeBonus({ damageType, weapon, ammo, attackerActor, 
 
   // Resolve attacker characteristic bonuses.
   const strBonus = Number(attackerActor?.system?.characteristics?.str?.bonus ?? 0) || 0;
-  const prcBonus = Number(attackerActor?.system?.characteristics?.prc?.bonus ?? 0) || 0;
-  const agiBonus = Number(attackerActor?.system?.characteristics?.agi?.bonus ?? 0) || 0;
 
   const viciousValue = Math.max(0, Number(getActorTraitValue(attackerActor, "vicious", { mode: "max" })) || 0);
-  const baseStrengthBonus = viciousValue > 0 ? viciousValue : strBonus;
+  let baseStrengthBonus = viciousValue > 0 ? viciousValue : strBonus;
+  // Chapter 4, Bladecaller: a bound weapon can use WB instead of SB for
+  // Slashing/Splitting/Crushing. Use the beneficial permitted alternative.
+  if (isBoundWeaponFromConjureWeapon(weapon) && hasTalent(attackerActor, "bladecaller")) {
+    baseStrengthBonus = Math.max(baseStrengthBonus, Number(attackerActor?.system?.characteristics?.wp?.bonus ?? 0) || 0);
+  }
 
-  const hasPerfectHit = hasTalent(attackerActor, "perfecthit");
-  const hasCrackshot = hasTalent(attackerActor, "crackshot");
-
-  const weaponMode = String(weapon?.system?.attackMode ?? weapon?.system?.weaponType ?? weapon?.system?.type ?? "").toLowerCase();
-  const isRangedWeapon = weaponMode.includes("ranged");
   const isThrown = itemHasToken(weapon, "thrown")
     || (String(weapon?.system?.rangeBandsDerivedEffective?.kind ?? weapon?.system?.rangeBandsDerived?.kind ?? "") === "thrown");
   // RAW: Thrown weapons ignore Big Three bonuses only when making ranged attacks.
@@ -143,11 +148,9 @@ export function computeBigThreeBonus({ damageType, weapon, ammo, attackerActor, 
   const pickBonus = (qualityKey) => {
     const k = String(qualityKey ?? "").toLowerCase();
     if (k === "crushing") {
-      return hasPerfectHit ? prcBonus : baseStrengthBonus;
+      return baseStrengthBonus;
     }
     if (k === "slashing" || k === "splitting") {
-      if (hasCrackshot && isRangedWeapon && !isThrown) return agiBonus;
-      if (hasPerfectHit) return prcBonus;
       return baseStrengthBonus;
     }
     return baseStrengthBonus;

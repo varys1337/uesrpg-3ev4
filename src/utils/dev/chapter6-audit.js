@@ -7,6 +7,7 @@ import {
   findChapter6SpellCatalogEntry,
   getChapter6SpellCatalog
 } from "./chapter6-spell-catalog.js";
+import { getCoreClauseTraces } from "./core-clause-traces.js";
 
 function _sort(values = []) {
   return [...new Set(values.filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b)));
@@ -157,6 +158,8 @@ export async function auditChapter6Spells(opts = {}) {
 
   const docs = await pack.getDocuments();
   const spells = docs.filter((d) => d.type === "spell");
+  const clauseTraces = getCoreClauseTraces(6).filter(trace => trace.pack === packName);
+  const traceById = new Map(clauseTraces.map(trace => [trace.id, trace]));
   const entries = [];
 
   for (const spell of spells) {
@@ -185,6 +188,8 @@ export async function auditChapter6Spells(opts = {}) {
       presentCapabilities: present,
       missingCapabilities: missing,
       dataMisalignments: misalignments,
+      statusBasis: "Catalog and static source hints only; this is not proof of execution.",
+      clauseTrace: traceById.get(spell.id) ?? null,
       remediationActions: _sort([
         ...missing.map((m) => `runtime:${m}`),
         ...misalignments.map((m) => `data:${m}`)
@@ -211,7 +216,9 @@ export async function auditChapter6Spells(opts = {}) {
       packSpells: spells.length,
       chapter6SpellsMatched: entries.length
     },
-    coverage: { byStatus },
+    coverage: { byStatus, clauseTrace: { items: clauseTraces.length,
+      clauses: clauseTraces.reduce((n, entry) => n + entry.clauses.length, 0),
+      scope: "Selected source clauses only; entries without a trace are unreviewed." } },
     gaps: {
       missingSpells: _sort(entries.filter((e) => e.status === "missing").map((e) => e.spellName)),
       partialSpells: _sort(entries.filter((e) => e.status === "partial").map((e) => e.spellName)),
@@ -219,7 +226,7 @@ export async function auditChapter6Spells(opts = {}) {
     }
   };
 
-  if (includeDetails) report.entries = entries;
+  if (includeDetails) { report.entries = entries; report.clauseTraces = clauseTraces; }
 
   if (shouldLog) {
     console.groupCollapsed?.("UESRPG | Chapter 6 Spell Audit");
@@ -355,7 +362,10 @@ export async function auditChapter6(opts = {}) {
 
   if (includeDetails) {
     report.checks = checks;
-    if (!spellAudit?.error) report.spells.entries = spellAudit?.entries ?? [];
+    if (!spellAudit?.error) {
+      report.spells.entries = spellAudit?.entries ?? [];
+      report.spells.clauseTraces = spellAudit?.clauseTraces ?? [];
+    }
   }
 
   if (shouldLog) {

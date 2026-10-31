@@ -14,8 +14,9 @@ import { buildEffectDuration } from "../time/effect-duration.js";
 import { _lower } from "./_primitives.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
-import { evaluateAEModifierKeys, getActorCapabilityFlag } from "../active-effects/modifier-evaluator.js";
+import { evaluateAEModifierKeysDetailed, getActorCapabilityFlag } from "../active-effects/modifier-evaluator.js";
 import { buildGenericAEExpiry } from "../active-effects/expiry.js";
+import { getActorCombatStep, isActorCombatStepCurrent } from "../combat/combat-scope.js";
 
 function _asInt(v, d = 0) {
   const n = Number(v);
@@ -30,9 +31,11 @@ function _asInt(v, d = 0) {
  *
  * @param {Actor} actor
  * @param {object} mobility - actor.system.mobility
+ * @param {object} options
+ * @param {boolean} options.includeAgilityPenalty Whether this roll actually receives the armor's Agility penalty.
  * @returns {number} Positive TN bonus to add (0 if not applicable)
  */
-export function getArmoredAgilityAcrobaticsBonus(actor, mobility = null) {
+export function getArmoredAgilityAcrobaticsBonus(actor, mobility = null, { includeAgilityPenalty = true } = {}) {
   if (!actor || !hasTalent(actor, "armoredagility")) return 0;
 
   const rank = Math.max(0, getSkillRank(actor, "Acrobatics"));
@@ -45,7 +48,7 @@ export function getArmoredAgilityAcrobaticsBonus(actor, mobility = null) {
   // Armor-class penalties that can affect Acrobatics:
   armorPenalty += Number(m?.allTestPenalty ?? 0) || 0;
   armorPenalty += Number(m?.skillTestPenalties?.acrobatics ?? 0) || 0;
-  armorPenalty += Number(m?.agilityTestPenalty ?? 0) || 0; // Acrobatics is Agility-based
+  if (includeAgilityPenalty) armorPenalty += Number(m?.agilityTestPenalty ?? 0) || 0;
 
   if (armorPenalty >= 0) return 0;
   return Math.min(reduction, Math.abs(armorPenalty));
@@ -55,6 +58,8 @@ export function getArmoredAgilityAcrobaticsBonus(actor, mobility = null) {
 function isAttackOfOpportunityLabel(label) {
   return _lower(label).includes("attack of opportunity");
 }
+
+export const STEP_ASIDE_MANUAL_GUIDANCE = "Step Aside needs manual resolution: check the attack of opportunity and any previously paid AP, then resolve the Evade test and its success-dependent AP cost with the GM. Do not repeat an uncertain reaction before reviewing its roll and cost.";
 
 /**
  * Step Aside (Chapter 4):
@@ -70,13 +75,14 @@ export function shouldDeferEvadeApForStepAside({ defender, defenseType, attacker
   if (!defender) return false;
   if (_lower(defenseType) !== "evade") return false;
   if (!isAttackOfOpportunityLabel(attackerLabel)) return false;
-  const aeResolved = evaluateAEModifierKeys(defender, ["system.modifiers.combat.evadeAoOCost"], {
+  const key = "system.modifiers.combat.evadeAoOCost";
+  const aeResolved = evaluateAEModifierKeysDetailed(defender, [key], {
     context: { defenseType: "evade", attackerLabel: String(attackerLabel ?? "") },
     enforceConditions: true,
     dedupeByOrigin: true
   });
-  const evadeAoOCost = Number(aeResolved?.["system.modifiers.combat.evadeAoOCost"] ?? 0) || 0;
-  if (evadeAoOCost <= 0) return true;
+  const detail = aeResolved?.detailsByKey?.[key];
+  if (detail?.contributions?.length && Number(detail.total) <= 0) return true;
   return hasTalent(defender, "stepaside");
 }
 
@@ -94,8 +100,17 @@ export function shouldDeferEvadeApForStepAside({ defender, defenseType, attacker
  * @param {Actor} actor
  * @returns {Promise<ActiveEffect|null>}
  */
-export async function activateHardTargetEffect(actor) {
+export async function activateHardTargetEffect(actor, { onOutcome = null, combatStep = null } = {}) {
   if (!actor) return null;
+
+  // Direct callers historically invoked this helper without a combat-step argument.
+  // They remain responsible for establishing the Dash requirement themselves.
+  const activationStep = combatStep ?? getActorCombatStep(actor);
+  if (!activationStep?.combatantId || !Number.isInteger(activationStep.round)
+    || !Number.isInteger(activationStep.turn) || !isActorCombatStepCurrent(actor, activationStep)) {
+    ui.notifications?.warn?.("The Hard Target combat step is no longer current. Review the activation with the GM.");
+    return null;
+  }
 
   const combat = game?.combat ?? null;
   const inCombat = Boolean(combat?.started);
@@ -131,7 +146,7 @@ export async function activateHardTargetEffect(actor) {
         ae: genericExpiry.metadata
       }
     }
-  });
+  }, { onOutcome, requiredCombatStep: activationStep });
 }
 
 /**

@@ -1,3 +1,5 @@
+import { requestXpPurchase, getXpPurchaseSnapshot } from "../../../../core/advancement/purchase-service.js";
+import { showXpPurchaseReview, showXpPurchaseFailure } from "../../../advancement/purchase-review.js";
 /**
  * @file Character creation menus (Race, Birth Sign, XP)
  * Extracted from actor-sheet.js for better organization
@@ -109,6 +111,7 @@ export async function onBirthSignMenu(event, target) {
  * @param {Event} event - The triggering event
  */
 export async function onXPMenu(event, target) {
+  const purchaseBase = game.user?.isGM ? await getXpPurchaseSnapshot(this.actor).catch(() => null) : null;
   event.preventDefault();
   const isGM = Boolean(game.user?.isGM);
 
@@ -131,7 +134,7 @@ export async function onXPMenu(event, target) {
     rankRows.push(row);
   }
 
-  await customDialog({
+  const choice = await customDialog({
     layout: "workflow",
     title: t("UESRPG.Dialogs.CharGen.ExperienceMenuTitle"),
     classes: ["uesrpg-chargen-dialog"],
@@ -170,24 +173,23 @@ export async function onXPMenu(event, target) {
         </table>
       </div>
     </div>`,
-    yes: {
-      label: isGM ? t("UESRPG.UI.Submit") : t("UESRPG.UI.Close"),
-      callback: async (html) => {
-        if (!isGM) return;
-        const root = html instanceof HTMLElement ? html : html?.[0];
-        const xp = Number(root.querySelector("#xp").value);
-        const xpTotal = Number(root.querySelector("#xpTotal").value);
-        const rank = campaignRankFromXpTotal(xpTotal);
-
-        await requestUpdateDocument(this.actor, {
-          "system.xp": xp,
-          "system.xpTotal": xpTotal,
-          "system.campaignRank": rank,
-        });
+    buttons: {
+      review: { label: t("UESRPG.Purchases.ReviewTitle"), callback: () => "review" },
+      yes: {
+        label: isGM ? t("UESRPG.UI.Submit") : t("UESRPG.UI.Close"),
+        callback: async (html) => {
+          if (!isGM) return;
+          const root = html instanceof HTMLElement ? html : html?.[0];
+          const xp = Number(root.querySelector("#xp").value);
+          const xpTotal = Number(root.querySelector("#xpTotal").value);
+          const result = await requestXpPurchase(this.actor, "setXp", { xp, xpTotal }, { expected: purchaseBase });
+          if (!result.ok) await showXpPurchaseFailure(this.actor, result);
+        },
       },
     },
     defaultButton: "yes",
   });
+  if (choice === "review") await showXpPurchaseReview(this.actor);
 }
 
 // ── Private helpers for the Advancement info panels ─────────────────────────
@@ -257,6 +259,7 @@ async function _showSignInfo(actor) {
 }
 
 async function _showXpDialog(actor) {
+  const purchaseBase = game.user?.isGM ? await getXpPurchaseSnapshot(actor).catch(() => null) : null;
   const xpTotal = Number(actor.system.xpTotal ?? 0);
   const xpAvail = Number(actor.system.xp ?? 0);
   const xpSpent = Math.max(0, xpTotal - xpAvail);
@@ -287,6 +290,7 @@ async function _showXpDialog(actor) {
     </div>`,
     buttons: isGM
       ? {
+        review: { label: t("UESRPG.Purchases.ReviewTitle"), callback: () => "review" },
         wizard: {
           label: t("UESRPG.Dialogs.CharGen.AdvancementWizard"),
           icon: "fas fa-scroll",
@@ -299,12 +303,9 @@ async function _showXpDialog(actor) {
             const root = html instanceof HTMLElement ? html : html?.[0];
             const newTotal = Number(root?.querySelector("#adv-xp-total")?.value ?? xpTotal);
             const newAvail = Number(root?.querySelector("#adv-xp-avail")?.value ?? xpAvail);
-            const newRank = campaignRankFromXpTotal(newTotal);
-            await requestUpdateDocument(actor, {
-              "system.xpTotal": Number.isFinite(newTotal) ? newTotal : xpTotal,
-              "system.xp": Number.isFinite(newAvail) ? newAvail : xpAvail,
-              "system.campaignRank": newRank,
-            });
+            const result = await requestXpPurchase(actor, "setXp", { xpTotal: Number.isFinite(newTotal) ? newTotal : xpTotal,
+              xp: Number.isFinite(newAvail) ? newAvail : xpAvail }, { expected: purchaseBase });
+            if (!result.ok) { await showXpPurchaseFailure(actor, result); return; }
             return "saved";
           },
         },
@@ -316,6 +317,7 @@ async function _showXpDialog(actor) {
           icon: "fas fa-scroll",
           callback: () => "wizard",
         },
+        review: { label: t("UESRPG.Purchases.ReviewTitle"), callback: () => "review" },
         close: { label: t("UESRPG.UI.Close") },
       },
     defaultButton: isGM ? "save" : "close",
@@ -340,6 +342,7 @@ async function _showXpDialog(actor) {
     },
   });
 
+  if (choice === "review") await showXpPurchaseReview(actor);
   if (choice === "wizard") {
     const { SpendXpMenuAppV2 } = await import("../../../apps/v2/char-gen/spend-xp-menu.js");
     await SpendXpMenuAppV2.prompt(actor);
@@ -418,13 +421,14 @@ export async function onAdvancementMenu(event, _target) {
  * @param {Event} event - The triggering event
  */
 export async function onStartingResourcesMenu(event, target) {
+  const purchaseBase = await getXpPurchaseSnapshot(this.actor).catch(() => null);
   event.preventDefault();
 
   const currentWealth = Number(this.actor?.system?.wealth ?? 0);
   const currentXpTotal = Number(this.actor?.system?.xpTotal ?? 0);
   const currentXp = Number(this.actor?.system?.xp ?? currentXpTotal);
 
-  await customDialog({
+  return customDialog({
     layout: "workflow",
     title: t("UESRPG.Dialogs.CharGen.StartingResourcesTitle"),
     classes: ["uesrpg-chargen-dialog"],
@@ -451,20 +455,12 @@ export async function onStartingResourcesMenu(event, target) {
         const xpTotal = Number(root.querySelector("#startingXpTotal")?.value ?? 0);
         const xp = Number(root.querySelector("#startingXp")?.value ?? xpTotal);
         const rank = campaignRankFromXpTotal(xpTotal);
-        const timestamp = new Date().toISOString();
 
-        await requestUpdateDocument(this.actor, {
-          "system.wealth": Number.isFinite(wealth) ? wealth : 0,
-          "system.xpTotal": Number.isFinite(xpTotal) ? xpTotal : 0,
-          "system.xp": Number.isFinite(xp) ? xp : 0,
-          "system.campaignRank": rank,
-          "flags.uesrpg-3ev4.chargen.startingResources": {
-            wealth: Number.isFinite(wealth) ? wealth : 0,
-            xpTotal: Number.isFinite(xpTotal) ? xpTotal : 0,
-            xp: Number.isFinite(xp) ? xp : 0,
-            setAt: timestamp,
-          },
-        });
+        const result = await requestXpPurchase(this.actor, "startingResources", {
+          wealth: Number.isFinite(wealth) ? wealth : 0, xpTotal: Number.isFinite(xpTotal) ? xpTotal : 0,
+          xp: Number.isFinite(xp) ? xp : 0,
+        }, { expected: purchaseBase });
+        if (!result.ok) { await showXpPurchaseFailure(this.actor, result); return result; }
         await appendChargenAudit(this.actor, {
           step: "resources",
           action: "submit",
@@ -475,6 +471,7 @@ export async function onStartingResourcesMenu(event, target) {
             campaignRank: rank,
           },
         });
+        return result;
       },
     },
     defaultButton: "yes",

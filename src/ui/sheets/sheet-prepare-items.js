@@ -4,6 +4,7 @@ import { NPC_MAGIC_RANK_LABELS } from "../../core/config/label-catalog.js";
 import { createDebugLogger } from "../../utils/debug.js";
 import { buildWeaponAmmoControlState } from "./shared/weapon-ammo-control.js";
 import { getWeaponCombatCapabilities } from "../../core/combat/combat-utils.js";
+import { normalizeSpellLearningType } from "../../core/magic/magicka-utils.js";
 import { isReligionWorshipEnabled } from "../../core/homebrew/settings.js";
 import { getReligionDomain } from "../../core/religion/domain-registry.js";
 import {
@@ -18,6 +19,7 @@ import {
 } from "../../core/religion/ritual-domains.js";
 import { getDefaultPietyMax, getWorshipDomainState, getWorshipSystemData } from "../../core/religion/worship-store.js";
 import { getOrthodoxFaithBonus } from "../../core/religion/clerical-talents.js";
+import { t } from "../../utils/i18n.js";
 import {
   canAffordCastEnchantmentSlot,
   getCastEnchantmentPool,
@@ -43,6 +45,11 @@ function _buildCastEnchantmentChargeDisplay(item, slot) {
   return `${value}/${max}`;
 }
 
+function _spellSchoolGroup(item) {
+  return item?.system?.uiIsRitual === true ? "rituals"
+    : String(item?.system?.school ?? "").toLowerCase().trim() || "unknown";
+}
+
 function _prepareItemPresentation(sheetData) {
   const actorDoc = sheetData?.document ?? null;
   const religionEnabled = isReligionWorshipEnabled();
@@ -60,6 +67,7 @@ function _prepareItemPresentation(sheetData) {
     item.system.uiCastEnchantmentCharge = castSlots.length
       ? _buildCastEnchantmentChargeDisplay(liveItem, castSlots[0]) : "";
     if (item.type === "weapon") item.system.resolvedDistanceDisplay = _resolveWeaponDistanceDisplay(item.system);
+    if (item.type === "spell") item.system.uiIsRitual = normalizeSpellLearningType(liveItem) === "ritual";
     if (item.type === "spell" && religionEnabled && isDomainSpellItem(item)) {
       item.system.domainSpell = true;
       item.system.domainKey = item.flags?.["uesrpg-3ev4"]?.religion?.domainKey ?? "";
@@ -109,9 +117,11 @@ export function restoreCharacterItemGrouping(sheetData, grouping, options = {}) 
   };
   const { spellsBySchool, ...groups } = restore(grouping.groups);
   if (missing) return false;
+  _prepareItemPresentation(sheetData);
+  if (!spellsBySchool || Object.entries(spellsBySchool).some(([school, spells]) =>
+    !Array.isArray(spells) || spells.some(spell => _spellSchoolGroup(spell) !== school))) return false;
   Object.assign(sheetData.actor, groups);
   sheetData.actor.ui = { ...(sheetData.actor.ui ?? {}), spellsBySchool };
-  _prepareItemPresentation(sheetData);
   _prepareCharacterGroupedPresentation(sheetData, options);
   return true;
 }
@@ -320,7 +330,7 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
 
   // Group spells by school
   for (const s of spell) {
-    const school = String(s?.system?.school ?? "").toLowerCase().trim() || "unknown";
+    const school = _spellSchoolGroup(s);
     if (!spellsBySchool[school]) {
       spellsBySchool[school] = [];
     }
@@ -373,7 +383,8 @@ function _prepareCharacterGroupedPresentation(sheetData, { includeMagicSkills = 
     const spells = spellsBySchool[school];
     const entry = {
       key: school,
-      label: school.charAt(0).toUpperCase() + school.slice(1),
+      label: school === "rituals" ? t("UESRPG.Sheets.Magic.Rituals", "Rituals") : school.charAt(0).toUpperCase() + school.slice(1),
+      isRitualGroup: school === "rituals",
       spells: spells,
       count: spells.length
     };

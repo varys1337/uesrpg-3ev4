@@ -47,7 +47,7 @@ async function postActivatedPowerToChat({ item, actor, includeImage = false, eve
 export async function activateTalentFromItemSheet({ item, event = null } = {}) {
   if (!item || item.type !== "talent") return;
   const actor = item.actor ?? null;
-  await executeItemActivation({ item, actor, includeImage: true, event });
+  return executeItemActivation({ item, actor, includeImage: true, event });
 }
 
 /**
@@ -58,7 +58,7 @@ export async function activateTalentFromItemSheet({ item, event = null } = {}) {
 export async function activatePowerFromItemSheet({ item, event = null } = {}) {
   if (!item || item.type !== "power") return;
   const actor = item.actor ?? null;
-  await executeItemActivation({ item, actor, includeImage: true, event });
+  return executeItemActivation({ item, actor, includeImage: true, event });
 }
 
 /**
@@ -69,7 +69,7 @@ export async function activatePowerFromItemSheet({ item, event = null } = {}) {
 export async function activateTraitFromItemSheet({ item, event = null } = {}) {
   if (!item || item.type !== "trait") return;
   const actor = item.actor ?? null;
-  await executeItemActivation({ item, actor, includeImage: true, event });
+  return executeItemActivation({ item, actor, includeImage: true, event });
 }
 
 /**
@@ -115,15 +115,13 @@ export async function postItemToChat(event, actor, options = {}) {
   // running effect transfer and automation.
   const _featureTypes = new Set(["trait", "talent", "power"]);
   if (_featureTypes.has(item.type)) {
-    await executeItemActivation({ item, actor, includeImage, event });
-    return;
+    return executeItemActivation({ item, actor, includeImage, event });
   }
 
   // Non-feature items: use activation.enabled gate as before.
   if (item?.system?.activation?.enabled) {
     const ok = await executeItemActivation({ item, actor, includeImage, event });
-    if (!ok?.ok) return;
-    return;
+    return ok;
   }
 
   const contentString = _buildDefaultPostContent({ item, actor, includeImage });

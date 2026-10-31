@@ -75,8 +75,8 @@
                                                         </div>
                                                     </td>
                                                     <td class="ues-col-stat" data-tooltip="UESRPG.Sheets.Equipment.ContainerOwnEnc">{{item.system.enc}}</td>
-                                                    <td class="ues-col-stat">{{item.system.container_enc.current}}/{{item.system.container_enc.max}}</td>
-                                                    <td class="ues-col-stat">{{item.system.container_enc.item_count}}</td>
+                                                    <td class="ues-col-stat">{{> "systems/uesrpg-3ev4/templates/partials/sheets/container-capacity.hbs" capacity=item.containerCapacity}}</td>
+                                                    <td class="ues-col-stat">{{item.containerCapacity.count}}</td>
                                                     <td class="ues-col-actions">
                                                         <button type="button" data-action="itemDelete" class="item-control item-delete uesrpg-semantic-control uesrpg-plain-control" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></button>
                                                     </td>

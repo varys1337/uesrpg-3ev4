@@ -3,7 +3,7 @@
  */
 
 import { _getMessageState } from "../core/schema.js";
-import { _resolveOutcome, _executeSpecialActionIfWinner } from "../core/helpers.js";
+import { _resolveOutcome } from "../core/helpers.js";
 import { _maybeResolveBothCritSuccessRollOff } from "../resolve.js";
 
 export async function commitLaneResult({
@@ -39,11 +39,12 @@ export async function commitLaneResult({
     isCriticalSuccess: res.isCriticalSuccess,
     isCriticalFailure: res.isCriticalFailure
   };
+  freshData.context ??= {};
+  freshData.context.specialActionOperationsVersion = 1;
 
   if (freshData[otherSide]?.result) {
     freshData.outcome = _resolveOutcome(freshData);
     await _maybeResolveBothCritSuccessRollOff({ message: freshMessage, data: freshData, attacker, defender });
-    await _executeSpecialActionIfWinner(freshData);
   }
 
   return { freshMessage, freshData };

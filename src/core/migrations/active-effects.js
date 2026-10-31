@@ -1,5 +1,7 @@
 import { collectionContents } from "../../utils/coerce.js";
 import { SYSTEM_ID } from "../constants.js";
+import { isActiveGMUser } from "../../utils/users.js";
+import { assertDocumentWriteConfirmed } from "../../utils/authority-proxy/shared.js";
 import {
   getMigrationState,
   isMigrationRevisionApplied,
@@ -53,6 +55,7 @@ function _buildPatch(effect, { migrateChanges, migrateDurations }, telemetry) {
   const raw = _plainSource(effect);
   if (!raw) {
     telemetry.failures += 1;
+    telemetry.failureReferences.push(effect.uuid ?? effect.id);
     return null;
   }
   const patch = { _id: effect.id };
@@ -82,16 +85,19 @@ async function _migrateEmbedded(parent, effects, options, telemetry) {
     .map((effect) => _buildPatch(effect, options, telemetry))
     .filter(Boolean);
   if (!updates.length) return;
+  const expectedIds = updates.map(row => row._id);
   try {
-    await parent.updateEmbeddedDocuments("ActiveEffect", updates, { diff: false });
+    const updated = await parent.updateEmbeddedDocuments("ActiveEffect", updates, { diff: false });
+    assertDocumentWriteConfirmed(expectedIds, updated, `${parent.uuid}.ActiveEffect`);
   } catch (error) {
-    telemetry.failures += updates.length;
+    telemetry.failures += expectedIds.length;
+    telemetry.failureReferences.push(...(error.documentReferences ?? expectedIds.map(id => `${parent.uuid}.ActiveEffect.${id}`)));
     console.error(`${SYSTEM_ID} | ActiveEffect embedded migration failed`, { parent: parent?.uuid, error });
   }
 }
 
 export async function migrateActiveEffectsIfNeeded() {
-  if (!game.user?.isGM) return;
+  if (!isActiveGMUser(game.user)) return;
 
   const state = getMigrationState();
   const migrateChanges = !isMigrationRevisionApplied(CHANGE_KEY, MIGRATION_REVISIONS[CHANGE_KEY], state);
@@ -105,6 +111,7 @@ export async function migrateActiveEffectsIfNeeded() {
     durationsCanonicalized: 0,
     skipped: 0,
     failures: 0,
+    failureReferences: [],
   };
 
   try {
@@ -112,10 +119,13 @@ export async function migrateActiveEffectsIfNeeded() {
       .map((effect) => _buildPatch(effect, options, telemetry))
       .filter(Boolean);
     if (worldUpdates.length) {
+      const expectedIds = worldUpdates.map(row => row._id);
       try {
-        await ActiveEffect.updateDocuments(worldUpdates, { diff: false });
+        const updated = await ActiveEffect.updateDocuments(worldUpdates, { diff: false });
+        assertDocumentWriteConfirmed(expectedIds, updated, "ActiveEffect");
       } catch (error) {
-        telemetry.failures += worldUpdates.length;
+        telemetry.failures += expectedIds.length;
+        telemetry.failureReferences.push(...(error.documentReferences ?? expectedIds.map(id => `ActiveEffect.${id}`)));
         console.error(`${SYSTEM_ID} | ActiveEffect world migration failed`, error);
       }
     }
@@ -131,7 +141,9 @@ export async function migrateActiveEffectsIfNeeded() {
     }
 
     if (telemetry.failures > 0) {
-      throw new Error(`${telemetry.failures} ActiveEffect update(s) failed; migration will retry next startup`);
+      const error = new Error(`${telemetry.failures} ActiveEffect update(s) failed; retry manually from Migration settings.`);
+      error.migrationTelemetry = telemetry;
+      throw error;
     }
 
     if (migrateChanges) {
@@ -144,7 +156,6 @@ export async function migrateActiveEffectsIfNeeded() {
     console.log(`${SYSTEM_ID} | ActiveEffect v14 migration complete`, telemetry);
   } catch (error) {
     console.error(`${SYSTEM_ID} | ActiveEffect v14 migration failed`, { telemetry, error });
-    ui.notifications?.error?.("UESRPG ActiveEffect migration failed; it will retry on the next startup.");
     throw error;
   }
 }

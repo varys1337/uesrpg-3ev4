@@ -168,10 +168,12 @@ export class SimpleActor extends Actor {
     });
   }
   prepareBaseData() {
+    // Native preparation can precede create/update/delete hooks for embedded
+    // documents. Caches belong to this preparation pass, not to a prior pass.
+    // Invalidating here keeps derived inventory/effect data independent of hook order.
+    invalidateActorDerivedCache(this);
     // Ensure minimum scaffolding before base prep to tolerate partial/corrupt actor payloads.
     this._ensureSystemData();
-    // Prepare-lane invalidation is now handled by targeted hooks (Patch 1)
-    // This allows prepare-context to persist across renders until relevant changes occur
     super.prepareBaseData();
   }
 
@@ -544,6 +546,11 @@ export class SimpleActor extends Actor {
     return ApplyDamageService.applySimple(this, damage, damageType, options);
   }
 
+  async applyDamageResult(damage, damageType = 'physical', options = {}) {
+    const { ApplyDamageService } = await import('../../application/combat/apply-damage-service.js');
+    return ApplyDamageService.applySimpleResult(this, damage, damageType, options);
+  }
+
   /**
    * Apply healing to this actor
    * @param {number} healing - Amount of HP to restore
@@ -553,6 +560,11 @@ export class SimpleActor extends Actor {
   async applyHealing(healing, options = {}) {
     const { ApplyDamageService } = await import('../../application/combat/apply-damage-service.js');
     return ApplyDamageService.applyHealing(this, healing, options);
+  }
+
+  async applyHealingResult(healing, options = {}) {
+    const { ApplyDamageService } = await import('../../application/combat/apply-damage-service.js');
+    return ApplyDamageService.applyHealingResult(this, healing, options);
   }
 
   /**

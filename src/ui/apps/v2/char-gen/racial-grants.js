@@ -1,8 +1,3 @@
-import {
-  requestCreateEmbeddedDocuments,
-  requestDeleteEmbeddedDocuments,
-  requestUpdateDocument,
-} from "../../../../utils/authority-proxy.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { findIndexEntryByNormalizedName, getDocumentById } from "../../../../core/compendium/access-service.js";
 import { CORE_SKILLS_PACK_ID, stampCoreSkillSource } from "../../../../core/compendium/core-skills.js";
@@ -10,6 +5,13 @@ import { normalizeRank, SKILL_RANK_ORDER } from "../../../../core/advancement/sk
 import { SYSTEM_ID } from "../../../constants.js";
 import { findRaceDefinition, getRaceGrantDefinitions } from "../../../sheets/racemenu/race-catalog.js";
 import { t, tf } from "../../../../utils/i18n.js";
+import { quoteXpPurchase, requestXpPurchase } from "../../../../core/advancement/purchase-service.js";
+import { showXpPurchaseFailure } from "../../../advancement/purchase-review.js";
+import { validateTalentLearning, TALENT_LEARNING_MODE } from "../../../../core/traits/talent-learning.js";
+import {
+  createPurchaseProjection, purchaseActorFacade, spendPurchaseResources,
+  addPurchaseCreate, addPurchaseUpdate, addPurchaseDelete, finishPurchaseProjection,
+} from "../../../../core/advancement/purchase-projection.js";
 
 const TALENT_PACK_ID = `${SYSTEM_ID}.powers-talents-traits`;
 const GRANT_SOURCE_FLAG = "chargenGrantSource";
@@ -98,29 +100,6 @@ async function findCanonicalSource(operation) {
   return null;
 }
 
-async function createCanonicalItem(actor, operation) {
-  if (operation?.itemType === "combatStyle") {
-    const name = String(operation?.itemName ?? "").trim();
-    if (!name) throw new Error("A Combat Style name is required.");
-    const created = await requestCreateEmbeddedDocuments(actor, "Item", [{
-      name,
-      type: "combatStyle",
-      system: { rank: "untrained" },
-      flags: { [SYSTEM_ID]: { [GRANT_SOURCE_FLAG]: true } },
-    }]);
-    return created?.[0] ?? null;
-  }
-
-  const source = operation?.preparedSource
-    ? deepClone(operation.preparedSource)
-    : await findCanonicalSource(operation);
-  if (!source) {
-    throw new Error(`Could not find canonical ${operation?.itemType ?? "Item"} '${operation?.itemName ?? ""}'.`);
-  }
-  const created = await requestCreateEmbeddedDocuments(actor, "Item", [source]);
-  return created?.[0] ?? null;
-}
-
 function operationValueSnapshot(item, operation) {
   if (operation.kind === "setRank") {
     const extra = {};
@@ -173,22 +152,32 @@ async function selectCombatStyleTarget(actor, operation) {
   return { item, itemName: answer.itemName, equipment: answer.equipment };
 }
 
-async function materializeOperations(actor, option) {
+async function materializeOperations(actor, option, { selections = null } = {}) {
   const operations = [];
-  for (const raw of option?.operations ?? []) {
+  for (const [index, raw] of (option?.operations ?? []).entries()) {
     const operation = deepClone(raw);
     if (operation?.selectTarget) {
-      const selection = await selectCombatStyleTarget(actor, operation);
+      const selected = selections?.find(entry => entry.index === index);
+      const selection = selections ? {
+        item: selected?.targetItemUuid ? await fromUuid(selected.targetItemUuid) : null,
+        itemName: String(selected?.itemName ?? "").trim(), equipment: selected?.equipment,
+      } : await selectCombatStyleTarget(actor, operation);
       if (!selection) return null;
+      if (selections && !selection.item && (selected?.targetItemUuid || operation.kind !== "setRank" || !selection.itemName)) {
+        throw new Error("Select an existing Combat Style or name a new style for the grant.");
+      }
       operation.targetItemUuid = selection.item?.uuid ?? null;
       operation.itemName = selection.item?.name ?? selection.itemName;
       if (selection.equipment) operation.equipment = selection.equipment;
+      if (operation.allowedEquipment?.length && !operation.allowedEquipment.includes(operation.equipment)) {
+        throw new Error("Select one of the grant's allowed weapon families.");
+      }
     }
     if (operation.kind !== "recordChoice") {
       const target = operation.targetItemUuid
         ? await fromUuid(operation.targetItemUuid)
         : findEmbeddedItem(actor, operation);
-      if (target && target.parent?.uuid !== actor.uuid) {
+      if (operation.targetItemUuid && target && target.parent?.uuid !== actor.uuid) {
         throw new Error(`Grant target '${target.name}' is not embedded in ${actor.name}.`);
       }
       if (!target && operation.kind === "addCombatStyleEquipment") {
@@ -204,76 +193,6 @@ async function materializeOperations(actor, option) {
     operations.push(operation);
   }
   return operations;
-}
-
-async function applyOperation(actor, operation) {
-  if (operation.kind === "recordChoice") {
-    return {
-      kind: operation.kind,
-      value: String(operation.value ?? ""),
-      itemUuid: null,
-      itemId: null,
-      itemName: null,
-      itemType: null,
-      created: false,
-      before: null,
-      after: { value: String(operation.value ?? "") },
-      createdSource: null,
-    };
-  }
-
-  let item = operation.targetItemUuid ? await fromUuid(operation.targetItemUuid) : findEmbeddedItem(actor, operation);
-  let created = false;
-  if (!item) {
-    item = await createCanonicalItem(actor, operation);
-    created = Boolean(item);
-  }
-  if (!item || item.parent?.uuid !== actor.uuid) throw new Error(`Unable to resolve grant target '${operation.itemName ?? operation.kind}'.`);
-
-  const before = operationValueSnapshot(item, operation);
-  if (operation.kind === "setRank") {
-    const currentRank = normalizeRank(item.system?.rank);
-    const desiredRank = normalizeRank(operation.rank);
-    const currentIndex = SKILL_RANK_ORDER.indexOf(currentRank);
-    const desiredIndex = SKILL_RANK_ORDER.indexOf(desiredRank);
-    const update = {};
-    if (currentIndex < desiredIndex) update["system.rank"] = desiredRank;
-    for (const [key, value] of Object.entries(operation.system ?? {})) {
-      if (!valuesEqual(item.system?.[key], value)) update[`system.${key}`] = deepClone(value);
-    }
-    if (Object.keys(update).length) {
-      const ok = await requestUpdateDocument(item, update);
-      if (!ok) throw new Error(`Failed to update ${item.name}.`);
-      item = (await fromUuid(item.uuid)) ?? item;
-    }
-  } else if (operation.kind === "addCombatStyleEquipment") {
-    const equipment = String(operation.equipment ?? "").trim();
-    if (!equipment) throw new Error("A weapon family is required.");
-    const existing = Array.isArray(item.system?.trainedEquipment) ? [...item.system.trainedEquipment] : [];
-    if (!existing.some((value) => normalize(value) === normalize(equipment))) {
-      const empty = existing.findIndex((value) => !String(value ?? "").trim());
-      if (empty >= 0) existing[empty] = equipment;
-      else if (existing.length < 10) existing.push(equipment);
-      else throw new Error(`${item.name} has no available trained-equipment slot.`);
-      const ok = await requestUpdateDocument(item, { "system.trainedEquipment": existing });
-      if (!ok) throw new Error(`Failed to update ${item.name}.`);
-      item = (await fromUuid(item.uuid)) ?? item;
-    }
-  }
-
-  const after = operationValueSnapshot(item, operation);
-  return {
-    kind: operation.kind,
-    system: deepClone(operation.system ?? {}),
-    itemUuid: item.uuid,
-    itemId: item.id,
-    itemName: item.name,
-    itemType: item.type,
-    created,
-    before,
-    after,
-    createdSource: created ? { name: item.name, type: item.type, system: deepClone(item.toObject?.().system ?? item.system ?? {}) } : null,
-  };
 }
 
 function preflightRollback(actor, record) {
@@ -293,32 +212,6 @@ function preflightRollback(actor, record) {
     if (!valuesEqual(current, operation.after)) conflicts.push(`${item.name} was modified after the grant`);
   }
   return conflicts;
-}
-
-async function rollbackRecord(actor, record) {
-  const conflicts = preflightRollback(actor, record);
-  if (conflicts.length) return { ok: false, conflicts };
-
-  for (const operation of [...(record?.operations ?? [])].reverse()) {
-    if (operation?.kind === "recordChoice") continue;
-    const item = operation?.itemUuid ? await fromUuid(operation.itemUuid) : null;
-    if (!item) continue;
-    if (operation.created) {
-      const ok = await requestDeleteEmbeddedDocuments(actor, "Item", [item.id]);
-      if (!ok) return { ok: false, conflicts: [`Failed to remove ${item.name}`] };
-      continue;
-    }
-    if (operation.kind === "setRank") {
-      const update = { "system.rank": operation.before?.rank ?? "untrained" };
-      for (const [key, value] of Object.entries(operation.before?.system ?? {})) update[`system.${key}`] = deepClone(value);
-      const ok = await requestUpdateDocument(item, update);
-      if (!ok) return { ok: false, conflicts: [`Failed to restore ${item.name}`] };
-    } else if (operation.kind === "addCombatStyleEquipment") {
-      const ok = await requestUpdateDocument(item, { "system.trainedEquipment": deepClone(operation.before?.trainedEquipment ?? []) });
-      if (!ok) return { ok: false, conflicts: [`Failed to restore ${item.name}`] };
-    }
-  }
-  return { ok: true, conflicts: [] };
 }
 
 export function isChargenCompleted(actor) {
@@ -397,7 +290,9 @@ export async function promptAndApplyRacialGrant(actor, grantId, { administrative
         default: "apply",
       });
   if (!optionId) return { ok: false, cancelled: true };
-  return applyRacialGrantOption(actor, { raceKey: raceMatch.raceKey, grantId, optionId, administrativeReason });
+  const result = await applyRacialGrantOption(actor, { raceKey: raceMatch.raceKey, grantId, optionId, administrativeReason });
+  if (["processing", "needsReview"].includes(result.status)) await showXpPurchaseFailure(actor, result);
+  return result;
 }
 
 export async function promptAndApplyAllMissingRacialGrants(actor) {
@@ -406,127 +301,47 @@ export async function promptAndApplyAllMissingRacialGrants(actor) {
   for (const grant of review.filter((entry) => !entry.applied)) {
     const result = await promptAndApplyRacialGrant(actor, grant.id);
     results.push(result);
-    if (result?.cancelled) break;
+    if (!result?.ok) break;
   }
   return results;
 }
 
-export async function applyRacialGrantOption(actor, {
-  raceKey,
-  grantId,
-  optionId,
-  administrativeReason = null,
-} = {}) {
+export async function applyRacialGrantOption(actor, input = {}) {
   if (!actor || !(game.user?.isGM || actor.isOwner)) return { ok: false, error: "Not authorized" };
-  const raceMatch = findRaceDefinition(raceKey);
-  if (!raceMatch || normalize(actor.system?.race) !== normalize(raceMatch.raceKey)) {
-    return { ok: false, error: "The grant does not match the Actor's current race." };
-  }
-  const grant = getRaceGrantDefinitions(raceMatch.raceKey).find((entry) => entry.id === grantId);
-  const option = grant?.options?.find((entry) => entry.id === optionId);
-  if (!grant || !option) return { ok: false, error: "Grant option not found" };
-
-  const records = currentGrantRecords(actor);
-  const priorMatch = activeRecord(records, raceMatch.raceKey, grant.id);
-  if (priorMatch?.record?.optionId === option.id) return { ok: true, changed: false, record: priorMatch.record };
-  if (priorMatch && isChargenCompleted(actor)) {
-    if (!game.user?.isGM || String(administrativeReason ?? "").trim().length < 3) {
-      return { ok: false, error: "A GM Administrative Correction reason is required to change an applied grant." };
-    }
-  }
-
-  const refundedXp = Math.max(0, asNumber(priorMatch?.record?.xpCharged, 0));
-  const xpCost = Math.max(0, asNumber(option.xpCost, 0));
-  const availableXp = Math.max(0, asNumber(actor.system?.xp, 0) + refundedXp);
-  if (xpCost > availableXp) {
-    return { ok: false, error: tf("UESRPG.Notifications.SpendXp.NotEnoughXp", { required: xpCost, available: availableXp }, `Not enough XP. Required ${xpCost}, available ${availableXp}.`) };
-  }
-
+  const race = findRaceDefinition(input.raceKey);
+  const grant = getRaceGrantDefinitions(race?.raceKey).find(entry => entry.id === input.grantId);
+  const option = grant?.options?.find(entry => entry.id === input.optionId);
+  if (!option) return { ok: false, error: "Grant option not found" };
+  const prior = activeRecord(currentGrantRecords(actor), race.raceKey, grant.id);
+  if (prior?.record.optionId === option.id) return { ok: true, changed: false, record: prior.record };
   let operations;
-  try {
-    operations = await materializeOperations(actor, option);
-  } catch (error) {
-    return { ok: false, error: String(error?.message ?? error) };
-  }
+  try { operations = await materializeOperations(actor, option); }
+  catch (error) { return { ok: false, status: "rejected", reason: error.message, error: error.message }; }
   if (!operations) return { ok: false, cancelled: true };
-
-  if (priorMatch) {
-    const rollback = await rollbackRecord(actor, priorMatch.record);
-    if (!rollback.ok) {
-      records[priorMatch.index].conflicts = rollback.conflicts;
-      await requestUpdateDocument(actor, { [`flags.${SYSTEM_ID}.chargen.grants`]: records });
-      return { ok: false, conflict: true, error: rollback.conflicts.join("; ") };
-    }
-    records[priorMatch.index] = {
-      ...records[priorMatch.index],
-      active: false,
-      status: "rolledBack",
-      rolledBackAt: new Date().toISOString(),
-      rolledBackBy: game.user?.id ?? null,
-      rollbackReason: String(administrativeReason ?? "grant option changed"),
-    };
+  const selections = operations.flatMap((entry, index) => entry.selectTarget
+    ? [{ index, targetItemUuid: entry.targetItemUuid, itemName: entry.itemName, equipment: entry.equipment }] : []);
+  const choices = { ...input, selections };
+  const quote = await quoteXpPurchase(actor, "racialGrant", choices);
+  if (!quote.ok) return { ...quote, error: quote.reason };
+  if (quote.xpCost > 0 || quote.details.refund > 0) {
+    const accepted = await customDialog({
+      title: t("UESRPG.Purchases.RacialQuoteTitle"), layout: "workflow",
+      content: '<p>' + foundry.utils.escapeHTML(tf("UESRPG.Purchases.RacialQuote", {
+        option: quote.details.optionXp, talents: quote.details.talentXp, refund: quote.details.refund, total: quote.xpCost,
+      })) + '</p>',
+      buttons: { apply: { label: t("UESRPG.UI.Apply"), callback: () => true }, cancel: { label: t("UESRPG.UI.Cancel"), callback: () => false } },
+      default: "cancel",
+    });
+    if (!accepted) return { ok: false, cancelled: true };
   }
-
-  const results = [];
-  try {
-    for (const operation of operations) results.push(await applyOperation(actor, operation));
-  } catch (error) {
-    return { ok: false, error: String(error?.message ?? error) };
-  }
-
-  const record = {
-    raceKey: raceMatch.raceKey,
-    grantId: grant.id,
-    grantLabel: grant.label,
-    optionId: option.id,
-    optionLabel: option.label,
-    affectedItemUuids: results.map((entry) => entry.itemUuid).filter(Boolean),
-    operations: results,
-    xpCharged: xpCost,
-    appliedBy: game.user?.id ?? null,
-    appliedAt: new Date().toISOString(),
-    administrativeReason: String(administrativeReason ?? ""),
-    active: true,
-    status: "applied",
-  };
-  records.push(record);
-  const ok = await requestUpdateDocument(actor, {
-    "system.xp": Math.max(0, availableXp - xpCost),
-    [`flags.${SYSTEM_ID}.chargen.grants`]: records,
-  });
-  if (!ok) return { ok: false, error: "Grant changes were applied but provenance could not be recorded; retry reconciliation." };
-  return { ok: true, changed: true, record };
+  const result = await requestXpPurchase(actor, "racialGrant", choices, { quote });
+  return { ...result, error: result.reason };
 }
 
 export async function rollbackTrackedRacialGrants(actor, raceKey, { reason = "race changed" } = {}) {
-  const records = currentGrantRecords(actor);
-  const indexes = records
-    .map((record, index) => ({ record, index }))
-    .filter(({ record }) => record?.active === true && normalize(record?.raceKey) === normalize(raceKey));
-  if (!indexes.length) return { ok: true, changed: false };
-
-  const conflicts = indexes.flatMap(({ record }) => preflightRollback(actor, record));
-  if (conflicts.length) return { ok: false, conflict: true, error: conflicts.join("; ") };
-
-  let refund = 0;
-  for (const entry of [...indexes].reverse()) {
-    const result = await rollbackRecord(actor, entry.record);
-    if (!result.ok) return { ok: false, conflict: true, error: result.conflicts.join("; ") };
-    refund += Math.max(0, asNumber(entry.record.xpCharged, 0));
-    records[entry.index] = {
-      ...entry.record,
-      active: false,
-      status: "rolledBack",
-      rolledBackAt: new Date().toISOString(),
-      rolledBackBy: game.user?.id ?? null,
-      rollbackReason: String(reason),
-    };
-  }
-  const ok = await requestUpdateDocument(actor, {
-    "system.xp": Math.max(0, asNumber(actor.system?.xp, 0) + refund),
-    [`flags.${SYSTEM_ID}.chargen.grants`]: records,
-  });
-  return { ok, changed: ok };
+  if (!currentGrantRecords(actor).some(record => record.active && normalize(record.raceKey) === normalize(raceKey))) return { ok: true, changed: false };
+  const result = await requestXpPurchase(actor, "racialRefund", { raceKey, reason });
+  return { ...result, error: result.reason };
 }
 
 export function buildAdministrativeCorrectionAudit(reason, details = {}) {
@@ -539,4 +354,121 @@ export function buildAdministrativeCorrectionAudit(reason, details = {}) {
       ...deepClone(details),
     },
   };
+}
+
+/** Authority-side racial purchase planner; no prompts or document writes. */
+export async function buildRacialGrantPurchasePlan(actor, intent, { requester } = {}) {
+  try {
+    const input = intent.choices ?? {};
+    const state = createPurchaseProjection(actor);
+    const records = currentGrantRecords(actor);
+    let refund = 0;
+    const rollback = record => {
+      const conflicts = preflightRollback(actor, record);
+      if (conflicts.length) throw new Error(conflicts.join("; "));
+      for (const operation of [...record.operations].reverse()) {
+        if (operation.kind === "recordChoice") continue;
+        const item = state.items.find(entry => entry.id === operation.itemId);
+        if (!item) continue;
+        if (operation.created) addPurchaseDelete(state, item);
+        else if (operation.kind === "setRank") {
+          const patch = { "system.rank": operation.before?.rank ?? "untrained" };
+          for (const [key, value] of Object.entries(operation.before?.system ?? {})) patch[`system.${key}`] = deepClone(value);
+          addPurchaseUpdate(state, item, patch);
+        } else if (operation.kind === "addCombatStyleEquipment") addPurchaseUpdate(state, item, { "system.trainedEquipment": deepClone(operation.before?.trainedEquipment ?? []) });
+      }
+      refund += Math.max(0, asNumber(record.xpCharged, 0));
+      record.active = false;
+      record.status = "rolledBack";
+      record.rolledBackAt = new Date().toISOString();
+      record.rolledBackBy = requester.id;
+      record.rollbackReason = String(input.administrativeReason ?? input.reason ?? "racial grant changed");
+    };
+    if (intent.workflow === "racialRefund") {
+      for (const record of [...records].reverse()) if (record.active && normalize(record.raceKey) === normalize(input.raceKey)) rollback(record);
+      state.system.xp = asNumber(state.system.xp, 0) + refund;
+      return finishPurchaseProjection(state, intent, { details: { refund },
+        finalize: () => ({ [`flags.${SYSTEM_ID}.chargen.grants`]: records }), result: () => ({ changed: refund > 0 || state.steps.length > 0 }) });
+    }
+    const race = findRaceDefinition(input.raceKey);
+    if (!race || normalize(actor.system?.race) !== normalize(race.raceKey)) throw new Error("The grant does not match the Actor's current race.");
+    const grant = getRaceGrantDefinitions(race.raceKey).find(entry => entry.id === input.grantId);
+    const option = grant?.options?.find(entry => entry.id === input.optionId);
+    if (!option) throw new Error("Grant option not found.");
+    const prior = activeRecord(records, race.raceKey, grant.id);
+    if (prior?.record.optionId === option.id) return finishPurchaseProjection(state, intent, { result: () => ({ changed: false, record: prior.record }) });
+    if (prior && isChargenCompleted(actor) && (!requester.isGM || String(input.administrativeReason ?? "").trim().length < 3)) {
+      throw new Error("A GM Administrative Correction reason is required to change an applied grant.");
+    }
+    if (prior) rollback(prior.record);
+    state.system.xp = asNumber(state.system.xp, 0) + refund;
+    const optionXp = Math.max(0, asNumber(option.xpCost, 0));
+    spendPurchaseResources(state, optionXp);
+    const operations = await materializeOperations(purchaseActorFacade(state), option, { selections: input.selections ?? [] });
+    const planned = [];
+    let talentXp = 0;
+    for (const operation of operations) {
+      if (operation.kind === "recordChoice") {
+        planned.push({ kind: operation.kind, value: String(operation.value ?? ""), itemUuid: null, itemId: null,
+          itemName: null, itemType: null, created: false, before: null, after: { value: String(operation.value ?? "") }, createdSource: null });
+        continue;
+      }
+      const target = operation.targetItemUuid ? await fromUuid(operation.targetItemUuid) : null;
+      let item = target ? state.items.find(entry => entry.id === target.id) : findEmbeddedItem(purchaseActorFacade(state), operation);
+      let created = false;
+      if (!item) {
+        if (operation.kind === "addCombatStyleEquipment") throw new Error("The selected grant target is unavailable after rollback.");
+        const source = operation.itemType === "combatStyle" ? { name: operation.itemName, type: "combatStyle", system: { rank: "untrained" }, flags: { [SYSTEM_ID]: { [GRANT_SOURCE_FLAG]: true } } }
+          : operation.preparedSource;
+        if (!source) throw new Error("Canonical grant source is unavailable.");
+        if (source.type === "talent") {
+          const validation = validateTalentLearning(purchaseActorFacade(state), source, { source: "racial-grant" });
+          if (validation.mode === TALENT_LEARNING_MODE.ENFORCE) {
+            if (!validation.rulesOk) throw new Error([...validation.reasons, ...validation.guidance].join(" "));
+            const cost = Math.max(0, asNumber(validation.xpCost, 0));
+            spendPurchaseResources(state, cost);
+            talentXp += cost;
+          }
+        }
+        item = addPurchaseCreate(state, source);
+        created = true;
+      }
+      const before = operationValueSnapshot(item, operation);
+      if (operation.kind === "setRank") {
+        const patch = {};
+        if (SKILL_RANK_ORDER.indexOf(normalizeRank(item.system.rank)) < SKILL_RANK_ORDER.indexOf(normalizeRank(operation.rank))) patch["system.rank"] = normalizeRank(operation.rank);
+        for (const [key, value] of Object.entries(operation.system ?? {})) if (!valuesEqual(item.system[key], value)) patch[`system.${key}`] = deepClone(value);
+        if (Object.keys(patch).length) addPurchaseUpdate(state, item, patch);
+      } else if (operation.kind === "addCombatStyleEquipment") {
+        const equipment = String(operation.equipment ?? "").trim();
+        if (!equipment) throw new Error("A weapon family is required.");
+        const entries = Array.isArray(item.system.trainedEquipment) ? [...item.system.trainedEquipment] : [];
+        if (!entries.some(value => normalize(value) === normalize(equipment))) {
+          const empty = entries.findIndex(value => !String(value ?? "").trim());
+          if (empty >= 0) entries[empty] = equipment;
+          else if (entries.length < 10) entries.push(equipment);
+          else throw new Error("The Combat Style has no available trained-equipment slot.");
+          addPurchaseUpdate(state, item, { "system.trainedEquipment": entries });
+        }
+      }
+      planned.push({ kind: operation.kind, system: deepClone(operation.system ?? {}), itemId: item.id,
+        itemName: item.name, itemType: item.type, created, before, after: operationValueSnapshot(item, operation), createRef: item._purchaseRef ?? null });
+    }
+    const grantRecord = { raceKey: race.raceKey, grantId: grant.id, grantLabel: grant.label, optionId: option.id, optionLabel: option.label,
+      xpCharged: optionXp + talentXp, xpBreakdown: { option: optionXp, talentLearning: talentXp }, appliedBy: requester.id,
+      appliedAt: new Date().toISOString(), administrativeReason: String(input.administrativeReason ?? ""), active: true, status: "applied" };
+    const resolveRecord = results => {
+      const rows = planned.map(operation => {
+        if (operation.kind === "recordChoice") return operation;
+        const { createRef, ...row } = operation;
+        const item = createRef ? results[createRef] : actor.items.get(operation.itemId);
+        return { ...row, itemId: item.id, itemUuid: item.uuid,
+          createdSource: row.created ? { name: item.name, type: item.type, system: deepClone(item.toObject(true).system) } : null };
+      });
+      return { ...grantRecord, operations: rows, affectedItemUuids: rows.map(row => row.itemUuid).filter(Boolean) };
+    };
+    return finishPurchaseProjection(state, intent, { details: { optionXp, talentXp, refund },
+      finalize: (_live, results) => ({ [`flags.${SYSTEM_ID}.chargen.grants`]: [...records, resolveRecord(results)] }),
+      result: results => ({ changed: true, record: resolveRecord(results) }) });
+  } catch (error) { return { ok: false, reason: String(error?.message ?? error) }; }
 }

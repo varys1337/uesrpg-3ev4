@@ -1,0 +1,19 @@
+{
+  "before": {
+    "worldTime": 71,
+    "id": "ijg1tZdsTZCsoxrn",
+    "combatant": "1rjyqvsBDMOrhoC3",
+    "round": 2,
+    "turn": 0,
+    "remaining": 1
+  },
+  "after": {
+    "worldTime": 71,
+    "id": "ijg1tZdsTZCsoxrn",
+    "combatant": "C9sib6sR8Q9vpJKx",
+    "round": 2,
+    "turn": 1,
+    "remaining": 1
+  },
+  "scope": "Manual activation and authoritative outcome application on a disposable synthetic actor in Foundry 14.369. Combat expiry itself remains unverified."
+}

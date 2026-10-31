@@ -351,6 +351,7 @@ export const SkillOpposedWorkflow = {
       if (!data.context.resolvedAt) data.context.resolvedAt = Date.now();
     }
 
+    data.context.specialActionOperationsVersion = 1;
     await _updateCard(parent, data);
   },
 
@@ -379,6 +380,7 @@ export const SkillOpposedWorkflow = {
     const data = {
       context: {
         schemaVersion: 1,
+        specialActionOperationsVersion: 1,
         createdAt: Date.now(),
         createdBy: game.user.id,
         updatedAt: Date.now(),
@@ -412,8 +414,9 @@ export const SkillOpposedWorkflow = {
         tn: null,
         declared: null
       },
-      specialActionId: cfg.specialActionId ?? null,
+      specialActionId: cfg.specialActionId ?? cfg.specialActionContext?.id ?? null,
       specialActionContext: cfg.specialActionContext ?? null,
+      ...(cfg.specialActionContext ? { allowCombatStyle: true, isFreeAction: true } : {}),
       outcome: null
     };
 
@@ -421,7 +424,9 @@ export const SkillOpposedWorkflow = {
       user: game.user.id,
       speaker: ChatMessage.getSpeaker({ actor: attacker, token: aToken?.document ?? null }),
       content: _renderCard(data, ""),
-      flags: { [FLAG_NS]: { [FLAG_KEY]: { version: CARD_VERSION, state: data } }, uesrpg: { [FLAG_KEY]: { version: CARD_VERSION, state: data } } },
+      whisper: cfg.whisper ?? [], blind: cfg.blind === true,
+      flags: { [FLAG_NS]: { [FLAG_KEY]: { version: CARD_VERSION, state: data },
+        ...(cfg.specialActionOperation ? { specialActionOperation: cfg.specialActionOperation } : {}) }, uesrpg: { [FLAG_KEY]: { version: CARD_VERSION, state: data } } },
       style: CONST.CHAT_MESSAGE_STYLES.OTHER
     });
 

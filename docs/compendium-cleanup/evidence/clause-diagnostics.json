@@ -1,0 +1,32 @@
+{
+  "chapter4": {
+    "items": 4,
+    "clauses": 4,
+    "scope": "Selected source clauses only; catalog labels are not proof of execution."
+  },
+  "chapter4Ids": [
+    "59mY0MCttDbZ8T6Z",
+    "HFtNdYNkW8b5mQEZ",
+    "RDBCSPkrWisaF7A7",
+    "TB3EWcWyt3qLnDmD"
+  ],
+  "chapter6": {
+    "items": 2,
+    "clauses": 4,
+    "scope": "Selected source clauses only; entries without a trace are unreviewed."
+  },
+  "chapter6Ids": [
+    "0rQdelL98pZxdlJ8",
+    "TWEAMfOKMEbX2F1Y"
+  ],
+  "selected": {
+    "id": "0rQdelL98pZxdlJ8",
+    "statusBasis": "Catalog and static source hints only; this is not proof of execution.",
+    "trace": 2
+  },
+  "untraced": {
+    "id": "0xAYGM0bvarZZbyp",
+    "trace": null,
+    "statusBasis": "Catalog and static source hints only; this is not proof of execution."
+  }
+}

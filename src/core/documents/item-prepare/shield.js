@@ -26,7 +26,9 @@ export function prepareShieldItem(actorData, itemData) {
   // Block and Magic BR: header values are authoritative. Apply Damaged(X) reduction only.
   itemData.blockRatingEffective = Math.max(0, safeNumber(itemData.blockRating, 0) - damagedValue);
   itemData.magic_brEffective    = Math.max(0, safeNumber(itemData.magic_br, 0)    - damagedValue);
-  itemData.magic_brSpecial      = null;
+  // Typed BR is authored data, not a material-derived value to discard.
+  const typed = itemData.magic_brSpecial;
+  itemData.magic_brSpecial = typed && typeof typed === "object" ? typed : null;
 
   // ENC and price: header values are authoritative. Quality price multiplier still applies.
   const derivedPrice = roundPriceUp(basePrice * qualityPriceMult);

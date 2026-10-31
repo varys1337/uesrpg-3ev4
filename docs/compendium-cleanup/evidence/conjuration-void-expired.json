@@ -1,0 +1,190 @@
+{
+  "casterSP": 2,
+  "wpBonus": 6,
+  "casterEffects": [
+    {
+      "name": "Review Origin automatic",
+      "flags": {
+        "isOriginAE": true,
+        "spellEffect": true,
+        "casterUuid": "Actor.gL4EkpmdyCU386dA",
+        "spellUuid": "Actor.gL4EkpmdyCU386dA.Item.FwruCw9GMc3vFXcR",
+        "spellName": "Summon Daedra - Flame Atronach",
+        "spellOptions": {
+          "isRestrained": true
+        },
+        "castContext": {
+          "spellStrengthValue": 2,
+          "castingResult": {
+            "isSuccess": true,
+            "degree": 9,
+            "target": 110,
+            "rollTotal": 2,
+            "isCriticalSuccess": true,
+            "isCriticalFailure": false
+          }
+        },
+        "linkedEntities": [
+          {
+            "type": "summon",
+            "uuid": "Scene.NUEDEFAULTSCENE0.Token.kVl8T7tcocy3qAmI",
+            "actorUuid": "",
+            "label": "Core Review - automatic Daedra",
+            "registeredAt": 1793083346674
+          },
+          {
+            "type": "casterBuff",
+            "uuid": "Actor.gL4EkpmdyCU386dA.ActiveEffect.uJr5Apgb4uNZlE23",
+            "actorUuid": "Actor.gL4EkpmdyCU386dA",
+            "label": "Mindlock (Summon Daedra - Flame Atronach) on Core Review - Conjurer",
+            "registeredAt": 1793083346744
+          }
+        ],
+        "ae": {
+          "kind": "generic",
+          "source": "spell",
+          "expiry": null,
+          "expiryAction": "delete",
+          "stack": {
+            "policy": "none",
+            "group": null,
+            "max": null,
+            "strengthKey": null
+          },
+          "suppressed": {
+            "expired": false,
+            "atWorldTime": null,
+            "atCombatRound": null,
+            "reason": null
+          }
+        }
+      }
+    },
+    {
+      "name": "Mindlock (Summon Daedra - Flame Atronach)",
+      "flags": {
+        "spellEffect": true,
+        "isMindlock": true,
+        "mindlockValue": 2,
+        "baseMindlock": 2,
+        "mindlockTalent": "",
+        "originAEId": "5d3Lsfu1iplC1JjC",
+        "spellUuid": "Actor.gL4EkpmdyCU386dA.Item.FwruCw9GMc3vFXcR",
+        "spellName": "Summon Daedra - Flame Atronach",
+        "casterUuid": "Actor.gL4EkpmdyCU386dA",
+        "owner": "system",
+        "source": "spell-mindlock",
+        "ae": {
+          "kind": "generic",
+          "source": "spell",
+          "expiry": null,
+          "expiryAction": "delete",
+          "stack": {
+            "policy": "replace",
+            "group": "spell.mindlock.5d3Lsfu1iplC1JjC",
+            "max": null,
+            "strengthKey": null
+          },
+          "suppressed": {
+            "expired": false,
+            "atWorldTime": null,
+            "atCombatRound": null,
+            "reason": null
+          }
+        }
+      }
+    },
+    {
+      "name": "Review Origin pending",
+      "flags": {
+        "isOriginAE": true,
+        "spellEffect": true,
+        "casterUuid": "Actor.gL4EkpmdyCU386dA",
+        "spellUuid": "Actor.gL4EkpmdyCU386dA.Item.FwruCw9GMc3vFXcR",
+        "spellName": "Summon Daedra - Flame Atronach",
+        "spellOptions": {
+          "isRestrained": true
+        },
+        "castContext": {
+          "spellStrengthValue": 2,
+          "castingResult": null
+        },
+        "linkedEntities": [],
+        "ae": {
+          "kind": "generic",
+          "source": "spell",
+          "expiry": null,
+          "expiryAction": "delete",
+          "stack": {
+            "policy": "none",
+            "group": null,
+            "max": null,
+            "strengthKey": null
+          },
+          "suppressed": {
+            "expired": false,
+            "atWorldTime": null,
+            "atCombatRound": null,
+            "reason": null
+          }
+        }
+      }
+    }
+  ],
+  "rows": [
+    {
+      "name": "Core Review - automatic Daedra",
+      "uuid": "Scene.NUEDEFAULTSCENE0.Token.kVl8T7tcocy3qAmI",
+      "binding": {
+        "status": "bound",
+        "creatureResult": {
+          "isSuccess": false,
+          "degree": 7,
+          "target": 20,
+          "rollTotal": 80,
+          "isCriticalSuccess": false,
+          "isCriticalFailure": false
+        },
+        "resolvedBy": "JkZC2SUilMqyz8SQ"
+      },
+      "kind": "daedra",
+      "regen": 6,
+      "toughness": 0,
+      "traits": [
+        "Summoned",
+        "Bound"
+      ],
+      "effects": [
+        {
+          "name": "Restrained (Summon Daedra - Flame Atronach)",
+          "duration": {
+            "value": null,
+            "units": "seconds",
+            "expiry": null,
+            "expired": false,
+            "_worldTime": 68,
+            "seconds": null,
+            "remaining": null,
+            "secondsRemaining": null,
+            "label": "None"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Core Review - pending Daedra",
+      "uuid": "Scene.NUEDEFAULTSCENE0.Token.pOyp1HJANiz0hwyM",
+      "binding": {
+        "status": "unbound",
+        "resolvedBy": "JkZC2SUilMqyz8SQ"
+      },
+      "kind": "daedra",
+      "regen": 0,
+      "toughness": 0,
+      "traits": [
+        "Summoned"
+      ],
+      "effects": []
+    }
+  ]
+}

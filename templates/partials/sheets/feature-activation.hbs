@@ -178,16 +178,17 @@
       {{/if}}
     </div>
     <div class="uesrpg-feature-costs u-mt-xs">
-      <label>{{localize "UESRPG.Sheets.Feature.Current"}} <input type="number" name="system.activation.usage.current" value="{{item.system.activation.usage.current}}" min="0" step="1" /></label>
-      <label>{{localize "UESRPG.Sheets.Item.Max"}} <input type="number" name="system.activation.usage.max" value="{{item.system.activation.usage.max}}" min="0" step="1" /></label>
+      <label>{{localize "UESRPG.Sheets.Feature.Current"}} <input type="number" name="{{activationUsage.currentPath}}" value="{{activationUsage.current}}" min="0" step="1" /></label>
+      <label>{{localize "UESRPG.Sheets.Item.Max"}} <input type="number" name="{{activationUsage.maxPath}}" value="{{activationUsage.max}}" min="0" step="1" /></label>
       <label>{{localize "UESRPG.Sheets.Feature.Reset"}}
-        <select name="system.activation.usage.period" data-type="String">
-          {{selectOptions activationUsagePeriodOptions selected=item.system.activation.usage.period localize=false}}
+        <select name="{{activationUsage.periodPath}}" data-type="String">
+          {{selectOptions activationUsagePeriodOptions selected=activationUsage.period localize=false}}
         </select>
       </label>
       <div class="activation-use-btn-wrap">
         <button type="button" class="{{useButtonClass}} uesrpg-styled-action" data-action="{{useAction}}"><i class="fas fa-bolt"></i> {{localize "UESRPG.Sheets.Feature.Use"}}</button>
       </div>
     </div>
+    <p class="hint">{{localize "UESRPG.Sheets.Feature.UsageResetHint"}}</p>
   </div>
 </fieldset>

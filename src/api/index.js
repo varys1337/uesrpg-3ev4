@@ -32,6 +32,13 @@ export {
 } from "../utils/authority-proxy.js";
 
 export { AUTHORITY_RESULT_CODES, requestAuthorityIntent } from "../utils/authority-intents.js";
+export { ACTION_RESULT_VERSION, ACTION_STATUSES, ACTION_COMMITMENTS, getActionResult } from "../application/action-results.js";
+export { ApplyDamageService } from "../application/combat/apply-damage-service.js";
+export { applyDamageResult, applyHealingResult } from "../core/combat/damage-automation.js";
+export { applyDamageResolvedResult } from "../core/combat/damage-resolver.js";
+export { castFromEnchantedItemResult } from "../core/enchanting/runtime/cast-enchantment-runtime.js";
+export { applyMagicDamageResult, applyMagicHealingResult } from "../core/magic/damage-application.js";
+export { executeItemMacroBestEffortResult } from "../core/system/activation/index.js";
 
 // ─── Documents ─────────────────────────────────────────────────────────────
 export { SimpleActor } from "../core/documents/actor.js";

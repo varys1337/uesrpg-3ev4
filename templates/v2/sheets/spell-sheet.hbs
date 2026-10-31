@@ -357,6 +357,10 @@
                   <option value="physical" {{#if (eq item.system.buffer.type "physical")}}selected{{/if}}>{{localize "UESRPG.UI.Physical"}}</option>
                   <option value="magical" {{#if (eq item.system.buffer.type "magical")}}selected{{/if}}>{{localize "UESRPG.UI.Magical"}}</option>
                   <option value="elemental" {{#if (eq item.system.buffer.type "elemental")}}selected{{/if}}>{{localize "UESRPG.UI.Elemental"}}</option>
+                  <option value="fire" {{#if (eq item.system.buffer.type "fire")}}selected{{/if}}>{{localize "UESRPG.Labels.DAMAGE_TYPE.fire"}}</option>
+                  <option value="frost" {{#if (eq item.system.buffer.type "frost")}}selected{{/if}}>{{localize "UESRPG.Labels.DAMAGE_TYPE.frost"}}</option>
+                  <option value="shock" {{#if (eq item.system.buffer.type "shock")}}selected{{/if}}>{{localize "UESRPG.Labels.DAMAGE_TYPE.shock"}}</option>
+                  <option value="poison" {{#if (eq item.system.buffer.type "poison")}}selected{{/if}}>{{localize "UESRPG.Labels.DAMAGE_TYPE.poison"}}</option>
                 </select>
                 <label class="spell-label spell-label-sm">{{localize "UESRPG.UI.Strength"}}</label>
                 <input type="text" name="system.buffer.formula" value="{{item.system.buffer.formula}}" placeholder="{{localize "UESRPG.ModernUI.EGSSOr2d6"}}" class="spell-input spell-input-sm" data-spell-autosave />

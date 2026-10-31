@@ -49,6 +49,7 @@
  */
 
 import { getSpellMaxRangeMeters, getSpellRangeType } from "./spell-range.js";
+import { getSpellBufferPath, getSpellBufferValue } from "./effects/spell-buffers.js";
 import { requestBatchUpdateDocuments, requestUpdateChatMessage, requestUpdateDocument, requestUpdateEmbeddedDocuments } from "../../utils/authority-proxy.js";
 import { MagicTimekeeping } from "./timekeeping-helper.js";
 import { classifySpellForRouting } from "./spell-runtime.js";
@@ -803,7 +804,7 @@ export async function ensureUpkeepPromptForGroup(groupKey, promptContext = null)
  * @returns {Promise<Array<{ targetActor: Actor, effect: ActiveEffect, flags: object }>>}
  */
 async function _collectCurrentEffectsForGroup(groupKey) {
-  const { casterUuid, casterTokenUuid, spellUuid, originalCastWorldTime } = _parseGroupKey(groupKey);
+  const { casterUuid, casterTokenUuid, spellUuid, originalCastWorldTime, castInstanceId } = _parseGroupKey(groupKey);
   const matches = [];
 
   for (const targetActor of _collectRelevantActors()) {
@@ -814,6 +815,7 @@ async function _collectCurrentEffectsForGroup(groupKey) {
       if (casterTokenUuid && _str(flags.casterTokenUuid) !== casterTokenUuid) continue;
       if (_str(flags.spellUuid) !== spellUuid) continue;
       if (_num(flags.originalCastWorldTime, 0) !== originalCastWorldTime) continue;
+      if (castInstanceId && flags.castContext?.castInstanceId !== castInstanceId) continue;
       matches.push({ targetActor, effect, flags });
     }
   }
@@ -1002,11 +1004,10 @@ export async function handleUpkeepGroupConfirm(message) {
 
   if (freeUpkeepIfBufferRemains && spell?.system?.hasBuffer && spell?.system?.buffer?.type && spell.system.buffer.type !== "none") {
     const bufferType = spell.system.buffer.type;
-    const bufferPath = `system.buffers.${bufferType}`;
 
     // Check all target actors for buffer status
     const bufferStatuses = linkedMatches.map(m => {
-      const currentBuffer = _num(m.targetActor.system?.buffers?.[bufferType], 0);
+      const currentBuffer = getSpellBufferValue(m.targetActor, bufferType);
       return { actor: m.targetActor, current: currentBuffer };
     });
 
@@ -1179,11 +1180,12 @@ export async function handleUpkeepGroupConfirm(message) {
       const bufferType = effectFlags.bufferType;
       const originalValue = _num(effectFlags.bufferOriginalValue, 0);
       if (bufferType && originalValue > 0) {
-        const currentBuffer = _num(m.targetActor.system?.buffers?.[bufferType], 0);
+        const currentBuffer = getSpellBufferValue(m.targetActor, bufferType);
         if (currentBuffer < originalValue) {
           const pendingActorUpdate = actorBufferUpdates.get(m.targetActor) ?? {};
-          pendingActorUpdate[`system.buffers.${bufferType}`] = Math.max(
-            _num(pendingActorUpdate[`system.buffers.${bufferType}`], currentBuffer),
+          const bufferPath = getSpellBufferPath(bufferType);
+          pendingActorUpdate[bufferPath] = Math.max(
+            _num(pendingActorUpdate[bufferPath], currentBuffer),
             originalValue
           );
           actorBufferUpdates.set(m.targetActor, pendingActorUpdate);

@@ -16,8 +16,10 @@
  */
 
 import { makeFeatureMod, FEATURE_DOMAINS, STACKING_MODES, normalizeFeatureKey } from "./feature-mod.js";
-import { normalizeTalentKey, resolveTalentSlug } from "../talents-api.js";
+import { getTalentItem, hasTalent, normalizeTalentKey, resolveTalentSlug } from "../talents-api.js";
 import { canApplyCharGenGatedImperialTalents } from "../racial-talents.js";
+import { getTraitNumericBonuses } from "../trait-registry.js";
+import { isPassiveFeatureActive } from "./feature-config.js";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Shared constants
@@ -45,6 +47,7 @@ const ITEM_BONUS_FIELDS = Object.freeze([
  * @type {ReadonlyArray<{field: string, path: string}>}
  */
 const RESIST_FIELDS = Object.freeze([
+  { field: "natToughnessR", path: "system.resistance.natToughness" },
   { field: "diseaseR",  path: "system.resistance.diseaseR"  },
   { field: "fireR",     path: "system.resistance.fireR"     },
   { field: "frostR",    path: "system.resistance.frostR"    },
@@ -69,11 +72,12 @@ const RESIST_FIELDS = Object.freeze([
  * @returns {FeatureMod[]}
  */
 function _emitItemBonusMods(item, source) {
-  const sys = item?.system ?? {};
+  const traitBonuses = getTraitNumericBonuses(item);
+  const sys = { ...(item?.system ?? {}), ...traitBonuses };
   const mods = [];
   const itemNameKey = normalizeFeatureKey(item.name ?? "");
 
-  if (itemNameKey === "stunted-magicka") {
+  if (["stunted-magicka", "stunted-magica"].includes(itemNameKey)) {
     mods.push(makeFeatureMod({
       domain: FEATURE_DOMAINS.FLAG,
       path: "flag.stuntedMagicka",
@@ -93,7 +97,8 @@ function _emitItemBonusMods(item, source) {
       mode: "add",
       value: val,
       source,
-      rule: { chapter: 4, name: `${item.name}: ${field}`, stacking },
+      rule: { chapter: 4, name: `${item.name}: ${field}`, stacking: Object.hasOwn(traitBonuses, field)
+        && field !== "mpBonus" ? STACKING_MODES.HIGHEST : stacking },
     }));
   }
 
@@ -106,7 +111,7 @@ function _emitItemBonusMods(item, source) {
       mode: "add",
       value: val,
       source,
-      rule: { chapter: 4, name: `${item.name}: ${field}`, stacking: STACKING_MODES.ADD },
+      rule: { chapter: 4, name: `${item.name}: ${field}`, stacking: field === "natToughnessR" ? STACKING_MODES.HIGHEST : STACKING_MODES.ADD },
     }));
   }
 
@@ -123,7 +128,8 @@ function _emitItemBonusMods(item, source) {
  * @returns {FeatureMod[]}
  */
 function _emitNonResistBonusMods(item, source) {
-  const sys = item?.system ?? {};
+  const traitBonuses = getTraitNumericBonuses(item);
+  const sys = { ...(item?.system ?? {}), ...traitBonuses };
   const mods = [];
 
   for (const { field, domain, path, stacking } of ITEM_BONUS_FIELDS) {
@@ -135,7 +141,8 @@ function _emitNonResistBonusMods(item, source) {
       mode: "add",
       value: val,
       source,
-      rule: { chapter: 4, name: `${item.name}: ${field}`, stacking },
+      rule: { chapter: 4, name: `${item.name}: ${field}`, stacking: Object.hasOwn(traitBonuses, field)
+        && field !== "mpBonus" ? STACKING_MODES.HIGHEST : stacking },
     }));
   }
 
@@ -482,24 +489,92 @@ const RACIAL_TALENT_EFFECTS = Object.freeze({
     { domain: FEATURE_DOMAINS.RESISTANCE, path: "system.resistance.frostR", mode: "add", value: 1, stacking: STACKING_MODES.ADD, label: "Sons of Skyrim (+1 Frost R)" },
     { domain: FEATURE_DOMAINS.WOUND_THRESHOLD, path: "system.wound_threshold.bonus", mode: "add", value: 1, stacking: STACKING_MODES.ADD, label: "Sons of Skyrim (+1 WT)" },
   ],
-  "malacathsfury": [
-    { domain: FEATURE_DOMAINS.HP, path: "system.hp.bonus", mode: "add", value: 2, stacking: STACKING_MODES.ADD, label: "Malacath's Fury (+2 HP)" },
-  ],
 });
+
+function _singleActiveTalent(actor, slug) {
+  const matches = Array.from(actor?.items ?? []).filter(item => item?.type === "talent"
+    && isPassiveFeatureActive(item) && resolveTalentSlug(item.name) === slug);
+  return matches.length === 1 ? matches[0] : null;
+}
+
+const RACIAL_BASE_TRAIT_NAMES = Object.freeze({
+  resilient: /^resilient(?:-\d+)?(?:-racial)?$/,
+  tough: /^tough(?:-\d+)?(?:-racial)?$/,
+  powerwell: /^power-well(?:-\d+)?(?:-racial)?$/,
+  diseaseresistance: /^disease-resistance(?:-\d+)?(?:-racial)?$/,
+});
+
+function _singleActiveNamedTrait(actor, trait) {
+  const matches = Array.from(actor?.items ?? []).filter(item => {
+    if (item?.type !== "trait" || !isPassiveFeatureActive(item)) return false;
+    const name = normalizeTalentKey(item.name);
+    const key = normalizeTalentKey(item.system?.traitKey).replaceAll("-", "");
+    return key === trait || RACIAL_BASE_TRAIT_NAMES[trait]?.test(name) === true;
+  });
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function _singleActiveResistance(actor, type) {
+  const pattern = type === "poison" ? /^resistance-poison(?:-\d+)?(?:-racial)?$/
+    : type === "magic" ? /^resistance-magic(?:-\d+)?(?:-racial)?$/
+      : type === "frost" ? /^resistance-frost(?:-\d+)?(?:-racial)?$/ : null;
+  if (!pattern) return null;
+  const matches = Array.from(actor?.items ?? []).filter(item => {
+    if (item?.type !== "trait" || !isPassiveFeatureActive(item)) return false;
+    const name = normalizeTalentKey(item.name);
+    const key = normalizeTalentKey(item.system?.traitKey);
+    const param = normalizeTalentKey(item.system?.traitParam);
+    return pattern.test(name) || key === `resistance-${type}` || (key === "resistance" && param === type);
+  });
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function _resistanceTraitValue(item, field) {
+  const key = normalizeTalentKey(item?.system?.traitKey);
+  return Number(key ? item?.system?.traitValue : item?.system?.[field]);
+}
+
+function _diseaseTraitValue(item) {
+  const key = normalizeTalentKey(item?.system?.traitKey).replaceAll("-", "");
+  return Number(key === "diseaseresistance" ? item?.system?.traitValue : item?.system?.diseaseR);
+}
+
+function _racialPassiveIsEligible(actor, item, slug, effect) {
+  const selected = _singleActiveTalent(actor, slug);
+  if (!selected || (selected !== item && selected.id !== item.id)) return false;
+  const sys = item.system ?? {};
+  if (slug === "childofthesap") return Number(sys.speedBonus ?? 0) === 0;
+  if (slug === "naturesblessing" && effect.path === "system.resistance.diseaseR") {
+    return Number(sys.diseaseR ?? 0) === 0 && _diseaseTraitValue(_singleActiveNamedTrait(actor, "diseaseresistance")) === 50;
+  }
+  if (slug === "naturesblessing" && effect.path === "system.resistance.poisonR") {
+    return Number(sys.poisonR ?? 0) === 0 && _resistanceTraitValue(_singleActiveResistance(actor, "poison"), "poisonR") === 1;
+  }
+  if (slug === "sonsofskyrim" && effect.path === "system.resistance.frostR") {
+    return Number(sys.frostR ?? 0) === 0 && _resistanceTraitValue(_singleActiveResistance(actor, "frost"), "frostR") === 2;
+  }
+  if (slug === "sonsofskyrim" && effect.path === "system.wound_threshold.bonus") {
+    const tough = _singleActiveNamedTrait(actor, "tough");
+    return Number(sys.wtBonus ?? 0) === 0 && Number(getTraitNumericBonuses(tough).wtBonus ?? tough?.system?.wtBonus) === 1;
+  }
+  return true;
+}
 
 /**
  * (#6) Helper: look up the Star of the West SP bonus from the actor's trait items.
- * Mirrors the logic previously in racial-talents.js `_getStarOfTheWestBonus`.
+ * The race menu's embedded trait carries a "(Racial)" suffix. A missing or
+ * disabled trait must not give either upgrade an invented base to enhance.
  */
 function _getStarOfTheWestBonus(actor) {
-  if (!actor) return 0;
+  if (!actor) return null;
   for (const it of (actor.items ?? [])) {
-    if (!it || String(it.type ?? "") !== "trait") continue;
-    if (normalizeTalentKey(it.name) === "star-of-the-west") {
-      return Math.max(0, Number(it.system?.spBonus ?? 0));
+    if (!it || String(it.type ?? "") !== "trait" || !isPassiveFeatureActive(it)) continue;
+    if (["star-of-the-west", "star-of-the-west-racial"].includes(normalizeTalentKey(it.name))) {
+      const value = Number(it.system?.spBonus ?? 0);
+      return Number.isFinite(value) ? Math.max(0, value) : 0;
     }
   }
-  return 0;
+  return null;
 }
 
 /**
@@ -605,6 +680,7 @@ export function contributeTalentMods(actor, item) {
   const racialEffects = RACIAL_TALENT_EFFECTS[talentSlug];
   if (racialEffects) {
     for (const effect of racialEffects) {
+      if (!_racialPassiveIsEligible(actor, item, talentSlug, effect)) continue;
       mods.push(makeFeatureMod({
         domain: effect.domain,
         path: effect.path,
@@ -613,6 +689,82 @@ export function contributeTalentMods(actor, item) {
         source: racialSource,
         rule: { chapter: 4, name: effect.label, stacking: effect.stacking },
       }));
+    }
+  }
+
+  // The standard Orsimer race supplies Resilient (3) and Tough (1). Only
+  // calculate these upgrades when their base values and explicit talent bonus
+  // fields are unambiguous; edited traits and duplicates need GM review.
+  if (talentSlug === "wrothgarian" || talentSlug === "malacathsfury") {
+    const selected = _singleActiveTalent(actor, talentSlug);
+    const wrothgarian = _singleActiveTalent(actor, "wrothgarian");
+    const resilient = _singleActiveNamedTrait(actor, "resilient");
+    const resilientHp = Number(resilient?.system?.hpBonus);
+    const explicitHp = Number(sys.hpBonus ?? 0);
+    const wrothgarianHp = Number(wrothgarian?.system?.hpBonus ?? 0);
+    const isSelected = selected && (selected === item || selected.id === item.id);
+    if (isSelected && resilient && wrothgarian && explicitHp === 0) {
+      const needsUpgrade = talentSlug === "wrothgarian"
+        ? resilientHp === 3
+        : (resilientHp === 3 && (wrothgarianHp === 0 || wrothgarianHp === 2))
+          || (resilientHp === 5 && wrothgarianHp === 0);
+      if (needsUpgrade) mods.push(makeFeatureMod({
+        domain: FEATURE_DOMAINS.HP, path: "system.hp.bonus", mode: "add", value: 2,
+        source: racialSource, rule: { chapter: 4, name: `${item.name} (+2 Resilient HP)`, stacking: STACKING_MODES.ADD },
+      }));
+    }
+    if (talentSlug === "wrothgarian" && isSelected && Number(sys.wtBonus ?? 0) === 0) {
+      const tough = _singleActiveNamedTrait(actor, "tough");
+      const toughValue = Number(getTraitNumericBonuses(tough).wtBonus ?? tough?.system?.wtBonus);
+      if (tough && toughValue === 1) mods.push(makeFeatureMod({
+        domain: FEATURE_DOMAINS.WOUND_THRESHOLD, path: "system.wound_threshold.bonus", mode: "add", value: 1,
+        source: racialSource, rule: { chapter: 4, name: "Wrothgarian (+1 Tough)", stacking: STACKING_MODES.ADD },
+      }));
+    }
+  }
+
+  if (talentSlug === "highmen") {
+    const selected = _singleActiveTalent(actor, "highmen");
+    const poison = _singleActiveResistance(actor, "poison");
+    const poisonValue = _resistanceTraitValue(poison, "poisonR");
+    if (selected && (selected === item || selected.id === item.id) && poison
+      && poisonValue === 3 && Number(sys.poisonR ?? 0) === 0) {
+      mods.push(makeFeatureMod({
+        domain: FEATURE_DOMAINS.RESISTANCE, path: "system.resistance.poisonR", mode: "add", value: 1,
+        source: racialSource, rule: { chapter: 4, name: "High Men (+1 Poison Resistance)", stacking: STACKING_MODES.ADD },
+      }));
+    }
+  }
+
+  if (talentSlug === "lionheart" || talentSlug === "bloodofaldmeris") {
+    const selected = _singleActiveTalent(actor, talentSlug);
+    const isSelected = selected && (selected === item || selected.id === item.id);
+    if (isSelected) {
+      const well = _singleActiveNamedTrait(actor, "powerwell");
+      const wellValue = Number(getTraitNumericBonuses(well).mpBonus ?? well?.system?.mpBonus);
+      const standardWell = talentSlug === "lionheart" ? 10 : 20;
+      if (well && wellValue === standardWell && Number(sys.mpBonus ?? 0) === 0) {
+        mods.push(makeFeatureMod({
+          domain: FEATURE_DOMAINS.MP, path: "system.magicka.bonus", mode: "add", value: 10,
+          source: racialSource, rule: { chapter: 4, name: `${item.name} (additional Power Well 10)`, stacking: STACKING_MODES.ADD },
+        }));
+      }
+      if (talentSlug === "lionheart" && Number(sys.magicR ?? 0) === 0) {
+        const resistance = _singleActiveResistance(actor, "magic");
+        const value = _resistanceTraitValue(resistance, "magicR");
+        if (resistance && value === 2) mods.push(makeFeatureMod({
+          domain: FEATURE_DOMAINS.RESISTANCE, path: "system.resistance.magicR", mode: "add", value: 1,
+          source: racialSource, rule: { chapter: 4, name: "Lionheart (+1 Magic Resistance)", stacking: STACKING_MODES.ADD },
+        }));
+      }
+      if (talentSlug === "bloodofaldmeris" && Number(sys.diseaseR ?? 0) === 0) {
+        const resistance = _singleActiveNamedTrait(actor, "diseaseresistance");
+        const value = _diseaseTraitValue(resistance);
+        if (resistance && value === 50) mods.push(makeFeatureMod({
+          domain: FEATURE_DOMAINS.RESISTANCE, path: "system.resistance.diseaseR", mode: "add", value: 25,
+          source: racialSource, rule: { chapter: 4, name: "Blood of Aldmeris (+25 Disease Resistance)", stacking: STACKING_MODES.ADD },
+        }));
+      }
     }
   }
 
@@ -628,10 +780,13 @@ export function contributeTalentMods(actor, item) {
     const gated = canApplyCharGenGatedImperialTalents(actor, {
       warnTalentName: talentSlug === "imperialluck" ? "Imperial Luck" : "Red Diamond"
     });
-    if (gated) {
+    const firstTalent = getTalentItem(actor, talentSlug);
+    const isFirstTalent = firstTalent === item || Boolean(firstTalent?.id && firstTalent.id === item.id);
+    const superseded = talentSlug === "reddiamond" && hasTalent(actor, "imperialluck");
+    if (gated && isFirstTalent && !superseded) {
       const desiredFromStar = talentSlug === "imperialluck" ? 3 : 2;
       const currentFromStar = _getStarOfTheWestBonus(actor);
-      const delta = Math.max(0, desiredFromStar - currentFromStar);
+      const delta = currentFromStar == null ? 0 : Math.max(0, desiredFromStar - currentFromStar);
       if (delta > 0) {
         mods.push(makeFeatureMod({
           domain: FEATURE_DOMAINS.SP,

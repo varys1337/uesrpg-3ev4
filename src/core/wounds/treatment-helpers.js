@@ -5,6 +5,10 @@ import { buildDifficultyOptionsHtml } from "./shared.js";
 
 const esc = (s) => foundry.utils.escapeHTML(String(s ?? ""));
 
+export function woundTreatmentNeedsReview(attempt) {
+  return attempt != null && (typeof attempt !== "object" || !String(attempt.id ?? "").trim() || !["completed", "reviewed"].includes(attempt.status));
+}
+
 export function findHealerKit(actor) {
   const items = actor?.items?.contents ?? [];
   return items.some((i) => {
@@ -38,7 +42,11 @@ function isHealingToken(...parts) {
     || text.includes("professionmedicine");
 }
 
-export function collectHealingTestCandidates(healer) {
+function isMedicineField(value) {
+  return ["medicine", "professionmedicine"].includes(normalizeHealingToken(value));
+}
+
+export function collectHealingTestCandidates(healer, { medicineOnly = false } = {}) {
   if (!healer) return [];
   const candidates = [];
   const pushCandidate = (id, label, tn, source) => {
@@ -56,8 +64,10 @@ export function collectHealingTestCandidates(healer) {
 
   const prof = healer.system?.professions ?? {};
   for (const [k, v] of Object.entries(prof)) {
-    if (!isHealingToken(k)) continue;
-    pushCandidate(`prof:${k}`, `Profession: ${k}`, v ?? 0, "professions");
+    const professionSlot = /^profession[123]$/i.test(k);
+    const field = professionSlot ? healer.system?.skills?.[k]?.specialization : k;
+    if (medicineOnly ? !isMedicineField(field) : !isHealingToken(k)) continue;
+    pushCandidate(`prof:${k}`, `Profession: ${professionSlot ? field : k}`, v ?? 0, "professions");
   }
 
   const skills = healer.system?.skills ?? {};
@@ -65,6 +75,11 @@ export function collectHealingTestCandidates(healer) {
     const entry = skillData ?? {};
     const specialization = String(entry?.specialization ?? "");
     const isProfessionSlot = skillKey === "profession1" || skillKey === "profession2" || skillKey === "profession3";
+    if (medicineOnly) {
+      if (!isProfessionSlot || !isMedicineField(specialization) || prof?.[skillKey] != null) continue;
+      pushCandidate(`skill:${skillKey}:tn`, `Profession: ${specialization}`, entry?.tn, "system.skills");
+      continue;
+    }
     const keyMatch = isHealingToken(skillKey);
     const specMatch = isHealingToken(specialization);
     if (!(keyMatch || specMatch || (isProfessionSlot && specMatch))) continue;
@@ -84,7 +99,11 @@ export function collectHealingTestCandidates(healer) {
     const field = String(i?.system?.field ?? "");
     const specialization = String(i?.system?.specialization ?? "");
     const itemType = String(i?.type ?? "").toLowerCase();
-    if (!isHealingToken(name, field, specialization)) continue;
+    if (medicineOnly) {
+      const itemName = normalizeHealingToken(name);
+      const isProfession = ["profession", "professionfield"].includes(itemName);
+      if (itemType !== "skill" || !(isMedicineField(name) || (isProfession && (isMedicineField(field) || isMedicineField(specialization))))) continue;
+    } else if (!isHealingToken(name, field, specialization)) continue;
     const label = `Item: ${name || "Skill"}`;
     const idBase = `item:${String(i?.id ?? i?.uuid ?? (name || "unknown"))}`;
     pushCandidate(`${idBase}:value`, label, i?.system?.value, itemType === "skill" ? "skill-item" : "item");
@@ -114,7 +133,7 @@ export async function promptTreatWoundRollOptions(healer, candidates = []) {
   if (!Array.isArray(candidates) || !candidates.length) return null;
   const candidateOptions = candidates.map((c, idx) => {
     const selected = idx === 0 ? "selected" : "";
-    return `<option value="${c.id}" ${selected}>${esc(c.label)} (TN ${Number(c.tn) || 0})</option>`;
+    return `<option value="${esc(c.id)}" ${selected}>${esc(c.label)} (TN ${Number(c.tn) || 0})</option>`;
   }).join("\n");
 
   const readDeclaration = (root) => {
@@ -131,6 +150,7 @@ export async function promptTreatWoundRollOptions(healer, candidates = []) {
   };
   const content = `
     <div class="uesrpg-skill-roll">
+      <p>Treating a wound takes approximately one hour. The GM confirms the time, circumstances and any modifiers not shown here.</p>
       ${renderTNSummary("Treat Wound")}
       <div class="form-group">
         <label><b>Skill Lane</b></label>

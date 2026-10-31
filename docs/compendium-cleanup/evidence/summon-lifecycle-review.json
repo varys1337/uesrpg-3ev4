@@ -1,0 +1,109 @@
+[
+  {
+    "origins": [
+      {
+        "name": "Review Origin automatic",
+        "id": "5d3Lsfu1iplC1JjC",
+        "links": [
+          {
+            "type": "summon",
+            "uuid": "Scene.NUEDEFAULTSCENE0.Token.kVl8T7tcocy3qAmI",
+            "actorUuid": "",
+            "label": "Core Review - automatic Daedra",
+            "registeredAt": 1793083346674
+          },
+          {
+            "type": "casterBuff",
+            "uuid": "Actor.gL4EkpmdyCU386dA.ActiveEffect.uJr5Apgb4uNZlE23",
+            "actorUuid": "Actor.gL4EkpmdyCU386dA",
+            "label": "Mindlock (Summon Daedra - Flame Atronach) on Core Review - Conjurer",
+            "registeredAt": 1793083346744
+          }
+        ]
+      },
+      {
+        "name": "Review Origin pending",
+        "id": "kCkPK9MJizHTQgnx",
+        "links": []
+      },
+      {
+        "name": "[Origin] Summon Daedra - Flame Atronach",
+        "id": "w5MtdXwehR4ManP0",
+        "links": []
+      },
+      {
+        "name": "[Origin] Summon Daedra - Flame Atronach",
+        "id": "bbUBe0S6kSRmGolc",
+        "links": [
+          {
+            "type": "summon",
+            "uuid": "Scene.NUEDEFAULTSCENE0.Token.PfQgwYXPOtGk6NwH",
+            "actorUuid": "",
+            "label": "Flame Atronach (Summoned)",
+            "registeredAt": 1793083826426
+          },
+          {
+            "type": "casterBuff",
+            "uuid": "Actor.gL4EkpmdyCU386dA.ActiveEffect.Irb2vTayZTf6QO5i",
+            "actorUuid": "Actor.gL4EkpmdyCU386dA",
+            "label": "Mindlock (Summon Daedra - Flame Atronach) on Core Review - Conjurer",
+            "registeredAt": 1793083826470
+          }
+        ]
+      }
+    ],
+    "rows": [
+      {
+        "name": "Core Review - automatic Daedra",
+        "hp": {
+          "base": 50,
+          "value": 11,
+          "max": 50,
+          "temp": 0,
+          "bonus": 0
+        },
+        "binding": {
+          "status": "bound",
+          "creatureResult": {
+            "isSuccess": false,
+            "degree": 7,
+            "target": 20,
+            "rollTotal": 80,
+            "isCriticalSuccess": false,
+            "isCriticalFailure": false
+          },
+          "resolvedBy": "JkZC2SUilMqyz8SQ"
+        }
+      },
+      {
+        "name": "Core Review - pending Daedra",
+        "hp": {
+          "base": 0,
+          "value": 0,
+          "max": 0,
+          "temp": 0,
+          "bonus": 0
+        },
+        "binding": {
+          "status": "unbound",
+          "resolvedBy": "JkZC2SUilMqyz8SQ"
+        }
+      }
+    ],
+    "combat": "M0oas0eQdNrHvIPc",
+    "candidates": {
+      "fallback": false,
+      "rows": [
+        {
+          "name": "Core Review - automatic Daedra",
+          "value": 6
+        }
+      ]
+    }
+  },
+  {
+    "ended": true,
+    "boundPresent": false,
+    "unboundPresent": true
+  }
+]

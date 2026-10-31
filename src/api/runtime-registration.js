@@ -27,6 +27,9 @@ export function registerInitRuntimeApi({
   applyDamage,
   applyHealing,
   applyDamageResolved,
+  applyDamageResult,
+  applyHealingResult,
+  applyDamageResolvedResult,
   DAMAGE_TYPES,
   resolveSurpriseState,
   setActorSurprised,
@@ -82,6 +85,9 @@ export function registerInitRuntimeApi({
 
   if (applyDamage) combat.applyDamage = applyDamage;
   if (applyDamageResolved) combat.applyDamageResolved = applyDamageResolved;
+  if (applyDamageResult) combat.applyDamageResult = applyDamageResult;
+  if (applyHealingResult) combat.applyHealingResult = applyHealingResult;
+  if (applyDamageResolvedResult) combat.applyDamageResolvedResult = applyDamageResolvedResult;
   if (DAMAGE_TYPES) combat.DAMAGE_TYPES = DAMAGE_TYPES;
   if (applyHealing) {
     combat.applyHealing = async (actor, amount, options = {}) => {

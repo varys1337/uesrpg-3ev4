@@ -33,7 +33,7 @@ export function chatOutcomeFlags(entries) {
 }
 
 /** Result identity and completed application records survive stale card patches. */
-export function mergeChatOutcomeEnvelope(previous, incoming) {
+export function mergeChatOutcomeEnvelope(previous, incoming, { reconcileSpecial = false } = {}) {
   if (incoming?.version !== 1 || !Array.isArray(incoming.entries)) return incoming;
   const entries = foundry.utils.deepClone(previous?.version === 1 && Array.isArray(previous.entries) ? previous.entries : [])
     .filter(entry => entry && typeof entry.id === "string");
@@ -41,8 +41,9 @@ export function mergeChatOutcomeEnvelope(previous, incoming) {
     if (!entry || typeof entry.id !== "string") continue;
     const existing = entries.find(candidate => candidate.id === entry.id);
     if (!existing) entries.push(foundry.utils.deepClone(entry));
-    else if (!["applied", "partial"].includes(existing.status)) {
-      for (const key of ["status", "error", "result"]) if (entry[key] !== undefined) existing[key] = foundry.utils.deepClone(entry[key]);
+    else if (!["applied", "partial"].includes(existing.status)
+      || reconcileSpecial && existing.adapter === "combat.special" && existing.status === "partial") {
+      for (const key of ["status", "error", "result", "checkpoint", "reconciliation"]) if (entry[key] !== undefined) existing[key] = foundry.utils.deepClone(entry[key]);
     }
   }
   return { ...incoming, entries, revision: Math.max(Number(previous?.revision ?? 0) + 1, Number(incoming.revision ?? 0)) };

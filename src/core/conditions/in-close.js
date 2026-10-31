@@ -10,7 +10,7 @@
  * No behavior changes from the original status-hud.js implementation.
  */
 
-import { toggleCondition, hasCondition } from "./condition-engine.js";
+import { toggleCondition, hasCondition, applyCondition, removeCondition } from "./condition-engine.js";
 import { measureTokenDistance } from "../combat/opposed/range.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { alertDialog, customDialog } from "../../utils/dialog-v2-helper.js";
@@ -218,7 +218,7 @@ function _isInCloseLinked(docA, docB) {
  * @param {boolean} [opts.requireOneMeterForEntry=true]
  * @returns {Promise<{success:boolean,entered?:boolean,left?:boolean,message:string}>}
  */
-export async function toggleInCloseBetweenActors(actorA, actorB, { requireOneMeterForEntry = true } = {}) {
+export async function toggleInCloseBetweenActors(actorA, actorB, { requireOneMeterForEntry = true, outcomeContext = null, actorTokenUuid = null, targetTokenUuid = null } = {}) {
   if (!isReachLengthHomebrewEnabled()) {
     return { success: false, message: "Reach & Length Overhaul is disabled." };
   }
@@ -226,17 +226,21 @@ export async function toggleInCloseBetweenActors(actorA, actorB, { requireOneMet
     return { success: false, message: "Could not resolve both actors for In Close." };
   }
 
-  const tokenA = _resolveTokenPlaceableForActor(actorA);
-  const tokenB = _resolveTokenPlaceableForActor(actorB);
+  const resolver = createUuidResolver();
+  const tokenA = actorTokenUuid ? resolver.resolveSync(actorTokenUuid)?.object : _resolveTokenPlaceableForActor(actorA);
+  const tokenB = targetTokenUuid ? resolver.resolveSync(targetTokenUuid)?.object : _resolveTokenPlaceableForActor(actorB);
   const docA = tokenA?.document ?? null;
   const docB = tokenB?.document ?? null;
 
-  if (!tokenA || !tokenB || !docA || !docB) {
+  if (!tokenA || !tokenB || !docA || !docB || tokenA.actor?.uuid !== actorA.uuid || tokenB.actor?.uuid !== actorB.uuid) {
     return { success: false, message: "Both actors must have tokens on the canvas." };
   }
 
-  if (_isInCloseLinked(docA, docB)) {
-    await _pruneInClosePair(docA, docB);
+  const preparation = outcomeContext ? await outcomeContext.stage("inClose.prepare", async () => ({ ok: true,
+    prepared: { left: _isInCloseLinked(docA, docB), tokenUuids: [docA.uuid, docB.uuid] } }), { documents: [actorA, actorB, docA, docB] }) : null;
+  if (preparation && (preparation.prepared.tokenUuids[0] !== docA.uuid || preparation.prepared.tokenUuids[1] !== docB.uuid)) throw new Error("The In Close token identities changed.");
+  if (preparation?.prepared.left ?? _isInCloseLinked(docA, docB)) {
+    await _pruneInClosePair(docA, docB, outcomeContext);
     return { success: true, left: true, message: `${actorA.name} leaves In Close with ${actorB.name}.` };
   }
 
@@ -248,35 +252,57 @@ export async function toggleInCloseBetweenActors(actorA, actorB, { requireOneMet
   }
 
   const mapA = docA.getFlag(FLAG_SCOPE, "reachLength.inCloseWith") ?? {};
-  await docA.setFlag(FLAG_SCOPE, "reachLength.inCloseWith", { ...mapA, [docB.uuid]: true });
+  await _inCloseWrite(outcomeContext, "tokenA", docA, () => outcomeContext
+    ? requestUpdateDocument(docA, { [`flags.${FLAG_SCOPE}.reachLength.inCloseWith`]: { ...mapA, [docB.uuid]: true } })
+    : docA.setFlag(FLAG_SCOPE, "reachLength.inCloseWith", { ...mapA, [docB.uuid]: true }));
 
   const mapB = docB.getFlag(FLAG_SCOPE, "reachLength.inCloseWith") ?? {};
-  await requestUpdateDocument(docB, {
+  await _inCloseWrite(outcomeContext, "tokenB", docB, () => requestUpdateDocument(docB, {
     [`flags.${FLAG_SCOPE}.reachLength.inCloseWith`]: { ...mapB, [docA.uuid]: true }
-  });
+  }));
 
   if (!hasCondition(actorA, "inclose")) {
-    await toggleCondition(actorA, "inclose", { origin: null, source: "In Close" });
+    await _inCloseWrite(outcomeContext, "conditionA", actorA, () => outcomeContext
+      ? applyCondition(actorA, "inclose", { origin: null, source: "In Close", requireConfirmed: true, operationGuard: outcomeContext.requireCurrent })
+      : toggleCondition(actorA, "inclose", { origin: null, source: "In Close" }));
   }
   if (!hasCondition(actorB, "inclose")) {
-    await toggleCondition(actorB, "inclose", { origin: null, source: "In Close" });
+    await _inCloseWrite(outcomeContext, "conditionB", actorB, () => outcomeContext
+      ? applyCondition(actorB, "inclose", { origin: null, source: "In Close", requireConfirmed: true, operationGuard: outcomeContext.requireCurrent })
+      : toggleCondition(actorB, "inclose", { origin: null, source: "In Close" }));
   }
 
   return { success: true, entered: true, message: `${actorA.name} enters In Close with ${actorB.name}.` };
 }
 
-async function _pruneInClosePair(docA, docB) {
+async function _inCloseWrite(context, key, document, run) {
+  if (!context) return run();
+  return context.stage(`inClose.${key}`, async () => {
+    context.requireCurrent();
+    const result = await run();
+    if (result === false) throw new Error("An In Close document write was not confirmed.");
+    return { ok: true };
+  }, { documents: document.documentName === "Token" ? [document, document.actor] : [document] });
+}
+
+async function _pruneInClosePair(docA, docB, outcomeContext = null) {
   // Remove docB from docA's map
   const mapA = foundry.utils.deepClone(docA.getFlag(FLAG_SCOPE, "reachLength.inCloseWith") ?? {});
   delete mapA[docB.uuid];
   if (Object.keys(mapA).length > 0) {
-    await docA.setFlag(FLAG_SCOPE, "reachLength.inCloseWith", mapA);
+    await _inCloseWrite(outcomeContext, "tokenA", docA, () => outcomeContext
+      ? requestUpdateDocument(docA, { [`flags.${FLAG_SCOPE}.reachLength.inCloseWith`]: mapA })
+      : docA.setFlag(FLAG_SCOPE, "reachLength.inCloseWith", mapA));
   } else {
-    await docA.unsetFlag(FLAG_SCOPE, "reachLength.inCloseWith");
+    await _inCloseWrite(outcomeContext, "tokenA", docA, () => outcomeContext
+      ? requestUpdateDocument(docA, { [`flags.${FLAG_SCOPE}.reachLength.-=inCloseWith`]: null })
+      : docA.unsetFlag(FLAG_SCOPE, "reachLength.inCloseWith"));
     // Remove inclose condition if actor has it
     const actorA = docA.actor;
     if (actorA && hasCondition(actorA, "inclose")) {
-      await toggleCondition(actorA, "inclose", { origin: null, source: "In Close" });
+      await _inCloseWrite(outcomeContext, "conditionA", actorA, () => outcomeContext
+        ? removeCondition(actorA, "inclose", { requireConfirmed: true, operationGuard: outcomeContext.requireCurrent })
+        : toggleCondition(actorA, "inclose", { origin: null, source: "In Close" }));
     }
   }
 
@@ -284,17 +310,19 @@ async function _pruneInClosePair(docA, docB) {
   const mapB = foundry.utils.deepClone(docB.getFlag(FLAG_SCOPE, "reachLength.inCloseWith") ?? {});
   delete mapB[docA.uuid];
   if (Object.keys(mapB).length > 0) {
-    await requestUpdateDocument(docB, {
+    await _inCloseWrite(outcomeContext, "tokenB", docB, () => requestUpdateDocument(docB, {
       [`flags.${FLAG_SCOPE}.reachLength.inCloseWith`]: mapB
-    });
+    }));
   } else {
-    await requestUpdateDocument(docB, {
+    await _inCloseWrite(outcomeContext, "tokenB", docB, () => requestUpdateDocument(docB, {
       [`flags.${FLAG_SCOPE}.reachLength.inCloseWith`]: null
-    });
+    }));
     // Remove inclose condition if actor has it
     const actorB = docB.actor;
     if (actorB && hasCondition(actorB, "inclose")) {
-      await toggleCondition(actorB, "inclose", { origin: null, source: "In Close" });
+      await _inCloseWrite(outcomeContext, "conditionB", actorB, () => outcomeContext
+        ? removeCondition(actorB, "inclose", { requireConfirmed: true, operationGuard: outcomeContext.requireCurrent })
+        : toggleCondition(actorB, "inclose", { origin: null, source: "In Close" }));
     }
   }
 

@@ -32,7 +32,7 @@ export function applyHumanoidMovementStage(stage) {
     ? Number(carryAEs.override.override)
     : withAdd;
 
-  actorSystemData.carry_rating.current = Number((agg.totalEnc - agg.excludedEnc).toFixed(1));
+  actorSystemData.carry_rating.current = Number((agg.totalEnc - agg.excludedEnc).toFixed(6));
 
   const formShiftSkills = {};
   for (const item of actorData.items) {
@@ -130,17 +130,22 @@ export function applyHumanoidMovementStage(stage) {
 
   actorSystemData.speed.value = actorContext._addHalfSpeed(actorData);
 
-  if (actorSystemData.carry_rating.current > actorSystemData.carry_rating.max * 3) {
+  const carried = actorSystemData.carry_rating.current;
+  const capacity = actorSystemData.carry_rating.max;
+  const baseEncumbranceLevel = carried > capacity * 3 ? 3 : carried > capacity * 2 ? 2 : carried > capacity ? 1 : 0;
+  const levelModifier = carryAEs.level;
+  const encumbranceLevel = Math.max(0, Math.min(3, Math.trunc(levelModifier.override ?? (baseEncumbranceLevel + levelModifier.add))));
+  if (encumbranceLevel === 3) {
     actorSystemData.carry_rating.label = "Crushing";
     actorSystemData.carry_rating.penalty = -40;
     actorSystemData.speed.value = 0;
     actorSystemData.stamina.max -= 5;
-  } else if (actorSystemData.carry_rating.current > actorSystemData.carry_rating.max * 2) {
+  } else if (encumbranceLevel === 2) {
     actorSystemData.carry_rating.label = "Severe";
     actorSystemData.carry_rating.penalty = -20;
     actorSystemData.speed.value = Math.floor(actorSystemData.speed.value / 2);
     actorSystemData.stamina.max -= 3;
-  } else if (actorSystemData.carry_rating.current > actorSystemData.carry_rating.max) {
+  } else if (encumbranceLevel === 1) {
     actorSystemData.carry_rating.label = "Moderate";
     actorSystemData.carry_rating.penalty = -10;
     actorSystemData.speed.value -= 1;

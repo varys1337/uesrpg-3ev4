@@ -26,6 +26,7 @@ import { cleanSystemDataWithModel } from "../data-models/registry.js";
 import { MIGRATION_REVISIONS } from "./revisions.js";
 import { isActiveGMUser } from "../../utils/users.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { assertDocumentWriteConfirmed } from "../../utils/authority-proxy/shared.js";
 import {
   ARMOR_HIT_LOCATION_KEYS,
   getArmorCategoryCoverage,
@@ -148,7 +149,9 @@ async function _cleanupRetiredSocialItems() {
 
   if (worldIds.length) {
     worldDeleted = worldIds.length;
-    await Item.deleteDocuments(worldIds);
+    const expectedIds = [...worldIds];
+    const deleted = await Item.deleteDocuments(worldIds);
+    assertDocumentWriteConfirmed(expectedIds, deleted, "Item");
   }
 
   for (const actor of game?.actors?.contents ?? []) {
@@ -160,7 +163,9 @@ async function _cleanupRetiredSocialItems() {
     if (!embeddedIds.length) continue;
     actorsTouched += 1;
     actorDeleted += embeddedIds.length;
-    await actor.deleteEmbeddedDocuments("Item", embeddedIds);
+    const expectedIds = [...embeddedIds];
+    const deleted = await actor.deleteEmbeddedDocuments("Item", embeddedIds);
+    assertDocumentWriteConfirmed(expectedIds, deleted, `${actor.uuid}.Item`);
   }
 
   return {
@@ -188,7 +193,9 @@ async function _cleanupRetiredRuleElementFlags() {
 
   if (worldUpdates.length) {
     worldUpdated = worldUpdates.length;
-    await Item.updateDocuments(worldUpdates, { diff: false });
+    const expectedIds = worldUpdates.map(row => row._id);
+    const updated = await Item.updateDocuments(worldUpdates, { diff: false });
+    assertDocumentWriteConfirmed(expectedIds, updated, "Item");
   }
 
   for (const actor of game?.actors?.contents ?? []) {
@@ -205,7 +212,9 @@ async function _cleanupRetiredRuleElementFlags() {
     if (!embeddedUpdates.length) continue;
     actorsTouched += 1;
     actorUpdated += embeddedUpdates.length;
-    await actor.updateEmbeddedDocuments("Item", embeddedUpdates, { diff: false });
+    const expectedIds = embeddedUpdates.map(row => row._id);
+    const updated = await actor.updateEmbeddedDocuments("Item", embeddedUpdates, { diff: false });
+    assertDocumentWriteConfirmed(expectedIds, updated, `${actor.uuid}.Item`);
   }
 
   return {
@@ -717,7 +726,7 @@ function _assertTypeChangesApplied(typeChangeUpdates, getCurrentItem, context = 
   throw error;
 }
 
-async function _processWorldItems(modeLabel, { silent = false } = {}) {
+async function _processWorldItems(modeLabel, { silent = false, requireConfirmed = false } = {}) {
   const supportedTypes = _supportedItemTypes();
   const updates = [];
   const typeChangeUpdates = [];
@@ -733,13 +742,17 @@ async function _processWorldItems(modeLabel, { silent = false } = {}) {
 
   if (updates.length) {
     if (!silent) console.log(`${MODULE_ID} | ${modeLabel} ${updates.length} world item(s)`);
-    await Item.updateDocuments(updates, { diff: false });
+    const expectedIds = requireConfirmed ? updates.map(row => row._id) : [];
+    const updated = await Item.updateDocuments(updates, { diff: false });
+    if (requireConfirmed) assertDocumentWriteConfirmed(expectedIds, updated, "Item");
   }
 
   if (typeChangeUpdates.length) {
     if (!silent) console.log(`${MODULE_ID} | ${modeLabel} ${typeChangeUpdates.length} world item subtype conversion(s)`);
     const replacements = typeChangeUpdates.map(({ update }) => _createForcedTypeChangeUpdate(update));
-    await Item.updateDocuments(replacements, { diff: false });
+    const expectedIds = requireConfirmed ? replacements.map(row => row._id) : [];
+    const updated = await Item.updateDocuments(replacements, { diff: false });
+    if (requireConfirmed) assertDocumentWriteConfirmed(expectedIds, updated, "Item");
     _assertTypeChangesApplied(typeChangeUpdates, (id) => game.items.get(id));
   }
 
@@ -749,7 +762,7 @@ async function _processWorldItems(modeLabel, { silent = false } = {}) {
   };
 }
 
-async function _processActorItems(modeLabel, { silent = false } = {}) {
+async function _processActorItems(modeLabel, { silent = false, requireConfirmed = false } = {}) {
   const supportedTypes = _supportedItemTypes();
   let plannedTypeConversions = 0;
   let convertedTypeConversions = 0;
@@ -768,14 +781,18 @@ async function _processActorItems(modeLabel, { silent = false } = {}) {
 
     if (updates.length) {
       if (!silent) console.log(`${MODULE_ID} | ${modeLabel} ${updates.length} item(s) on actor ${actor.name}`);
-      await actor.updateEmbeddedDocuments("Item", updates, { diff: false });
+      const expectedIds = requireConfirmed ? updates.map(row => row._id) : [];
+      const updated = await actor.updateEmbeddedDocuments("Item", updates, { diff: false });
+      if (requireConfirmed) assertDocumentWriteConfirmed(expectedIds, updated, `${actor.uuid}.Item`);
     }
 
     if (typeChangeUpdates.length) {
       if (!silent) console.log(`${MODULE_ID} | ${modeLabel} ${typeChangeUpdates.length} item subtype conversion(s) on actor ${actor.name}`);
       plannedTypeConversions += typeChangeUpdates.length;
       const replacements = typeChangeUpdates.map(({ update }) => _createForcedTypeChangeUpdate(update));
-      await actor.updateEmbeddedDocuments("Item", replacements, { diff: false });
+      const expectedIds = requireConfirmed ? replacements.map(row => row._id) : [];
+      const updated = await actor.updateEmbeddedDocuments("Item", replacements, { diff: false });
+      if (requireConfirmed) assertDocumentWriteConfirmed(expectedIds, updated, `${actor.uuid}.Item`);
       _assertTypeChangesApplied(typeChangeUpdates, (id) => actor.items.get(id), { actor });
       convertedTypeConversions += typeChangeUpdates.length;
     }
@@ -818,8 +835,8 @@ async function _repairLegacyItemTypeCutoverIfNeeded() {
     };
   }
 
-  const worldResult = await _processWorldItems("Repairing", { silent: true });
-  const actorResult = await _processActorItems("Repairing", { silent: true });
+  const worldResult = await _processWorldItems("Repairing", { silent: true, requireConfirmed: true });
+  const actorResult = await _processActorItems("Repairing", { silent: true, requireConfirmed: true });
   const after = _collectPendingItemTypeConversions();
   const telemetry = {
     attempted: true,
@@ -858,7 +875,9 @@ async function _backfillScrollCastingControlsWorld(defaultRequireTraining, defau
 
   if (updates.length) {
     console.log(`${MODULE_ID} | Backfilling scroll casting controls for ${updates.length} world scroll(s)`);
-    await Item.updateDocuments(updates, { diff: false });
+    const expectedIds = updates.map(row => row._id);
+    const updated = await Item.updateDocuments(updates, { diff: false });
+    assertDocumentWriteConfirmed(expectedIds, updated, "Item");
   }
 }
 
@@ -881,7 +900,9 @@ async function _backfillScrollCastingControlsActorItems(defaultRequireTraining, 
 
     if (updates.length) {
       console.log(`${MODULE_ID} | Backfilling scroll casting controls for ${updates.length} scroll(s) on actor ${actor.name}`);
-      await actor.updateEmbeddedDocuments("Item", updates, { diff: false });
+      const expectedIds = updates.map(row => row._id);
+      const updated = await actor.updateEmbeddedDocuments("Item", updates, { diff: false });
+      assertDocumentWriteConfirmed(expectedIds, updated, `${actor.uuid}.Item`);
     }
   }
 }
@@ -920,7 +941,11 @@ async function _normalizeSpellDamageTypesWorld() {
     if (!damageType) continue;
     updates.push({ _id: item.id, "system.damageType": damageType });
   }
-  if (updates.length) await Item.updateDocuments(updates, { diff: false });
+  if (updates.length) {
+    const expectedIds = updates.map(row => row._id);
+    const updated = await Item.updateDocuments(updates, { diff: false });
+    assertDocumentWriteConfirmed(expectedIds, updated, "Item");
+  }
   return updates.length;
 }
 
@@ -937,7 +962,9 @@ async function _normalizeSpellDamageTypesActorItems() {
     if (!updates.length) continue;
     actorsTouched += 1;
     updated += updates.length;
-    await actor.updateEmbeddedDocuments("Item", updates, { diff: false });
+    const expectedIds = updates.map(row => row._id);
+    const documents = await actor.updateEmbeddedDocuments("Item", updates, { diff: false });
+    assertDocumentWriteConfirmed(expectedIds, documents, `${actor.uuid}.Item`);
   }
   return { updated, actorsTouched };
 }
@@ -1012,8 +1039,8 @@ async function _runVersionedItemMigrationPass({ state }) {
   };
 
   const legacyBefore = _collectPendingItemTypeConversions();
-  const worldResult = await _processWorldItems("Migrating");
-  const actorResult = await _processActorItems("Migrating");
+  const worldResult = await _processWorldItems("Migrating", { requireConfirmed: true });
+  const actorResult = await _processActorItems("Migrating", { requireConfirmed: true });
   const legacyAfter = _collectPendingItemTypeConversions();
 
   migrationTelemetry.attempted = legacyBefore.length;
@@ -1086,7 +1113,11 @@ export async function migrateNpcArmorCoverageDefaultsIfNeeded() {
       changedItemUuids.push(item.uuid);
     }
 
-    if (updates.length) await actor.updateEmbeddedDocuments("Item", updates, { diff: false });
+    if (updates.length) {
+      const expectedIds = updates.map(row => row._id);
+      const updated = await actor.updateEmbeddedDocuments("Item", updates, { diff: false });
+      assertDocumentWriteConfirmed(expectedIds, updated, `${actor.uuid}.Item`);
+    }
   }
 
   const telemetry = {
@@ -1141,7 +1172,9 @@ export async function migrateItemSheetCompatibilityIfNeeded() {
           dropInvalidEmbedded: false,
         });
         if (typeChanged) {
-          await item.update(payload);
+          const expectedIds = [item.id];
+          const updated = await item.update(payload);
+          assertDocumentWriteConfirmed(expectedIds, updated ? [updated] : [], actor ? `${actor.uuid}.Item` : "Item");
           _assertTypeChangesApplied([{ item, update }], (id) => actor ? actor.items.get(id) : game.items.get(id), { actor });
         } else if (!await requestUpdateDocument(item, payload)) {
           throw new Error("The validated Item update was not committed.");
@@ -1248,6 +1281,7 @@ export async function migrateItemsIfNeeded() {
   } catch (err) {
     const error = new Error("UESRPG Item migration failed.", { cause: err });
     if (err?.migrationTelemetry) error.migrationTelemetry = err.migrationTelemetry;
+    if (err?.documentReferences) error.documentReferences = err.documentReferences;
     throw error;
   }
 }

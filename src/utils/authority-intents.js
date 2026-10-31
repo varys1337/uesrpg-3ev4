@@ -117,12 +117,12 @@ async function _writeRequest(user, requestId, update) {
     if (next != null && Object.prototype.hasOwnProperty.call(kept, requestId)) {
       updateData[`flags.${SYSTEM_ID}.authority.requests.${requestId}`] = kept[requestId];
     } else if (Object.prototype.hasOwnProperty.call(existingRequests, requestId)) {
-      updateData[`flags.${SYSTEM_ID}.authority.requests.-=${requestId}`] = null;
+      updateData[`flags.${SYSTEM_ID}.authority.requests.${requestId}`] = foundry.data.operators.ForcedDeletion.create();
     }
     for (const existingId of Object.keys(existingRequests)) {
       if (existingId === requestId || Object.prototype.hasOwnProperty.call(kept, existingId)) continue;
       if (!_isSafeId(existingId)) continue;
-      updateData[`flags.${SYSTEM_ID}.authority.requests.-=${existingId}`] = null;
+      updateData[`flags.${SYSTEM_ID}.authority.requests.${existingId}`] = foundry.data.operators.ForcedDeletion.create();
     }
 
     const startedAt = isPerfEnabled() ? monoMs() : null;

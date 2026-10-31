@@ -27,6 +27,7 @@ import { FrenziedAPI } from "../../core/conditions/frenzied.js";
 import { isDebugEnabled } from "../../utils/debug.js";
 import { registerInitRuntimeApi, registerReadyRuntimeApi } from "../../api/runtime-registration.js";
 import { ApplyDamageService } from "../../application/combat/apply-damage-service.js";
+import { reviewExtendedAction } from "../../core/combat/extended-action-progress.js";
 
 function buildStaminaApi() {
   return {
@@ -118,6 +119,7 @@ export async function registerSystemRuntimeApi() {
     staminaApi: buildStaminaApi(),
     attackTracker: AttackTracker,
     magicApi,
+    combatApi: { reviewExtendedAction },
     modifierRegistry,
     dumpAEKeys: (game.user?.isGM && isDebugEnabled(null))
       ? async (...args) => {
@@ -138,6 +140,10 @@ export async function registerSystemRuntimeApi() {
         apply: ApplyDamageService.applyResolved.bind(ApplyDamageService),
         applySimple: ApplyDamageService.applySimple.bind(ApplyDamageService),
         applyHealing: ApplyDamageService.applyHealing.bind(ApplyDamageService),
+        applyResult: ApplyDamageService.applyResolvedResult.bind(ApplyDamageService),
+        applySimpleResult: ApplyDamageService.applySimpleResult.bind(ApplyDamageService),
+        applyHealingResult: ApplyDamageService.applyHealingResult.bind(ApplyDamageService),
+        applyChatCardResult: ApplyDamageService.applyChatCardResult.bind(ApplyDamageService),
       },
       magic: {
         cast: CastSpellService.cast.bind(CastSpellService),

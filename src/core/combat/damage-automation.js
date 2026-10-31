@@ -40,3 +40,13 @@ export async function applyHealing(actor, amount, options = {}) {
   const { ApplyDamageService } = await import('../../application/combat/apply-damage-service.js');
   return ApplyDamageService.applyHealing(actor, amount, options);
 }
+
+export async function applyDamageResult(actor, damage, damageType, options = {}) {
+  const { ApplyDamageService } = await import('../../application/combat/apply-damage-service.js');
+  return ApplyDamageService.applySimpleResult(actor, damage, damageType, options);
+}
+
+export async function applyHealingResult(actor, amount, options = {}) {
+  const { ApplyDamageService } = await import('../../application/combat/apply-damage-service.js');
+  return ApplyDamageService.applyHealingResult(actor, amount, options);
+}

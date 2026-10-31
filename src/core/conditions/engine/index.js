@@ -556,7 +556,7 @@ export function isImmuneToCondition(actor, key) {
   return false;
 }
 
-export async function applyCondition(actor, key, { origin = null, source = null } = {}) {
+export async function applyCondition(actor, key, { origin = null, source = null, requireConfirmed = false, operationMarker = null, operationGuard = null } = {}) {
   if (!actor) return null;
   const k = _normalizeConditionKey(key);
   const def = STATIC_CONDITIONS[k];
@@ -588,9 +588,12 @@ export async function applyCondition(actor, key, { origin = null, source = null 
     condition: { key: k, value: 1, source: source ?? _conditionBaseName(k, def.name) },
     changes: Array.isArray(def.changes) ? def.changes : []
   });
+  if (operationMarker) createData.flags[FLAG_SCOPE].specialActionOperation = operationMarker;
 
   const applied = await _upsertConditionEffect(actor, k, {
     createData,
+    requireConfirmed,
+    operationGuard,
     updateFn: async (_effect) => {
       const updates = {
         name: t(`UESRPG.Conditions.${k}.Name`, def.name),
@@ -604,6 +607,7 @@ export async function applyCondition(actor, key, { origin = null, source = null 
         updates["flags.core.statusId"] = coreStatusId;
         updates.statuses = statuses ?? [coreStatusId];
       }
+      if (operationMarker) updates[`${FLAG_PATH}.specialActionOperation`] = operationMarker;
 
       return updates;
     }
@@ -853,7 +857,7 @@ function _mkBleedingWTChanges(x) {
  * @param {string} key
  * @returns {ActiveEffect[]}
  */
-async function _dedupeConditionEffects(actor, key) {
+async function _dedupeConditionEffects(actor, key, { requireConfirmed = false, operationGuard = null } = {}) {
   if (!actor) return null;
   const k = _normalizeConditionKey(key);
   if (!k) return null;
@@ -871,36 +875,50 @@ async function _dedupeConditionEffects(actor, key) {
     .filter(Boolean);
   if (duplicateIds.length) {
     try {
-      await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", duplicateIds);
-    } catch (_e) {}
+      operationGuard?.();
+      const deleted = await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", duplicateIds, { requireDeleted: requireConfirmed });
+      if (requireConfirmed && !deleted) throw new Error("Condition deduplication was not confirmed.");
+    } catch (_e) { if (requireConfirmed) throw _e; }
   }
 
   return keep;
 }
 
-async function _upsertConditionEffect(actor, key, { createData, updateFn }) {
+async function _upsertConditionEffect(actor, key, { createData, updateFn, requireConfirmed = false, operationGuard = null, updateOnCreate = true }) {
   const k = _normalizeConditionKey(key);
   if (!k) return null;
 
   // Ensure we never accumulate multiple effects for the same condition.
-  let existing = await _dedupeConditionEffects(actor, k);
+  let existing = await _dedupeConditionEffects(actor, k, { requireConfirmed, operationGuard });
+  let createdId = null;
 
   if (!existing) {
-    await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [createData]);
-    existing = await _dedupeConditionEffects(actor, k);
+    operationGuard?.();
+    const created = await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [createData]);
+    if (requireConfirmed && created?.length !== 1) throw new Error("Condition creation was not confirmed.");
+    createdId = created?.length === 1 ? created[0]?.id ?? null : null;
+    existing = await _dedupeConditionEffects(actor, k, { requireConfirmed, operationGuard });
   }
 
-  if (!existing) return null;
+  if (!existing) {
+    if (requireConfirmed) throw new Error("The created condition is unavailable.");
+    return null;
+  }
 
-  if (typeof updateFn === "function") {
+  // Additive numeric conditions already have their initial value in createData.
+  // Only skip the update if the effect we retained is the one just created.
+  const justCreated = createdId && String(existing.id) === String(createdId);
+  if (typeof updateFn === "function" && (updateOnCreate || !justCreated)) {
     const updates = await updateFn(existing);
     if (updates && typeof updates === "object" && Object.keys(updates).length) {
-      await requestUpdateDocument(existing, updates);
+      operationGuard?.();
+      const updated = await requestUpdateDocument(existing, updates);
+      if (requireConfirmed && !updated) throw new Error("Condition update was not confirmed.");
     }
   }
 
   // Final dedupe pass: some update flows can re-introduce a core-linked duplicate via toggleStatusEffect.
-  return await _dedupeConditionEffects(actor, k);
+  return await _dedupeConditionEffects(actor, k, { requireConfirmed, operationGuard });
 }
 
 /**
@@ -911,7 +929,7 @@ async function _upsertConditionEffect(actor, key, { createData, updateFn }) {
  *  - Healing reduces X by total HP regained (including overheal).
  *  - If applied again, X values add.
  */
-export async function applyBleeding(actor, x, { origin = null, source = "Bleeding" } = {}) {
+export async function applyBleeding(actor, x, { origin = null, source = "Bleeding", requireConfirmed = false } = {}) {
   if (!actor) return null;
   if (isActorUndeadBloodless(actor)) return null;
   if (isImmuneToCondition(actor, "bleeding")) {
@@ -942,6 +960,8 @@ export async function applyBleeding(actor, x, { origin = null, source = "Bleedin
 
   return _upsertConditionEffect(actor, "bleeding", {
     createData,
+    requireConfirmed,
+    updateOnCreate: false,
     updateFn: async (effect) => {
       const c = _getConditionData(effect) ?? {};
       const cur = Math.max(0, _toNumber(c.value, 0));
@@ -1005,6 +1025,7 @@ export async function applyBurning(actor, x, { hitLocation = "Body", origin = nu
 
   return _upsertConditionEffect(actor, "burning", {
     createData,
+    updateOnCreate: false,
     updateFn: async (effect) => {
       const c = _getConditionData(effect) ?? {};
       const cur = Math.max(0, _toNumber(c.value, 0));

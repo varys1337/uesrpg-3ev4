@@ -1,16 +1,6 @@
+import { requestXpPurchase } from "../core/advancement/purchase-service.js";
+import { formatXpPurchaseFailure } from "../ui/advancement/purchase-review.js";
 import { customDialog } from "../utils/dialog-v2-helper.js";
-import { requestUpdateDocument } from "../utils/authority-proxy.js";
-
-function _campaignRankFromXpTotal(xpTotalRaw) {
-  const xpTotal = Number(xpTotalRaw);
-  const safe = Number.isFinite(xpTotal) ? xpTotal : 0;
-  if (safe >= 7000) return "Master";
-  if (safe >= 5500) return "Expert";
-  if (safe >= 4000) return "Adept";
-  if (safe >= 2500) return "Journeyman";
-  if (safe >= 1000) return "Apprentice";
-  return "Novice";
-}
 
 function _resolveSelectedPcActors() {
   const tokens = Array.from(canvas?.tokens?.controlled ?? []);
@@ -65,17 +55,9 @@ export async function awardXpToSelectedPcs(opts = {}) {
           let updated = 0;
           let failed = 0;
           for (const actor of actors) {
-            const currentXp = Math.max(0, Number(actor.system?.xp ?? 0) || 0);
-            const currentXpTotal = Math.max(0, Number(actor.system?.xpTotal ?? 0) || 0);
-            const nextXp = currentXp + amount;
-            const nextXpTotal = currentXpTotal + amount;
-            const nextRank = _campaignRankFromXpTotal(nextXpTotal);
-
-            const ok = await requestUpdateDocument(actor, {
-              "system.xp": nextXp,
-              "system.xpTotal": nextXpTotal,
-              "system.campaignRank": nextRank,
-            });
+            const result = await requestXpPurchase(actor, "awardXp", { amount });
+            const ok = result.ok;
+            if (!ok) ui.notifications?.warn?.(formatXpPurchaseFailure(result));
 
             if (ok !== false) updated += 1;
             else failed += 1;

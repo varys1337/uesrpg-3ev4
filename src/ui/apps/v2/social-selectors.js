@@ -1,4 +1,5 @@
 import { FACTION_CHOICES, getChoiceLabel, LANGUAGE_CHOICES } from "../../sheets/shared/data/social-choices.js";
+import { getLanguageComparisonKey } from "../../../core/social/social-choices.js";
 import {
   buildKnownLanguagesStringFromEntries,
   formatLanguageSlotSummary,
@@ -14,6 +15,14 @@ import { bindListFilters, clearListFilterState } from "../../sheets/v2/shared/li
 import { withApplicationUniqueId } from "./application-identity.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
+
+function uniqueSocialEntryId(preferred, entries) {
+  const existing = new Set(entries.map(entry => entry.id));
+  let candidate = preferred;
+  let suffix = 2;
+  while (existing.has(candidate)) candidate = `${preferred}-${suffix++}`;
+  return candidate;
+}
 
 export class LanguageSelectorAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
   #actor;
@@ -63,7 +72,7 @@ export class LanguageSelectorAppV2 extends HandlebarsApplicationMixin(Applicatio
 
   async _prepareContext(options) {
     const state = getSocialStateFromSystem(this.#actor.system);
-    const selected = new Set(this.#entries.map((entry) => entry.name.toLowerCase()));
+    const selected = new Set(this.#entries.map((entry) => getLanguageComparisonKey(entry.name)));
 
     return {
       maxSlots: state.languages.max,
@@ -74,7 +83,7 @@ export class LanguageSelectorAppV2 extends HandlebarsApplicationMixin(Applicatio
           id: choice.id,
           label: getChoiceLabel(choice),
           name: choice.name,
-          disabled: selected.has(choice.name.toLowerCase()),
+          disabled: selected.has(getLanguageComparisonKey(choice.name)),
         })),
       entries: this.#entries,
     };
@@ -101,10 +110,10 @@ export class LanguageSelectorAppV2 extends HandlebarsApplicationMixin(Applicatio
 
     const name = String(target?.dataset?.languageName ?? "").trim();
     if (!name) return;
-    if (this.#entries.some((entry) => entry.name.toLowerCase() === name.toLowerCase())) return;
+    if (this.#entries.some((entry) => getLanguageComparisonKey(entry.name) === getLanguageComparisonKey(name))) return;
 
     this.#entries.push({
-      id: `lang-${toSlug(name)}`,
+      id: uniqueSocialEntryId(`lang-${toSlug(name) || "custom"}`, this.#entries),
       name,
       speak: true,
       readWrite: true,
@@ -121,10 +130,10 @@ export class LanguageSelectorAppV2 extends HandlebarsApplicationMixin(Applicatio
     const customInput = this.element?.querySelector('[data-role="custom-language"]');
     const name = String(customInput?.value ?? "").trim();
     if (!name) return;
-    if (this.#entries.some((entry) => entry.name.toLowerCase() === name.toLowerCase())) return;
+    if (this.#entries.some((entry) => getLanguageComparisonKey(entry.name) === getLanguageComparisonKey(name))) return;
 
     this.#entries.push({
-      id: `lang-${toSlug(name)}`,
+      id: uniqueSocialEntryId(`lang-${toSlug(name) || "custom"}`, this.#entries),
       name,
       speak: true,
       readWrite: true,
@@ -157,17 +166,23 @@ export class LanguageSelectorAppV2 extends HandlebarsApplicationMixin(Applicatio
       const entries = normalizeLanguageEntries(this.#entries);
       const knownString = buildKnownLanguagesStringFromEntries(entries);
 
-      await requestUpdateDocument(this.#actor, {
+      const saved = await requestUpdateDocument(this.#actor, {
         "system.social.languages.entries": entries,
         "system.linguistics.known": knownString,
       });
-
+      if (!saved) {
+        ui.notifications?.error(t("UESRPG.Notifications.LanguageSelectionSaveFailed", "Failed to save language selection."));
+        return;
+      }
       this.#resolveAndClose(true);
     } catch (err) {
       console.error("uesrpg-3ev4 | Failed to save language selection", err);
       ui.notifications?.error(t("UESRPG.Notifications.LanguageSelectionSaveFailed", "Failed to save language selection."));
-      this.#isSaving = false;
-      if (saveButton) saveButton.disabled = false;
+    } finally {
+      if (!this.#resolved) {
+        this.#isSaving = false;
+        if (saveButton) saveButton.disabled = false;
+      }
     }
   }
 
@@ -284,7 +299,7 @@ export class FactionSelectorAppV2 extends HandlebarsApplicationMixin(Application
     if (this.#entries.some((f) => f.name.toLowerCase() === name.toLowerCase())) return;
 
     this.#entries.push({
-      id: id || `faction-${toSlug(name)}`,
+      id: uniqueSocialEntryId(id || `faction-${toSlug(name) || "custom"}`, this.#entries),
       name,
       rankTitle: "",
       location: "",
@@ -304,7 +319,7 @@ export class FactionSelectorAppV2 extends HandlebarsApplicationMixin(Application
     if (this.#entries.some((f) => f.name.toLowerCase() === name.toLowerCase())) return;
 
     this.#entries.push({
-      id: `faction-${toSlug(name)}`,
+      id: uniqueSocialEntryId(`faction-${toSlug(name) || "custom"}`, this.#entries),
       name,
       rankTitle: "",
       location: "",
@@ -330,17 +345,24 @@ export class FactionSelectorAppV2 extends HandlebarsApplicationMixin(Application
     const saveButton = this.element?.querySelector("[data-action='save']");
     this.#isSaving = true;
     if (saveButton) saveButton.disabled = true;
-    this._readEntriesFromDom();
     try {
-      await requestUpdateDocument(this.#actor, {
+      this._readEntriesFromDom();
+      const saved = await requestUpdateDocument(this.#actor, {
         "system.social.factions": normalizeFactionEntries(this.#entries),
       });
+      if (!saved) {
+        ui.notifications?.error(t("UESRPG.Notifications.FactionSelectionSaveFailed", "Failed to save faction selection."));
+        return;
+      }
       this.#resolveAndClose(true);
     } catch (err) {
       console.error("uesrpg-3ev4 | Failed to save faction selection", err);
       ui.notifications?.error(t("UESRPG.Notifications.FactionSelectionSaveFailed", "Failed to save faction selection."));
-      this.#isSaving = false;
-      if (saveButton) saveButton.disabled = false;
+    } finally {
+      if (!this.#resolved) {
+        this.#isSaving = false;
+        if (saveButton) saveButton.disabled = false;
+      }
     }
   }
 

@@ -69,6 +69,7 @@ const _ALL_ACTOR_AE_KEYS = Object.freeze([
   "system.modifiers.carry.override",
   "system.modifiers.encumbrance.penalty",      "system.modifiers.encumbrance.testPenalty",
   "system.modifiers.encumbrance.speedPenalty", "system.modifiers.encumbrance.staminaPenalty",
+  "system.modifiers.encumbrance.level", "system.modifiers.encumbrance.armorWeightClass",
   // Fatigue/Exhaustion (alias pairs)
   "system.modifiers.fatigue.bonus",   "system.modifiers.exhaustion.bonus",
   "system.modifiers.fatigue.penalty", "system.modifiers.exhaustion.penalty",
@@ -287,7 +288,9 @@ export function getCarryAEModifiers(actor) {
     encPenalty:        testPenalty,
     encTestPenalty:    testPenalty,
     encSpeedPenalty:   map["system.modifiers.encumbrance.speedPenalty"]   ?? { add: 0, override: null },
-    encStaminaPenalty: map["system.modifiers.encumbrance.staminaPenalty"] ?? { add: 0, override: null }
+    encStaminaPenalty: map["system.modifiers.encumbrance.staminaPenalty"] ?? { add: 0, override: null },
+    level: map["system.modifiers.encumbrance.level"] ?? { add: 0, override: null },
+    armorWeightClass: map["system.modifiers.encumbrance.armorWeightClass"] ?? { add: 0, override: null }
   };
 }
 

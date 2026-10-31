@@ -3,6 +3,24 @@ import { SYSTEM_ID } from "../../core/constants.js";
 
 export const NAMESPACE = SYSTEM_ID;
 
+/** Compare native acknowledgements by ID; missing/partial results never confirm a batch. */
+export function getUnconfirmedDocumentIds(expectedIds, confirmedIds) {
+  if (!Array.isArray(expectedIds) || expectedIds.some(id => typeof id !== "string" || !id)) {
+    throw new TypeError("Document confirmation requires explicit document IDs.");
+  }
+  const confirmed = new Set(Array.isArray(confirmedIds) ? confirmedIds : []);
+  return [...new Set(expectedIds)].filter(id => !confirmed.has(id));
+}
+
+export function assertDocumentWriteConfirmed(expectedIds, documents, referencePrefix = "Document") {
+  const missing = getUnconfirmedDocumentIds(expectedIds, documents?.map?.(doc => doc?.id));
+  if (!missing.length) return;
+  const error = new Error(`Unconfirmed document write: ${missing.map(id => `${referencePrefix}.${id}`).join(", ")}`);
+  error.unconfirmedDocumentIds = missing;
+  error.documentReferences = missing.map(id => `${referencePrefix}.${id}`);
+  throw error;
+}
+
 const _IN_FLIGHT_LOCKS = new Set();
 const _RECENT_SIGNATURES = new Map();
 
@@ -36,7 +54,8 @@ function _sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function acquireLock(key, { timeoutMs = 3000, pollMs = 25 } = {}) {
+export async function acquireLock(key, { timeoutMs = 3000, pollMs = 25, wait = true } = {}) {
+  if (!wait && _IN_FLIGHT_LOCKS.has(key)) return false;
   const start = Date.now();
   while (_IN_FLIGHT_LOCKS.has(key)) {
     if ((Date.now() - start) > timeoutMs) {
@@ -45,6 +64,7 @@ export async function acquireLock(key, { timeoutMs = 3000, pollMs = 25 } = {}) {
     await _sleep(pollMs);
   }
   _IN_FLIGHT_LOCKS.add(key);
+  return true;
 }
 
 export function releaseLock(key) {
@@ -116,4 +136,15 @@ export function lockKeyForDoc(doc) {
 export function isAllowedGenericDocument(doc) {
   const allowedDocs = new Set(["Actor", "Item", "ActiveEffect", "Token", "Combatant", "Scene", "Region"]);
   return !!doc && doc.documentName !== "ChatMessage" && allowedDocs.has(doc.documentName);
+}
+
+export function documentStateFingerprint(value) {
+  // Portable change fingerprint, not an authentication primitive. Native
+  // permissions, exact request identity and authoritative plans are separate.
+  const bytes = new TextEncoder().encode(stableStringify(value));
+  let hash = 0x6c62272e07bb014262b821756295c58dn;
+  const prime = (1n << 88n) + 0x13bn;
+  const mask = (1n << 128n) - 1n;
+  for (const byte of bytes) hash = ((hash ^ BigInt(byte)) * prime) & mask;
+  return hash.toString(16).padStart(32, "0");
 }

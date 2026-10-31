@@ -10,11 +10,41 @@ const RAW_DAMAGE = new Map([
   ["src/core/combat/damage/resolver/resolve.js", new Set(["applyDamageResolved"])],
 ]);
 const DAMAGE_OWNER = "src/application/combat/apply-damage-service.js";
+const DAMAGE_EXPLANATION_OWNER = "src/core/combat/damage/explanation.js";
+const SUPPORT_REPORT_OWNER = "src/utils/dev/support-report.js";
+const TEST_EXPLANATION_OWNER = "src/core/combat/opposed/explanation.js";
+const DERIVED_EXPLANATION_OWNER = "src/core/actors/prepare/derived-explanation.js";
+const ACTION_RESULT_OWNER = "src/application/action-results.js";
+const SPECIAL_ACTION_OWNER = "src/core/combat/special-actions-helper.js";
+const SPECIAL_ACTION_QUEUE_CALLERS = new Set([SPECIAL_ACTION_OWNER, "src/ui/sheets/shared/listeners/combat-actions.js"]);
+const MIGRATION_STATE_OWNER = "src/core/migrations/state.js";
+const MIGRATION_EXECUTION_OWNER = "src/core/migrations/execution.js";
+const MIGRATION_STATE_FUNCTIONS = new Set([
+  "getMigrationState", "setMigrationState", "getAppliedMigrationRevision", "isMigrationRevisionApplied",
+  "getPendingMigrationKeys", "markMigrationRevisionApplied", "getMigrationFailureCount", "readMigrationStateSnapshot",
+]);
 const BOUNDARY_OBSERVERS = new Set([
   "src/core/documents/combat/hooks.js", // Dynamic initiative summary, after consumers.
   "src/ui/sheets/v2/shared/combat-tracker-refresh.js", // AppV2 presentation refresh.
 ]);
 const SHARED_FUNCTIONS = new Map([
+  ["beginPerfMeasurement", "src/utils/perf-tracker-support.js"],
+  ["measurePerfCall", "src/utils/perf-tracker-support.js"],
+  ["startPerfSpan", "src/utils/perf-tracker.js"],
+  ["measurePerfSync", "src/utils/perf-tracker.js"],
+  ["projectSupportReport", SUPPORT_REPORT_OWNER],
+  ["projectOpposedResolutionExplanation", TEST_EXPLANATION_OWNER],
+  ["projectOpposedTestExplanation", TEST_EXPLANATION_OWNER],
+  ["projectPreparedDerivedExplanation", DERIVED_EXPLANATION_OWNER],
+  ...["createActionResult", "getActionResult", "withActionResult", "aggregateActionResults", "actionResultFromReceipt",
+    "actionResultFromEvidence", "addActionErrorContext"].map(name => [name, ACTION_RESULT_OWNER]),
+  ["recordedDamageNumber", DAMAGE_EXPLANATION_OWNER],
+  ["projectWeaponDamageExplanation", DAMAGE_EXPLANATION_OWNER],
+  ["selectDamageExplanationLane", DAMAGE_EXPLANATION_OWNER],
+  ["projectGmDamageExplanation", DAMAGE_EXPLANATION_OWNER],
+  ["projectRecordedMessageRolls", DAMAGE_EXPLANATION_OWNER],
+  ["projectStandaloneDamageEvidence", DAMAGE_EXPLANATION_OWNER],
+  ["renderGmDamageReportHtml", "src/ui/combat/damage-explanation.js"],
   ["calculateHealthDamage", "src/core/combat/damage/post-application.js"],
   ["normalizeArmorLocationKey", "src/core/combat/damage/resolver/normalize.js"],
   ["normalizeDiceExpression", "src/core/documents/item-utils.js"],
@@ -23,6 +53,31 @@ const SHARED_FUNCTIONS = new Map([
   ["getOwnerAndGmRecipientIds", "src/utils/chat-recipients.js"],
   ["resolveEffectCastLevel", "src/core/active-effects/effect-duration-v14.js"],
   ["pushAdvantageMarker", "src/core/combat/opposed/schema.js"],
+  ["readXpPurchaseJournal", "src/core/advancement/purchase-service.js"],
+  ["buildXpPurchasePlan", "src/core/advancement/purchase-plans.js"],
+  ["buildAdvancementPlan", "src/core/advancement/item-advancement.js"],
+  ["computeCombatSetupCost", "src/core/advancement/combat-style-setup.js"],
+  ["computeCharacteristicAdvancementCost", "src/core/advancement/skill-advancement.js"],
+  ["createSpecialActionOperation", "src/core/combat/special-action-operations.js"],
+  ["specialActionResolutionSignature", "src/core/combat/special-action-operations.js"],
+  ["specialActionRecoveryDecision", "src/core/combat/special-action-operations.js"],
+  ["materializeSpecialActionOutcome", "src/core/combat/special-action-outcomes.js"],
+  ["_applySpecialAction", SPECIAL_ACTION_OWNER],
+  ["resolveSpecialActionOpposedResult", SPECIAL_ACTION_OWNER],
+  ["documentStateFingerprint", "src/utils/authority-proxy/shared.js"],
+  ["planSpecialAdvantageSource", "src/core/combat/special-action-operations.js"],
+  ...[...MIGRATION_STATE_FUNCTIONS].map(name => [name, MIGRATION_STATE_OWNER]),
+  ["createMigrationCoordinator", MIGRATION_EXECUTION_OWNER],
+  ["executeMigrationPasses", MIGRATION_EXECUTION_OWNER],
+  ["getUnconfirmedDocumentIds", "src/utils/authority-proxy/shared.js"],
+  ["assertDocumentWriteConfirmed", "src/utils/authority-proxy/shared.js"],
+]);
+const XP_PLAN_OWNERS = new Set([
+  "src/core/advancement/purchase-projection.js", "src/core/advancement/purchase-plans.js",
+]);
+const PURCHASE_PATHS = new Set([
+  "src/core/traits/talent-learning.js", "src/ui/apps/v2/char-gen/racial-grants.js",
+  "src/ui/apps/v2/char-gen/spend-xp-menu.js", "src/macros/award-xp.js",
 ]);
 
 function walk(node, visit, parent = null) {
@@ -56,7 +111,108 @@ function checkConsolidation(root, { resolveModule, onBindingReport } = {}) {
     const sourceCode = linter.getSourceCode();
     sources.set(file, sourceCode);
     const ast = sourceCode.ast;
-    walk(ast, (node) => {
+    walk(ast, (node, parent) => {
+      if (relative === ACTION_RESULT_OWNER) {
+        if (node.type === "ImportDeclaration" || node.type === "ImportExpression" || node.source
+          && ["ExportAllDeclaration", "ExportNamedDeclaration"].includes(node.type)) {
+          errors.push(`${relative}:${node.loc.start.line} imports a dependency into the action evidence owner.`);
+        }
+        if (node.type === "Identifier" && ["game", "foundry", "document", "window", "globalThis", "canvas", "ui", "Hooks", "Roll",
+          "Actor", "Item", "ActiveEffect", "TokenDocument", "ChatMessage", "fromUuid", "fromUuidSync", "fetch"].includes(node.name)
+          || node.type === "CallExpression" && ["update", "updateSource", "setFlag", "unsetFlag", "create", "delete", "evaluate", "roll",
+            "createEmbeddedDocuments", "updateEmbeddedDocuments", "deleteEmbeddedDocuments"].includes(propertyName(node.callee))) {
+          errors.push(`${relative}:${node.loc.start.line} executes runtime behavior inside the action evidence owner.`);
+        }
+      }
+      if (node.type === "VariableDeclarator" && ["ACTION_STATUSES", "ACTION_COMMITMENTS", "ACTION_RESULT_VERSION"].includes(node.id?.name)
+        && relative !== ACTION_RESULT_OWNER) errors.push(`${relative}:${node.loc.start.line} duplicates the action result contract.`);
+      if (node.type === "CallExpression" && node.callee?.name === "result" && node.arguments[0]?.value === true
+        && relative === "src/integrations/token-action-hud/api.js"
+        && /^(?:scroll-casting|activation)\./.test(node.arguments[1]?.value ?? "")) {
+        errors.push(`${relative}:${node.loc.start.line} reports an action as successful without forwarding its result.`);
+      }
+      // This projection is deliberately dependency-free. Literal AST guards do
+      // not prove arbitrary JavaScript purity; plain-state tests cover its outputs.
+      const namedProperty = parent?.type === "MemberExpression" && parent.property === node && !parent.computed
+        || parent?.type === "Property" && parent.key === node && !parent.computed && !parent.shorthand;
+      if ([SUPPORT_REPORT_OWNER, TEST_EXPLANATION_OWNER, DERIVED_EXPLANATION_OWNER].includes(relative) && (node.type === "Identifier" && !namedProperty && [
+        "game", "foundry", "document", "window", "globalThis", "canvas", "ui", "Hooks", "Actor", "ChatMessage",
+      ].includes(node.name) || node.type === "CallExpression" && [
+        "set", "update", "updateSource", "setFlag", "create", "delete", "fetch",
+      ].includes(propertyName(node.callee)))) {
+        errors.push(`${relative}:${node.loc.start.line} accesses runtime/write behavior in the support sanitizer.`);
+      }
+      if (relative === DAMAGE_EXPLANATION_OWNER) {
+        if (node.type === "ImportDeclaration" || node.type === "ImportExpression" || node.source
+          && ["ExportAllDeclaration", "ExportNamedDeclaration"].includes(node.type)) {
+          errors.push(`${relative}:${node.loc.start.line} imports a dependency into the read-only damage projection.`);
+        }
+        if (node.type === "NewExpression" || node.type === "Identifier" && [
+          "game", "foundry", "document", "window", "globalThis", "canvas", "ui", "Hooks", "Roll",
+          "Actor", "Item", "ActiveEffect", "TokenDocument", "ChatMessage", "fromUuid", "fromUuidSync",
+          "calculateDamage", "getDamageReduction", "applyDamage", "ApplyDamageService",
+        ].includes(node.name) || node.type === "CallExpression" && [
+          "update", "updateSource", "setFlag", "unsetFlag", "create", "delete", "evaluate", "roll",
+          "createEmbeddedDocuments", "updateEmbeddedDocuments", "deleteEmbeddedDocuments",
+        ].includes(propertyName(node.callee))) {
+          errors.push(`${relative}:${node.loc.start.line} accesses runtime, calculation or document-write behavior in the damage projection.`);
+        }
+      }
+      if (node.type === "FunctionDeclaration" && ["_getFirstOpposedDamageReport", "_getFirstMagicDamageReport"].includes(node.id?.name)) {
+        errors.push(`${relative}:${node.loc.start.line} restores ambiguous first-target damage-report fallback.`);
+      }
+      // Literal settings ownership, not a claim to follow aliases or computed keys.
+      const settingKey = literalString(node);
+      if (settingKey === "worldDataVersion" && ![
+        "src/hooks/init/settings/internal.js", "src/hooks/ready/run-world-ready-maintenance.js",
+      ].includes(relative)) {
+        errors.push(`${relative}:${node.loc.start.line} uses the informational world version outside its stamp owner; use per-revision migration state.`);
+      }
+      if (settingKey === "migrationState" && ![MIGRATION_STATE_OWNER, "src/hooks/init/settings/internal.js"].includes(relative)) {
+        errors.push(`${relative}:${node.loc.start.line} reads/writes migration state outside its canonical owner.`);
+      }
+      if (node.type === "FunctionDeclaration" && MIGRATION_STATE_FUNCTIONS.has(node.id?.name) && relative !== MIGRATION_STATE_OWNER) {
+        errors.push(`${relative}:${node.loc.start.line} duplicates migration-state ownership.`);
+      }
+      if (node.type === "VariableDeclarator" && ["MIGRATION_REVISIONS", "STARTUP_PENDING_MIGRATION_KEYS"].includes(node.id?.name)
+        && relative !== "src/core/migrations/revisions.js") {
+        errors.push(`${relative}:${node.loc.start.line} duplicates the migration registry.`);
+      }
+      // Literal XP patches have one planning owner. Dynamic payloads and external
+      // document edits remain outside this static check's coverage.
+      if (!XP_PLAN_OWNERS.has(relative) && (node.type === "Property" && /^system\.xp(?:Total)?$/.test(String(propertyName(node)))
+          || node.type === "MemberExpression" && /^system\.xp(?:Total)?$/.test(String(propertyName(node))))) {
+        errors.push(`${relative}:${node.loc.start.line} defines an XP patch outside the advancement purchase planner.`);
+      }
+      const callName = node.callee?.type === "Identifier" ? node.callee.name : null;
+      if (node.type === "CallExpression" && callName === "createMigrationCoordinator" && relative !== "src/core/migrations/runner.js") {
+        errors.push(`${relative}:${node.loc.start.line} creates a second migration execution owner.`);
+      }
+      if (node.type === "CallExpression" && /^migrate.*IfNeeded$/.test(callName ?? "") && !relative.startsWith("src/core/migrations/")) {
+        errors.push(`${relative}:${node.loc.start.line} bypasses the coordinated migration runner.`);
+      }
+      if (node.type === "CallExpression" && callName === "executeSpecialAction" && !SPECIAL_ACTION_QUEUE_CALLERS.has(relative)) {
+        errors.push(`${relative}:${node.loc.start.line} starts a special action outside its persisted queue entrypoints.`);
+      }
+      if (node.type === "CallExpression" && callName === "postSpecialActionOutcome"
+        && ![SPECIAL_ACTION_OWNER, "src/core/combat/opposed/special-actions-automation.js"].includes(relative)) {
+        errors.push(`${relative}:${node.loc.start.line} posts a special action outside its source-aware queue owner.`);
+      }
+      if (node.type === "CallExpression" && callName === "_executeSpecialActionIfWinner") {
+        errors.push(`${relative}:${node.loc.start.line} reintroduces pre-persistence special-action consequences.`);
+      }
+      if (node.type === "CallExpression" && callName === "_applySpecialAction") {
+        const owner = sourceCode.getAncestors(node).reverse().find(ancestor => ancestor.type === "FunctionDeclaration");
+        if (relative !== SPECIAL_ACTION_OWNER || owner?.id?.name !== "executeChatOutcome") errors.push(`${relative}:${node.loc.start.line} bypasses the managed special-action adapter.`);
+      }
+      if (node.type === "CallExpression" && relative === "src/core/combat/opposed/special-actions-automation.js"
+        && (callName?.startsWith("request") || node.callee?.object?.name === "ActionEconomy")) {
+        errors.push(`${relative}:${node.loc.start.line} mutates a special-action consequence outside the outcome service.`);
+      }
+      if (node.type === "CallExpression" && PURCHASE_PATHS.has(relative)
+          && ["requestUpdateDocument", "requestCreateEmbeddedDocuments", "requestDeleteEmbeddedDocuments", "requestAtomicUpdateDocument"].includes(callName)) {
+        errors.push(`${relative}:${node.loc.start.line} bypasses the advancement purchase service.`);
+      }
       if (["ImportDeclaration", "ExportNamedDeclaration", "ExportAllDeclaration", "ImportExpression"].includes(node.type) && node.source?.value?.startsWith(".")) {
         const dependency = path.relative(root, path.resolve(path.dirname(file), node.source.value)).replaceAll("\\", "/");
         const raw = RAW_DAMAGE.get(dependency);
@@ -71,7 +227,7 @@ function checkConsolidation(root, { resolveModule, onBindingReport } = {}) {
         if (tokens.length >= 40 || SHARED_FUNCTIONS.has(node.id?.name)) functions.push({ relative, name: node.id?.name, line: node.loc.start.line,
           signature: tokens.map((token) => `${token.type}:${token.value}`).join("|") });
       }
-      if (node.type === "FunctionDeclaration" && ["_handleBoundaryLegacy", "runLegacyFeatureAutomation"].includes(node.id?.name)) {
+      if (node.type === "FunctionDeclaration" && ["_handleBoundaryLegacy", "runLegacyFeatureAutomation", "registerSpecialActionOutcomeHook"].includes(node.id?.name)) {
         errors.push(`${relative}:${node.loc.start.line} reintroduces a retired execution pipeline.`);
       }
       if (node.type === "CallExpression" && node.callee?.object?.name === "Hooks" && node.callee?.property?.name === "on"

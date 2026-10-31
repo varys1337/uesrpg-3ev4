@@ -192,6 +192,18 @@ export function markResolutionPhase(data) {
   data.context.phase = allResolved ? "resolved" : "awaiting-defense";
 }
 
+/** Hold a target whose characteristic save cannot be confirmed. */
+export function markCharacteristicDefenseReview(data, defender, text = "Characteristic defense was not confirmed. The GM must inspect prior rolls and outcomes before resolving this target manually.") {
+  const previousOutcome = getDefenderOutcome(data, defender);
+  setDefenderOutcome(data, defender, {
+    winner: "manual-review", attackerWins: false, damageApplied: false,
+    characteristicDefense: true, needsReview: true,
+    text,
+    ...(previousOutcome && !previousOutcome.needsReview ? { previousOutcome } : {})
+  });
+  markResolutionPhase(data);
+}
+
 /**
  * Check if bank choices are enabled for this card.
  * @param {object} data

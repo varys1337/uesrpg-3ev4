@@ -14,6 +14,37 @@ import { getEffectiveWeaponHands, getDamageTypeFromWeapon, getWeaponCombatCapabi
 import { normalizeDiceExpression, safeEvaluateRoll } from "../rolls.js";
 import { itemHasToken } from "../../damage/tokens.js";
 import { getNpcThreatDamageModifier } from "../../../rules/npc-threat-templates.js";
+import { SYSTEM_ID } from "../../../system/namespace.js";
+
+/** Return a manual-resolution instruction for a recognized, incomplete Core profile. */
+export function getNaturalWeaponProfileIssue(weapon) {
+  const source = weapon?.flags?.[SYSTEM_ID]?.coreSource;
+  if (weapon?.type !== "weapon" || source?.book !== "UESRPG 3e v4 - Rules Compendium") return null;
+
+  const rule = String(source.rule ?? "");
+  const werebearAlternatives = rule === "The Beast Form: Werebear Bite" ? ["splitting", "crushing"]
+    : rule === "The Beast Form: Werebear Claw" ? ["slashing", "crushing"] : null;
+  if (werebearAlternatives) {
+    // A structured quality's presence, not its legacy enabled field, is what
+    // the Item sheet and prepared damage calculation treat as selected.
+    const qualities = Array.isArray(weapon.system?.qualitiesStructured) ? weapon.system.qualitiesStructured : [];
+    const selected = werebearAlternatives.filter(key => qualities.some(value => String(value?.key ?? value).toLowerCase() === key));
+    if (selected.length !== 1) {
+      return `${weapon.name}: choose exactly one of ${werebearAlternatives.join(" or ")} in the weapon sheet before attacking.`;
+    }
+  }
+  if (rule === "Melee Weapons table: Dagger" && /\bpunch\s+dagger$/i.test(String(weapon.name ?? ""))) {
+    return `${weapon.name} has an ordinary dagger profile. Resolve it manually until the corrected Punch Dagger profile is imported and configured.`;
+  }
+
+  const usesNaturalWeapon = rule === "Exotic Weapons table: Cestus"
+    || rule === "Exotic Weapons table: Punch Dagger / Talons";
+  const damage = String(weapon.system?.damage ?? "").trim();
+  if (usesNaturalWeapon && (!damage || /^0+(?:\.0+)?$/.test(damage))) {
+    return `${weapon.name} uses the wielder's natural-weapon damage. Enter that damage in the weapon sheet or resolve the attack manually.`;
+  }
+  return null;
+}
 
 function _stepUpNaturalWeaponDice(expr) {
   const s = String(expr ?? "").trim();
@@ -52,6 +83,11 @@ function _weaponHasTraitText(weapon, traitText) {
  * Returns damage data including rolls, final damage, and pending ammo consumption.
  */
 export async function rollWeaponDamage({ weapon, preConsumedAmmo = null, context = null }) {
+  const profileIssue = getNaturalWeaponProfileIssue(weapon);
+  if (profileIssue) {
+    ui.notifications?.warn?.(profileIssue);
+    return null;
+  }
   const addFlatBonus = (expr, bonus) => {
     const b = Number(bonus || 0);
     if (!Number.isFinite(b) || b === 0) return String(expr ?? "0");
@@ -106,6 +142,10 @@ export async function rollWeaponDamage({ weapon, preConsumedAmmo = null, context
     const shouldConsume = capabilities.consumesAmmo;
     const ammoId = String(weapon.system?.ammoId ?? "").trim();
 
+    if (preConsumedAmmo?.weaponUuid === weapon.uuid && preConsumedAmmo?.ammoId && preConsumedAmmo.ammoId !== ammoId) {
+      ui.notifications.warn("The selected ammunition changed after the attack. The GM must inspect the attack and its original ammunition before resolving damage.");
+      return null;
+    }
 
     const preConsumedMatches = !!(preConsumedAmmo
       && preConsumedAmmo.weaponUuid

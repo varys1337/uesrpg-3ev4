@@ -22,7 +22,9 @@ import {
 import { resolveDroppedItem } from "../../../../utils/drop-data.js";
 import { containerDebug, containerWarn } from "../../../../utils/dev/container-debug.js";
 
-export const MAX_CONTAINER_DEPTH = 5;
+import { getContainerCapacityIssue, getContainerInventoryTotals, getInventorySubtreeTotals, getInventoryPlacementIssue, MAX_CONTAINER_DEPTH } from "../../../../core/items/container-capacity.js";
+
+export { MAX_CONTAINER_DEPTH };
 
 const CLEAR_CONTAINER_STATS = Object.freeze({
   "system.containerStats.contained": false,
@@ -100,12 +102,6 @@ function _isContainedBy(item, containerId) {
 
 function _hasContainerPointer(item) {
   return Boolean(_getContainerId(item));
-}
-
-function _getItemEnc(item) {
-  const enc = Number(item?.system?.enc ?? 0);
-  const qty = Number(item?.system?.quantity ?? 1);
-  return (Number.isFinite(enc) ? enc : 0) * Math.max(1, Number.isFinite(qty) ? qty : 1);
 }
 
 function _resolveContainmentContext(sheetLike) {
@@ -226,54 +222,56 @@ export function getContainedItems(actor, container, { direct = true } = {}) {
 }
 
 export function getItemTotalContainedEnc(item, actor, visited = new Set()) {
-  if (!item) return 0;
-  const id = _itemId(item);
-  if (id && visited.has(id)) return 0;
-  if (id) visited.add(id);
+  return getInventorySubtreeTotals(item, _getActorItems(actor), visited).enc;
+}
 
-  let total = _getItemEnc(item);
+/** Project an external copy with fresh identities before creating any Items. */
+function _projectExternalCopy(actor, targetContainer, itemData) {
+  const usedIds = new Set(_getActorItems(actor).map(_itemId));
+  const projected = [];
+  const visit = (source, parentId, ancestors = new Set(), depth = 0) => {
+    if (!source || typeof source !== "object" || depth > MAX_CONTAINER_DEPTH) throw new Error("The copied container has invalid or excessively nested contents.");
+    const sourceId = String(source._id ?? source.id ?? "").trim();
+    if (sourceId && ancestors.has(sourceId)) throw new Error("The copied container contains a cycle.");
+    const nextAncestors = new Set(ancestors);
+    if (sourceId) nextAncestors.add(sourceId);
+    let id;
+    do { id = foundry.utils.randomID(); } while (usedIds.has(id));
+    usedIds.add(id);
+    const data = foundry.utils.deepClone(source);
+    data._id = id;
+    delete data.id;
+    data.system ??= {};
+    data.system.containerStats = { ...(data.system.containerStats ?? {}), contained: Boolean(parentId), container_id: parentId };
+    projected.push(data);
+    if (data.type === "container") for (const entry of source.system?.contained_items ?? []) {
+      visit(entry?.item ?? entry, id, nextAncestors, depth + 1);
+    }
+  };
+  visit(itemData, _itemId(targetContainer));
+  const inventory = [..._getActorItems(actor), ...projected];
+  for (const item of projected) {
+    const issue = getInventoryPlacementIssue(actor, item, { inventory });
+    if (issue) throw new Error(issue);
+  }
+}
+
+/** Copies of owned containers are built from live pointers, not stale compatibility snapshots. */
+export function prepareInventoryItemCopy(actor, item) {
+  const data = item.toObject();
   if (item.type === "container") {
-    for (const child of getContainedItems(actor, item, { direct: true })) {
-      total += getItemTotalContainedEnc(child, actor, visited);
-    }
+    const issue = getInventoryPlacementIssue(actor, item);
+    if (issue) throw new Error(`The source container cannot be copied: ${issue}`);
+    data.system.contained_items = buildContainerContainedItemsSnapshot(actor, item);
+    const parent = actor.items?.get?.(_getContainerId(item)) ?? null;
+    _projectExternalCopy(actor, parent, data);
   }
-  return total;
+  delete data._id;
+  return data;
 }
 
-function _getSnapshotTotalEncAndDepth(itemData, visited = new Set()) {
-  if (!itemData) return { enc: 0, depth: 0, count: 0 };
-  const id = String(itemData?._id ?? itemData?.id ?? "").trim();
-  if (id && visited.has(id)) return { enc: 0, depth: 0, count: 0 };
-  if (id) visited.add(id);
-
-  let enc = _getItemEnc(itemData);
-  let depth = itemData?.type === "container" ? 1 : 0;
-  let count = 1;
-
-  if (itemData?.type === "container") {
-    for (const entry of itemData?.system?.contained_items ?? []) {
-      const totals = _getSnapshotTotalEncAndDepth(entry?.item ?? entry, visited);
-      enc += totals.enc;
-      count += totals.count;
-      depth = Math.max(depth, 1 + totals.depth);
-    }
-  }
-  return { enc, depth, count };
-}
-
-function _getDropItemTotalEnc(item, targetActor) {
-  const actor = item?.actor ?? targetActor;
-  const actorTotal = getItemTotalContainedEnc(item, actor);
-  if (item?.type !== "container") return actorTotal;
-  const snapshotTotal = _getSnapshotTotalEncAndDepth(item?.toObject?.() ?? item).enc;
-  return Math.max(actorTotal, snapshotTotal);
-}
-
-export function getContainerContentsEnc(actor, container, { excludeItemId = "" } = {}) {
-  const exclude = String(excludeItemId ?? "");
-  return getContainedItems(actor, container, { direct: true })
-    .filter((item) => _itemId(item) !== exclude)
-    .reduce((sum, item) => sum + getItemTotalContainedEnc(item, actor), 0);
+export function getContainerContentsEnc(actor, container, options = {}) {
+  return getContainerInventoryTotals(actor, container, options).enc;
 }
 
 export function getContainerContentsCount(actor, container, visited = new Set()) {
@@ -353,7 +351,13 @@ function _validateContainerNesting(actor, droppedItem, targetContainer, { notify
 function _buildContainedSnapshot(actor, item, visited = new Set()) {
   const data = item?.toObject?.() ?? foundry.utils.deepClone(item ?? {});
   const id = String(data?._id ?? data?.id ?? "").trim();
-  if (id && visited.has(id)) return data;
+  if (id && visited.has(id)) {
+    if (data.type === "container") {
+      data.system = data.system ?? {};
+      data.system.contained_items = [];
+    }
+    return data;
+  }
   if (id) visited.add(id);
 
   if (data.type === "container") {
@@ -370,7 +374,7 @@ function _buildContainedSnapshot(actor, item, visited = new Set()) {
 export function buildContainerContainedItemsSnapshot(actor, container) {
   const snapshot = getContainedItems(actor, container, { direct: true }).map((item) => ({
     _id: _itemId(item),
-    item: _buildContainedSnapshot(actor, item),
+    item: _buildContainedSnapshot(actor, item, new Set([_itemId(container)])),
   }));
   containerDebug("snapshot.derive", {
     actor: actor?.uuid ?? null,
@@ -443,6 +447,8 @@ export function canModifyContainment(sheetLike) {
 }
 
 async function _placeOwnedItemInContainer(actor, item, container) {
+  const capacityIssue = getContainerCapacityIssue(actor, container, item);
+  if (capacityIssue) { ui.notifications?.warn?.(capacityIssue); return false; }
   const previousContainer = actor?.items?.get?.(_getContainerId(item));
   const updateData = _buildSetContainerStatsUpdate(container, item);
   containerDebug("drop.update.request", {
@@ -517,7 +523,7 @@ async function _placeOwnedItemInContainer(actor, item, container) {
 export async function removeItemFromContainer(actor, item) {
   if (!actor || !item) return false;
   const previousContainer = actor.items?.get?.(_getContainerId(item)) ?? null;
-  if (!previousContainer && !_getContainerId(item)) return false;
+  if (!previousContainer && !_getContainerId(item)) return true;
 
   containerDebug("remove.update.request", {
     actor: actor?.uuid ?? null,
@@ -531,10 +537,8 @@ export async function removeItemFromContainer(actor, item) {
   }
 
   const updated = await _updateOwnedItemContainment(actor, item, _buildClearContainerStatsUpdate());
-  const { liveItem } = await _waitForLiveContainerPointer(actor, item, "");
-  const affected = [previousContainer, item].filter(Boolean);
-  const snapshotResult = await rebuildAffectedContainerSnapshots(actor, affected);
-  if (!updated) {
+  const { liveItem, liveContainerId } = await _waitForLiveContainerPointer(actor, item, "");
+  if (!updated || liveContainerId) {
     _warnContainmentFailure("Container item removal update failed", {
       actor,
       item,
@@ -546,6 +550,8 @@ export async function removeItemFromContainer(actor, item) {
     });
     return false;
   }
+  const affected = [previousContainer, item].filter(Boolean);
+  const snapshotResult = await rebuildAffectedContainerSnapshots(actor, affected);
   if (!snapshotResult) {
     _warnContainmentFailure("Container snapshot update failed after item removal", {
       actor,
@@ -560,11 +566,11 @@ export async function removeItemFromContainer(actor, item) {
 
 export async function clearAllItemsFromContainer(actor, container) {
   if (!actor || !container || container.type !== "container") return false;
-  const children = getContainedItems(actor, container, { direct: false });
+  const children = getContainedItems(actor, container, { direct: true }).filter(item => _itemId(item) !== _itemId(container));
   if (!children.length) {
     await rebuildContainerSnapshot(actor, container);
     _renderContainmentSheets(actor, [container]);
-    return false;
+    return true;
   }
 
   const updates = children.map((item) => ({ _id: _itemId(item), ..._buildClearContainerStatsUpdate() }));
@@ -576,6 +582,10 @@ export async function clearAllItemsFromContainer(actor, container) {
       updateData: updates,
       updateResult,
     });
+    return false;
+  }
+  if (children.some(item => _getContainerId(actor.items?.get?.(_itemId(item)) ?? item))) {
+    _warnContainmentFailure("Container bulk clear was not confirmed", { actor, container });
     return false;
   }
   const affected = [container, ...children.filter((item) => item.type === "container")];
@@ -623,7 +633,7 @@ export async function onDropItemIntoContainer(sheetLike, dropData) {
 
   const targetContainer = ctx.document;
   const targetActor = ctx.actor;
-  const isExternal = droppedItem.actor?.id !== targetActor.id;
+  const isExternal = droppedItem.actor?.uuid !== targetActor.uuid;
   const alreadyInTarget = !isExternal && _isContainedBy(droppedItem, _itemId(targetContainer));
   containerDebug("drop.target.resolved", {
     actor: targetActor?.uuid ?? null,
@@ -636,30 +646,23 @@ export async function onDropItemIntoContainer(sheetLike, dropData) {
     hasContainerPointer: _hasContainerPointer(droppedItem),
   });
 
-  const sourceDepth = droppedItem.type === "container"
-    ? Math.max(
-        _getContainerSubtreeDepth(droppedItem.actor ?? targetActor, droppedItem),
-        _getSnapshotTotalEncAndDepth(droppedItem.toObject?.() ?? droppedItem).depth
-      )
-    : 0;
-  if (!_validateContainerNesting(targetActor, droppedItem, targetContainer, { subtreeDepth: sourceDepth })) return;
-
-  const maxEnc = Number(targetContainer.system?.container_enc?.max ?? 0);
-  const currentEnc = getContainerContentsEnc(targetActor, targetContainer, {
-    excludeItemId: alreadyInTarget ? _itemId(droppedItem) : "",
-  });
-  const itemEnc = _getDropItemTotalEnc(droppedItem, targetActor);
-  if (maxEnc > 0 && (currentEnc + itemEnc) > maxEnc) {
-    ui.notifications?.warn?.(
-      `Item ENC (${itemEnc}) exceeds remaining container capacity (${Math.max(maxEnc - currentEnc, 0)}). Item was not added.`
-    );
-    return;
+  if (!isExternal) {
+    const capacityIssue = getContainerCapacityIssue(targetActor, targetContainer, droppedItem);
+    if (capacityIssue) { ui.notifications?.warn?.(capacityIssue); return; }
+    if (!_validateContainerNesting(targetActor, droppedItem, targetContainer)) return;
   }
 
   if (isExternal) {
     const itemData = droppedItem.toObject();
-    delete itemData._id;
     itemData.system = itemData.system ?? {};
+    if (droppedItem.type === "container" && droppedItem.actor) {
+      const issue = getInventoryPlacementIssue(droppedItem.actor, droppedItem);
+      if (issue) { ui.notifications?.warn?.(`The source container cannot be copied: ${issue}`); return; }
+      itemData.system.contained_items = buildContainerContainedItemsSnapshot(droppedItem.actor, droppedItem);
+    }
+    try { _projectExternalCopy(targetActor, targetContainer, itemData); }
+    catch (error) { ui.notifications?.warn?.(String(error.message ?? error)); return; }
+    delete itemData._id;
     itemData.system.containerStats = {
       ...(itemData.system.containerStats ?? {}),
       contained: false,
@@ -685,7 +688,9 @@ export async function onDropItemIntoContainer(sheetLike, dropData) {
 
   const placed = await _placeOwnedItemInContainer(targetActor, droppedItem, targetContainer);
   if (!placed) {
-    ui.notifications?.warn?.("Item was not added to the container. Check console diagnostics.");
+    ui.notifications?.warn?.(isExternal
+      ? "The copied item was not added to the container and remains in the Actor's inventory."
+      : "Item was not added to the container. Check console diagnostics.");
     return;
   }
   ui.notifications?.info?.(`${droppedItem.name} added to ${targetContainer.name}.`);
@@ -698,9 +703,7 @@ export async function onBulkAddToContainer(sheetLike) {
     return;
   }
 
-  const maxEnc = Number(ctx.document.system?.container_enc?.max ?? 0);
   const eligible = [];
-  let projectedEnc = getContainerContentsEnc(ctx.actor, ctx.document);
 
   for (const item of _getActorItems(ctx.actor)) {
     if (!item || _itemId(item) === _itemId(ctx.document)) continue;
@@ -709,11 +712,8 @@ export async function onBulkAddToContainer(sheetLike) {
     if (_isContainedBy(item, _itemId(ctx.document))) continue;
     if (!_validateContainerNesting(ctx.actor, item, ctx.document, { notify: false })) continue;
 
-    const itemEnc = getItemTotalContainedEnc(item, ctx.actor);
-    if (maxEnc > 0 && (projectedEnc + itemEnc) > maxEnc) continue;
-
+    if (getContainerCapacityIssue(ctx.actor, ctx.document, item, { additionalItems: eligible })) continue;
     eligible.push(item);
-    projectedEnc += itemEnc;
   }
 
   if (!eligible.length) {
@@ -727,6 +727,7 @@ export async function onBulkAddToContainer(sheetLike) {
   });
   if (!confirmed) return;
 
+  const previousContainers = eligible.map(item => ctx.actor.items?.get?.(_getContainerId(item))).filter(Boolean);
   const updates = eligible.map((item) => ({
     _id: _itemId(item),
     ..._buildSetContainerStatsUpdate(ctx.document, item),
@@ -742,7 +743,7 @@ export async function onBulkAddToContainer(sheetLike) {
     ui.notifications?.warn?.("Items were not added to the container. Check console diagnostics.");
     return;
   }
-  const affected = [ctx.document, ...eligible.filter((item) => item.type === "container")];
+  const affected = [ctx.document, ...previousContainers, ...eligible.filter((item) => item.type === "container")];
   const snapshotResult = await rebuildAffectedContainerSnapshots(ctx.actor, affected);
   if (!snapshotResult) {
     _warnContainmentFailure("Container snapshot update failed after bulk add", {
@@ -901,32 +902,33 @@ export async function createContainerListDialog(sheetLike, bagListItems, tooLarg
         const root = html instanceof HTMLElement ? html : html?.[0] ?? document;
         const updates = [];
         const affectedContainers = [ctx.document];
-        const maxEnc = Number(ctx.document.system?.container_enc?.max ?? 0);
-        let projectedEnc = getContainerContentsEnc(ctx.actor, ctx.document);
-        let skippedForCapacity = 0;
 
         for (const input of root.querySelectorAll(".itemSelect")) {
           const item = ctx.actor.items.get(input?.dataset?.itemId);
           if (!item || !isContainableItemType(item.type)) continue;
           if (!_supportsContainmentState(item)) continue;
-          if (!_validateContainerNesting(ctx.actor, item, ctx.document)) continue;
-
           const isInThis = _isContainedBy(item, _itemId(ctx.document));
           if (input.checked && !isInThis) {
-            const itemEnc = getItemTotalContainedEnc(item, ctx.actor);
-            if (maxEnc > 0 && (projectedEnc + itemEnc) > maxEnc) {
-              skippedForCapacity += 1;
-              continue;
-            }
             const previous = ctx.actor.items.get(_getContainerId(item));
             if (previous) affectedContainers.push(previous);
             updates.push({ _id: _itemId(item), ..._buildSetContainerStatsUpdate(ctx.document, item) });
-            projectedEnc += itemEnc;
           } else if (!input.checked && isInThis) {
             updates.push({ _id: _itemId(item), ..._buildClearContainerStatsUpdate() });
           }
 
           if (item.type === "container") affectedContainers.push(item);
+        }
+
+        const byId = new Map(updates.map(update => [update._id, update]));
+        const proposedInventory = _getActorItems(ctx.actor).map(item => {
+          const update = byId.get(_itemId(item));
+          if (!update) return item;
+          return foundry.utils.mergeObject(item.toObject(), foundry.utils.expandObject(update));
+        });
+        for (const item of proposedInventory) {
+          if (!byId.has(_itemId(item))) continue;
+          const issue = getInventoryPlacementIssue(ctx.actor, item, { inventory: proposedInventory });
+          if (issue) { ui.notifications?.warn?.(issue); return; }
         }
 
         let updateResult = true;
@@ -950,7 +952,6 @@ export async function createContainerListDialog(sheetLike, bagListItems, tooLarg
           });
         }
         _renderContainmentSheets(ctx.actor, affectedContainers);
-        if (skippedForCapacity) ui.notifications?.warn?.(`${skippedForCapacity} item(s) were not added because they exceed container capacity.`);
       },
     },
     no: { label: "Cancel" },
@@ -965,9 +966,7 @@ export function onAddToContainer(sheetLike) {
     return;
   }
 
-  const maxEnc = Number(ctx.document.system?.container_enc?.max ?? 0);
   const bagListItems = [];
-  let tooLarge = false;
 
   for (const item of _getActorItems(ctx.actor)) {
     if (!item || _itemId(item) === _itemId(ctx.document)) continue;
@@ -980,17 +979,10 @@ export function onAddToContainer(sheetLike) {
       continue;
     }
 
-    const currentEnc = getContainerContentsEnc(ctx.actor, ctx.document);
-    const itemEnc = getItemTotalContainedEnc(item, ctx.actor);
-    if (maxEnc > 0 && (currentEnc + itemEnc) > maxEnc) {
-      tooLarge = true;
-      continue;
-    }
-
     bagListItems.push(item);
   }
 
-  createContainerListDialog(ctx, bagListItems, tooLarge);
+  createContainerListDialog(ctx, bagListItems, false);
 }
 
 export async function onOpenContainedItem(sheetLike, target) {

@@ -13,7 +13,7 @@ import { getSpellCost, getSpellDamageFormula, getSpellDamageType, rollSpellHeali
 
 import { getHitLocationFromRoll } from "../../combat/combat-utils.js";
 import { prepareSpellStrengthForUse, getOrCreateSharedSpellDamage, computeSpellDamageShared, spellNeedsDeferredDirectApplication, spellNeedsEffectApplication, isHealingType, isTemporaryHealingType, maybeResolveAoEEvadeEscape } from "./spell-helpers.js";
-import { setDefenderOutcome, markResolutionPhase, setMagicDefenderDamage } from "./schema.js";
+import { setDefenderOutcome, markResolutionPhase, markCharacteristicDefenseReview, setMagicDefenderDamage } from "./schema.js";
 import { trySpellReflect } from "../spell-runtime.js";
 import { isCharacteristicDefense, executeCharacteristicDefense, processCharacteristicDefenseOutcome } from "../characteristic-defense-service.js";
 import { createDebugLogger } from "../_primitives.js";
@@ -22,6 +22,7 @@ import { FLAG_SCOPE } from "../../system/namespace.js";
 import { buildMagicCastContextRows, recordSpellStrengthRolls } from "./cast-context.js";
 import { postMagicOpposedSubRoll } from "./subrolls.js";
 import { captureItemOutcomeContext } from "../../../utils/item-outcome-snapshot.js";
+import { isCoreRejuvenateSpell } from "../rejuvenate-choice.js";
 
 const _spellDebug = createDebugLogger("spellCastingDebug");
 function _buildMagicDamageComponents(spell, damageType, damageInfo = null, targetTotal = null) {
@@ -640,6 +641,12 @@ async function _resolveDirectDeferred(ctx, { textBuilder } = {}) {
       await _updateCard(message, data);
       return;
     }
+    if (reflectResult.behavior === "redirect" && isCoreRejuvenateSpell(spell)) {
+      outcome.text = `${defender.name} reflects ${spell.name} to ${attacker.name}. The GM must resolve the recipient's choice manually; the casting cost may already be paid.`;
+      markResolutionPhase(data);
+      await _updateCard(message, data);
+      return;
+    }
   }
 
   const effectiveTarget = reflectResult.reflected && reflectResult.behavior === "redirect" ? attacker : defender;
@@ -897,6 +904,18 @@ export async function resolveOpposedTest(ctx) {
  * @param {object} ctx - Standard resolution context
  * @returns {Promise<void>}
  */
+async function holdCharacteristicDefenseOutcomeForReview(ctx, text) {
+  const { message, data, defenderEntry, _updateCard } = ctx;
+  markCharacteristicDefenseReview(data, defenderEntry, text);
+  try { await _updateCard(message, data); }
+  catch (error) {
+    console.warn("UESRPG | Characteristic defense review could not be recorded", error);
+    ui.notifications?.warn?.("The characteristic defense review could not be saved. Stop automatic processing and inspect the card and chat before retrying.");
+    return;
+  }
+  ui.notifications?.warn?.("The spell needs GM review. Inspect the card, earlier rolls, target and chat outcomes before resolving it manually.");
+}
+
 async function resolveWithCharacteristicDefense(ctx) {
   const { message, data, attacker, defender, defenderEntry, spell, isAoE, forcedHitLocation, _updateCard } = ctx;
   const aResult = data.attacker.result;
@@ -920,7 +939,12 @@ async function resolveWithCharacteristicDefense(ctx) {
   }
 
   // ── Spell Reflect check (before save) ──
-  const reflectResult = await trySpellReflect(defender, spell, attacker);
+  let reflectResult;
+  try { reflectResult = await trySpellReflect(defender, spell, attacker); }
+  catch (error) {
+    console.warn("UESRPG | Spell Reflect requires review", error);
+    return holdCharacteristicDefenseOutcomeForReview(ctx, "Spell Reflect was interrupted. The GM must inspect prior rolls, the caster, target and chat before resolving manually.");
+  }
   if (reflectResult.reflected) {
     const reflectOutcome = {
       winner: "attacker",
@@ -943,7 +967,11 @@ async function resolveWithCharacteristicDefense(ctx) {
 
     // "redirect" — apply full spell to caster (no save for reflected spells)
     const effectiveTarget = attacker;
-    await _applyCharDefDamageAndEffects(ctx, effectiveTarget, isCritical, reflectOutcome);
+    try { await _applyCharDefDamageAndEffects(ctx, effectiveTarget, isCritical, reflectOutcome); }
+    catch (error) {
+      console.warn("UESRPG | Reflected spell resolution requires review", error);
+      return holdCharacteristicDefenseOutcomeForReview(ctx, "Reflected spell resolution was interrupted. The GM must inspect prior rolls, the caster, target and chat outcomes before resolving manually.");
+    }
     markResolutionPhase(data);
     await _updateCard(message, data);
     return;
@@ -958,10 +986,16 @@ async function resolveWithCharacteristicDefense(ctx) {
   // Guard: if the defender was stamped with noDefense=true (e.g. isDirect spells in
   // the directNoDefense block), the stored result is a placeholder — not a real roll.
   // In that case, ignore the preRolled data and execute the actual characteristic save.
-  const preRolled = defenderEntry?.result
+  const recordedSave = defenderEntry?.result
     && defenderEntry?.defenseType === "characteristic-save"
-    && defenderEntry?.tn
     && !defenderEntry?.noDefense;
+  const savedTN = defenderEntry?.tn?.finalTN ?? defenderEntry?.tn;
+  const savedRoll = Number(defenderEntry?.result?.rollTotal);
+  const preRolled = Boolean(recordedSave && typeof defenderEntry.result.isSuccess === "boolean"
+    && defenderEntry.result.rollTotal != null && Number.isInteger(savedRoll) && savedRoll >= 1 && savedRoll <= 100
+    && savedTN != null && Number.isFinite(Number(savedTN)));
+  const characteristicKey = String(charDef?.defenderCharacteristic ?? "").trim().toLowerCase();
+  const validCharacteristic = Boolean(characteristicKey && defender?.system?.characteristics?.[characteristicKey]);
   _spellDebug("UESRPG | resolveWithCharacteristicDefense:", {
     preRolled: Boolean(preRolled),
     hasResult: Boolean(defenderEntry?.result),
@@ -987,17 +1021,26 @@ async function resolveWithCharacteristicDefense(ctx) {
       result: defenderEntry.result,
       roll: defenderEntry.result.roll
     };
-  } else {
-    if (charDef?.modifierMode !== "formula") {
-      await prepareSpellStrengthForUse({ data, attacker, spell, targetActor: defender, message });
-      await _updateCard(message, data);
+  } else if (!recordedSave && validCharacteristic) {
+    try {
+      if (charDef?.modifierMode !== "formula") {
+        await prepareSpellStrengthForUse({ data, attacker, spell, targetActor: defender, message });
+        await _updateCard(message, data);
+      }
+      defResult = await executeCharacteristicDefense(defender, spell, {
+        caster: attacker,
+        attacker: data?.attacker ?? {},
+        castContext: buildMagicCastContextRows(data?.attacker ?? {}, spell, { actor: attacker }),
+        postToChat: false
+      });
+      const total = Number(defResult?.rollTotal);
+      if (defResult && (typeof defResult.success !== "boolean" || defResult.rollTotal == null
+        || !Number.isInteger(total) || total < 1 || total > 100 || defResult.tnData?.finalTN == null
+        || !Number.isFinite(Number(defResult.tnData.finalTN)))) defResult = null;
+    } catch (error) {
+      console.warn("UESRPG | Characteristic defense requires review", error);
+      defResult = null;
     }
-    defResult = await executeCharacteristicDefense(defender, spell, {
-      caster: attacker,
-      attacker: data?.attacker ?? {},
-      castContext: buildMagicCastContextRows(data?.attacker ?? {}, spell, { actor: attacker }),
-      postToChat: false
-    });
     if (defResult) {
       // Store the actual defense result and TN on the defender entry so the
       // chat card re-renders with correct data instead of stale placeholders.
@@ -1024,29 +1067,23 @@ async function resolveWithCharacteristicDefense(ctx) {
         });
       } catch (_chatErr) {
         console.warn("UESRPG | Failed to post characteristic defense roll to chat", _chatErr);
+        defResult = null;
       }
     }
   }
   if (!defResult) {
-    // If save execution fails (edge case), treat as undefended
-    _spellDebug("UESRPG | resolveWithCharacteristicDefense: save execution returned null, treating as undefended");
-    const fallbackOutcome = {
-      winner: "attacker",
-      attackerDegree: aResult?.degree ?? 0,
-      defenderDegree: 0,
-      attackerWins: true,
-      damageApplied: true,
-      text: `${spell.name} hits ${defender.name} (no save available).`
-    };
-    setDefenderOutcome(data, defenderEntry, fallbackOutcome);
-    await _applyCharDefDamageAndEffects(ctx, defender, isCritical, fallbackOutcome);
-    markResolutionPhase(data);
-    await _updateCard(message, data);
-    return;
+    // A missing or malformed save is not a failed save. Hold the target so
+    // banked resolution does not automatically roll or apply it again.
+    return holdCharacteristicDefenseOutcomeForReview(ctx);
   }
 
   // ── Process save outcome via consequence engine ──
-  const saveOutcome = await processCharacteristicDefenseOutcome(defender, spell, defResult, { caster: attacker, suppressChat: true });
+  let saveOutcome;
+  try { saveOutcome = await processCharacteristicDefenseOutcome(defender, spell, defResult, { caster: attacker, suppressChat: true }); }
+  catch (error) {
+    console.warn("UESRPG | Characteristic defense consequences require review", error);
+    return holdCharacteristicDefenseOutcomeForReview(ctx, "Characteristic defense consequences were interrupted. The GM must inspect prior rolls, the target and chat outcomes before resolving manually.");
+  }
 
   if (saveOutcome?.resisted) {
     // Full resist — no damage, no effects
@@ -1086,7 +1123,11 @@ async function resolveWithCharacteristicDefense(ctx) {
   setDefenderOutcome(data, defenderEntry, hitOutcome);
 
   if (applyDamage) {
-    await _applyCharDefDamageAndEffects(ctx, defender, isCritical, hitOutcome, halveDamage);
+    try { await _applyCharDefDamageAndEffects(ctx, defender, isCritical, hitOutcome, halveDamage); }
+    catch (error) {
+      console.warn("UESRPG | Characteristic defense spell resolution requires review", error);
+      return holdCharacteristicDefenseOutcomeForReview(ctx, "Spell resolution after characteristic defense was interrupted. The GM must inspect prior rolls, the target and chat outcomes before resolving manually.");
+    }
   }
 
   markResolutionPhase(data);

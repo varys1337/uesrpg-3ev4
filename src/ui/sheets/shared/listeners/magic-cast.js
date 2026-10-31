@@ -9,7 +9,7 @@ import { escapeHtml as _escapeHtml } from '../../../../utils/html.js';
 import { getUserSpellTargets, shouldUseTargetedSpellWorkflow, shouldUseModernSpellWorkflow, classifySpellForRouting, debugMagicRoutingLog } from "../../../../core/magic/spell-runtime.js";
 import { filterTargetsBySpellRange, getSpellRangeType, getSpellAoEConfig, getSpellMaxRangeMeters } from "../../../../core/magic/spell-range.js";
 import { AoEService, AOE_SOURCE_TYPES } from "../../../../core/aoe/index.js";
-import { canActorCastSpell, getSpellCastingSchool, getSpellCost, getSpellLevel } from "../../../../core/magic/magicka-utils.js";
+import { canActorCastSpell, getRitualCastingBlockReason, getSpellCastingSchool, getSpellCost, getSpellLevel } from "../../../../core/magic/magicka-utils.js";
 import { showSpellOptionsDialog } from "../../../../core/magic/dialogs/spell-options-dialog.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { asyncGuardSheet } from "../../../../utils/async-guard.js";
@@ -18,7 +18,7 @@ import { resolveSurpriseState } from "../../../../core/combat/surprise-state.js"
 import { getFearActionRestrictions } from "../../../../core/fear/index.js";
 import { ensureBurningTurnActionAllowed } from "../../../../core/conditions/condition-engine.js";
 import { castScrollFromItem, getCastableScrollCandidates } from "../../../../core/magic/scroll-casting.js";
-import { castFromEnchantedItem } from "../../../../core/enchanting/runtime/cast-enchantment-runtime.js";
+import { castFromEnchantedItemResult } from "../../../../core/enchanting/runtime/cast-enchantment-runtime.js";
 import {
   canAffordCastEnchantmentSlot,
   collectActorCastEnchantmentSlots,
@@ -175,7 +175,7 @@ function _collectKnownSpellSources(actor, castActionType) {
     ? spellsAll.filter(s => !isHiddenStoredEnchantmentSpell(s) && s?.system?.isInstant === true)
     : spellsAll.filter((spell) => !isHiddenStoredEnchantmentSpell(spell));
   return spellsByAction
-    .filter((s) => canActorCastSpell(actor, s))
+    .filter((s) => !getRitualCastingBlockReason(s) && canActorCastSpell(actor, s))
     .map(_buildKnownSpellSource);
 }
 
@@ -320,6 +320,9 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
   try {
     const actor = this.actor;
     const castActionType = String((target ?? event?.currentTarget)?.dataset?.actionType ?? "primary");
+    let spell = preselectedSpell ?? _resolvePreselectedSpellFromEvent(actor, event, target);
+    const initialRitualReason = getRitualCastingBlockReason(spell);
+    if (initialRitualReason) { ui.notifications.warn(initialRitualReason); return; }
 
     const _preCheckActionGate = async () => {
       const surprise = resolveSurpriseState(actor, { combatContext: game.combat });
@@ -347,7 +350,6 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
 
     if (!(await _preCheckActionGate())) return;
 
-    let spell = preselectedSpell ?? _resolvePreselectedSpellFromEvent(actor, event, target);
     let selectedItemSpellcast = null;
     const hasPreselectedSpell = Boolean(spell);
 
@@ -374,14 +376,14 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
           castActionType,
         });
 
-        if (scrollResult?.error) {
+        if (scrollResult?.error && !scrollResult.notificationHandled && scrollResult.actionResult?.status !== "cancelled") {
           ui.notifications.warn(scrollResult.error);
           return;
         }
         if (scrollResult?.consumed === true && Number(scrollResult.newQty ?? 1) === 0) {
           ui.notifications.info(tf("UESRPG.Notifications.Magic.ScrollUsedUp", { item: scroll.name }));
         }
-        return;
+        return scrollResult;
       }
 
       if (sourceType === "itemspell") {
@@ -410,6 +412,9 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
         }
       }
     }
+
+    const ritualReason = getRitualCastingBlockReason(spell);
+    if (ritualReason) { ui.notifications.warn(ritualReason); return; }
 
     const targets = getUserSpellTargets();
     debugMagicRoutingLog({ source: "onCastMagicAction", actor, spell, targets });
@@ -506,7 +511,7 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
         );
       if (spellOptions === null) return;
 
-      await castFromEnchantedItem({
+      return castFromEnchantedItemResult({
         actor,
         token: attackerToken,
         item: selectedItemSpellcast.item,
@@ -514,7 +519,6 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
         castActionType,
         options: { targetTokenUuids, aoe, spellOptions }
       });
-      return;
     }
 
     const spellCls = classifySpellForRouting(spell);
@@ -543,13 +547,13 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
           : null,
         ...(hasPreselectedSpell ? { spellOptions } : {}),
       });
-      if (castResult?.error && castResult.error !== "Casting cancelled by user") {
+      if (castResult?.error && !castResult.notificationHandled && castResult.actionResult?.status !== "cancelled") {
         ui.notifications.warn(castResult.error);
       }
-      return;
+      return castResult;
     } else {
       const fakeEvent = { currentTarget: { closest: () => ({ dataset: { itemId: spell.id } }) } };
-      await this._onSpellRoll.call(this, fakeEvent);
+      return this._onSpellRoll.call(this, fakeEvent);
     }
   } catch (err) {
     console.error("UESRPG | onCastMagicAction failed:", err);
@@ -592,7 +596,7 @@ export async function castAttackSpell(sheet, spell, targets, spellOptions = null
     .map((defenderToken) => defenderToken?.document?.uuid ?? defenderToken?.uuid)
     .filter(Boolean);
 
-  await MagicOpposedWorkflow.createPending({
+  return MagicOpposedWorkflow.createPendingResult({
     attackerTokenUuid: attackerToken.document?.uuid ?? attackerToken.uuid,
     defenderTokenUuids,
     spellUuid: spell?.uuid ?? null,

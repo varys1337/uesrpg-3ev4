@@ -147,9 +147,10 @@ export function getSpecialActionTestOptionSet(specialActionId) {
  * @param {"attacker"|"defender"} side
  * @returns {string[]}
  */
-export function getSpecialActionTestOptionKeys(specialActionId, side = "attacker") {
+export function getSpecialActionTestOptionKeys(specialActionId, side = "attacker", { snare = false } = {}) {
   const set = getSpecialActionTestOptionSet(specialActionId);
   const lane = (String(side ?? "").toLowerCase() === "defender") ? "defender" : "attacker";
+  if (snare && ["bash", "trip"].includes(specialActionId)) return lane === "defender" ? ["athletics", "evade"] : ["combatStyle"];
   return Array.isArray(set[lane]) ? set[lane].slice() : [];
 }
 
@@ -338,10 +339,10 @@ export function buildSpecialActionsForActor(actor, { styleUuidOrId = null, legac
  * @param {string|null} [opts.preferredStyleUuid]
  * @returns {Array<{optionKey:string,testType:string,skillUuid:string,label:string,kind:string}>}
  */
-export function buildSpecialActionTestChoicesForActor(actor, { specialActionId, side = "attacker", preferredStyleUuid = null } = {}) {
+export function buildSpecialActionTestChoicesForActor(actor, { specialActionId, side = "attacker", preferredStyleUuid = null, snare = false } = {}) {
   const out = [];
   const seen = new Set();
-  const optionKeys = getSpecialActionTestOptionKeys(specialActionId, side);
+  const optionKeys = getSpecialActionTestOptionKeys(specialActionId, side, { snare });
   const isNpc = String(actor?.type ?? "").toLowerCase() === "npc";
   const preferred = String(preferredStyleUuid ?? "").trim();
 

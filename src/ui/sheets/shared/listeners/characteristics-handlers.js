@@ -18,12 +18,13 @@ import { applyKeenIntuitionToResult, applyHyperAwarenessToResult } from "../../.
 import { applyIronWillReroll } from "../../../../core/traits/resilience-talents.js";
 import { hasTalent } from "../../../../core/traits/talents-api.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
-import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
+import { requestAtomicUpdateDocument, requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import { asyncGuardSheet } from "../../../../utils/async-guard.js";
 import { getCoreRollMode } from "../../../../utils/chat-roll-mode.js";
 import { t, tf } from "../../../../utils/i18n.js";
 import { systemTooltipAttributes } from "../../../shared/system-tooltips.js";
 import { appendChargenAudit } from "../../../apps/v2/char-gen/audit-log.js";
+import { findRaceDefinition } from "../../racemenu/race-catalog.js";
 import {
   LUCKY_SLOT_KEYS,
   UNLUCKY_SLOT_KEYS,
@@ -35,6 +36,8 @@ import {
 } from "../../../../core/luck/lucky-numbers.js";
 
 const CHA_KEYS = ["str", "end", "agi", "int", "wp", "prc", "prs"];
+const MAX_CHARACTERISTIC_REROLLS = 3;
+const ROLL_DRAFT_PATH = "flags.uesrpg-3ev4.chargen.statsRollDraft";
 
 function _num(value, fallback = 0) {
   const n = Number(value);
@@ -83,6 +86,7 @@ function _normalizeRollHistory(rawHistory = [], fallbackPool = null, fallbackLuc
       source: String(entry?.source ?? (index === 0 ? "initial" : "reroll")).trim() || (index === 0 ? "initial" : "reroll"),
       pool: Array.isArray(entry?.pool) ? entry.pool.map((value) => _num(value, 0)) : [],
       luckRoll: _num(entry?.luckRoll, 0),
+      ...(Number.isInteger(entry?.rerollIndex) ? { rerollIndex: entry.rerollIndex } : {}),
     }))
     .filter((entry) => entry.pool.length === CHA_KEYS.length);
 
@@ -95,6 +99,30 @@ function _normalizeRollHistory(rawHistory = [], fallbackPool = null, fallbackLuc
     }];
   }
   return [];
+}
+
+/** Read only complete drafts created by this version; inconsistent drafts require review. */
+function _normalizeRollDraft(raw) {
+  if (!raw || raw.version !== 1 || !Array.isArray(raw.rollHistory)
+    || typeof raw.finalized !== "boolean" || typeof raw.submitted !== "boolean"
+    || !["auto", "manual"].includes(raw.assignmentMode)) return null;
+  const history = _normalizeRollHistory(raw.rollHistory);
+  if (!history.length || history.length !== raw.rollHistory.length || history.length > MAX_CHARACTERISTIC_REROLLS + 1
+    || history[0].source !== "initial" || raw.submitted && !raw.finalized
+    || raw.revision !== history.length + Number(raw.finalized) + Number(raw.submitted)) return null;
+  const luck = history[0].luckRoll;
+  if (!Number.isInteger(luck) || luck < 32 || luck > 50) return null;
+  const used = new Set();
+  for (const [index, entry] of history.entries()) {
+    if (entry.luckRoll !== luck || entry.pool.some(value => !Number.isInteger(value) || value < 2 || value > 20)) return null;
+    if (index === 0) continue;
+    const rerollIndex = entry.rerollIndex;
+    if (entry.source !== "reroll" || !Number.isInteger(rerollIndex) || rerollIndex < 0 || rerollIndex >= CHA_KEYS.length
+      || used.has(rerollIndex) || entry.pool.some((value, i) => i !== rerollIndex && value !== history[index - 1].pool[i])) return null;
+    used.add(rerollIndex);
+  }
+  return { version: 1, revision: raw.revision, assignmentMode: raw.assignmentMode,
+    finalized: raw.finalized, submitted: raw.submitted, rollHistory: history };
 }
 
 /**
@@ -114,22 +142,83 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
     savedStatsGeneration?.rollPool,
     savedStatsGeneration?.luckRoll,
   );
+  const rawDraft = foundry.utils.getProperty(actor, ROLL_DRAFT_PATH);
+  const savedDraft = rawDraft == null ? null : _normalizeRollDraft(rawDraft);
+  if (!savedRollHistory.length && rawDraft != null && (!savedDraft || (savedDraft.submitted && !_hasAnyResultValues(savedResultValues)))) {
+    ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.RollDraftNeedsReview"));
+    return null;
+  }
+  const activeDraft = savedRollHistory.length || savedDraft?.submitted ? null : savedDraft;
+  const initialHistory = activeDraft?.rollHistory ?? (savedRollHistory.length ? savedRollHistory : savedDraft?.rollHistory ?? []);
+  const statsSnapshot = JSON.stringify(savedStatsGeneration);
+  const characteristicsSnapshot = JSON.stringify(Object.fromEntries([...CHA_KEYS, "lck"].map(key => [key, {
+    base: current[key]?.base, favored: current[key]?.favored,
+  }])));
   const savedPointBuy = Object.fromEntries(
     CHA_KEYS.map((key) => [key, Math.max(0, Math.min(20, _num(savedStatsGeneration?.pointBuyAllocation?.[key], 0)))])
   );
+  const race = String(actor.system?.race ?? "").trim().toLowerCase();
+  const hasPreviousResults = _hasAnyResultValues(savedResultValues) || savedRollHistory.length > 0;
+  const hasCompleteBaseline = (value) => value && CHA_KEYS.every((key) =>
+    value[key] !== null && value[key] !== undefined && value[key] !== "" && Number.isFinite(Number(value[key])));
+  const savedBaseline = savedStatsGeneration?.baselineRace === race ? savedStatsGeneration?.baseline : null;
+  const raceBaseline = hasPreviousResults && actor.type === "Player Character"
+    ? findRaceDefinition(race)?.definition?.baseline : null;
+  const baselineSource = hasCompleteBaseline(savedBaseline) ? savedBaseline
+    : hasCompleteBaseline(raceBaseline) ? raceBaseline : null;
+  const baselineKnown = Boolean(baselineSource) || !hasPreviousResults;
   const baseline = {};
-  for (const key of CHA_KEYS) baseline[key] = _num(current[key]?.base, 0);
+  for (const key of CHA_KEYS) baseline[key] = _num(baselineSource?.[key] ?? current[key]?.base, 0);
+  if (!baselineKnown) ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.BaselineUnverified"));
+  else if (hasPreviousResults && !hasCompleteBaseline(savedBaseline) && hasCompleteBaseline(raceBaseline)) {
+    ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.BaselineFromRace"));
+  }
   const state = {
     mode: savedStatsGeneration?.mode === "pointbuy" ? "pointbuy" : "roll",
-    assignmentMode: savedStatsGeneration?.assignmentMode === "manual" ? "manual" : "auto",
-    hasRolled: savedRollHistory.length > 0,
-    rollHistory: savedRollHistory,
-    rollPool: savedRollHistory.at(-1)?.pool ? [...savedRollHistory.at(-1).pool] : CHA_KEYS.map(() => null),
-    luckRoll: savedRollHistory.at(-1)?.luckRoll ? _num(savedRollHistory.at(-1).luckRoll, 0) : null,
+    assignmentMode: activeDraft?.assignmentMode ?? (savedStatsGeneration?.assignmentMode === "manual" ? "manual" : "auto"),
+    hasRolled: initialHistory.length > 0,
+    rollsFinalized: activeDraft ? activeDraft.finalized : initialHistory.length > 0,
+    rerolledIndices: new Set(initialHistory.slice(1).map(entry => entry.rerollIndex).filter(Number.isInteger)),
+    rollHistory: initialHistory,
+    rollPool: initialHistory.at(-1)?.pool ? [...initialHistory.at(-1).pool] : CHA_KEYS.map(() => null),
+    luckRoll: initialHistory.at(-1)?.luckRoll ? _num(initialHistory.at(-1).luckRoll, 0) : null,
+    draft: activeDraft,
+    rollBusy: false,
+    draftUncertain: false,
     pointBuy: savedPointBuy,
     savedResultValues,
-    preserveSavedResults: _hasAnyResultValues(savedResultValues),
+    preserveSavedResults: _hasAnyResultValues(savedResultValues) && !(activeDraft && savedStatsGeneration?.mode !== "pointbuy"),
   };
+
+  async function saveRollDraft(next) {
+    const candidate = _normalizeRollDraft(next);
+    if (!candidate) throw new Error("Invalid characteristic roll draft.");
+    const expected = state.draft;
+    const saved = await requestAtomicUpdateDocument(actor, fresh => {
+      const raw = foundry.utils.getProperty(fresh, ROLL_DRAFT_PATH);
+      const currentDraft = raw == null ? null : _normalizeRollDraft(raw);
+      if (expected ? JSON.stringify(currentDraft) !== JSON.stringify(expected) : raw != null) return null;
+      if (!expected) {
+        const stats = foundry.utils.getProperty(fresh, "flags.uesrpg-3ev4.chargen.statsGeneration") ?? {};
+        if (_normalizeRollHistory(stats.rollHistory, stats.rollPool, stats.luckRoll).length) return null;
+      }
+      return { [ROLL_DRAFT_PATH]: candidate };
+    });
+    const observed = _normalizeRollDraft(foundry.utils.getProperty(actor, ROLL_DRAFT_PATH));
+    if (!saved || JSON.stringify(observed) !== JSON.stringify(candidate)) {
+      state.draftUncertain = true;
+      ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.RollDraftWriteUncertain"));
+      return false;
+    }
+    state.draft = observed;
+    state.hasRolled = true;
+    state.rollsFinalized = observed.finalized;
+    state.rollHistory = observed.rollHistory;
+    state.rollPool = [...observed.rollHistory.at(-1).pool];
+    state.luckRoll = observed.rollHistory.at(-1).luckRoll;
+    state.rerolledIndices = new Set(observed.rollHistory.slice(1).map(entry => entry.rerollIndex));
+    return true;
+  }
 
   function currentAssignMap(root) {
     if (!state.hasRolled) return null;
@@ -140,9 +229,9 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
       return Object.fromEntries(CHA_KEYS.map((k, idx) => [k, idx]));
     }
     const map = {};
-    for (const key of CHA_KEYS) {
+    for (const [index, key] of CHA_KEYS.entries()) {
       const select = root?.querySelector(`#assign-${key}`);
-      const fallback = _num(savedAssignMap?.[key], -1);
+      const fallback = _num(savedAssignMap?.[key], index);
       map[key] = _num(select?.value, fallback);
     }
     return map;
@@ -170,7 +259,9 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
       const value = idx >= 0 ? baseline[key] + _num(state.rollPool[idx], 0) : baseline[key];
       resultValues[key] = String(value);
     }
-    resultValues.lck = state.luckRoll !== null ? String(state.luckRoll) : "";
+    const luckInput = root?.querySelector("#lckInput");
+    resultValues.lck = state.draft ? String(state.luckRoll) : luckInput?.dataset.userEdited === "true"
+      ? luckInput.value : state.luckRoll !== null ? String(state.luckRoll) : "";
     _writeResultInputs(root, resultValues);
   }
 
@@ -227,32 +318,58 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
     const rerollsEl = root.querySelector("#cgRerollCount");
     if (rerollsEl) rerollsEl.textContent = String(Math.max(0, state.rollHistory.length - 1));
     const lck = root.querySelector("#lckInput");
-    if (lck) {
+    if (lck && isRoll && state.draft) {
+      lck.value = String(state.luckRoll);
+      delete lck.dataset.userEdited;
+    } else if (lck && lck.dataset.userEdited !== "true") {
       if (state.preserveSavedResults && state.savedResultValues.lck !== "") lck.value = state.savedResultValues.lck;
       else if (state.hasRolled && state.luckRoll !== null) lck.value = String(state.luckRoll);
     }
+    const pendingRolls = isRoll && state.hasRolled && !state.rollsFinalized;
+    const rollLocked = state.rollBusy || state.draftUncertain;
+    const rerollSelection = root.querySelector("#cgRerollSelection");
+    if (rerollSelection) {
+      const previous = Number(rerollSelection.value);
+      rerollSelection.innerHTML = state.rollPool.map((roll, index) =>
+        `<option value="${index}" ${state.rerolledIndices.has(index) ? "disabled" : ""}>${tf("UESRPG.Dialogs.SetBaseCharacteristics.RollSetOption", { number: String(index + 1), value: String(roll ?? "—") })}</option>`).join("");
+      if (Number.isInteger(previous) && !state.rerolledIndices.has(previous)) rerollSelection.value = String(previous);
+      rerollSelection.disabled = rollLocked || !pendingRolls || state.rerolledIndices.size >= MAX_CHARACTERISTIC_REROLLS;
+    }
     const rerollBtn = root.querySelector("#cgReroll");
-    if (rerollBtn) rerollBtn.disabled = !(isRoll && state.hasRolled);
+    if (rerollBtn) rerollBtn.disabled = rollLocked || !pendingRolls || state.rerolledIndices.size >= MAX_CHARACTERISTIC_REROLLS;
+    const finishBtn = root.querySelector("#cgFinishRolls");
+    if (finishBtn) finishBtn.disabled = rollLocked || !pendingRolls;
+    const permission = root.querySelector("#cgRerollPermission");
+    if (permission) permission.disabled = rollLocked || !pendingRolls;
+    const submitButton = root.closest(".application, .app")?.querySelector("[data-action='yes']");
+    if (submitButton) submitButton.disabled = rollLocked || pendingRolls;
+    for (const key of CHA_KEYS) {
+      const input = root.querySelector(`#${key}Input`);
+      if (input) input.readOnly = rollLocked || pendingRolls || Boolean(isRoll && state.draft);
+    }
+    if (lck) lck.readOnly = rollLocked || Boolean(isRoll && state.draft);
     const rollAssignBtn = root.querySelector("#cgRollAssign");
-    if (rollAssignBtn) rollAssignBtn.disabled = isRoll && state.hasRolled;
+    if (rollAssignBtn) rollAssignBtn.disabled = rollLocked || (isRoll && state.hasRolled);
     const rollDistributeBtn = root.querySelector("#cgRollDistribute");
-    if (rollDistributeBtn) rollDistributeBtn.disabled = isRoll && state.hasRolled;
+    if (rollDistributeBtn) rollDistributeBtn.disabled = rollLocked || (isRoll && state.hasRolled);
+    const pointBuyBtn = root.querySelector("#cgUsePointBuy");
+    if (pointBuyBtn) pointBuyBtn.disabled = rollLocked;
     const rollSection = root.querySelector("#cgRollSection");
     const pbSection = root.querySelector("#cgPointBuySection");
     if (rollSection) rollSection.style.display = isRoll ? "" : "none";
     if (pbSection) pbSection.style.display = isRoll ? "none" : "";
 
     const manualWrap = root.querySelector("#cgManualAssignSection");
-    if (manualWrap) manualWrap.style.display = isRoll && state.hasRolled && state.assignmentMode === "manual" ? "" : "none";
+    if (manualWrap) manualWrap.style.display = isRoll && state.hasRolled && state.rollsFinalized && state.assignmentMode === "manual" ? "" : "none";
 
-    if (isRoll && state.hasRolled) {
+    if (isRoll && state.hasRolled && state.rollsFinalized) {
       writeRollTotals(root);
     } else if (!isRoll) {
       writePointBuyTotals(root);
     }
   }
 
-  await customDialog({
+  const result = await customDialog({
     layout: "workflow",
     title: t("UESRPG.Dialogs.SetBaseCharacteristics.Title"),
     width: 800,
@@ -265,12 +382,19 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
         <button type="button" id="cgRollAssign">${t("UESRPG.Dialogs.SetBaseCharacteristics.RollAssignButton")}</button>
         <button type="button" id="cgRollDistribute">${t("UESRPG.Dialogs.SetBaseCharacteristics.RollDistributeButton")}</button>
         <button type="button" id="cgUsePointBuy">${t("UESRPG.Dialogs.SetBaseCharacteristics.UsePointBuyButton")}</button>
-        <button type="button" id="cgReroll" ${systemTooltipAttributes({ text: t("UESRPG.Dialogs.SetBaseCharacteristics.RerollPoolTitle") })}>${t("UESRPG.Dialogs.SetBaseCharacteristics.RerollPoolButton")}</button>
         <span class="uesrpg-cg-dialog__small">${t("UESRPG.Dialogs.SetBaseCharacteristics.ModeLabel")} <b id="cgModeLabel">${t("UESRPG.Dialogs.SetBaseCharacteristics.RollMode")}</b></span>
         <span class="uesrpg-cg-dialog__small">${t("UESRPG.Dialogs.SetBaseCharacteristics.PoolLabel")} <span id="cgRollPool">${t("UESRPG.Dialogs.SetBaseCharacteristics.ReadyToRoll")}</span></span>
         <span class="uesrpg-cg-dialog__small">${t("UESRPG.Dialogs.SetBaseCharacteristics.RerollsLabel")} <span id="cgRerollCount">0</span></span>
       </div>
-      <div id="cgRollSection" class="uesrpg-cg-dialog__note">${t("UESRPG.Dialogs.SetBaseCharacteristics.RollSectionNote")}</div>
+      <div id="cgRollSection">
+        <div class="uesrpg-cg-dialog__note">${t("UESRPG.Dialogs.SetBaseCharacteristics.RollSectionNote")}</div>
+        <div class="uesrpg-cg-dialog__tools">
+          <label><input type="checkbox" id="cgRerollPermission"> ${t("UESRPG.Dialogs.SetBaseCharacteristics.RerollPermission")}</label>
+          <label>${t("UESRPG.Dialogs.SetBaseCharacteristics.RerollSelection")} <select id="cgRerollSelection"></select></label>
+          <button type="button" id="cgReroll" ${systemTooltipAttributes({ text: t("UESRPG.Dialogs.SetBaseCharacteristics.RerollPoolTitle") })}>${t("UESRPG.Dialogs.SetBaseCharacteristics.RerollPoolButton")}</button>
+          <button type="button" id="cgFinishRolls">${t("UESRPG.Dialogs.SetBaseCharacteristics.FinishRolls")}</button>
+        </div>
+      </div>
       <div id="cgManualAssignSection" style="display:none;">
         <div class="uesrpg-cg-dialog__note">${t("UESRPG.Dialogs.SetBaseCharacteristics.ManualAssignmentNote")}</div>
         <div id="cgManualAssignWrap" class="uesrpg-cg-option-grid uesrpg-cg-option-grid--four"></div>
@@ -285,13 +409,13 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
         <tr><th></th><th>STR</th><th>END</th><th>AGI</th><th>INT</th><th>WP</th><th>PRC</th><th>PRS</th><th>LCK</th></tr>
         <tr>
           <th scope="row">${t("UESRPG.Dialogs.SetBaseCharacteristics.CurrentLabel")}</th>
-          <td><input type="number" value="${baseline.str}" readonly disabled></td>
-          <td><input type="number" value="${baseline.end}" readonly disabled></td>
-          <td><input type="number" value="${baseline.agi}" readonly disabled></td>
-          <td><input type="number" value="${baseline.int}" readonly disabled></td>
-          <td><input type="number" value="${baseline.wp}" readonly disabled></td>
-          <td><input type="number" value="${baseline.prc}" readonly disabled></td>
-          <td><input type="number" value="${baseline.prs}" readonly disabled></td>
+          <td><input type="number" value="${_num(current.str?.base, 0)}" readonly disabled></td>
+          <td><input type="number" value="${_num(current.end?.base, 0)}" readonly disabled></td>
+          <td><input type="number" value="${_num(current.agi?.base, 0)}" readonly disabled></td>
+          <td><input type="number" value="${_num(current.int?.base, 0)}" readonly disabled></td>
+          <td><input type="number" value="${_num(current.wp?.base, 0)}" readonly disabled></td>
+          <td><input type="number" value="${_num(current.prc?.base, 0)}" readonly disabled></td>
+          <td><input type="number" value="${_num(current.prs?.base, 0)}" readonly disabled></td>
           <td><input type="number" value="${_num(current?.lck?.base, 0)}" readonly disabled></td>
         </tr>
         <tr>
@@ -326,9 +450,17 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
       callback: async (html) => {
         const root = _resolveDialogRoot(html);
         if (!root) return;
+        if (state.rollBusy || state.draftUncertain) {
+          ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.RollDraftNeedsReview"));
+          return null;
+        }
         let assignedMap = null;
         let pointBuyAllocation = null;
         if (state.mode === "roll" && state.hasRolled) {
+          if (!state.rollsFinalized) {
+            ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.FinishCharacteristicRolls"));
+            return;
+          }
           const map = currentAssignMap(root);
           const idxValues = Object.values(map);
           if (idxValues.some((v) => v < 0 || v >= state.rollPool.length)) {
@@ -359,8 +491,8 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
             return;
           }
         }
-        // Typed field values are authoritative on submit. Roll/Point-Buy controls
-        // are helper prefills that users may manually override before confirming.
+        // New roll drafts submit the actual final pool. Existing saved results and
+        // point-buy/manual workflows retain their established editable fields.
         const values = {
           str: _num(root.querySelector("#strInput")?.value, 0),
           end: _num(root.querySelector("#endInput")?.value, 0),
@@ -371,6 +503,11 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
           prs: _num(root.querySelector("#prsInput")?.value, 0),
           lck: Math.min(50, _num(root.querySelector("#lckInput")?.value, state.luckRoll)),
         };
+        const submittingDraft = state.mode === "roll" && Boolean(state.draft);
+        if (submittingDraft) {
+          for (const key of CHA_KEYS) values[key] = baseline[key] + state.rollPool[assignedMap[key]];
+          values.lck = state.luckRoll;
+        }
         const favored = {
           str: Boolean(root.querySelector("#strFav")?.checked),
           end: Boolean(root.querySelector("#endFav")?.checked),
@@ -388,7 +525,7 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
           return;
         }
 
-        await requestUpdateDocument(actor, {
+        const updateData = {
           "system.characteristics.str.base": values.str,
           "system.characteristics.end.base": values.end,
           "system.characteristics.agi.base": values.agi,
@@ -405,7 +542,48 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
           "system.characteristics.prc.favored": favored.prc,
           "system.characteristics.prs.favored": favored.prs,
           "system.characteristics.lck.favored": favored.lck,
-        });
+          "flags.uesrpg-3ev4.chargen.statsGeneration": {
+            mode: state.mode,
+            rollPool: state.mode === "roll" && state.hasRolled ? [...state.rollPool] : null,
+            assignmentMode: state.mode === "roll" && state.hasRolled ? state.assignmentMode : null,
+            assignedMap,
+            pointBuyAllocation,
+            luckRoll: state.hasRolled ? values.lck : null,
+            rerollsUsed: Math.max(0, state.rollHistory.length - 1),
+            rollHistory: state.mode === "roll" ? [...state.rollHistory] : [],
+            resultValues: values,
+            baseline: baselineKnown ? { ...baseline } : null,
+            baselineRace: race,
+          },
+        };
+        let saved;
+        if (submittingDraft) {
+          const expected = state.draft;
+          const submittedDraft = { ...expected, revision: expected.revision + 1, submitted: true };
+          updateData[ROLL_DRAFT_PATH] = submittedDraft;
+          saved = await requestAtomicUpdateDocument(actor, fresh => {
+            const actualDraft = _normalizeRollDraft(foundry.utils.getProperty(fresh, ROLL_DRAFT_PATH));
+            const freshStats = foundry.utils.getProperty(fresh, "flags.uesrpg-3ev4.chargen.statsGeneration") ?? {};
+            const freshCharacteristics = fresh.system?.characteristics ?? {};
+            const actualCharacteristics = JSON.stringify(Object.fromEntries([...CHA_KEYS, "lck"].map(key => [key, {
+              base: freshCharacteristics[key]?.base, favored: freshCharacteristics[key]?.favored,
+            }])));
+            if (JSON.stringify(actualDraft) !== JSON.stringify(expected) || !actualDraft?.finalized || actualDraft.submitted
+              || JSON.stringify(freshStats) !== statsSnapshot || actualCharacteristics !== characteristicsSnapshot
+              || String(fresh.system?.race ?? "").trim().toLowerCase() !== race) return null;
+            return updateData;
+          });
+          const observed = _normalizeRollDraft(foundry.utils.getProperty(actor, ROLL_DRAFT_PATH));
+          if (!saved || JSON.stringify(observed) !== JSON.stringify(submittedDraft)) {
+            state.draftUncertain = true;
+            ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.RollDraftWriteUncertain"));
+            return null;
+          }
+        } else saved = await requestUpdateDocument(actor, updateData);
+        if (!saved) {
+          ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.CharacteristicsSaveFailed"));
+          return null;
+        }
 
         await appendChargenAudit(actor, {
           step: "stats",
@@ -424,19 +602,7 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
             favored: Object.entries(favored).filter(([, enabled]) => enabled).map(([k]) => k),
           },
         });
-        await requestUpdateDocument(actor, {
-          "flags.uesrpg-3ev4.chargen.statsGeneration": {
-            mode: state.mode,
-            rollPool: state.mode === "roll" && state.hasRolled ? [...state.rollPool] : null,
-            assignmentMode: state.mode === "roll" && state.hasRolled ? state.assignmentMode : null,
-            assignedMap,
-            pointBuyAllocation,
-            luckRoll: state.hasRolled ? values.lck : null,
-            rerollsUsed: Math.max(0, state.rollHistory.length - 1),
-            rollHistory: state.mode === "roll" ? [...state.rollHistory] : [],
-            resultValues: values,
-          },
-        });
+        return { ok: true };
       },
     },
     no: { label: "Cancel" },
@@ -447,47 +613,79 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
       renderRollAssignSelectors(root);
       refreshUi(root);
 
-      const rollPool = (assignmentMode) => {
+      const writeDraft = async (next) => {
+        if (state.rollBusy || state.draftUncertain) return false;
+        state.rollBusy = true;
+        refreshUi(root);
+        try {
+          return await saveRollDraft(next);
+        } catch (error) {
+          console.warn("UESRPG | Characteristic roll draft could not be confirmed", error);
+          state.draftUncertain = true;
+          ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.RollDraftWriteUncertain"));
+          return false;
+        } finally {
+          state.rollBusy = false;
+          refreshUi(root);
+        }
+      };
+      const rollPool = async (assignmentMode) => {
+        if (state.rollBusy || state.draftUncertain) return;
         state.preserveSavedResults = false;
         state.mode = "roll";
         state.assignmentMode = assignmentMode;
-        state.hasRolled = true;
-        state.rollPool = CHA_KEYS.map(() => _roll2d10());
-        state.luckRoll = Math.min(50, 30 + _roll2d10());
-        state.rollHistory = [{
+        if (state.hasRolled) {
+          renderRollAssignSelectors(root);
+          refreshUi(root);
+          return;
+        }
+        const pool = CHA_KEYS.map(() => _roll2d10());
+        const luckRoll = Math.min(50, 30 + _roll2d10());
+        const next = { version: 1, revision: 1, assignmentMode, finalized: false, submitted: false, rollHistory: [{
           source: "initial",
-          pool: [...state.rollPool],
-          luckRoll: state.luckRoll,
-        }];
-        root.querySelector("#lckInput").value = String(state.luckRoll);
+          pool,
+          luckRoll,
+        }] };
+        if (!await writeDraft(next)) return;
+        const luckInput = root.querySelector("#lckInput");
+        luckInput.value = String(state.luckRoll);
+        delete luckInput.dataset.userEdited;
+        for (const key of CHA_KEYS) root.querySelector(`#${key}Input`).value = "";
         renderRollAssignSelectors(root);
         refreshUi(root);
       };
       root.querySelector("#cgRollAssign")?.addEventListener("click", () => rollPool("auto"));
       root.querySelector("#cgRollDistribute")?.addEventListener("click", () => rollPool("manual"));
       root.querySelector("#cgUsePointBuy")?.addEventListener("click", () => {
+        if (state.rollBusy || state.draftUncertain) return;
         state.mode = "pointbuy";
         state.preserveSavedResults = false;
         refreshUi(root);
       });
-      root.querySelector("#cgReroll")?.addEventListener("click", () => {
-        if (!state.hasRolled) {
-          ui.notifications?.warn?.("Roll a pool first.");
+      root.querySelector("#cgReroll")?.addEventListener("click", async () => {
+        if (state.rollBusy || state.draftUncertain || !state.draft || state.mode !== "roll" || !state.hasRolled || state.rollsFinalized
+          || state.rerolledIndices.size >= MAX_CHARACTERISTIC_REROLLS) return;
+        if (!root.querySelector("#cgRerollPermission")?.checked) {
+          ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.RerollNeedsPermission"));
           return;
         }
-        if (state.mode !== "roll") {
-          ui.notifications?.warn?.("Reroll pool is only available in Roll mode.");
-          return;
-        }
+        const index = Number(root.querySelector("#cgRerollSelection")?.value);
+        if (!Number.isInteger(index) || index < 0 || index >= CHA_KEYS.length || state.rerolledIndices.has(index)) return;
         state.preserveSavedResults = false;
-        state.rollPool = CHA_KEYS.map(() => _roll2d10());
-        state.luckRoll = Math.min(50, 30 + _roll2d10());
-        state.rollHistory.push({
+        const pool = [...state.rollPool];
+        pool[index] = _roll2d10();
+        const next = { ...state.draft, revision: state.draft.revision + 1, rollHistory: [...state.rollHistory, {
           source: "reroll",
-          pool: [...state.rollPool],
+          rerollIndex: index,
+          pool,
           luckRoll: state.luckRoll,
-        });
-        root.querySelector("#lckInput").value = String(state.luckRoll);
+        }] };
+        await writeDraft(next);
+      });
+      root.querySelector("#cgFinishRolls")?.addEventListener("click", async () => {
+        if (state.rollBusy || state.draftUncertain || !state.draft || state.mode !== "roll" || !state.hasRolled || state.rollsFinalized) return;
+        const next = { ...state.draft, revision: state.draft.revision + 1, finalized: true };
+        if (!await writeDraft(next)) return;
         renderRollAssignSelectors(root);
         refreshUi(root);
       });
@@ -509,6 +707,7 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
       });
     },
   });
+  return result?.ok ? result : null;
 });
 /**
  * Handle characteristic click for rolling.
@@ -861,7 +1060,10 @@ export const onLuckyMenu = asyncGuardSheet(async function onLuckyMenu(event, tar
         const updates = {};
         luckyInputKeys.forEach((id, idx) => { updates[`system.lucky_numbers.${id}`] = luckyNums[idx] ?? 0; });
         unluckyInputKeys.forEach((id, idx) => { updates[`system.unlucky_numbers.${id}`] = unluckyNums[idx] ?? 0; });
-        await requestUpdateDocument(actor, updates);
+        if (!await requestUpdateDocument(actor, updates)) {
+          ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.LuckyNumbersSaveFailed"));
+          return null;
+        }
         const savedActor = (await fromUuid(actor.uuid)) ?? actor;
         const resolvedAllocation = resolveLuckyUnluckyAllocation(savedActor, { clampNonNegativeBonus: true });
         return {

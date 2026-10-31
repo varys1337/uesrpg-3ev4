@@ -20,9 +20,10 @@ import {
   getDefenderEntries as getMagicDefenderEntries,
 } from "../../magic/opposed/schema.js";
 import { renderCard as renderMagicCard } from "../../magic/opposed/render.js";
-import { applyMagicDamage, applyMagicHealing } from "../../magic/damage-application.js";
+import { applyMagicDamageResult, applyMagicHealingResult } from "../../magic/damage-application.js";
 import { applyResolvedSpellEffects } from "../../magic/effects/spell-effects.js";
-import { applySpellResourceRestoration, hasSpellResourceRestoration, getSpellResourceRestorationRecipient } from "../../magic/services/resource-restoration-service.js";
+import { applySpellResourceRestoration, hasSpellResourceRestoration, getSpellResourceRestorationRecipient, getCoreRejuvenateConfigurationIssue, getCoreReplenishConfigurationIssue } from "../../magic/services/resource-restoration-service.js";
+import { isCoreRejuvenateSpell, requireRejuvenateChoice } from "../../magic/rejuvenate-choice.js";
 
 import { _getDefenderDamage, _setDefenderDamage, _getDefenderEntries } from "../opposed/schema.js";
 
@@ -210,8 +211,10 @@ export async function synchronizeInlineChatOutcome(message, outcome, receipt) {
 }
 
 function requireResult(result) {
-  if (result == null) throw Object.assign(new Error("The outcome could not be applied."), { committed: false });
-  return result;
+  if (result?.value) return result.value;
+  if (result?.actionResult?.ok) return { ok: true, skipped: true, execution: { committed: false } };
+  throw Object.assign(new Error("The outcome was not confirmed."), { actionResult: result?.actionResult,
+    ...(result?.actionResult?.commitment === "none" ? { committed: false } : {}) });
 }
 
 async function applyMagicOutcome(outcome, context) {
@@ -226,6 +229,13 @@ async function applyMagicOutcome(outcome, context) {
   if (payload.needsEffects && (!spell || !casterActor)) {
     throw Object.assign(new Error("The spell or caster is no longer available."), { committed: false });
   }
+  if (isCoreRejuvenateSpell(spell)) {
+    const issue = getCoreRejuvenateConfigurationIssue(spell, payload);
+    if (issue) throw Object.assign(new Error(issue), { committed: false });
+    requireRejuvenateChoice(payload?.spellOptions?.rejuvenateChoice);
+  }
+  const replenishmentIssue = getCoreReplenishConfigurationIssue(spell, payload);
+  if (replenishmentIssue) throw Object.assign(new Error(replenishmentIssue), { committed: false });
   if (!payload.castContext?.spellStrengthResolved && spell) {
     const resolved = await context.stage("castContext", async () => ({ castContext: await resolveMagicCastContext({
       castContext: payload.castContext, spellOptions: payload.spellOptions, scalingChoices: payload.scalingChoices,
@@ -236,11 +246,11 @@ async function applyMagicOutcome(outcome, context) {
   if (outcome.kind === "healing" && Number(payload.damage ?? 0) <= 0) result = { healing: 0 };
   else if (outcome.kind !== "effect") {
     result = await context.stage("health", async () => requireResult(outcome.kind === "healing"
-      ? await applyMagicHealing(targetActor, Number(payload.damage ?? 0), spell, {
+      ? await applyMagicHealingResult(targetActor, Number(payload.damage ?? 0), spell, {
           ...payload, messageId: message.id, receiptId: context.receiptId, casterActor, outcomeContext: context,
           isTemporary: Boolean(payload.isTemporary),
         })
-      : await applyMagicDamage(targetActor, Number(payload.damage ?? 0), payload.damageType || "magic", spell, {
+      : await applyMagicDamageResult(targetActor, Number(payload.damage ?? 0), payload.damageType || "magic", spell, {
           ...payload, receiptId: context.receiptId, casterActor, skipChatMessage: true, outcomeContext: context,
         })));
   }
@@ -280,6 +290,11 @@ async function applyMagicOutcome(outcome, context) {
       return { ok: true };
     }, { documents: [getSpellResourceRestorationRecipient({ caster: casterActor, target: targetActor, spell, payload })] });
   }
+  const { isDiseaseCureSpell, applyDiseaseCure } = await import("../../magic/services/utility-spells-service.js");
+  if (isDiseaseCureSpell(spell)) {
+    await context.stage("diseaseCure", () => applyDiseaseCure({ caster: casterActor, target: targetActor, spell, payload }),
+      { documents: [spell.name === "Cure Disease" ? casterActor : targetActor] });
+  }
   return { ...result, effectsApplied };
 }
 
@@ -293,7 +308,7 @@ export async function executeInlineChatOutcome(outcome, context) {
   const { message, actor: targetActor } = context;
   const payload = outcome.payload;
   if (outcome.kind === "healing") {
-    const result = await context.stage("health", async () => requireResult(await ApplyDamageService.applyHealing(targetActor,
+    const result = await context.stage("health", async () => requireResult(await ApplyDamageService.applyHealingResult(targetActor,
       Number(payload.healing ?? 0), {
         source: payload.source ?? "Healing", isTemporary: String(payload.tempHp ?? "0") === "1",
         messageId: message.id, receiptId: context.receiptId, outcomeContext: context,
@@ -306,7 +321,7 @@ export async function executeInlineChatOutcome(outcome, context) {
   }
   const attackerActor = resolveActorFromUuidSync(payload.attackerActorUuid);
   const weapon = payload.weaponUuid ? resolveUuidSync(payload.weaponUuid) : null;
-  const result = await context.stage("health", async () => requireResult(await ApplyDamageService.applyChatCard({
+  const result = await context.stage("health", async () => requireResult(await ApplyDamageService.applyChatCardResult({
     targetActor, receiptId: context.receiptId, outcomeContext: context,
     rawDamage: Number(payload.damage ?? 0), damageType: payload.damageType || DAMAGE_TYPES.PHYSICAL,
     dosBonus: Number(payload.dosBonus ?? 0), penetration: Number(payload.penetration ?? 0),
@@ -328,11 +343,19 @@ export async function executeInlineChatOutcome(outcome, context) {
 }
 
 export async function onApplyDamage(event, message) {
+  return (await onApplyDamageResult(event, message)).actionResult.ok;
+}
+
+export async function onApplyDamageResult(event, message) {
   event.preventDefault();
-  return ChatOutcomeApplicationService.apply(message, { targetUuid: event.currentTarget.dataset.targetUuid, kind: "damage" });
+  return ChatOutcomeApplicationService.applyResult(message, { targetUuid: event.currentTarget.dataset.targetUuid, kind: "damage" });
 }
 
 export async function onApplyHealing(event, message) {
+  return (await onApplyHealingResult(event, message)).actionResult.ok;
+}
+
+export async function onApplyHealingResult(event, message) {
   event.preventDefault();
-  return ChatOutcomeApplicationService.apply(message, { targetUuid: event.currentTarget.dataset.targetUuid, kind: "healing" });
+  return ChatOutcomeApplicationService.applyResult(message, { targetUuid: event.currentTarget.dataset.targetUuid, kind: "healing" });
 }

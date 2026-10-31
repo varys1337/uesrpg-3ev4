@@ -3,6 +3,8 @@ import { FLAG_SCOPE } from "../system/namespace.js";
 
 export const FLAG_NS = FLAG_SCOPE;
 export const ALCHEMY_DEFAULT_ICON = "icons/consumables/potions/bottle-bulb-empty-glass.webp";
+export const COATING_AUTOMATION_PAUSED = true;
+export const COATING_MANUAL_GUIDANCE = "Poison and toxin coating automation is paused. With the GM, review the Item, weapon or ammunition, previous chat and any paid costs; resolve application, hits, duration, resistance and effects manually. Do not repeat an uncertain action before checking its results.";
 
 export function cloneAlchemyData(value) {
   try {

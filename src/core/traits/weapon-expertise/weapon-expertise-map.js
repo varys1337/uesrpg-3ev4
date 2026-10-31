@@ -21,6 +21,16 @@ export function normalizeWeaponName(name) {
     .replace(/-+/g, "");
 }
 
+// These talents have source clauses that require player or GM handling in the
+// current attack workflow. The declaration dialog shows their existing notes.
+export const MANUAL_WEAPON_EXPERTISE_REMINDERS = Object.freeze([
+  "beastofsteel", "cleaverofmen", "daisho", "firingline", "halberdier", "kensai",
+  "pointblank", "powerdraw", "riposte", "ripandtear", "simpleyeteffective",
+  "slingerswail", "staffmastery", "hammerblow", "deathbyathousandcuts",
+  "redlegionthrow", "whirlingschool", "executioner", "knifefighter", "pugilist", "bruiser", "darthrower",
+  "beardedwarrior", "fromoblivionsheart", "blademaster", "viperseye"
+]);
+
 /**
  * Canonical weapon expertise talent definitions.
  *
@@ -92,8 +102,8 @@ export const WEAPON_EXPERTISE = {
       "Thrown axes retrievable as Free Action."
     ],
     notes: [
-      "Thrown axes: +STR bonus to damage (replaces AGI from Dart Thrower).",
-      "All Out Attack with maces: target loses 1 SP if damage dealt after mitigation."
+      "Thrown axes: include STR bonus in attack damage manually (replaces AGI from Dart Thrower); resolve mitigation once with the GM.",
+      "All Out Attack with a mace: if the target takes damage after mitigation, resolve 1 SP loss manually; inspect prior changes before applying it."
     ]
   },
 
@@ -109,7 +119,7 @@ export const WEAPON_EXPERTISE = {
     ],
     notes: [
       "All Out Attack with greatsword: strike one additional target within 2m.",
-      "Extra target defends normally, roll damage separately.",
+      "Use one attack test; each target defends normally and damage is rolled separately.",
       "Cannot win advantages. Stacks with Mighty Cleave."
     ]
   },
@@ -134,10 +144,10 @@ export const WEAPON_EXPERTISE = {
     weapons: [], // all thrown weapons
     attackMode: "ranged",
     trigger: "on-thrown-attack",
-    automation: "damage-modifier",
+    automation: "informational",
     passive: [],
     notes: [
-      "+AGI bonus to damage with all thrown weapons.",
+      "Include AGI bonus in thrown-weapon attack damage manually, except when Bruiser replaces it; resolve mitigation once with the GM.",
       "Thrown dagger/throwing star/dart: -10 penalty to cause two hits instead of one."
     ]
   },
@@ -148,10 +158,10 @@ export const WEAPON_EXPERTISE = {
     weapons: ["katana", "wakizashi"],
     attackMode: "melee",
     trigger: "on-damage-after-mitigation",
-    automation: "apply-bleeding",
+    automation: "informational",
     passive: [],
     notes: [
-      "On ≥1 damage after mitigation with Katana/Wakizashi: apply Bleeding(1)."
+      "After at least 1 damage after mitigation, the attacker may apply Bleeding(1); resolve manually."
     ]
   },
 
@@ -166,8 +176,8 @@ export const WEAPON_EXPERTISE = {
       "Foes suffer -20 to Shock tests from wounds inflicted by greataxes and scimitars."
     ],
     notes: [
-      "All Out Attack bonus → +30 (instead of +20).",
-      "+1d4 added to STR bonus for Splitting/Slashing when All Out Attacking."
+      "All Out Attack bonus → +30 (instead of +20); check the calculated TN before adding a modifier.",
+      "+1d4 to Strength bonus for Splitting/Slashing when All Out Attacking; roll and resolve manually."
     ]
   },
 
@@ -194,11 +204,11 @@ export const WEAPON_EXPERTISE = {
     trigger: "on-wound",
     automation: "apply-bleeding",
     passive: [
-      "Trident gains Thrown(5/10/20).",
-      "Thrown hit with trident counts as Entangling (can still be blocked, inflicts damage)."
+      "Trident gains Thrown(5/10/20); configure the weapon's thrown range manually.",
+      "On a thrown hit, resolve Entangling; check whether another weapon quality already applied it. The attack can still be blocked and inflicts damage."
     ],
     notes: [
-      "If attack inflicts a wound: enemy gains Bleeding(1) regardless of shock test."
+      "On a trident wound, the damage workflow attempts Bleeding(1) regardless of the Shock test. Review the result and any immunity before applying it manually."
     ]
   },
 
@@ -224,12 +234,12 @@ export const WEAPON_EXPERTISE = {
     weapons: ["warhammer", "maul"],
     attackMode: "melee",
     trigger: "on-hit",
-    automation: "post-hit-sp-loss-and-dazed",
+    automation: "informational",
     passive: [],
     notes: [
-      "On hit with warhammer/maul: target loses 1 SP.",
-      "If All Out Attack: instead force END(+0) test or Dazed condition.",
-      "Dazed removal: END(+10) test as Free Action each round."
+      "On a hit, the attacker may cause the target to lose 1 SP; resolve manually.",
+      "On an All Out Attack hit, the attacker may instead require an END(+0) test; only failure causes Dazed.",
+      "Dazed removal: END(+10) test as a Free Action on the target's turn each round."
     ]
   },
 
@@ -261,7 +271,7 @@ export const WEAPON_EXPERTISE = {
       "May use AGI bonus instead of STR bonus for Slashing with daggers/tantos/shortswords."
     ],
     notes: [
-      "Penetrate Armor advantage with tanto/dagger/shortsword: +1d4 damage."
+      "Penetrate Armor with a tanto, dagger or shortsword: the attacker may add 1d4 damage; resolve manually."
     ]
   },
 
@@ -277,7 +287,7 @@ export const WEAPON_EXPERTISE = {
       "Treat Large+ creatures as one size larger for Size To-Hit effects."
     ],
     notes: [
-      "Treat target WT as one lower when wielding a pike."
+      "Treat a Large or larger target's WT as one lower when wielding a pike."
     ]
   },
 
@@ -319,13 +329,13 @@ export const WEAPON_EXPERTISE = {
     weapons: [], // natural weapons / hand-to-hand
     attackMode: "melee",
     trigger: "passive-damage",
-    automation: "damage-modifier",
+    automation: "informational",
     passive: [
       "Upgrade Natural Weapon damage die by one step.",
       "No -10 penalty for open-hand actions from Hand to Hand Weapon Quality."
     ],
     notes: [
-      "+1 to Slashing or Crushing value of Hand to Hand weapons."
+      "Increase the Slashing or Crushing value of Hand to Hand weapons by 1; resolve the applicable quality manually."
     ]
   },
 
@@ -335,12 +345,12 @@ export const WEAPON_EXPERTISE = {
     weapons: ["javelin"],
     attackMode: "ranged",
     trigger: "on-damage-after-mitigation",
-    automation: "apply-crippled",
+    automation: "informational",
     passive: [],
     notes: [
-      "Successful javelin damage after mitigation: target location is Speared (treated as crippled until removed).",
+      "A thrown javelin dealing damage after mitigation spears the hit body or limb, which is treated as crippled until removed; record and resolve manually.",
       "Spear removal: Free Action → Bleeding(1), or Secondary Action STR test.",
-      "If blocked: shield is Speared (1 SP to attempt further blocks).",
+      "If blocked by a shield: record the speared shield manually; further block attempts cost 1 SP.",
       "Shield spear removal: STR test as Secondary Action."
     ]
   },
@@ -394,7 +404,7 @@ export const WEAPON_EXPERTISE = {
     automation: "informational",
     passive: [],
     notes: [
-      "Attack with sling while Hidden: characters within short range must make +0 Panic test."
+      "Attack with sling while Hidden: unaware characters within short range must make a +0 Panic test."
     ]
   },
 
@@ -424,7 +434,7 @@ export const WEAPON_EXPERTISE = {
       "Two-handed spear: loses Unwieldy, range is 3m."
     ],
     notes: [
-      "Precision Strike with spear: replace Slashing with Crushing, only -10 penalty (instead of -20)."
+      "Precision Strike with spear: replace Slashing with Crushing manually; check that the calculated penalty is no worse than -10."
     ]
   },
 
@@ -434,10 +444,10 @@ export const WEAPON_EXPERTISE = {
     weapons: ["bola"],
     attackMode: "ranged",
     trigger: "on-precision-strike",
-    automation: "apply-condition-dialog",
+    automation: "informational",
     passive: [],
     notes: [
-      "Special Precision Strike: wrap bola around target's neck or legs.",
+      "Choose the neck or legs for the special Precision Strike; on a successful hit resolve the effect manually, even if no damage is dealt.",
       "Neck: target loses 1 SP/round (does not stack).",
       "Legs: target gains Immobilized condition.",
       "Either effect ends when bola removed (target/ally within 1m, Primary Action, +0 STR test)."

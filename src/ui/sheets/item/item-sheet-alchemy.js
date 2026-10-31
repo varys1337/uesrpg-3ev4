@@ -166,8 +166,7 @@ export async function onDrinkAlchemyProduct(sheet, event) {
     return;
   }
 
-  await _prepareSheetForDestructiveAlchemyAction(sheet);
-  await drinkPotion(actor, sheet.document);
+  await drinkPotion(actor, sheet.document, { beforeConsume: () => _prepareSheetForDestructiveAlchemyAction(sheet) });
 }
 
 /**

@@ -1,10 +1,7 @@
-import {
-  requestCreateEmbeddedDocuments,
-  requestDeleteEmbeddedDocuments,
-  requestUpdateDocument,
-} from "../../utils/authority-proxy.js";
+import { requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { requestXpPurchase } from "./purchase-service.js";
 import { _num, _num as asNumber } from "../../utils/coerce.js";
-import { getMagicSkillLevel, isActorTrainedInMagicSchool } from "../magic/magicka-utils.js";
+import { getMagicSkillLevel, isActorTrainedInMagicSchool, normalizeSpellLearningType } from "../magic/magicka-utils.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
 import { asTrimmedString, getActorItemsArray, normalizeLowercaseString } from "./utils.js";
 
@@ -96,8 +93,8 @@ function hasDuplicateKnownSpell(actor, spellLike, knownSpellIndex = null) {
   return index.bySignature.has(signature);
 }
 
-function canLearnRitual(actor) {
-  if (game.user?.isGM) return true;
+function canLearnRitual(actor, requester = game.user) {
+  if (requester?.isGM) return true;
   return Boolean(actor?.getFlag?.(CHARGEN_NS, "chargen")?.allowRitualLearning);
 }
 
@@ -156,13 +153,7 @@ export async function appendSpellLearningLog(actor, row, options = {}) {
   return nextLog;
 }
 
-export function normalizeSpellLearningType(spell) {
-  const raw = asString(spell?.system?.spellType || spell?.spellType).toLowerCase();
-  if (raw === "ritual") return "ritual";
-  if (raw === "unconventional") return "unconventional";
-  if (Boolean(spell?.system?.isRitual) || Boolean(spell?.flags?.[CHARGEN_NS]?.isRitual)) return "ritual";
-  return "conventional";
-}
+export { normalizeSpellLearningType };
 
 export function getSpellcastingLevelForSpell(actor, spell) {
   const school = normalizeSchool(spell?.system?.school);
@@ -206,9 +197,9 @@ export function validateSpellLearningPurchase(actor, spell, paymentMode = "xp", 
   const school = normalizeSchool(spell?.system?.school);
   const spellcastingLevel = getSpellcastingLevelForSpell(actor, spell);
   const trained = isActorTrainedInMagicSchool(actor, school);
-  const withinSpellcastingLevel = costs.level <= spellcastingLevel;
+  const withinSpellcastingLevel = costs.type === "ritual" || costs.level <= spellcastingLevel;
   const duplicate = hasDuplicateKnownSpell(actor, spell, options?.knownSpellIndex ?? null);
-  const ritualAllowed = costs.type !== "ritual" || canLearnRitual(actor);
+  const ritualAllowed = costs.type !== "ritual" || canLearnRitual(actor, options.requester ?? game.user);
   const paymentAllowed = costs.allowedPayments.includes(paymentMode);
   const xp = asNumber(actor.system?.xp, 0);
   const wealth = asNumber(actor.system?.wealth, 0);
@@ -228,7 +219,7 @@ export function validateSpellLearningPurchase(actor, spell, paymentMode = "xp", 
 
   if (!paymentAllowed) return { ok: false, reason: "Selected payment mode is disabled by settings.", costs, gating };
   if (duplicate) return { ok: false, reason: "Spell is already known.", costs, gating };
-  if (!trained) return { ok: false, reason: `Need training in ${school || "this school"}.`, costs, gating };
+  if (costs.type !== "ritual" && !trained) return { ok: false, reason: `Need training in ${school || "this school"}.`, costs, gating };
   if (!withinSpellcastingLevel) return {
     ok: false,
     reason: `Spell level ${costs.level} exceeds Spellcasting Level ${spellcastingLevel}.`,
@@ -247,90 +238,11 @@ export function validateSpellLearningPurchase(actor, spell, paymentMode = "xp", 
 
 export async function applySpellLearningPurchase(actor, spellData, purchaseOptions = {}) {
   const paymentMode = purchaseOptions.paymentMode === "drakes" ? "drakes" : "xp";
-  const validation = validateSpellLearningPurchase(actor, spellData, paymentMode, purchaseOptions);
-  if (!validation.ok) {
-    await appendSpellLearningLog(actor, {
-      outcome: "blocked",
-      reason: validation.reason,
-      paymentMode,
-      spell: {
-        name: asString(spellData?.name) || "Unknown",
-        school: normalizeSchool(spellData?.system?.school),
-        level: getSpellLevel(spellData),
-        type: normalizeSpellLearningType(spellData),
-      },
-      costs: {
-        xp: asNumber(validation.costs?.xpCost, 0),
-        drakes: asNumber(validation.costs?.drakesCost, 0),
-      },
-      timestamp: new Date().toISOString(),
-    });
-    return { ok: false, reason: validation.reason, validation };
-  }
-
-  const sourceUuid = extractSourceUuid(spellData);
-  const rawData = typeof spellData?.toObject === "function" ? spellData.toObject() : foundry.utils.deepClone(spellData);
-  rawData.type = "spell";
-  rawData.flags = rawData.flags ?? {};
-  rawData.flags[CHARGEN_NS] = rawData.flags[CHARGEN_NS] ?? {};
-  if (sourceUuid) rawData.flags[CHARGEN_NS].spellSourceUuid = sourceUuid;
-
-  const created = await requestCreateEmbeddedDocuments(actor, "Item", [rawData]);
-  const createdSpell = created?.[0] ?? null;
-  if (!createdSpell) {
-    return { ok: false, reason: "Failed to create spell item.", validation };
-  }
-
-  const costXp = paymentMode === "xp" ? validation.costs.xpCost : 0;
-  const costDrakes = paymentMode === "drakes" ? validation.costs.drakesCost : 0;
-  const actorXp = asNumber(actor.system?.xp, 0);
-  const actorWealth = asNumber(actor.system?.wealth, 0);
-  const updates = {};
-  if (costXp > 0) updates["system.xp"] = actorXp - costXp;
-  if (costDrakes > 0) updates["system.wealth"] = actorWealth - costDrakes;
-
-  try {
-    if (Object.keys(updates).length) await requestUpdateDocument(actor, updates);
-  } catch (err) {
-    await requestDeleteEmbeddedDocuments(actor, "Item", [createdSpell.id]);
-    await appendSpellLearningLog(actor, {
-      outcome: "blocked",
-      reason: "Resource deduction failed; rolled back created spell.",
-      paymentMode,
-      spell: {
-        name: createdSpell.name,
-        school: normalizeSchool(createdSpell.system?.school),
-        level: getSpellLevel(createdSpell),
-        type: normalizeSpellLearningType(createdSpell),
-      },
-      costs: { xp: costXp, drakes: costDrakes },
-      timestamp: new Date().toISOString(),
-    });
-    return { ok: false, reason: String(err?.message ?? err), validation };
-  }
-
-  await appendSpellLearningLog(actor, {
-    outcome: "learned",
-    reason: "",
-    paymentMode,
-    spell: {
-      id: createdSpell.id,
-      name: createdSpell.name,
-      school: normalizeSchool(createdSpell.system?.school),
-      level: getSpellLevel(createdSpell),
-      type: normalizeSpellLearningType(createdSpell),
-    },
-    costs: { xp: costXp, drakes: costDrakes },
-    sourceUuid,
-    timestamp: new Date().toISOString(),
-  });
-
-  return {
-    ok: true,
-    reason: "",
-    createdSpell,
-    paymentMode,
-    costs: { xp: costXp, drakes: costDrakes },
-    validation,
-  };
+  const itemData = typeof spellData?.toObject === "function" ? spellData.toObject() : foundry.utils.deepClone(spellData);
+  if (itemData && spellData?.uuid) itemData.uuid = spellData.uuid;
+  const validation = validateSpellLearningPurchase(actor, itemData, paymentMode, purchaseOptions);
+  if (!validation.ok) return { ok: false, reason: validation.reason, validation };
+  const result = await requestXpPurchase(actor, "spellPurchase", { itemData, paymentMode });
+  return { ...result, validation, paymentMode, costs: { xp: result.xpCost, drakes: result.wealthCost },
+    createdSpell: result.ok ? actor.items.get(result.createdItemIds?.[0]) ?? null : null };
 }

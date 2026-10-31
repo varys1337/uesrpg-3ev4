@@ -36,10 +36,19 @@ import { customDialog } from "../../../utils/dialog-v2-helper.js";
 import { pickCanvasLocation as sharedPickCanvasLocation } from "../../../utils/canvas-location-picker.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { resolveMagicCastContext } from "../opposed/cast-context.js";
+import { escapeHtml } from "../../../utils/html.js";
+import { getCompendiumItemOriginIds } from "../../compendium/access-service.js";
+import { getWeaponCombatCapabilities } from "../../combat/combat-utils.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
 const _debug = createDebugLogger("debugMagicRouting", "[UESRPG][ConjureRuntime]");
+
+function coreConjurationFamily(spell) {
+  const source = spell?.flags?.[_FLAG_NS]?.coreSource;
+  return source?.book === "UESRPG 3e v4 - Rules Compendium" && source.chapter === 6 && source.page === 133
+    && ["conjureweapon", "conjurearmor"].includes(source.family) ? source.family : "";
+}
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  Mode: "item" — Conjure Item into Caster Inventory
@@ -92,6 +101,13 @@ export async function prepareConjurationOptions(casterActor, spell, originAE) {
  * @returns {Promise<string|null>} The selected item UUID
  */
 async function _resolveConjureItemWithScaling(spell, conjureConfig, casterActor = null, originAE = null) {
+  const family = coreConjurationFamily(spell);
+  const guide = family === "conjureweapon"
+    ? "The GM must verify the weapon type chosen when learned, its Spell Strength quality, ammunition, first reload reduction, training and disappearance when it leaves the caster's hands. Supported Core weapons receive the matching quality and start unloaded if they require reloading; other cases remain manual. Inspect any paid cost before cancelling or retrying."
+    : family === "conjurearmor"
+      ? "The GM must verify the armor slot chosen when learned, its Spell Strength profile, paired slots, replacement of worn armor, weight class and training. This selection does not complete those rules. Inspect any paid cost before cancelling or retrying."
+      : "";
+  if (guide) ui.notifications?.warn?.(`${spell.name}: ${guide}`);
   const summonConfig = spell.system?.engine?.conjure?.summonItems;
   if (!summonConfig || typeof summonConfig !== "object") {
     return _str(conjureConfig.itemUuid) || null;
@@ -102,6 +118,7 @@ async function _resolveConjureItemWithScaling(spell, conjureConfig, casterActor 
 
   // Collect all refs whose minStrength <= current SS
   const eligible = [];
+  const seenCoreItems = new Set();
   for (const [strengthKey, refs] of Object.entries(summonConfig)) {
     const minSS = _num(Number(strengthKey), 99);
     if (minSS > ss) continue;
@@ -110,7 +127,9 @@ async function _resolveConjureItemWithScaling(spell, conjureConfig, casterActor 
       if (!ref) continue;
       const uuid = typeof ref === "object" ? _str(ref.uuid) : _str(ref);
       const label = typeof ref === "object" ? _str(ref.label) : "";
-      if (uuid) eligible.push({ uuid, label, minStrength: minSS });
+      if (!uuid || (guide && seenCoreItems.has(uuid))) continue;
+      if (guide) seenCoreItems.add(uuid);
+      eligible.push({ uuid, label, minStrength: minSS });
     }
   }
 
@@ -124,13 +143,13 @@ async function _resolveConjureItemWithScaling(spell, conjureConfig, casterActor 
   // Prompt caster to select
   const optionsHTML = eligible.map((e, i) => {
     const displayLabel = e.label || e.uuid.split(".").pop();
-    return `<option value="${i}">${displayLabel} (SS ${e.minStrength}+)</option>`;
+    return `<option value="${i}">${escapeHtml(displayLabel)}${guide ? "" : ` (SS ${e.minStrength}+)`}</option>`;
   }).join("");
 
   const selection = await customDialog({
     layout: "workflow",
     title: "Select Summoned Item",
-    content: `<div><div class="form-group">
+    content: `<div>${guide ? `<p>${escapeHtml(guide)}</p>` : ""}<div class="form-group">
       <label>Choose item to conjure (Spell Strength ${ss}):</label>
       <select name="choice">${optionsHTML}</select>
     </div></div>`,
@@ -152,6 +171,26 @@ async function _resolveConjureItemWithScaling(spell, conjureConfig, casterActor 
   return selection;
 }
 
+/** Apply the source quality only to an eligible standard-quality Core weapon template. */
+function applyCoreConjuredWeaponQuality(itemData, templateItem, itemUuid, spell, originAE, casterActor, targetActor) {
+  if (coreConjurationFamily(spell) !== "conjureweapon" || itemData?.type !== "weapon"
+    || !casterActor?.uuid || casterActor.uuid !== targetActor?.uuid) return false;
+  const strength = Number(originAE?.flags?.[_FLAG_NS]?.spellStrengthValue);
+  const quality = { 1: "inferior", 2: "common", 3: "superior" }[strength];
+  if (!Number.isInteger(strength) || !quality) return false;
+  const refs = spell.system?.engine?.conjure?.summonItems?.[String(strength)];
+  const choices = Array.isArray(refs) ? refs : refs ? [refs] : [];
+  if (!choices.some(ref => (typeof ref === "object" ? ref?.uuid : ref) === itemUuid)
+    || !getCompendiumItemOriginIds(templateItem, "uesrpg-3ev4.items-revised", { includeDocumentStats: false }).length) return false;
+  const system = itemData.system ?? {};
+  const qualities = [...(Array.isArray(system.qualitiesStructured) ? system.qualitiesStructured : []),
+    ...(Array.isArray(system.qualitiesTraits) ? system.qualitiesTraits : [])];
+  if (String(system.material ?? "").toLowerCase() !== "daedric" || String(system.qualityLevel ?? "common").toLowerCase() !== "common"
+    || system.superior === true || qualities.some(entry => ["primitive", "proven"].includes(String(entry?.key ?? entry).toLowerCase()))) return false;
+  system.qualityLevel = quality;
+  return true;
+}
+
 /**
  * Create a conjured item on a specific target actor.
  *
@@ -165,6 +204,10 @@ async function _resolveConjureItemWithScaling(spell, conjureConfig, casterActor 
  */
 async function _createConjuredItemOnActor(targetActor, casterActor, originAE, spell, templateItem, itemUuid) {
   const itemData = templateItem.toObject();
+  const coreWeapon = applyCoreConjuredWeaponQuality(itemData, templateItem, itemUuid, spell, originAE, casterActor, targetActor);
+  if (coreWeapon && getWeaponCombatCapabilities(templateItem).requiresReload) {
+    itemData.system.reloadState = { ...itemData.system.reloadState, isLoaded: false, reloadProgress: 0 };
+  }
   itemData.name = `${itemData.name} (Conjured)`;
   itemData.flags = itemData.flags ?? {};
   itemData.flags[_FLAG_NS] = itemData.flags[_FLAG_NS] ?? {};
@@ -173,6 +216,7 @@ async function _createConjuredItemOnActor(targetActor, casterActor, originAE, sp
   itemData.flags[_FLAG_NS].conjureMode = "item";
   itemData.flags[_FLAG_NS].spellUuid = spell.uuid;
   itemData.flags[_FLAG_NS].spellName = spell.name;
+  itemData.flags[_FLAG_NS].conjureSourceFamily = spell.flags?.[_FLAG_NS]?.coreSource?.family ?? null;
   itemData.flags[_FLAG_NS].originAEId = originAE.id;
   itemData.flags[_FLAG_NS].sourceItemUuid = itemUuid;
 
@@ -363,37 +407,88 @@ function _buildSummonerOwnership(casterActor) {
  * @param {Actor} casterActor - The summoner
  * @returns {Promise<void>}
  */
-async function _applySummonerOwnership(tokenDoc, casterActor, { strict = false } = {}) {
+export async function applySummonerOwnership(tokenDoc, casterActor, { strict = false } = {}) {
   const ownershipUpdates = _buildSummonerOwnership(casterActor);
   if (!Object.keys(ownershipUpdates).length) {
     _debug("No player ownership to apply (caster may be GM-only)");
-    return;
   }
 
   try {
-    // Update the unlinked token's actor delta ownership
-    if (!await requestUpdateDocument(tokenDoc, { "delta.ownership": ownershipUpdates })) throw new Error("Summon ownership update was not confirmed.");
+    if (!game.user?.isGM || tokenDoc.actorLink || !tokenDoc.actor || !tokenDoc.delta) {
+      throw new Error("GM authority and an unlinked summoned Actor are required for ownership.");
+    }
+    const binding = tokenDoc.flags?.[_FLAG_NS]?.binding ?? {};
+    const previous = foundry.utils.deepClone(tokenDoc.delta.toObject().ownership ?? {});
+    let grants = binding.ownershipGrants;
+    if (!grants || typeof grants !== "object") {
+      grants = {};
+      for (const [userId, level] of Object.entries(ownershipUpdates)) {
+        if (tokenDoc.actor.testUserPermission(game.users.get(userId), level)) continue;
+        grants[userId] = { previousPresent: Object.hasOwn(previous, userId), previousValue: previous[userId] ?? null, grantedValue: level };
+      }
+      if (!await requestUpdateDocument(tokenDoc, { [`flags.${_FLAG_NS}.binding`]: { ...binding, ownershipGrants: grants } })) {
+        throw new Error("Summon ownership recovery information could not be saved.");
+      }
+    }
+    const additions = {};
+    for (const [userId, grant] of Object.entries(grants)) {
+      if (previous[userId] === grant.grantedValue) continue;
+      if (!(grant.previousPresent ? previous[userId] === grant.previousValue : !Object.hasOwn(previous, userId))) {
+        throw new Error(`Ownership changed for ${userId}; review it before resuming binding.`);
+      }
+      additions[userId] = grant.grantedValue;
+    }
+    if (Object.keys(additions).length && !await tokenDoc.delta.update({ ownership: { ...previous, ...additions } })) {
+      throw new Error("Summon ownership update was not confirmed.");
+    }
+    for (const userId of Object.keys(ownershipUpdates)) {
+      const user = game.users.get(userId);
+      if (user && !tokenDoc.actor.testUserPermission(user, CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER)) {
+        throw new Error("Summon ownership did not persist on the synthetic Actor.");
+      }
+    }
     _debug("Applied summoner ownership to token:", {
       token: tokenDoc.name,
       ownership: ownershipUpdates
     });
   } catch (err) {
     console.warn("[UESRPG][ConjureRuntime] Failed to apply ownership to summon token", err);
-    // Fallback: try updating the token's actor directly
-    try {
-      const tokenActor = tokenDoc.actor;
-      if (!tokenActor && strict) throw new Error("The summoned Actor is unavailable for ownership update.");
-      if (tokenActor) {
-        const currentOwnership = foundry.utils.deepClone(tokenActor.ownership ?? {});
-        Object.assign(currentOwnership, ownershipUpdates);
-        if (!await requestUpdateDocument(tokenActor, { ownership: currentOwnership })) throw new Error("Summon Actor ownership was not confirmed.");
-        _debug("Applied ownership via token actor fallback");
+    if (strict) throw err;
+  }
+}
+
+/** Restore only grants made by this binding, leaving later permission changes alone. */
+export async function restoreSummonerOwnership(tokenDoc) {
+  if (!game.user?.isGM || tokenDoc?.actorLink || !tokenDoc?.actor || !tokenDoc?.delta) {
+    throw new Error("GM authority and an unlinked summoned Actor are required to restore ownership.");
+  }
+  const grants = tokenDoc.flags?.[_FLAG_NS]?.binding?.ownershipGrants;
+  if (!grants || typeof grants !== "object") throw new Error("The original summon ownership is unavailable; review permissions manually.");
+  const ownership = foundry.utils.deepClone(tokenDoc.delta.toObject().ownership ?? {});
+  const conflicts = [];
+  let changed = false;
+  for (const [userId, grant] of Object.entries(grants)) {
+    if (ownership[userId] !== grant.grantedValue) {
+      if (!(grant.previousPresent ? ownership[userId] === grant.previousValue : !Object.hasOwn(ownership, userId))) conflicts.push(userId);
+      continue;
+    }
+    if (grant.previousPresent) ownership[userId] = grant.previousValue;
+    else delete ownership[userId];
+    changed = true;
+  }
+  if (changed) {
+    if (typeof globalThis._replace !== "function") throw new Error("The ownership replacement operation is unavailable.");
+    if (!await tokenDoc.delta.update({ ownership: globalThis._replace(ownership) })) throw new Error("Summon ownership restoration was not confirmed.");
+    const restored = tokenDoc.delta.toObject().ownership ?? {};
+    for (const userId of Object.keys(grants)) {
+      if (conflicts.includes(userId)) continue;
+      if (Object.hasOwn(restored, userId) !== Object.hasOwn(ownership, userId)
+        || Object.hasOwn(ownership, userId) && restored[userId] !== ownership[userId]) {
+        throw new Error(`Summon ownership restoration for ${userId} could not be verified.`);
       }
-    } catch (fallbackErr) {
-      if (strict) throw fallbackErr;
-      console.error("[UESRPG][ConjureRuntime] Ownership fallback also failed", fallbackErr);
     }
   }
+  if (conflicts.length) throw new Error(`Ownership changed for ${conflicts.join(", ")}; review those permissions manually.`);
 }
 
 /**
@@ -443,6 +538,14 @@ async function _handleSummonCreature(casterActor, originAE, spell, conjureConfig
     return;
   }
 
+  const sourceFlags = spell?.flags?.[_FLAG_NS];
+  const coreSource = sourceFlags?.coreSource;
+  if (coreSource?.book === "UESRPG 3e v4 - Rules Compendium" && coreSource.chapter === 6 && coreSource.page === 134
+    && ["summondaedra", "summonconstruct"].includes(coreSource.family)
+    && Array.isArray(sourceFlags?.summonProfiles) && sourceFlags.summonProfiles.length > 1) {
+    ui.notifications?.warn?.(`${spell.name}: this Item summons the configured ${summonActor.name}; its listed alternatives do not select a creature or change the spell cost. Use the matching named profile and inspect any cost already paid before changing or retrying the cast.`);
+  }
+
   _debug("Summon Creature:", {
     actor: summonActor.name,
     caster: casterActor.name,
@@ -488,6 +591,10 @@ async function _handleSummonCreature(casterActor, originAE, spell, conjureConfig
 
       if (!useFallback) {
         _debug("Summon cancelled by user");
+        if (strict) {
+          const message = "Summon placement was cancelled. No creature was created; the casting cost and spell effect remain. End the effect or resolve the summon manually.";
+          throw Object.assign(new Error(message), { committed: false, cancelled: true });
+        }
         return;
       }
       // position remains null → spawnSummon will use auto-position
@@ -506,10 +613,8 @@ async function _handleSummonCreature(casterActor, originAE, spell, conjureConfig
     originAE,
     summonActor,
     tokenOverrides,
-    casterToken, strict
+    casterToken, strict, spell
   });
-
-  if (result.token) await _applySummonerOwnership(result.token, casterActor, { strict });
 
   if (result.error) {
     if (strict) { const error = new Error(result.error); error.committed = Boolean(result.token); throw error; }

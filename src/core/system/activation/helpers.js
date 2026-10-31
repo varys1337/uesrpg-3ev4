@@ -86,9 +86,18 @@ export function getActivationCostValues(costs = {}) {
   };
 }
 
+/** Normalize established usage-period spellings without changing saved data. */
+export function normalizeUsagePeriod(period) {
+  const raw = String(period ?? "").trim();
+  const key = raw.toLowerCase();
+  const periods = { shortrest: "shortRest", longrest: "longRest", daily: "day",
+    day: "day", encounter: "encounter", none: "none" };
+  return Object.hasOwn(periods, key) ? periods[key] : raw;
+}
+
 export function normalizeUsage(activation = {}) {
   const usage = activation.usage ?? null;
-  const usagePeriod = String(usage?.period ?? "").trim().toLowerCase();
+  const usagePeriod = normalizeUsagePeriod(usage?.period);
   const usageHasData =
     (usage?.max != null && _num(usage.max) > 0) ||
     (usage?.current != null && _num(usage.current) > 0) ||
@@ -103,7 +112,7 @@ export function normalizeUsage(activation = {}) {
   }
 
   const uses = activation.uses ?? null;
-  const usesReset = String(uses?.reset ?? "").trim().toLowerCase();
+  const usesReset = normalizeUsagePeriod(uses?.reset);
   const usesHasData =
     (uses?.max != null && _num(uses.max) > 0) ||
     (uses?.value != null && _num(uses.value) > 0) ||
@@ -112,7 +121,7 @@ export function normalizeUsage(activation = {}) {
     return {
       source: "uses",
       max: uses.max == null ? null : _num(uses.max),
-      period: uses.reset ?? null,
+      period: usesReset || null,
       current: _num(uses.value)
     };
   }

@@ -4,6 +4,7 @@
  */
 
 import { resolveOpposed } from "../../../utils/degree-roll-helper.js";
+import { evaluateAEModifierKeys } from "../../active-effects/modifier-evaluator.js";
 
 /**
  * Resolve the outcome of a characteristic opposed test.
@@ -44,6 +45,15 @@ export function computeCharacteristicTN(actor, charKey, manualMod = 0, circumsta
   ];
 
   let finalTN = baseTN;
+
+  const testKeys = ["system.modifiers.tests.all", `system.modifiers.tests.characteristics.${charKey}`];
+  const testModifiers = evaluateAEModifierKeys(actor, testKeys);
+  for (const key of testKeys) {
+    const value = Number(testModifiers[key] ?? 0);
+    if (!value) continue;
+    finalTN += value;
+    breakdown.push({ label: key.endsWith(".all") ? "Effects: All Tests" : `Effects: ${String(charKey).toUpperCase()} Tests`, value });
+  }
 
   if (manualMod) {
     finalTN += manualMod;

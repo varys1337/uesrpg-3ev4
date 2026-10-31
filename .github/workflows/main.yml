@@ -102,12 +102,17 @@ jobs:
           }
           trap cleanup_failed_draft ERR
 
+          release_notes=()
+          if [[ -f "docs/releases/$GITHUB_REF_NAME.md" ]]; then
+            release_notes=(--notes-file "docs/releases/$GITHUB_REF_NAME.md")
+          fi
           gh release create "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --target "$GITHUB_SHA" \
             --title "$GITHUB_REF_NAME" \
             --generate-notes \
+            "${release_notes[@]}" \
             --draft \
             system.json \
             uesrpg-3ev4.zip

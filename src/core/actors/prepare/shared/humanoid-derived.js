@@ -43,9 +43,12 @@ export function applyHumanoidDerivedStage(stage) {
   applyRacialTalentDerivedBonuses({ actor: actorContext, actorSystemData, agg });
 
   const resistanceWithAE = applyResistanceAEModifiers(actorContext, actorSystemData.resistance);
+  actorSystemData.ui = actorSystemData.ui ?? {};
+  actorSystemData.ui.resistanceEffectDeltas = Object.fromEntries(Object.entries(resistanceWithAE)
+    .filter(([, value]) => typeof value === "number")
+    .map(([key, value]) => [key, value - Number(actorSystemData.resistance[key] ?? 0)]));
   Object.assign(actorSystemData.resistance, resistanceWithAE);
 
-  actorSystemData.ui = actorSystemData.ui ?? {};
   actorSystemData.ui.traitAutomation = agg.traitDamage ?? null;
   applyTraitDerived(actorSystemData, actorSystemData.ui.traitAutomation);
 

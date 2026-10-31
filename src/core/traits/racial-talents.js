@@ -14,11 +14,14 @@ import { queueStatusEffect } from "../system/activation/feature-effects.js";
 import { buildEffectDuration } from "../time/effect-duration.js";
 import { queueHealingOutcome, persistChatOutcomes } from "../../application/combat/chat-outcome-application-service.js";
 import { createChatOutcome } from "../config/outcome-application-policy.js";
-import { requestAtomicUpdateDocument, requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../../utils/authority-proxy.js";
+import { requestAtomicUpdateDocument, requestDeleteEmbeddedDocuments } from "../../utils/authority-proxy.js";
 import { ensureWoundedPassiveEffect } from "../wounds/engine/apply.js";
 import { _num } from "./_primitives.js";
 import { getFlagValueWithFallback } from "../system/flags.js";
 import { buildEffectChange } from "../../utils/compat.js";
+import { getActivationCostValues, normalizeUsage } from "../system/activation/helpers.js";
+import { isActorInStartedCombatEncounter } from "../combat/combat-scope.js";
+import { queueWarCryOutcomes } from "../fear/war-cry.js";
 
 const SYSTEM_SCOPE = "uesrpg-3ev4";
 const CHAR_GEN_SCOPE = "uesrpg";
@@ -47,17 +50,6 @@ function _canonicalFeatureKey(value) {
   if (slug === "adrenaline-rush" || slug === "adrenalinerush") return "adrenaline-rush";
   if (slug === "malacathsfury" || slug === "malacaths-fury") return "malacathsfury";
   return slug || normalizeTalentKey(raw);
-}
-
-function _getStarOfTheWestBonus(actor) {
-  if (!actor) return 0;
-  for (const it of (actor.items ?? [])) {
-    if (!it || String(it.type ?? "") !== "trait") continue;
-    const k = normalizeTalentKey(it.name);
-    if (k !== "star-of-the-west") continue;
-    return Math.max(0, _num(it.system?.spBonus ?? 0, 0));
-  }
-  return 0;
 }
 
 function _isCharGenCompleted(actor) {
@@ -104,30 +96,30 @@ function _getUsageState(actor) {
   return (raw && typeof raw === "object") ? raw : {};
 }
 
-async function _setUsageState(actor, next) {
-  if (!actor) return;
-  await requestUpdateDocument(actor, {
-    [`flags.${SYSTEM_SCOPE}.${FLAG_RACIAL_USAGE}`]: next && typeof next === "object" ? next : {}
-  });
-}
-
 function _isUsed(actor, key) {
   const usage = _getUsageState(actor);
   return usage?.[key]?.used === true;
 }
 
 async function _markUsed(actor, key, { period } = {}) {
-  const usage = _getUsageState(actor);
-  const next = {
-    ...usage,
-    [key]: {
+  let alreadyUsed = false;
+  const confirmed = await requestAtomicUpdateDocument(actor, fresh => {
+    if (_isUsed(fresh, key)) {
+      alreadyUsed = true;
+      return null;
+    }
+    return { [`flags.${SYSTEM_SCOPE}.${FLAG_RACIAL_USAGE}.${key}`]: {
       used: true,
       period: String(period ?? "").trim() || null,
       usedAt: Date.now(),
       worldTime: _num(game?.time?.worldTime ?? 0, 0)
-    }
-  };
-  await _setUsageState(actor, next);
+    } };
+  });
+  if (alreadyUsed) throw new Error("This racial talent was already used. Review any Item use or cost already spent.");
+  if (!confirmed) {
+    ui.notifications?.warn?.(`${actor.name}: the racial talent use was not confirmed. Ask the GM to inspect both the Actor and Item before retrying.`);
+    throw Object.assign(new Error("Racial talent usage was not confirmed."), { uncertain: true });
+  }
 }
 
 export async function clearRacialTalentUsageOnRest(actor, { restType, strict = false } = {}) {
@@ -158,10 +150,9 @@ export function applyRacialTalentDerivedBonuses({ actor, actorSystemData, agg } 
   // FeatureMods by contributors.js → contributeTalentMods and applied via the
   // Feature Mod pipeline.  Only non-numeric semantic flags remain here. ──
 
-  // Argonian: Child of the Sap (Chapter 4)
-  // "Exchange Resist Disease for Immunity to Disease" — legacy-safe: we do not
-  // delete any items; we add the immunity semantic to the derived trait profile.
-  if (hasTalent(actor, "childofthesap")) {
+  // Child of the Sap and High Men grant disease immunity. Preserve the source
+  // Items and add the immunity semantic to the derived trait profile.
+  if (hasTalent(actor, "childofthesap") || hasTalent(actor, "highmen")) {
     if (agg?.traitDamage?.immunity && typeof agg.traitDamage.immunity === "object") {
       agg.traitDamage.immunity.disease = true;
     } else if (agg?.traitDamage && typeof agg.traitDamage === "object") {
@@ -196,10 +187,30 @@ export function validateRacialActivationAvailability({ actor, item, itemKey } = 
   return { ok: true };
 }
 
-export async function handleRacialTalentActivation({ actor, item, itemKey } = {}) {
+/** Only automate Highborn when the Item records its source-backed cost and use. */
+export function isHighbornActivationConfigured(item) {
+  if (item?.type !== "talent" || _canonicalFeatureKey(item.name) !== "highborn") return false;
+  const activation = item.system?.activation ?? {};
+  const usage = normalizeUsage(activation);
+  return activation.enabled === true && activation.actionType === "action"
+    && activation.spendCosts === true && getActivationCostValues(activation.costs ?? {}).ap === 1
+    && activation.consumeUse === true && usage.period === "day" && Number(usage.max) > 0;
+}
+
+export async function handleRacialTalentActivation({ actor, item, itemKey, onOutcome = null } = {}) {
   if (!actor || !item) return false;
   const k = _canonicalFeatureKey(itemKey ?? item.name);
   if (!k) return false;
+
+  if (k === "highborn" && isHighbornActivationConfigured(item)) {
+    const message = await persistChatOutcomes({ actor,
+      content: "<div class=\"uesrpg\"><b>Highborn</b>: recover up to 20 Magicka.</div>",
+      entries: [createChatOutcome({ adapter: "resource.delta", kind: "effect", sourceActorUuid: actor.uuid,
+        targetUuid: actor.uuid, label: "Highborn: Magicka", payload: { resource: "magicka", amount: 20 } })] });
+    if (!message?.id) throw new Error("The Highborn recovery outcome was not confirmed.");
+    onOutcome?.(message);
+    return true;
+  }
 
   if (k === "dragonskin") {
     const duration = buildEffectDuration({ actor, rounds: 1, seconds: 6, preferCombat: true });
@@ -211,56 +222,74 @@ export async function handleRacialTalentActivation({ actor, item, itemKey } = {}
         uesrpg: { key: EFFECT_KEY_DRAGONSKIN, spellAbsorption: 5, source: "talent" }
       },
       changes: []
-    });
+    }, { onOutcome });
     return true;
   }
 
   if (k === "histskin") {
     const eb = _getEnduranceBonus(actor);
-    if (eb > 0) await queueHealingOutcome(actor, eb, { source: "Histskin" });
     await _markUsed(actor, "histskin", { period: "shortRest" });
+    try {
+      if (eb > 0 && !(await queueHealingOutcome(actor, eb, { source: "Histskin", onOutcome }))?.id) {
+        throw new Error("Histskin healing was not confirmed.");
+      }
+    } catch (error) {
+      ui.notifications?.warn?.(`${actor.name}: Histskin's use is recorded, but its healing outcome was not fully confirmed. Inspect the Actor, Item and chat before retrying.`);
+      throw Object.assign(error, { uncertain: true });
+    }
     return true;
   }
 
   if (k === "malacathsfury") {
     const eb = _getEnduranceBonus(actor);
-    if (eb > 0) await queueHealingOutcome(actor, eb, { source: "Malacath's Fury" });
-
-    const delta = Math.max(0, Math.floor(eb / 2));
-    const duration = buildEffectDuration({ actor, rounds: 10, seconds: 60, preferCombat: true });
-
-    const changes = [];
-    if (delta > 0) {
-      changes.push(buildEffectChange({ key: "system.modifiers.characteristics.str", type: "add", value: String(delta * 10), priority: 20 }));
-      changes.push(buildEffectChange({ key: "system.modifiers.resistance.magicR", type: "add", value: String(delta), priority: 20 }));
-    }
-
-    await queueStatusEffect(actor, {
-      name: "Malacath's Fury",
-      img: item.img,
-      duration,
-      flags: {
-        uesrpg: { key: EFFECT_KEY_MALACATHS_FURY, source: "talent", malacathsFury: { strBonus: delta, magicR: delta } }
-      },
-      changes
-    });
-
     await _markUsed(actor, "malacathsFury", { period: "longRest" });
+    try {
+      if (eb > 0 && !(await queueHealingOutcome(actor, eb, { source: "Malacath's Fury", onOutcome }))?.id) {
+        throw new Error("Malacath's Fury healing was not confirmed.");
+      }
+
+      const delta = Math.max(0, Math.floor(eb / 2));
+      const duration = buildEffectDuration({ actor, rounds: 10, seconds: 60, preferCombat: true });
+
+      const changes = [];
+      if (delta > 0) {
+        changes.push(buildEffectChange({ key: "system.characteristics.str.bonus", type: "add", value: String(delta), priority: 20 }));
+        changes.push(buildEffectChange({ key: "system.modifiers.resistance.magicR", type: "add", value: String(delta), priority: 20 }));
+      }
+
+      const effectMessage = await queueStatusEffect(actor, {
+        name: "Malacath's Fury",
+        img: item.img,
+        duration,
+        flags: {
+          uesrpg: { key: EFFECT_KEY_MALACATHS_FURY, source: "talent", malacathsFury: { strBonus: delta, magicR: delta } }
+        },
+        changes
+      }, { onOutcome, instructions: eb > 0 ? "Apply the healing outcome before this timed benefit." : null });
+      if (!effectMessage?.id) throw new Error("Malacath's Fury timed benefit was not confirmed.");
+    } catch (error) {
+      ui.notifications?.warn?.(`${actor.name}: Malacath's Fury's use is recorded, but its outcomes were not fully confirmed. Inspect the Actor, Item and chat before retrying.`);
+      throw Object.assign(error, { uncertain: true });
+    }
     return true;
   }
 
   return false;
 }
 
-export async function handleRacialPowerActivation({ actor, item, itemKey } = {}) {
+export async function handleRacialPowerActivation({ actor, item, itemKey, context = {}, onOutcome = null } = {}) {
   if (!actor || !item) return false;
   const k = _canonicalFeatureKey(itemKey ?? item.name);
   if (!k) return false;
 
+  if (k === "war-cry" && context.warCryListeners) {
+    await queueWarCryOutcomes({ actor, targets: context.warCryListeners, step: context.warCryStep, onOutcome });
+    return true;
+  }
+
   // Adrenaline Rush modified by Adrenaline Burst (Chapter 4 + Chapter 2 power text)
   if (k === "adrenaline-rush" && hasTalent(actor, "adrenalineburst")) {
-    const combat = game?.combat ?? null;
-    const inCombat = Boolean(combat?.started);
+    const inCombat = isActorInStartedCombatEncounter(actor);
 
     if (inCombat) {
       const duration = buildEffectDuration({ actor, preferCombat: true });
@@ -272,19 +301,25 @@ export async function handleRacialPowerActivation({ actor, item, itemKey } = {})
           uesrpg: { key: EFFECT_KEY_ADRENALINE_RUSH, source: "power" },
           [SYSTEM_SCOPE]: { wounds: { suppressWoundPenalty: true } }
         },
-        changes: [
-          buildEffectChange({ key: "system.modifiers.stamina.value", type: "add", value: "2", priority: 20 })
-        ]
-      }, { afterWoundSuppression: true });
+        changes: []
+      }, { afterWoundSuppression: true, onOutcome,
+        instructions: "Grant the 2 SP manually and track their encounter expiry. Existing temporary SP cannot yet be attributed to individual sources." });
     } else {
-      // Encounter durations are combat-anchored; outside combat we cannot expire this automatically.
-      await persistChatOutcomes({ actor, content: "<div class=\"uesrpg\"><b>Adrenaline Burst</b></div>",
-        entries: [createChatOutcome({ adapter: "resource.delta", kind: "effect", sourceActorUuid: actor.uuid,
-          targetUuid: actor.uuid, label: "Adrenaline Burst: Stamina", payload: { resource: "stamina", amount: 2 } })] });
-      ui.notifications?.info?.(`${actor.name}: Adrenaline Burst resolved outside combat (temporary SP expiry must be handled manually).`);
+      // An actor outside the combat tracker has no reliable encounter cleanup.
+      ui.notifications?.info?.(`${actor.name}: handle Adrenaline Burst's SP and wound-penalty suppression manually until the encounter ends.`);
     }
 
-    await queueHealingOutcome(actor, 5, { source: "Adrenaline Burst" });
+    await queueHealingOutcome(actor, 5, { source: "Adrenaline Burst", onOutcome });
+    return true;
+  }
+
+  if (k === "adrenaline-rush" && Number(actor.system?.fatigue?.level) > 0) {
+    const message = await persistChatOutcomes({ actor,
+      content: "<div class=\"uesrpg\"><b>Adrenaline Rush</b>: remove one level of Fatigue.</div>",
+      entries: [createChatOutcome({ adapter: "resource.fatigue", kind: "effect", sourceActorUuid: actor.uuid,
+        targetUuid: actor.uuid, label: "Adrenaline Rush: Fatigue", payload: {} })] });
+    if (!message?.id) throw new Error("The Adrenaline Rush Fatigue outcome was not confirmed.");
+    onOutcome?.(message);
     return true;
   }
 
@@ -302,6 +337,9 @@ export function applyRacialTalentAttackPreTN({ attacker, declaration, situationa
   if (!hasTalent(attacker, "eyeofnight")) return;
   if (!hasCondition(attacker, "hidden")) return;
   if (String(declaration?.variant ?? "").toLowerCase() !== "precision") return;
+
+  // Precise has already removed the full Precision Strike penalty.
+  if (situationalMods.some(m => String(m?.key ?? "") === "talent:precise")) return;
 
   if (!situationalMods.some(m => String(m?.key ?? "") === "talent:eyeofnight")) {
     situationalMods.push({ key: "talent:eyeofnight", label: "Eye of Night (Precision Strike)", value: +20, source: "talent" });

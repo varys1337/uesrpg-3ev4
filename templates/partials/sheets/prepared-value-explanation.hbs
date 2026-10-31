@@ -1,0 +1,27 @@
+{{#if values}}
+<details class="uesrpg-prepared-values">
+  <summary>{{localize "UESRPG.Sheets.PreparedValues.Title"}}</summary>
+  <div class="uesrpg-prepared-values__body">
+    <p>{{localize "UESRPG.Sheets.PreparedValues.Hint"}}</p>
+    {{#each values}}
+    <details class="uesrpg-prepared-values__stat">
+      <summary>{{localize labelKey}}</summary>
+      <dl>
+        {{#each fields}}
+        <div><dt>{{localize labelKey}}</dt><dd>{{#if available}}{{value}}{{else}}{{localize "UESRPG.Sheets.PreparedValues.NotRecorded"}}{{/if}}</dd></div>
+        {{/each}}
+      </dl>
+      <p>{{localize "UESRPG.Sheets.PreparedValues.Contributions"}}</p>
+      <dl>
+        {{#each contributions}}
+        <div><dt>{{#if label}}{{label}}{{else}}{{localize "UESRPG.Sheets.PreparedValues.NotRecorded"}}{{/if}} ({{localize fieldLabelKey}})</dt><dd>{{#if available}}{{value}}{{else}}{{localize "UESRPG.Sheets.PreparedValues.NotRecorded"}}{{/if}}{{#if modeLabelKey}} · {{localize modeLabelKey}}{{/if}}</dd></div>
+        {{else}}
+        <div><dt>{{localize "UESRPG.Sheets.PreparedValues.Sources"}}</dt><dd>{{localize "UESRPG.Sheets.PreparedValues.NotRecorded"}}</dd></div>
+        {{/each}}
+      </dl>
+    </details>
+    {{/each}}
+  </div>
+</details>
+{{/if}}
+

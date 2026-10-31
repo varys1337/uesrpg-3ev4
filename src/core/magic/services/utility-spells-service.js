@@ -13,6 +13,7 @@ import {
   requestUpdateDocument
 } from "../../../utils/authority-proxy.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
+import { hasCoreCompendiumSource } from "../../compendium/access-service.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 const _debug = createDebugLogger("debugMagicRouting", "[UESRPG][UtilitySpells]");
@@ -195,28 +196,65 @@ async function _handleOpen(caster, spell) {
   if (!result) return;
 
   await ChatMessage.create({
-    content: `<div class="uesrpg"><h3>Open</h3><p><b>${caster.name}</b> attempts to open <b>${result.label}</b>.</p><p>Outcome: <b>${result.result === "opened" ? "Opened" : "Failed"}</b></p></div>`,
+    content: `<div class="uesrpg"><h3>Open</h3><p><b>${escapeHtml(caster.name)}</b> attempts to open <b>${escapeHtml(result.label)}</b>.</p><p>Outcome: <b>${result.result === "opened" ? "Opened" : "Failed"}</b></p></div>`,
     speaker: ChatMessage.getSpeaker({ actor: caster }),
     style: CONST.CHAT_MESSAGE_STYLES.OTHER
   });
 }
 
-async function _handleCureDisease(caster, spell) {
-  const targets = _getTargetActors(caster);
-  let removedTotal = 0;
+export function isDiseaseCureSpell(spell) {
+  return _norm(spell?.flags?.[_FLAG_NS]?.chapter6Utility?.kind) === "cure-disease"
+    || _isSpell(spell, ["Cure Disease", "Curing Touch"]);
+}
 
-  for (const actor of targets) {
-    const diseased = (actor.effects?.contents ?? []).filter((ef) => {
-      const name = _norm(ef?.name);
-      const cond = _norm(ef?.flags?.[_FLAG_NS]?.condition?.key);
-      return cond === "disease" || name.includes("disease") || name.includes("plague") || name.includes("blight") || name.includes("infect");
-    });
-    if (!diseased.length) continue;
-    await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", diseased.map((e) => e.id));
-    removedTotal += diseased.length;
+/** Only explicit disease records are curable; the Diseased carrier trait is unrelated. */
+function _curableDisease(record, strength) {
+  const disease = record?.flags?.[_FLAG_NS]?.disease;
+  if (!disease || disease.curable === false || disease.curse === true) return false;
+  const category = _norm(disease.category);
+  return category === "common" || category === "magical" && strength >= 2;
+}
+
+/** Executed once by the authoritative chat outcome, with its stored recipient and strength. */
+export async function applyDiseaseCure({ caster, target, spell, payload = {} } = {}) {
+  if (!isDiseaseCureSpell(spell)) return { skipped: true };
+  const self = spell?.flags?.[_FLAG_NS]?.chapter6Utility?.target === "self" || _isSpell(spell, ["Cure Disease"]);
+  const actor = self ? caster : target;
+  const strength = Number(payload.castContext?.spellStrengthValue);
+  if (!actor || ![1, 2].includes(strength)) {
+    throw Object.assign(new Error("Disease cure requires a confirmed recipient and Spell Strength of 1 or 2."), { committed: false });
   }
-
-  ui.notifications?.info?.(`${spell.name}: removed ${removedTotal} disease-related effect(s).`);
+  const items = Array.from(actor.items ?? []).filter(item => _curableDisease(item, strength));
+  const itemUuids = new Set(items.map(item => item.uuid));
+  // Transferred item effects disappear with their authoritative Item. Do not delete
+  // the same symptom a second time, or remove unrelated effects by their names.
+  const effects = Array.from(actor.effects ?? []).filter(effect => _curableDisease(effect, strength)
+    && !itemUuids.has(effect.origin));
+  let committed = false;
+  try {
+    for (const [documentName, records] of [["Item", items], ["ActiveEffect", effects]]) {
+      if (!records.length) continue;
+      const ids = records.map(record => record.id);
+      const ok = await requestDeleteEmbeddedDocuments(actor, documentName, ids, { requireDeleted: true });
+      committed ||= records.some(record => !actor.getEmbeddedDocument(documentName, record.id));
+      if (!ok) throw new Error(`Disease cure did not confirm every ${documentName} removal.`);
+    }
+    const cured = [...items, ...effects].map(record => record.name);
+    const followup = items.some(item => item.flags?.[_FLAG_NS]?.coreSource?.rule === "Rust Chancre")
+      ? " Rust Chancre also requires an Endurance test; on failure, add Ugly permanently (Core p.119)." : "";
+    const report = await ChatMessage.create({
+      speaker: ChatMessage.getSpeaker({ actor: caster }),
+      content: `<div class="uesrpg"><p><b>${escapeHtml(spell.name)}</b> — ${escapeHtml(actor.name)}: ${cured.length
+        ? `cured ${cured.map(escapeHtml).join(", ")}` : "no eligible classified diseases"}.</p><p>${escapeHtml(followup
+          + " Unclassified illness records and completed curses require GM review.")}</p></div>`,
+      style: CONST.CHAT_MESSAGE_STYLES.OTHER
+    });
+    if (!report) throw new Error("Disease cure report was not confirmed.");
+    return { cured, execution: { committed } };
+  } catch (error) {
+    error.committed ||= committed;
+    throw error;
+  }
 }
 
 async function _handleStabilize(caster) {
@@ -256,11 +294,19 @@ async function _onCastResolved(payload = {}) {
   const spellName = _norm(spell?.name);
   _debug("Utility spell cast resolved", { caster: caster.name, spell: spell.name, utilityKind });
 
+  if (hasCoreCompendiumSource(spell, { type: "spell", packId: "uesrpg-3ev4.spells-revised", itemId: "cfGyj96X5k05drsE", rule: "Cure Paralysis" })) {
+    ui.notifications?.warn?.("Cure Paralysis is manual: the GM should confirm one recipient within 1 meter, review the source of Paralyzed, and remove the condition. No condition was removed automatically; inspect any paid costs before repeating the cast.");
+    return;
+  }
+  if (hasCoreCompendiumSource(spell, { type: "spell", packId: "uesrpg-3ev4.spells-revised", itemId: "5FBgbEktn8l9Ue0E", rule: "Stabilize" })) {
+    ui.notifications?.warn?.("Stabilize is manual: to stabilize, the GM should confirm one dying recipient within 1 meter and stop their death tests. First aid is separate; an Ayleid's Flesh Shaper wound treatment also requires GM resolution. No automatic stabilization was applied; inspect any paid costs before repeating the cast.");
+    return;
+  }
   if (utilityKind === "recall" || _isSpell(spell, ["Recall"])) return _handleRecall(caster, spell);
   if (utilityKind === "detect" || _isDetectSpell(spell)) return _handleDetect(caster, spell);
   if (utilityKind === "telepathy" || _isSpell(spell, ["Telepathy"])) return _handleTelepathy(caster, spell);
   if (utilityKind === "open" || _isSpell(spell, ["Open"])) return _handleOpen(caster, spell);
-  if (utilityKind === "cure-disease" || _isSpell(spell, ["Cure Disease"])) return _handleCureDisease(caster, spell);
+  // Disease cures run in the confirmed chat outcome, never in this observational hook.
   if (utilityKind === "stabilize" || spellName === "stabilize") return _handleStabilize(caster);
 }
 

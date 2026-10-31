@@ -1,16 +1,14 @@
 /**
  * src/core/integrations/polyglot.js
  *
- * Polyglot module integration: expose the UESRPG language catalog using the
- * generic CONFIG[SYSTEM_ID_UPPER].languages convention that Polyglot reads.
- *
- * This module is the single source of truth for language exposure.
- * Called once during Hooks.once("init") via initHandler() in src/hooks/init.js.
- *
- * Safe: this only *defines* the catalog and does not mutate any Actor data.
+ * Expose the language catalog and register a Polyglot provider before init.
+ * The provider reads actor language and trait data without rewriting it.
  */
 
-import { getChoiceLabel, LANGUAGE_CHOICES } from "../social/social-choices.js";
+import { getChoiceLabel, getLanguageComparisonKey, LANGUAGE_CHOICES } from "../social/social-choices.js";
+import { getSocialStateFromSystem } from "../social/social-data.js";
+import { hasActorTrait } from "../traits/trait-registry.js";
+import { actorHasTrait as hasNamedActorTrait } from "../magic/magic-modifiers.js";
 
 /**
  * Build a URL-safe slug from a language label.
@@ -27,6 +25,76 @@ function slugifyLanguage(s) {
     .replace(/['']/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+const CHOICE_KEYS = new Map(LANGUAGE_CHOICES.map(choice => [
+  getLanguageComparisonKey(choice.name), slugifyLanguage(choice.id),
+]));
+
+function polyglotLanguageKeys(name, languages) {
+  const comparison = getLanguageComparisonKey(name);
+  if (!comparison) return [];
+  const knownKey = CHOICE_KEYS.get(comparison);
+  const keys = new Set();
+  if (knownKey && Object.hasOwn(languages ?? {}, knownKey)) keys.add(knownKey);
+  for (const [key, entry] of Object.entries(languages ?? {})) {
+    if (getLanguageComparisonKey(entry?.label) === comparison) keys.add(key);
+  }
+  if (!keys.size) keys.add(knownKey ?? String(name).slugify({ replacement: "_" }));
+  return [...keys];
+}
+
+/** Register before Foundry's init hook so Polyglot can discover this provider. */
+export function registerPolyglotProvider() {
+  Hooks.once("polyglot.init", (LanguageProvider) => {
+    if (typeof LanguageProvider !== "function" || !game.polyglot?.api?.registerSystem) return;
+
+    class UesrpgLanguageProvider extends LanguageProvider {
+      async getLanguages() {
+        if (this.replaceLanguages) {
+          this.languages = {};
+          return;
+        }
+        const settings = game.settings.get("polyglot", "Languages") ?? {};
+        const languages = {};
+        for (const choice of LANGUAGE_CHOICES) {
+          const key = slugifyLanguage(choice.id);
+          if (!key || languages[key]) continue;
+          languages[key] = {
+            label: getChoiceLabel(choice),
+            font: settings[key]?.font ?? this.languages?.[key]?.font ?? this.defaultFont,
+            rng: settings[key]?.rng ?? this.languages?.[key]?.rng ?? "default",
+          };
+        }
+        this.languages = languages;
+      }
+
+      getSystemDefaultLanguage() {
+        return this.languages?.cyrodilic ? "cyrodilic" : super.getSystemDefaultLanguage();
+      }
+
+      getUserLanguages(actor) {
+        const cyrodilic = polyglotLanguageKeys("Cyrodilic", this.languages);
+        const spoken = new Set(cyrodilic);
+        const illiterate = hasActorTrait(actor, "illiterate") || hasNamedActorTrait(actor, "Illiterate");
+        const written = new Set(illiterate ? [] : cyrodilic);
+        const entries = getSocialStateFromSystem(actor?.system ?? {}).languages.entries;
+        for (const entry of entries) {
+          for (const key of polyglotLanguageKeys(entry.name, this.languages)) {
+            if (entry.speak) spoken.add(key);
+            if (entry.readWrite && !illiterate) written.add(key);
+          }
+        }
+        return [spoken, written];
+      }
+
+      conditions(language) {
+        return Boolean(game.polyglot?.literateLanguages?.has(language));
+      }
+    }
+
+    game.polyglot.api.registerSystem(UesrpgLanguageProvider);
+  });
 }
 
 /**
@@ -47,7 +115,8 @@ export function registerPolyglotLanguages() {
 
     for (const choice of LANGUAGE_CHOICES ?? []) {
       const label = getChoiceLabel(choice);
-      const key = slugifyLanguage(choice?.name);
+      // Catalog IDs retain the established Polyglot keys when a book spelling changes.
+      const key = slugifyLanguage(choice?.id ?? choice?.name);
       if (!key) continue;
       if (languages[key] && languages[key] !== label) {
         const list = collisions.get(key) ?? [languages[key]];

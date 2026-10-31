@@ -73,57 +73,19 @@ export function shouldCreationBackfire({
  *   key        Machine-readable outcome key.
  *   label      Short display label.
  *   description Full text to present in the chat card.
- *   outcome    One of: "lost" | "backfired" | "tools_damaged" | "fumes" | "explosion" | "catastrophe"
+ *   outcome    A coarse disposition; additional consequences require GM resolution.
  */
 export const CREATION_BACKFIRE_TABLE = Object.freeze([
-  {
-    min: 2,
-    max: 3,
-    key: "lost_potion",
-    label: "Lost Potion",
-    description: "The mixture dissolves into an inert sludge. No potion is created and all materials are wasted.",
-    outcome: "lost",
-  },
-  {
-    min: 4,
-    max: 5,
-    key: "backfired_potion",
-    label: "Backfired Potion",
-    description: "A potion is created, but the formula went awry. The vial appears normal but contains unpredictable reagents. Mark the potion as Backfired.",
-    outcome: "backfired",
-  },
-  {
-    min: 6,
-    max: 7,
-    key: "tools_damaged",
-    label: "Tools Damaged",
-    description: "The reaction damages your equipment. The alchemist must immediately make a Luck test; on a failure, one Alchemy Tool or the Alchemy Lab is Damaged(1).",
-    outcome: "tools_damaged",
-  },
-  {
-    min: 8,
-    max: 9,
-    key: "toxic_fumes",
-    label: "Toxic Fumes",
-    description: "Noxious fumes billow from the flask. The alchemist is exposed — roll 2d8 on the Minor Effects Table.",
-    outcome: "fumes",
-  },
-  {
-    min: 10,
-    max: 11,
-    key: "small_explosion",
-    label: "Small Explosion",
-    description: "The mixture detonates violently. The alchemist suffers 1d6 Fire damage (ignoring armor) and must roll 2d8 on the Minor Effects Table.",
-    outcome: "explosion",
-  },
-  {
-    min: 12,
-    max: 12,
-    key: "catastrophic_explosion",
-    label: "Catastrophic Explosion",
-    description: "A catastrophic detonation destroys the workspace. The alchemist suffers 2d8 Fire damage (ignoring armor), and the Alchemy Lab (if any) is destroyed. All materials are lost. Roll 2d8 on the Minor Effects Table.",
-    outcome: "catastrophe",
-  },
+  { min: 1, max: 2, key: "normal_potion", label: "Nothing", description: "The potion is usable normally despite the fizzing.", outcome: "normal" },
+  { min: 3, max: 3, key: "thick_backfired", label: "Nothing", description: "The potion is thick, brown and smelly, and counts as backfired.", outcome: "backfired" },
+  { min: 4, max: 4, key: "foam", label: "Poof", description: "The potion foams up and is lost.", outcome: "lost" },
+  { min: 5, max: 5, key: "ruined_tools", label: "Whoops", description: "The potion is lost. Make a Luck test; on failure the toolset is destroyed.", outcome: "lost" },
+  { min: 6, max: 6, key: "chunky_backfired", label: "Yuck", description: "The potion is smelly and chunky and counts as backfired.", outcome: "backfired" },
+  { min: 7, max: 7, key: "fumes", label: "Fizz", description: "The potion is lost. Everyone in the area tests Willpower or begins vomiting.", outcome: "lost" },
+  { min: 8, max: 8, key: "poison", label: "Poison", description: "Poisonous fumes deal 1d8 poison damage ignoring armor to those who breathe them; drinking the potion deals 3d8 poison damage ignoring armor.", outcome: "manual" },
+  { min: 9, max: 9, key: "acid", label: "It Burns", description: "The potion and tools are lost. Test Agility or take 1d6 damage to a random hit location.", outcome: "lost" },
+  { min: 10, max: 10, key: "black_backfired", label: "Wh-What", description: "The black, bubbling and steaming potion counts as backfired.", outcome: "backfired" },
+  { min: 11, max: 12, key: "explosion", label: "Boom", description: "The explosion deals 2d8 fire damage to anyone within 5 meters; the potion and tools are lost.", outcome: "lost" },
 ]);
 
 /**
@@ -145,46 +107,14 @@ export function lookupCreationBackfire(total) {
  * Format: same as creation table except outcome applies to the drinker.
  */
 export const POTION_BACKFIRE_TABLE = Object.freeze([
-  {
-    min: 1,
-    max: 2,
-    key: "no_effect",
-    label: "No Effect",
-    description: "The potion fizzles. No effect occurs but the potion is consumed.",
-    outcome: "no_effect",
-  },
-  {
-    min: 3,
-    max: 4,
-    key: "half_potency",
-    label: "Weakened",
-    description: "The potion works at half its intended potency. Each numeric value (healing, attribute bonus, etc.) is halved (round down).",
-    outcome: "half_potency",
-  },
-  {
-    min: 5,
-    max: 6,
-    key: "wrong_effect",
-    label: "Wrong Effect",
-    description: "A random minor effect manifests instead of the intended result. Roll 2d8 on the Minor Effects Table.",
-    outcome: "minor_effects",
-  },
-  {
-    min: 7,
-    max: 8,
-    key: "sickened",
-    label: "Sickened",
-    description: "The drinker is violently ill. Make an Endurance test; on a failure, the drinker gains the Poisoned condition (1d6 rounds) and suffers −10 to all tests for that duration.",
-    outcome: "sickened",
-  },
-  {
-    min: 9,
-    max: 10,
-    key: "dangerous",
-    label: "Dangerous Reaction",
-    description: "A violent reaction occurs. The drinker immediately suffers 1d8 physical damage (ignoring armor). Roll 2d8 on the Minor Effects Table.",
-    outcome: "dangerous",
-  },
+  { min: 1, max: 3, key: "minor_effect", label: "Could be Worse", description: "Roll 2d8 on the minor effects table and apply that result along with the normal effects.", outcome: "minor_effects" },
+  { min: 4, max: 4, key: "nothing", label: "Nothing", description: "The table says nothing happens; the GM resolves how this interacts with the potion's normal effect.", outcome: "manual" },
+  { min: 5, max: 5, key: "vomiting", label: "Yuck", description: "Apply normal effects. Test Willpower at -20 or vomit and become helpless for one round.", outcome: "manual" },
+  { min: 6, max: 6, key: "poison", label: "Poison", description: "In addition to normal effects, take 2d10 poison damage to the body ignoring armor.", outcome: "manual" },
+  { min: 7, max: 7, key: "blindness", label: "I can't See", description: "In addition to normal effects, gain Blinded for 1d5 hours.", outcome: "manual" },
+  { min: 8, max: 8, key: "burning", label: "It Burns", description: "In addition to normal effects, gain Burning (1) on the body.", outcome: "manual" },
+  { min: 9, max: 9, key: "paralysis", label: "Paralysis", description: "Also become paralyzed for 1d5 rounds.", outcome: "manual" },
+  { min: 10, max: 10, key: "lethal_poison", label: "Lethal Poison", description: "In addition to normal effects, take 3d8 poison damage to the body ignoring armor.", outcome: "manual" },
 ]);
 
 /**
@@ -205,70 +135,21 @@ export function lookupPotionBackfire(roll) {
  * Range: 2–16.
  */
 export const MINOR_EFFECTS_TABLE = Object.freeze([
-  {
-    min: 2,
-    max: 3,
-    key: "nothing",
-    label: "Nothing",
-    description: "A close call — nothing notable happens.",
-    outcome: "none",
-  },
-  {
-    min: 4,
-    max: 5,
-    key: "nauseous",
-    label: "Nauseous",
-    description: "The character feels ill. Make an Endurance test or spend the next round retching (unable to take actions).",
-    outcome: "endurance_test",
-  },
-  {
-    min: 6,
-    max: 7,
-    key: "confused",
-    label: "Confused",
-    description: "The character is disoriented. Suffer −10 to all tests for 1d4 rounds.",
-    outcome: "penalty",
-  },
-  {
-    min: 8,
-    max: 9,
-    key: "weakened",
-    label: "Weakened",
-    description: "A sudden drain saps stamina. Lose 1d6 Stamina Points immediately.",
-    outcome: "sp_loss",
-  },
-  {
-    min: 10,
-    max: 11,
-    key: "nauseated",
-    label: "Nauseated",
-    description: "Severe nausea. Suffer −20 to Endurance tests for 1 minute.",
-    outcome: "penalty",
-  },
-  {
-    min: 12,
-    max: 13,
-    key: "dizzy",
-    label: "Dizzy",
-    description: "Vertigo strikes. Suffer 1d6 physical damage (ignoring armor).",
-    outcome: "damage",
-  },
-  {
-    min: 14,
-    max: 15,
-    key: "burning_pain",
-    label: "Burning Pain",
-    description: "An internal burn. Suffer 1d8 Fire damage (ignoring armor).",
-    outcome: "damage",
-  },
-  {
-    min: 16,
-    max: 16,
-    key: "severe_reaction",
-    label: "Severe Reaction",
-    description: "A catastrophic internal reaction. Suffer 2d6 physical damage (ignoring armor).",
-    outcome: "damage",
-  },
+  { min: 2, max: 2, key: "blue_eyes", label: "Blue eyes", description: "The character's eyes turn blue for 1d5 hours.", outcome: "manual" },
+  { min: 3, max: 3, key: "mint_breath", label: "Mint breath", description: "The character's breath is minty for 1d5 hours.", outcome: "manual" },
+  { min: 4, max: 4, key: "scar", label: "Strange scar", description: "The character gains a strange scar at random.", outcome: "manual" },
+  { min: 5, max: 5, key: "self_invisible", label: "Self-invisible", description: "The character is invisible to themself.", outcome: "manual" },
+  { min: 6, max: 6, key: "green_hair", label: "Green hair", description: "The character's hair turns green for 1d5 hours.", outcome: "manual" },
+  { min: 7, max: 7, key: "transparent_skin", label: "Transparent skin", description: "The character's skin turns transparent for 1d5 minutes.", outcome: "manual" },
+  { min: 8, max: 8, key: "bad_breath", label: "Bad breath", description: "The character's breath stinks for 1d5 hours.", outcome: "manual" },
+  { min: 9, max: 9, key: "smoke", label: "Smell smoke", description: "The character smells smoke for 1d5 hours.", outcome: "manual" },
+  { min: 10, max: 10, key: "sweating", label: "Sweating", description: "The character sweats profusely for 1d5 minutes.", outcome: "manual" },
+  { min: 11, max: 11, key: "thirst", label: "Thirst", description: "The character becomes extremely thirsty.", outcome: "manual" },
+  { min: 12, max: 12, key: "itch", label: "Itching", description: "The character itches all over for 1d5 minutes.", outcome: "manual" },
+  { min: 13, max: 13, key: "aftertaste", label: "Aftertaste", description: "The character experiences a strange aftertaste.", outcome: "manual" },
+  { min: 14, max: 14, key: "deep_voice", label: "Deep voice", description: "The character's voice deepens for 1d5 hours.", outcome: "manual" },
+  { min: 15, max: 15, key: "pleasant_scent", label: "Pleasant scent", description: "The character smells great for 1d5 minutes.", outcome: "manual" },
+  { min: 16, max: 16, key: "hair_growth", label: "Hair growth", description: "The character's hair grows rapidly for the next week.", outcome: "manual" },
 ]);
 
 /**
@@ -297,12 +178,7 @@ export async function rollCreationBackfire(highestSL) {
   const total = d4 + Math.max(1, Number(highestSL) || 1);
   const entry = lookupCreationBackfire(total);
 
-  let minorEffect = null;
-  if (entry?.outcome === "fumes" || entry?.outcome === "explosion" || entry?.outcome === "catastrophe") {
-    minorEffect = await rollMinorEffects();
-  }
-
-  return { d4, d4Roll, highestSL, total, entry, minorEffect };
+  return { d4, d4Roll, highestSL, total, entry, minorEffect: null };
 }
 
 /**
@@ -315,7 +191,7 @@ export async function rollPotionBackfire() {
   const entry = lookupPotionBackfire(roll.total);
 
   let minorEffect = null;
-  if (entry?.outcome === "minor_effects" || entry?.outcome === "dangerous") {
+  if (entry?.outcome === "minor_effects") {
     minorEffect = await rollMinorEffects();
   }
 

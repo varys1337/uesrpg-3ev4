@@ -60,12 +60,16 @@ export function _resolveOutcome(data) {
   return { ...out, text };
 }
 
-function _resolveTokenForActor(actor) {
+function _resolveTokenForActor(actor, tokenUuid = null) {
+  if (tokenUuid) {
+    const token = fromUuidSync(tokenUuid)?.object;
+    return token?.actor?.uuid === actor?.uuid ? token : null;
+  }
   if (!actor) return null;
   const controlled = canvas?.tokens?.controlled ?? [];
-  const controlledMatch = controlled.find((t) => t?.actor?.id === actor.id);
+  const controlledMatch = controlled.find((t) => t?.actor?.uuid === actor.uuid);
   if (controlledMatch) return controlledMatch;
-  return canvas?.tokens?.placeables?.find((t) => t?.actor?.id === actor.id) ?? null;
+  return canvas?.tokens?.placeables?.find((t) => t?.actor?.uuid === actor.uuid) ?? null;
 }
 
 function _findEquippedMeleeWeapon(actor) {
@@ -78,7 +82,8 @@ function _findEquippedMeleeWeapon(actor) {
   }) ?? null;
 }
 
-async function _triggerInCloseFailureAoO(attackerActor, defenderActor) {
+export async function executeInCloseFailureReaction(attackerActor, defenderActor, context) {
+  if (!context?.operation) throw new Error("The reaction requires a managed special-action operation.");
   if (!attackerActor || !defenderActor) return;
 
   try {
@@ -100,8 +105,8 @@ async function _triggerInCloseFailureAoO(attackerActor, defenderActor) {
       return;
     }
 
-    const aooAttackerToken = _resolveTokenForActor(defenderActor);
-    const aooDefenderToken = _resolveTokenForActor(attackerActor);
+    const aooAttackerToken = _resolveTokenForActor(defenderActor, context.outcome.payload.targetTokenUuid);
+    const aooDefenderToken = _resolveTokenForActor(attackerActor, context.outcome.payload.actorTokenUuid);
     if (!aooAttackerToken || !aooDefenderToken) {
       ui.notifications?.warn?.("Attack of Opportunity could not start: required tokens are missing from the canvas.");
       return;
@@ -121,7 +126,8 @@ async function _triggerInCloseFailureAoO(attackerActor, defenderActor) {
     const tn = base + fatiguePenalty + carryPenalty + woundPenalty;
 
     const { OpposedWorkflow } = await import("../../../combat/opposed-workflow.js");
-    await OpposedWorkflow.createPending({
+    return context.stage("inClose.failureCard", async () => {
+      const child = await OpposedWorkflow.createPending({
       attackerTokenUuid: aooAttackerToken?.document?.uuid ?? aooAttackerToken?.uuid,
       defenderTokenUuids: [aooDefenderToken?.document?.uuid ?? aooDefenderToken?.uuid].filter(Boolean),
       attackerActorUuid: defenderActor.uuid,
@@ -132,34 +138,23 @@ async function _triggerInCloseFailureAoO(attackerActor, defenderActor) {
       attackMode: "melee",
       weaponUuid: aooWeapon.uuid,
       isReactionAttack: true,
-      skipAttackerAPDeduction: false
-    });
+      skipAttackerAPDeduction: false,
+      specialActionOperation: { version: 1, operationId: context.operation.id, step: "inClose.failureCard" },
+      whisper: Array.from(context.message.whisper ?? [], user => typeof user === "string" ? user : user.id), blind: context.message.blind === true
+      });
+      if (!child) throw new Error("The reaction card was not confirmed.");
+      return { ok: true, success: true, messageId: child.id, message: "Attack of Opportunity created." };
+    }, { documents: [defenderActor] });
   } catch (err) {
     console.error("UESRPG | Failed to trigger In Close failure Attack of Opportunity", err);
+    throw err;
   }
 }
 
-export async function _executeSpecialActionIfWinner(data) {
-  const specialActionId = String(data?.specialActionContext?.id ?? data?.specialActionId ?? "").trim();
-  const winner = String(data?.outcome?.winner ?? "").trim().toLowerCase();
-  if (!specialActionId || !winner) return;
-
-  const attackerActor = _resolveActor(data.attacker.actorUuid);
-  const defenderActor = _resolveActor(data.defender.actorUuid);
-  if (!attackerActor || !defenderActor) return;
-
-  if (winner === "attacker") {
-    try {
-      const { postSpecialActionOutcome } = await import("../../../combat/special-actions-helper.js");
-      await postSpecialActionOutcome({ specialActionId, actor: attackerActor, target: defenderActor,
-        isAutoWin: false, opposedResult: { winner: "attacker", degrees: data.outcome?.degrees ?? 0 } });
-    } catch (err) {
-      console.error("UESRPG | Failed to execute Special Action automation", err);
-    }
-    return;
-  }
-
-  if (winner === "defender" && specialActionId === "inClose") {
-    await _triggerInCloseFailureAoO(attackerActor, defenderActor);
-  }
+/** Compatibility helper: persist the source result before scheduling its outcomes. */
+export async function _executeSpecialActionIfWinner(data, { message = null } = {}) {
+  if (!message) return { success: false, status: "pending", message: "Persist the source result before applying its Special Action." };
+  const { ChatOutcomeApplicationService } = await import("../../../../application/combat/chat-outcome-application-service.js");
+  await ChatOutcomeApplicationService.onMessagePersisted(message);
+  return { success: true, status: "pending", message: "Application is controlled by the outcome setting." };
 }

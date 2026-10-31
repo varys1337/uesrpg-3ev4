@@ -1,0 +1,157 @@
+{
+  "worldTime": 0,
+  "rows": [
+    {
+      "actor": "Core Review - Armor",
+      "hp": 0,
+      "sp": 0,
+      "mp": 0,
+      "fatigue": 0,
+      "fly": 0,
+      "physicalAR": 2,
+      "magicAR": 0,
+      "effects": [
+        {
+          "name": "Armor (Potion SL2)",
+          "disabled": false,
+          "duration": {
+            "value": 60,
+            "units": "seconds",
+            "expiry": "turnStart",
+            "expired": false,
+            "_worldTime": 0,
+            "seconds": 60,
+            "remaining": 60,
+            "secondsRemaining": 60,
+            "label": "1 min"
+          },
+          "changes": [
+            {
+              "key": "system.modifiers.combat.armorRating",
+              "type": "add",
+              "value": 2,
+              "priority": 20,
+              "phase": "initial"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "actor": "Core Review - Magic Armor",
+      "hp": 0,
+      "sp": 0,
+      "mp": 0,
+      "fatigue": 0,
+      "fly": 0,
+      "physicalAR": 0,
+      "magicAR": 2,
+      "effects": [
+        {
+          "name": "Magic Armor (Potion SL2)",
+          "disabled": false,
+          "duration": {
+            "value": 60,
+            "units": "seconds",
+            "expiry": "turnStart",
+            "expired": false,
+            "_worldTime": 0,
+            "seconds": 60,
+            "remaining": 60,
+            "secondsRemaining": 60,
+            "label": "1 min"
+          },
+          "changes": [
+            {
+              "key": "system.modifiers.combat.magicArmorRating",
+              "type": "add",
+              "value": 2,
+              "priority": 20,
+              "phase": "initial"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "actor": "Core Review - Levitation",
+      "hp": 0,
+      "sp": 0,
+      "mp": 0,
+      "fatigue": 0,
+      "fly": 6,
+      "physicalAR": 0,
+      "magicAR": 0,
+      "effects": [
+        {
+          "name": "Levitate (Potion SL2)",
+          "disabled": false,
+          "duration": {
+            "value": 60,
+            "units": "seconds",
+            "expiry": "turnStart",
+            "expired": false,
+            "_worldTime": 0,
+            "seconds": 60,
+            "remaining": 60,
+            "secondsRemaining": 60,
+            "label": "1 min"
+          },
+          "changes": [
+            {
+              "key": "system.modifiers.speed.flySpeed",
+              "type": "override",
+              "value": 6,
+              "priority": 20,
+              "phase": "initial"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "actor": "Core Review - Healing",
+      "hp": 4,
+      "sp": 0,
+      "mp": 0,
+      "fatigue": 0,
+      "fly": 0,
+      "physicalAR": 0,
+      "magicAR": 0,
+      "effects": []
+    },
+    {
+      "actor": "Core Review - Replenishment",
+      "hp": 0,
+      "sp": 0,
+      "mp": 4,
+      "fatigue": 0,
+      "fly": 0,
+      "physicalAR": 0,
+      "magicAR": 0,
+      "effects": []
+    },
+    {
+      "actor": "Core Review - Rejuvenate",
+      "hp": 0,
+      "sp": 1,
+      "mp": 0,
+      "fatigue": 0,
+      "fly": 0,
+      "physicalAR": 0,
+      "magicAR": 0,
+      "effects": []
+    },
+    {
+      "actor": "Core Review - Rejuvenate Fatigue",
+      "hp": 0,
+      "sp": 0,
+      "mp": 0,
+      "fatigue": 1,
+      "fly": 0,
+      "physicalAR": 0,
+      "magicAR": 0,
+      "effects": []
+    }
+  ]
+}

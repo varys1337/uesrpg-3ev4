@@ -10,17 +10,15 @@ import { escapeHtml } from "../../utils/html.js";
  * here via `runTalentActivationAutomation()`.
  */
 
-import { queueStatusEffect } from "../system/activation/feature-effects.js";
-import { buildEffectDuration } from "../time/effect-duration.js";
 import { getActorCanvasToken } from "./combat-proximity.js";
 import { computeSkillTN, SKILL_DIFFICULTIES } from "../skills/skill-tn.js";
 import { doTestRoll, formatResultSummary } from "../../utils/degree-roll-helper.js";
 import { getCoreRollMode } from "../../utils/chat-roll-mode.js";
 import { SYSTEM_ROLL_FORMULA } from "../constants.js";
-import { requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { requestAtomicUpdateDocument } from "../../utils/authority-proxy.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
 import { SYSTEM_ID } from "../system/namespace.js";
-import { buildEffectChange } from "../../utils/compat.js";
+import { getFlagValueWithFallback } from "../system/flags.js";
 import { getTargetsFromContext } from "../system/activation/helpers.js";
 
 const EFFECT_KEY_INSPIRE_HEROISM = "talent:inspireHeroism";
@@ -46,8 +44,11 @@ export function validateInspireHeroismAvailability({ actor } = {}) {
 
   const currentRound = Number(combat.round ?? 0);
   const lastRound = actor.getFlag(SYSTEM_ID, "inspireHeroismLastRound");
-  if (lastRound === currentRound) {
-    return { ok: false, reason: "Inspire Heroism has already been used this round." };
+  const lastCombatId = actor.getFlag(SYSTEM_ID, "inspireHeroismLastCombatId");
+  if (lastRound === currentRound && (!lastCombatId || lastCombatId === combat.id)) {
+    return { ok: false, reason: lastCombatId
+      ? "Inspire Heroism has already been used this round."
+      : "Inspire Heroism has a legacy round record without an encounter ID. A GM must review it before this round's use." };
   }
 
   return { ok: true };
@@ -65,14 +66,14 @@ export function validateInspireHeroismAvailability({ actor } = {}) {
  *  - Requires active combat
  *  - Once per round (tracked via actor flag)
  *  - Command skill test with configurable difficulty
- *  - On success: creates "Inspired (Heroism)" AE on target granting +10 to
- *    the next combat test; combat duration acts only as fallback expiry
+ *  - On success: instructs the group to apply +10 to the next combat test
+ *    manually, without a timed effect or an automatically repeated bonus
  *
  * @param {object} params
  * @param {Actor} params.actor - The inspiring actor
  * @param {Item} params.item - The Inspire Heroism talent item
  * @param {object} [params.context] - Activation context with the selected targets
- * @returns {Promise<boolean>} true if the effect was successfully applied
+ * @returns {Promise<boolean>} true when the Command test and its usage record were resolved
  */
 export async function handleInspireHeroismActivation({ actor, item, context = {} } = {}) {
   if (!actor || !item) return false;
@@ -83,6 +84,10 @@ export async function handleInspireHeroismActivation({ actor, item, context = {}
     ui.notifications?.warn?.(availability.reason);
     return false;
   }
+  const actionCombatId = game.combat.id;
+  const actionRound = Number(game.combat.round ?? 0);
+  const sameCombatRound = () => game.combat?.started === true && game.combat.id === actionCombatId
+    && Number(game.combat.round ?? 0) === actionRound;
 
   // --- Gate: target validation ---
   const targets = getTargetsFromContext(context);
@@ -114,6 +119,11 @@ export async function handleInspireHeroismActivation({ actor, item, context = {}
   const targetDisposition = Number(targetToken?.document?.disposition ?? NaN);
   if (!Number.isFinite(activatorDisposition) || !Number.isFinite(targetDisposition) || activatorDisposition === 0 || activatorDisposition !== targetDisposition) {
     ui.notifications?.warn?.("Inspire Heroism: target must be an allied token.");
+    return false;
+  }
+  if ((targetActor.effects ?? []).some(effect => !effect.disabled
+    && getFlagValueWithFallback(effect, "key") === EFFECT_KEY_INSPIRE_HEROISM)) {
+    ui.notifications?.warn?.("Inspire Heroism: the target has an older Inspired effect. Ask the GM to review it and any pending outcome before using this ability.");
     return false;
   }
 
@@ -157,7 +167,7 @@ export async function handleInspireHeroismActivation({ actor, item, context = {}
       content: `
         <div class="uesrpg-skill-roll">
           ${renderTNSummary(commandItem.name)}
-          <p>Make a <b>Command</b> test to inspire <b>${foundry.utils.escapeHTML(targetActor.name)}</b>.</p>
+          <p>Make a <b>Command</b> test to inspire <b>${foundry.utils.escapeHTML(targetActor.name)}</b>. Confirm the ally can perceive the character. On success, track and apply the next combat test bonus manually.</p>
           <div class="form-group">
             <label><b>Difficulty</b></label>
             <select name="difficultyKey" style="width:100%;">${difficultyOptions}</select>
@@ -182,6 +192,10 @@ export async function handleInspireHeroismActivation({ actor, item, context = {}
   }
 
   if (!decl) return false;
+  if (!sameCombatRound()) {
+    ui.notifications?.warn?.("The combat or round changed while preparing Inspire Heroism. Start the action again.");
+    return false;
+  }
 
   // --- Compute TN and roll ---
   const tn = computeDeclaredTN(decl);
@@ -201,7 +215,7 @@ export async function handleInspireHeroismActivation({ actor, item, context = {}
 
   const targetName = foundry.utils.escapeHTML(targetActor.name);
   const successNote = res.isSuccess
-    ? `<div style="margin-top:4px;"><b>${targetName}</b> is <b>Inspired</b>: +10 to their next combat test.</div>`
+    ? `<div style="margin-top:4px;"><b>${targetName}</b> gains +10 to their next combat test. Track and apply this bonus manually once; no effect is created automatically.</div>`
     : "";
 
   const flavor = `
@@ -213,51 +227,47 @@ export async function handleInspireHeroismActivation({ actor, item, context = {}
     </div>`;
 
   const rollMode = getCoreRollMode();
-  const resultMessage = await res.roll.toMessage({
-    user: game.user.id,
-    speaker: ChatMessage.getSpeaker({ actor }),
-    flavor,
-    flags: {
-      [SYSTEM_ID]: {
-        inspireHeroism: {
-          actorUuid: actor.uuid,
-          targetActorUuid: targetActor.uuid,
-          isSuccess: Boolean(res.isSuccess)
-        }
-      }
-    },
-    rollMode
-  });
-
-  // --- Track once-per-round usage (regardless of success) ---
-  const combat = game.combat;
-  await requestUpdateDocument(actor, {
-    [`flags.${SYSTEM_ID}.inspireHeroismLastRound`]: Number(combat.round ?? 0)
-  });
-
-  // --- On success: apply AE to target ---
-  if (res.isSuccess) {
-    // Fallback expiry only: the effect is primarily consumed on the target's next combat test.
-    const duration = buildEffectDuration({ actor: targetActor, rounds: 1, seconds: 6, preferCombat: true });
-
-    await queueStatusEffect(targetActor, {
-      name: "Inspired (Heroism)",
-      img: item?.img ?? "icons/skills/social/diplomacy-handshake.webp",
-      duration,
+  try {
+    await res.roll.toMessage({
+      user: game.user.id,
+      speaker: ChatMessage.getSpeaker({ actor }),
+      flavor,
       flags: {
-        uesrpg: {
-          key: EFFECT_KEY_INSPIRE_HEROISM,
-          source: "talent",
-          inspirerUuid: actor.uuid,
-          consumeOnNextCombatTest: true
+        [SYSTEM_ID]: {
+          inspireHeroism: {
+            actorUuid: actor.uuid,
+            targetActorUuid: targetActor.uuid,
+            isSuccess: Boolean(res.isSuccess)
+          }
         }
       },
-      changes: [
-        buildEffectChange({ key: "system.modifiers.combat.attackTN", type: "add", value: "10", priority: 20 }),
-        buildEffectChange({ key: "system.modifiers.combat.defenseTN.total", type: "add", value: "10", priority: 20 })
-      ]
-    }, { sourceActor: actor, message: resultMessage });
+      rollMode
+    });
+  } catch (err) {
+    ui.notifications?.warn?.("The Command roll could not be confirmed in chat. Review the chat and actor before retrying Inspire Heroism.");
+    throw err;
   }
 
-  return res.isSuccess;
+  // --- Track once-per-round usage (regardless of success) ---
+  const usageWarning = "The Command roll was posted, but Inspire Heroism usage was not confirmed. Review the chat, combat and actor before retrying.";
+  let usageSaved;
+  try {
+    usageSaved = await requestAtomicUpdateDocument(actor, fresh => {
+      if (!sameCombatRound() || !validateInspireHeroismAvailability({ actor: fresh }).ok) return null;
+      return {
+        [`flags.${SYSTEM_ID}.inspireHeroismLastRound`]: actionRound,
+        [`flags.${SYSTEM_ID}.inspireHeroismLastCombatId`]: actionCombatId
+      };
+    });
+  } catch (err) {
+    ui.notifications?.warn?.(usageWarning);
+    throw err;
+  }
+  if (!usageSaved) {
+    ui.notifications?.warn?.(usageWarning);
+    throw new Error(usageWarning);
+  }
+
+  // A failed Command test is still a completed use, not an activation error.
+  return true;
 }

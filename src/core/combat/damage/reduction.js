@@ -92,12 +92,8 @@ export function isItemMagicSource(item) {
     || (Number.isFinite(chargeMax) && chargeMax > 0);
 
   if (String(item.type ?? "") === "armor" || String(item.type ?? "") === "shield") {
-    // For armor: check both the prepared effective value AND the authored armorValues lanes.
-    const magicAR = Number(sys.magic_arEffective ?? sys.armorValues?.full?.magic_ar ?? sys.armorValues?.partial?.magic_ar ?? sys.magic_ar ?? 0);
-    const magicBR = Number(sys.magic_brEffective ?? sys.magic_br ?? 0);
-    const hasMagicAR = Number.isFinite(magicAR) && magicAR > 0;
-    const hasMagicBR = Number.isFinite(magicBR) && magicBR > 0;
-    return hasMagicAR || hasMagicBR || hasMagicToken || legacyMagic || runed || hasCharge;
+    // A protection rating against magic does not itself grant the Magic quality.
+    return hasMagicToken || legacyMagic || runed || hasCharge;
   }
 
   return hasMagicToken || hasSilverToken || legacyMagic || legacySilver || runed || hasCharge;
@@ -277,20 +273,22 @@ export function getDamageReduction(actor, damageType = DAMAGE_TYPES.PHYSICAL, hi
     const armorKeyBase = damageType === DAMAGE_TYPES.PHYSICAL
       ? "system.modifiers.combat.armorRating"
       : "system.modifiers.combat.magicArmorRating";
-    const armorKeys = [
-      armorKeyBase,
-      `${armorKeyBase}.${propertyName}`,
-    ];
+    const includeGenericArmor = damageType === DAMAGE_TYPES.PHYSICAL || options.includeGenericMagicArmor !== false;
+    const armorKeys = includeGenericArmor ? [armorKeyBase, `${armorKeyBase}.${propertyName}`] : [];
+    const typedArmorKey = damageType === DAMAGE_TYPES.PHYSICAL ? null : `${armorKeyBase}.${damageType}`;
+    if (typedArmorKey) armorKeys.push(typedArmorKey);
     const attackerActor = options?.attackerActor ?? null;
     const aeContext = { opposingActor: attackerActor, attackerActor };
     const armorResult = evaluateAEModifierKeysDetailed(actor, armorKeys, { context: aeContext });
     const gKey = armorKeyBase;
     const lKey = `${armorKeyBase}.${propertyName}`;
-    const gTotal = Number(armorResult.totalsByKey[gKey] ?? 0) || 0;
-    const lTotal = Number(armorResult.totalsByKey[lKey] ?? 0) || 0;
+    const gTotal = (includeGenericArmor ? Number(armorResult.totalsByKey[gKey] ?? 0) || 0 : 0)
+      + (typedArmorKey ? Number(armorResult.totalsByKey[typedArmorKey] ?? 0) || 0 : 0);
+    const lTotal = includeGenericArmor ? Number(armorResult.totalsByKey[lKey] ?? 0) || 0 : 0;
     const gDetail = armorResult.detailsByKey[gKey] ?? { total: 0, contributions: [] };
     const lDetail = armorResult.detailsByKey[lKey] ?? { total: 0, contributions: [] };
-    ae.armorRating.global = { total: gTotal, entries: gDetail.contributions ?? [] };
+    ae.armorRating.global = { total: gTotal, entries: [...(gDetail.contributions ?? []),
+      ...(typedArmorKey ? armorResult.detailsByKey[typedArmorKey]?.contributions ?? [] : [])] };
     ae.armorRating.location = { key: propertyName, total: lTotal, entries: lDetail.contributions ?? [] };
     const armorModTotal = gTotal + lTotal;
     if (armorModTotal) armor += armorModTotal;
@@ -354,10 +352,19 @@ export function getDamageReduction(actor, damageType = DAMAGE_TYPES.PHYSICAL, hi
           totalResistance += numericValue;
         }
         
+        const preparedDeltas = actorData.ui?.resistanceEffectDeltas;
+        const alreadyPrepared = preparedDeltas && Object.hasOwn(preparedDeltas, resKeyMap.legacy);
+        let incrementalResistance = totalResistance;
+        if (alreadyPrepared) {
+          const unopposed = evaluateAEModifierKeysDetailed(actor, resistanceKeys);
+          const preparedEvaluation = resistanceKeys.reduce((sum, key) => sum + (Number(unopposed.totalsByKey[key]) || 0), 0);
+          incrementalResistance -= preparedEvaluation;
+        }
         ae.resistance.key = resKeyMap.legacy || resKeyMap.resistances || resKeyMap.traits || "unknown";
-        ae.resistance.total = totalResistance;
+        ae.resistance.total = alreadyPrepared ? Number(preparedDeltas[resKeyMap.legacy]) + incrementalResistance : totalResistance;
         ae.resistance.entries = packResistanceEntries(resResult.detailsByKey, resistanceEntryKeys);
-        resistance += totalResistance;
+        resistance += incrementalResistance;
+        base.resistance = resistance - ae.resistance.total;
       }
     }
 
@@ -366,9 +373,15 @@ export function getDamageReduction(actor, damageType = DAMAGE_TYPES.PHYSICAL, hi
     const toughResult = evaluateAEModifierKeysDetailed(actor, [tKey], { context: aeContext });
     const tTotal = Number(toughResult.totalsByKey[tKey] ?? 0) || 0;
     const tDetail = toughResult.detailsByKey[tKey] ?? { total: 0, contributions: [] };
-    ae.natToughness.total = tTotal;
+    const preparedToughness = actorData.ui?.resistanceEffectDeltas?.natToughness;
+    const hasPreparedToughness = Number.isFinite(preparedToughness);
+    const unopposedToughness = hasPreparedToughness
+      ? Number(evaluateAEModifierKeysDetailed(actor, [tKey]).totalsByKey[tKey] ?? 0) || 0 : 0;
+    const additionalToughness = tTotal - unopposedToughness;
+    ae.natToughness.total = hasPreparedToughness ? preparedToughness + additionalToughness : tTotal;
     ae.natToughness.entries = tDetail.contributions ?? [];
-    toughness += tTotal;
+    toughness += additionalToughness;
+    base.toughness = toughness - ae.natToughness.total;
   } catch (err) {
     console.warn("UESRPG | AE armor/resistance modifier evaluation failed", err);
   }

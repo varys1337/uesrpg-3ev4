@@ -1,4 +1,5 @@
 import { editSheetPortrait } from "./shared/file-picker.js";
+import { isPerfEnabled, perfRecord, measurePerfSync } from "../../../utils/perf-tracker.js";
 import { isDamageReceiptOnlyUpdate } from "../../../core/combat/damage/receipt-metadata.js";
 /**
  * src/ui/sheets/v2/group-sheet.js
@@ -25,7 +26,7 @@ import {
   requestDeleteEmbeddedDocuments,
 } from "../../../utils/authority-proxy.js";
 import { readDropData, resolveDroppedItemDetailed } from "../../../utils/drop-data.js";
-import { onDropItemIntoContainer, removeItemFromContainer } from "../item/listeners/containment.js";
+import { onDropItemIntoContainer, removeItemFromContainer, prepareInventoryItemCopy } from "../item/listeners/containment.js";
 import { activateProseMirrorEditors, openProseMirrorEditor } from "../shared/editor-activation.js";
 import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "./shared/sheet-tooltips.js";
 import { enableItemRowDragSources } from "./shared/drag-sources.js";
@@ -287,7 +288,9 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
   }
 
   _traceSheetPerf(stage, startedAtMs, details = {}) {
-    if (!this._isSheetPerfTraceEnabled()) return;
+    const traceEnabled = this._isSheetPerfTraceEnabled();
+    const perfEnabled = isPerfEnabled();
+    if (!traceEnabled && !perfEnabled) return;
     const elapsedMs = Number((performance.now() - startedAtMs).toFixed(2));
     const payload = {
       sheet: "GroupSheetV2",
@@ -298,6 +301,8 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       elapsedMs,
       ...details,
     };
+    if (perfEnabled) perfRecord({ event: "sheet.render.GroupSheetV2." + stage, ...payload, durationMs: elapsedMs });
+    if (!traceEnabled) return;
     const warnThresholdMs = stage === "_onClose"
       ? 24
       : stage === "_onRender"
@@ -671,10 +676,16 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
 
     const onActorChange = (actor, changed) => {
       if (isDamageReceiptOnlyUpdate(changed)) return;
-      if (this.#isLinkedMemberActor(actor)) this.#queueMemberRefresh();
+      const matched = measurePerfSync("sheet.refresh.match", { source: "group-actor", requestedCount: 1 },
+        () => this.#isLinkedMemberActor(actor));
+      perfRecord({ event: "sheet.refresh.match", source: "group-actor", matchedCount: matched ? 1 : 0, skippedCount: matched ? 0 : 1 });
+      if (matched) this.#queueMemberRefresh();
     };
     const onItemChange = (item) => {
-      if (this.#isLinkedMemberActor(item?.parent)) this.#queueMemberRefresh();
+      const matched = measurePerfSync("sheet.refresh.match", { source: "group-item", requestedCount: 1 },
+        () => this.#isLinkedMemberActor(item?.parent));
+      perfRecord({ event: "sheet.refresh.match", source: "group-item", matchedCount: matched ? 1 : 0, skippedCount: matched ? 0 : 1 });
+      if (matched) this.#queueMemberRefresh();
     };
 
     this.#memberUpdateHooks.push(
@@ -683,6 +694,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       ["updateItem", Hooks.on("updateItem", onItemChange)],
       ["deleteItem", Hooks.on("deleteItem", onItemChange)],
     );
+    perfRecord({ event: "sheet.refresh.lifecycle", source: "group", phase: "registration", registeredCount: 4 });
   }
 
   /** @override */
@@ -693,6 +705,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       for (const [event, hookId] of this.#memberUpdateHooks) {
         Hooks.off(event, hookId);
       }
+      perfRecord({ event: "sheet.refresh.lifecycle", source: "group", phase: "cleanup", unregisteredCount: this.#memberUpdateHooks.length });
       this.#memberUpdateHooks = [];
       this.#resolvedMembersCache = null;
       clearListFilterState(this);
@@ -836,8 +849,9 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       content: `<p>${tf("UESRPG.Dialogs.GroupSheet.DuplicateItemContent", { item: foundry.utils.escapeHTML(item.name) })}</p>`,
     });
     if (confirmed) {
-      const dupData = item.toObject();
-      delete dupData._id;
+      let dupData;
+      try { dupData = prepareInventoryItemCopy(this.document, item); }
+      catch (error) { ui.notifications?.warn?.(String(error.message ?? error)); return; }
       await requestCreateEmbeddedDocuments(this.document, "Item", [dupData]);
     }
   }
@@ -1345,13 +1359,14 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     if (!confirmed) return;
 
     // Container-safe deletion
-    if (item.type === "container") {
-      await unlinkAllItemsFromContainer(this.document, item);
-    } else {
-      await unlinkItemFromContainer(this.document, item);
+    const unlinked = item.type === "container"
+      ? await unlinkAllItemsFromContainer(this.document, item)
+      : await unlinkItemFromContainer(this.document, item);
+    if (!unlinked) { ui.notifications.warn(t("UESRPG.Notifications.Group.ItemUnlinkFailed")); return; }
+    if (!await requestDeleteEmbeddedDocuments(this.document, "Item", [itemId])) {
+      ui.notifications.warn(t("UESRPG.Notifications.Group.ItemDeletionUnconfirmed"));
+      return;
     }
-
-    await requestDeleteEmbeddedDocuments(this.document, "Item", [itemId]);
     ui.notifications.info(tf("UESRPG.Notifications.Group.ItemDeleted", { item: item.name }));
   }
 

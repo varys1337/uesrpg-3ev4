@@ -42,3 +42,17 @@ export function isActorInStartedCombatEncounter(actor, {
 
   return Boolean(combatant);
 }
+
+/** Capture the active combat step relevant to an actor, or null outside that encounter. */
+export function getActorCombatStep(actor, { combat = game?.combat ?? null } = {}) {
+  if (!isActorInStartedCombatEncounter(actor, { combat })) return null;
+  return { id: combat.id, round: combat.round, turn: combat.turn, combatantId: combat.combatant?.id ?? null };
+}
+
+/** Compare a saved step with the current tracked step; null means outside tracked combat. */
+export function isActorCombatStepCurrent(actor, step) {
+  const current = getActorCombatStep(actor);
+  if (!step) return current === null;
+  return Boolean(current && current.id === step.id && current.round === step.round
+    && current.turn === step.turn && current.combatantId === step.combatantId);
+}

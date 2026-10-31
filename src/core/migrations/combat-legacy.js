@@ -16,6 +16,7 @@ import {
 import { requestUpdateChatMessage } from "../../utils/authority-proxy.js";
 import { runCombatLegacyReadinessScan } from "../combat/legacy-readiness-scanner.js";
 import { MIGRATION_REVISIONS } from "./revisions.js";
+import { isActiveGMUser } from "../../utils/users.js";
 
 const MODULE_ID = SYSTEM_ID;
 const _COMBAT_LEGACY_MIGRATION_REVISION = MIGRATION_REVISIONS.combatLegacy;
@@ -57,6 +58,7 @@ async function _migrateLegacyOpposedMessages() {
   let contentUpdates = 0;
   let updated = 0;
   let failed = 0;
+  const failureReferences = [];
 
   for (const message of (game.messages?.contents ?? [])) {
     visited += 1;
@@ -84,10 +86,13 @@ async function _migrateLegacyOpposedMessages() {
 
     const ok = await requestUpdateChatMessage(message, payload);
     if (ok) updated += 1;
-    else failed += 1;
+    else {
+      failed += 1;
+      failureReferences.push(message.uuid ?? `ChatMessage.${message.id}`);
+    }
   }
 
-  return { visited, stageUpdates, contentUpdates, updated, failed };
+  return { visited, stageUpdates, contentUpdates, updated, failed, failureReferences };
 }
 
 export async function normalizeCombatLegacy() {
@@ -96,7 +101,7 @@ export async function normalizeCombatLegacy() {
 }
 
 export async function migrateCombatLegacyIfNeeded() {
-  if (!game.user?.isGM) return;
+  if (!isActiveGMUser(game.user)) return;
 
   const state = getMigrationState();
   if (isMigrationRevisionApplied("combatLegacy", _COMBAT_LEGACY_MIGRATION_REVISION, state)) return;
@@ -112,8 +117,11 @@ export async function migrateCombatLegacyIfNeeded() {
       after: after?.counts ?? {}
     });
 
-    const summary = _buildSummary(before, after);
-    ui.notifications?.info?.(`Combat legacy migration complete: ${summary}`);
+    if (result.failed > 0) {
+      const error = new Error(`${result.failed} combat chat update(s) failed; retry manually from Migration settings.`);
+      error.migrationTelemetry = { result };
+      throw error;
+    }
 
     markMigrationRevisionApplied(state, "combatLegacy", _COMBAT_LEGACY_MIGRATION_REVISION, {
       result,
@@ -121,8 +129,9 @@ export async function migrateCombatLegacyIfNeeded() {
       after: after?.counts ?? {}
     });
     await setMigrationState(state);
+    console.log(`${MODULE_ID} | Combat legacy migration complete: ${_buildSummary(before, after)}`);
   } catch (err) {
     console.error(`${MODULE_ID} | Combat legacy migration failed`, err);
-    ui.notifications?.warn?.("UESRPG combat legacy migration pass failed; check console for details.");
+    throw err;
   }
 }

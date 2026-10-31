@@ -11,22 +11,27 @@ const CATALOGS = Object.freeze([
 ]);
 
 // Read data, never execute runtime modules during source validation.
-function readLiteral(node) {
+function readLiteral(node, bindings = {}) {
   if (node?.type === "Literal" && !node.regex && !node.bigint) return node.value;
+  if (node?.type === "Identifier" && Object.hasOwn(bindings, node.name)) return bindings[node.name];
+  if (node?.type === "TemplateLiteral") {
+    return node.quasis.map((part, index) => part.value.cooked
+      + (index < node.expressions.length ? String(readLiteral(node.expressions[index], bindings)) : "")).join("");
+  }
   if (node?.type === "UnaryExpression" && ["+", "-"].includes(node.operator)) {
-    const value = readLiteral(node.argument);
+    const value = readLiteral(node.argument, bindings);
     if (typeof value === "number") return node.operator === "-" ? -value : value;
   }
-  if (node?.type === "ArrayExpression") return node.elements.map(readLiteral);
+  if (node?.type === "ArrayExpression") return node.elements.map(element => readLiteral(element, bindings));
   if (node?.type === "ObjectExpression") {
     const result = Object.create(null);
     for (const property of node.properties) {
       if (property.type !== "Property" || property.computed || property.method || property.kind !== "init") {
         throw new Error("Catalogs must contain only literal data properties.");
       }
-      const key = property.key.type === "Identifier" ? property.key.name : readLiteral(property.key);
+      const key = property.key.type === "Identifier" ? property.key.name : readLiteral(property.key, bindings);
       if (Object.hasOwn(result, key)) throw new Error(`Duplicate catalog property: ${key}`);
-      result[key] = readLiteral(property.value);
+      result[key] = readLiteral(property.value, bindings);
     }
     return result;
   }
@@ -66,4 +71,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { checkDataCatalogs };
+module.exports = { checkDataCatalogs, readLiteral };

@@ -23,8 +23,17 @@ import { classifyLuckMessage } from "./message-classification.js";
 import { getLuckRollMode } from "./roll-mode.js";
 import { escapeLuckHtml, pickLuckSide } from "./side-selection.js";
 import { getLuckBurnStarsignProfile } from "../traits/starsigns/index.js";
+import { applyConjurationTalentResult } from "../traits/spellcasting-talents.js";
+import { getPendingImperialLuckOperation, hasActiveImperialLuck } from "./imperial-luck.js";
 
 const ROLL_FORMULA = "1d100";
+
+function conjurationTestName(info, side) {
+  if (info?.type === "skillTest") return info.raw?.skillName ?? "";
+  if (info?.type === "skillOpposed") return side?.label ?? "";
+  if (info?.type === "magicOpposed" && side?.role === "attacker") return info.raw?.attacker?.spellSchool ?? "";
+  return "";
+}
 const MANUAL_BURN_LUCK_OPTIONS = Object.freeze([
   {
     id: "burn1",
@@ -82,6 +91,19 @@ function _getWhisperRecipients(actor) {
 
 function _canUserActOnActor(actor) {
   return canUserActOnLuckActor(actor);
+}
+
+function _blockedByImperialLuckHold(actor) {
+  if (!getPendingImperialLuckOperation(actor)) return false;
+  ui.notifications?.warn?.("A prior Imperial Luck spend requires GM review before another Luck action.");
+  return true;
+}
+
+function _blockedByStaminaUse(message) {
+  const live = game.messages?.get?.(message?.id) ?? message;
+  if (!_classifyMessage(live)?.staminaUsed) return false;
+  ui.notifications?.warn?.("Cannot use both Luck and Stamina to modify the same test.");
+  return true;
 }
 
 async function _pickSide(info, opts = {}) {
@@ -153,7 +175,11 @@ export function getBurnLuckTotals(actor) {
 
 export function getManualBurnLuckOptions(actor) {
   const { currentLuck } = getBurnLuckTotals(actor);
-  return MANUAL_BURN_LUCK_OPTIONS.map((option) => ({ ...option, available: currentLuck >= option.cost }));
+  return MANUAL_BURN_LUCK_OPTIONS.map((option) => ({ ...option,
+    ...(option.id === "burn1" && hasActiveImperialLuck(actor) ? {
+      effectText: "On a successful test, the first Luck burned or LP spent to add DoS adds 2 DoS; later additions add 1. The GM must verify the test's prior Luck use and apply the result manually."
+    } : {}),
+    available: currentLuck >= option.cost }));
 }
 
 export function canOpenBurnLuckFromSheet(actor, { notify = false } = {}) {
@@ -174,8 +200,9 @@ export function canOpenBurnLuckFromSheet(actor, { notify = false } = {}) {
 
 export async function burnLuckManually(actor, optionId) {
   if (!canOpenBurnLuckFromSheet(actor, { notify: true })) return false;
+  if (_blockedByImperialLuckHold(actor)) return false;
 
-  const option = MANUAL_BURN_LUCK_OPTIONS.find((entry) => entry.id === optionId);
+  const option = getManualBurnLuckOptions(actor).find((entry) => entry.id === optionId);
   if (!option) {
     ui.notifications?.warn?.("Unknown Burn Luck option.");
     return false;
@@ -246,10 +273,7 @@ async function spendLPReroll(message) {
     ui.notifications?.warn?.("This message does not contain a test result.");
     return false;
   }
-  if (info.staminaUsed) {
-    ui.notifications?.warn?.("Cannot use both Luck and Stamina on the same test (RAW).");
-    return false;
-  }
+  if (_blockedByStaminaUse(message)) return false;
   if (info.rerolled) {
     ui.notifications?.warn?.("This test has already been rerolled.");
     return false;
@@ -270,6 +294,7 @@ async function spendLPReroll(message) {
     ui.notifications?.warn?.("Cannot resolve actor.");
     return false;
   }
+  if (_blockedByImperialLuckHold(actor)) return false;
 
   const currentLp = Number(actor.system?.luck_points?.value ?? 0);
   if (currentLp <= 0) {
@@ -293,8 +318,11 @@ async function spendLPReroll(message) {
     rejectClose: false,
   });
   if (!confirmed) return false;
+  if (_blockedByImperialLuckHold(actor)) return false;
+  if (_blockedByStaminaUse(message)) return false;
 
   const res = await doTestRoll(actor, { rollFormula: ROLL_FORMULA, target, allowLucky: true, allowUnlucky: true });
+  await applyConjurationTalentResult(actor, res, { skillName: conjurationTestName(info, side) });
   const newResult = {
     isSuccess: Boolean(res.isSuccess),
     degree: Number(res.degree ?? 0) || 0,
@@ -361,10 +389,7 @@ async function spendLPAddDoS(message) {
     ui.notifications?.warn?.("This message does not contain a test result.");
     return false;
   }
-  if (info.staminaUsed) {
-    ui.notifications?.warn?.("Cannot use both Luck and Stamina on the same test (RAW).");
-    return false;
-  }
+  if (_blockedByStaminaUse(message)) return false;
 
   const side = await _pickSide(info, { requireResult: true, requireSuccess: true, message });
   if (!side) {
@@ -375,6 +400,13 @@ async function spendLPAddDoS(message) {
   const actor = _resolveActor(message, side.actorUuid);
   if (!actor) {
     ui.notifications?.warn?.("Cannot resolve actor.");
+    return false;
+  }
+  if (_blockedByImperialLuckHold(actor)) return false;
+  if (hasActiveImperialLuck(actor)) {
+    ui.notifications?.warn?.(info.type === "skillTest"
+      ? "Use the Imperial Luck button on this test, or ask the GM to review earlier Luck use."
+      : "Imperial Luck's first-bonus tracking for this test is not automated. Ask the GM to resolve the Luck Point spend manually.");
     return false;
   }
 
@@ -393,6 +425,12 @@ async function spendLPAddDoS(message) {
     rejectClose: false,
   });
   if (!confirmed) return false;
+  if (_blockedByImperialLuckHold(actor)) return false;
+  if (_blockedByStaminaUse(message)) return false;
+  if (hasActiveImperialLuck(actor)) {
+    ui.notifications?.warn?.("Imperial Luck became active. Review the test and use its dedicated control or resolve manually.");
+    return false;
+  }
 
   const nextDegree = (side.result.degree ?? 0) + 1;
   const newResult = { ...side.result, degree: nextDegree, textual: `${nextDegree} DoS` };
@@ -504,6 +542,8 @@ async function openBurnLuckDialog(actorOrMessage) {
 }
 
 async function _executeBurn(actor, message, info, opt) {
+  if (_blockedByImperialLuckHold(actor)) return false;
+  if (["burn1", "burn3"].includes(opt.id) && _blockedByStaminaUse(message)) return false;
   const burnAmount = opt.cost;
   const currentBase = _getBurnBaseLuck(actor);
   if (currentBase < burnAmount) {
@@ -521,6 +561,17 @@ async function _executeBurn(actor, message, info, opt) {
       const side = await _pickSide(info, { requireResult: true, requireSuccess: true, message });
       if (!side) {
         ui.notifications?.warn?.("No successful result eligible for Burn 1.");
+        return false;
+      }
+      const sideActor = _resolveActor(null, side.actorUuid);
+      if (!sideActor || sideActor.uuid !== actor.uuid) {
+        ui.notifications?.warn?.("The selected test belongs to a different actor than the Luck being burned. Resolve it from that actor's own test card.");
+        return false;
+      }
+      if (_blockedByImperialLuckHold(sideActor)) return false;
+      if (_blockedByStaminaUse(message)) return false;
+      if (hasActiveImperialLuck(sideActor)) {
+        ui.notifications?.warn?.("Imperial Luck's first bonus when burning Luck is not automated. Ask the GM to review prior Luck use and resolve the burn and test manually.");
         return false;
       }
       const nextDegree = (side.result.degree ?? 0) + 1;
@@ -555,8 +606,15 @@ async function _executeBurn(actor, message, info, opt) {
         ui.notifications?.warn?.("Target number unavailable for Burn 3 reroll.");
         return false;
       }
-      const sideActor = _resolveActor(null, side.actorUuid) ?? actor;
+      const sideActor = _resolveActor(null, side.actorUuid);
+      if (!sideActor || sideActor.uuid !== actor.uuid) {
+        ui.notifications?.warn?.("The selected test belongs to a different actor than the Luck being burned. Resolve it from that actor's own test card.");
+        return false;
+      }
+      if (_blockedByImperialLuckHold(sideActor)) return false;
+      if (_blockedByStaminaUse(message)) return false;
       const res = await doTestRoll(sideActor, { rollFormula: ROLL_FORMULA, target, allowLucky: true, allowUnlucky: true });
+      await applyConjurationTalentResult(sideActor, res, { skillName: conjurationTestName(info, side) });
       const newResult = {
         isSuccess: Boolean(res.isSuccess),
         degree: Number(res.degree ?? 0) || 0,

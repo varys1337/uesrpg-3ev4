@@ -78,6 +78,11 @@ export function getShieldBlockProfile(item, damageType = "physical") {
     } else {
       effectiveBR = Math.ceil(baseBR / 2);
     }
+    const typed = sys.magic_brSpecial;
+    if (typed && _norm(typed.type) === dt && Number.isFinite(Number(typed.value))) {
+      const damagedReduction = Math.max(0, Number(sys.magic_br ?? 0) - magicBR);
+      effectiveBR = Math.max(0, Number(typed.value) - damagedReduction);
+    }
   }
 
   return {

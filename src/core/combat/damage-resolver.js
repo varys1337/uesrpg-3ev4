@@ -30,3 +30,8 @@ export async function applyDamageResolved(actor, payload = {}) {
   const { ApplyDamageService } = await import('../../application/combat/apply-damage-service.js');
   return ApplyDamageService.applyResolved(actor, payload);
 }
+
+export async function applyDamageResolvedResult(actor, payload = {}) {
+  const { ApplyDamageService } = await import('../../application/combat/apply-damage-service.js');
+  return ApplyDamageService.applyResolvedResult(actor, payload);
+}

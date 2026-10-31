@@ -1,5 +1,6 @@
 import { SYSTEM_ID, templatePath } from "../../constants.js";
 import { getSettingPresentation, t } from "../../../utils/i18n.js";
+import { collectSupportReport } from "../../../utils/dev/collect-support-report.js";
 /**
  * src/ui/apps/v2/debug-settings.js
  *
@@ -24,6 +25,7 @@ function _settingExists(key) {
 export class DebugSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
   static DEFAULT_OPTIONS = {
     id: "uesrpg-debug-settings",
+    actions: { exportSupportReport: DebugSettingsAppV2._onExportSupportReport },
     tag: "form",
     form: {
       handler: DebugSettingsAppV2._onSubmit,
@@ -58,6 +60,18 @@ export class DebugSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV2
         debugClientEnabled: getSettingPresentation(NAMESPACE, "debugClientEnabled"),
       },
     };
+  }
+
+  static _onExportSupportReport() {
+    if (!_isGM()) return;
+    try {
+      const includeModules = new FormData(this.form).has("support.includeModules");
+      const report = collectSupportReport({ includeModules });
+      foundry.utils.saveDataToFile(JSON.stringify(report, null, 2), "application/json", "uesrpg-support-report.json");
+      ui.notifications.info(t("UESRPG.Apps.DebugSettings.Export.Requested", "Support report download requested."));
+    } catch (_error) {
+      ui.notifications.error(t("UESRPG.Apps.DebugSettings.Export.Failed", "The support report could not be downloaded."));
+    }
   }
 
   static async _onSubmit(event, form, formData) {

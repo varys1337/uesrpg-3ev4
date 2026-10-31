@@ -17,7 +17,7 @@ import { ActionEconomy } from "../../../combat/action-economy.js";
 import { isActorInStartedCombatEncounter } from "../../../combat/combat-scope.js";
 import { getActiveWardSpell } from "../../../combat/ward-defense.js";
 import { computeSpellAttemptMagickaCost, consumeSpellMagicka } from "../../magicka-utils.js";
-import { resolveToken } from "../schema.js";
+import { getDefenderOutcome, markCharacteristicDefenseReview, resolveToken } from "../schema.js";
 import { executeCharacteristicDefense } from "../../characteristic-defense-service.js";
 import { buildMagicCastContext } from "../cast-context.js";
 import { hasCondition } from "../../../conditions/condition-engine.js";
@@ -116,7 +116,7 @@ export function computeBlockTNWithBreakdown(defender) {
 export async function handleDefenderRoll(ctx, action) {
   const { message, data, attacker, defender, defenderActor, defenderIndex, workflow, batchedUpdate } = ctx;
 
-  if (defender?.result || defender?.noDefense) return;
+  if (defender?.result || defender?.noDefense || getDefenderOutcome(data, defender)) return;
 
   if (hasCondition(defenderActor, "helpless")) {
     markDefenderNoDefense(defender, "Helpless");
@@ -227,7 +227,7 @@ export async function handleDefenderNoDefense(ctx) {
   }
 
   // No defense does not cost AP.
-  if (defender?.result || defender?.noDefense) return;
+  if (defender?.result || defender?.noDefense || getDefenderOutcome(data, defender)) return;
 
   markDefenderNoDefense(defender, "No Defense");
   defender.defenseType = "-";
@@ -235,6 +235,20 @@ export async function handleDefenderNoDefense(ctx) {
   defender.result = { rollTotal: 0, isSuccess: false, degree: 0, isCriticalSuccess: false, isCriticalFailure: false };
 
   await workflow._resolveOutcome(message, data, attacker, defenderActor, { defenderIndex, batchedUpdate, spell: ctx.spell ?? null });
+  return data;
+}
+
+async function holdCharacteristicDefenseForReview({ message, data, defender, batchedUpdate, _updateCard }) {
+  markCharacteristicDefenseReview(data, defender);
+  if (!batchedUpdate) {
+    try { await _updateCard(message, data); }
+    catch (error) {
+      console.warn("UESRPG | Characteristic defense review could not be recorded", error);
+      ui.notifications?.warn?.("The characteristic defense review could not be saved. Stop automatic processing and inspect the card and chat before retrying.");
+      return data;
+    }
+  }
+  ui.notifications?.warn?.("The characteristic defense was not confirmed. The GM must inspect the card and earlier rolls before resolving this target.");
   return data;
 }
 
@@ -246,54 +260,49 @@ export async function handleDefenderNoDefense(ctx) {
 export async function handleDefenderCharacteristicTest(ctx) {
   const { message, data, attacker, defender, defenderActor, defenderIndex, workflow, batchedUpdate } = ctx;
 
-  if (defender?.result || defender?.noDefense) return;
+  if (defender?.result || defender?.noDefense || getDefenderOutcome(data, defender)) return;
 
   // Characteristic defense doesn't cost AP - it's a saving throw
   // Use ctx.spell (resolved by dispatch) — ctx.attacker is the Actor doc, not the data object.
   const spell = ctx.spell ?? (data.attacker?.spellUuid ? await ctx._uuidResolver.resolve(data.attacker.spellUuid) : null);
   if (!spell) {
-    ui.notifications.error("Cannot resolve characteristic defense: spell not found.");
-    return;
+    return holdCharacteristicDefenseForReview(ctx);
   }
 
   // Validate characteristic defense configuration before rolling
   const spellConfig = spell.system?.engine?.characteristicDefense;
   const chaKey = String(spellConfig?.defenderCharacteristic ?? "").toLowerCase();
-  if (!chaKey || !defenderActor.system?.characteristics?.[chaKey]) {
+  if (!chaKey || !defenderActor?.system?.characteristics?.[chaKey]) {
     const label = chaKey || "(missing)";
     ui.notifications.warn(`Characteristic defense: defender has no characteristic "${label}". Check spell configuration.`);
-    console.warn("UESRPG | handleDefenderCharacteristicTest: invalid characteristic key", { chaKey, spell: spell.name, defender: defenderActor.name });
-    // Fall through — executeCharacteristicDefense will use "end" as default
+    console.warn("UESRPG | handleDefenderCharacteristicTest: invalid characteristic key", { chaKey, spell: spell.name, defender: defenderActor?.name });
+    return holdCharacteristicDefenseForReview(ctx);
   }
 
-  if (String(spellConfig?.modifierMode ?? "spellStrength") !== "formula") {
-    await prepareSpellStrengthForUse({ data, attacker, spell, targetActor: defenderActor, message });
-    await ctx._updateCard(message, data);
+  let defResult;
+  try {
+    if (String(spellConfig?.modifierMode ?? "spellStrength") !== "formula") {
+      await prepareSpellStrengthForUse({ data, attacker, spell, targetActor: defenderActor, message });
+      await ctx._updateCard(message, data);
+    }
+    defResult = await executeCharacteristicDefense(defenderActor, spell, {
+      caster: attacker,
+      attacker: data?.attacker ?? {},
+      castContext: buildMagicCastContext(data?.attacker ?? {}, spell, { actor: attacker }),
+      targetToken: resolveToken(data?.attacker?.tokenUuid),
+      rollContext: data?.context?.rollContext,
+      postToChat: false
+    });
+    const total = Number(defResult?.roll?.total);
+    if (typeof defResult?.success !== "boolean" || defResult?.roll?.total == null
+      || !Number.isInteger(total) || total < 1 || total > 100 || defResult.tnData?.finalTN == null
+      || !Number.isFinite(Number(defResult.tnData.finalTN))) {
+      throw new Error("The characteristic defense result was incomplete.");
+    }
+  } catch (error) {
+    console.warn("UESRPG | Characteristic defense requires review", error);
+    return holdCharacteristicDefenseForReview(ctx);
   }
-
-  // Execute the characteristic defense test WITHOUT posting to chat (handled by opposed card)
-  const defResult = await executeCharacteristicDefense(defenderActor, spell, {
-    caster: attacker,
-    attacker: data?.attacker ?? {},
-    castContext: buildMagicCastContext(data?.attacker ?? {}, spell, { actor: attacker }),
-    targetToken: resolveToken(data?.attacker?.tokenUuid),
-    rollContext: data?.context?.rollContext,
-    postToChat: false
-  });
-  if (!defResult) {
-    ui.notifications.error("Characteristic defense test failed to execute.");
-    return;
-  }
-
-  // Post the roll to chat as a separate 3D dice card (like opposed combat tests)
-  await postMagicOpposedSubRoll({
-    roll: defResult.roll,
-    actor: defenderActor,
-    flavor: `<b>${defResult.characteristicLabel} Save</b>`,
-    parentMessageId: message.id,
-    stage: "defender",
-    defenderIndex
-  });
 
   // Store result in defender entry (format matching doTestRoll output)
   defender.result = {
@@ -307,6 +316,20 @@ export async function handleDefenderCharacteristicTest(ctx) {
   defender.defenseType = "characteristic-save";
   defender.characteristicLabel = defResult.characteristicLabel;
   defender.tn = defResult.tnData;
+
+  try {
+    await postMagicOpposedSubRoll({
+      roll: defResult.roll,
+      actor: defenderActor,
+      flavor: `<b>${defResult.characteristicLabel} Save</b>`,
+      parentMessageId: message.id,
+      stage: "defender",
+      defenderIndex
+    });
+  } catch (error) {
+    console.warn("UESRPG | Characteristic defense roll presentation requires review", error);
+    return holdCharacteristicDefenseForReview(ctx);
+  }
 
   await workflow._resolveOutcome(message, data, attacker, defenderActor, { defenderIndex, batchedUpdate, spell });
   return data;

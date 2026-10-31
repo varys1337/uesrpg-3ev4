@@ -8,7 +8,8 @@ import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { SYSTEM_ID } from "../system/namespace.js";
 import { registerCombatBoundaryConsumer } from "../time/combat-boundary-orchestrator.js";
 import { getActorCapabilityFlag } from "../active-effects/modifier-evaluator.js";
-import { doTestRoll } from "../../utils/degree-roll-helper.js";
+import { confirmDialog } from "../../utils/dialog-v2-helper.js";
+import { escapeHtml } from "../../utils/html.js";
 import { hasAkaviriDangerSense } from "../traits/starsigns/index.js";
 import { isActiveGMUser } from "../../utils/users.js";
 const SURPRISE_FLAG_PATH = "chapter5.surpriseState";
@@ -32,42 +33,6 @@ function _combatId(combat) {
 function _actorCombatant(actor, combat = game.combat) {
   if (!actor || !combat?.combatants) return null;
   return combat.combatants.find((c) => c?.actor?.id === actor.id) ?? null;
-}
-
-function _resolveLuckTarget(actor) {
-  const candidates = [
-    actor?.system?.characteristics?.lck?.total,
-    actor?.system?.characteristics?.lck?.value,
-    actor?.system?.characteristics?.lck?.base,
-  ];
-  for (const candidate of candidates) {
-    const value = Number(candidate);
-    if (Number.isFinite(value)) return value;
-  }
-  return null;
-}
-
-async function _attemptAkaviriDangerSenseAvoidance(actor) {
-  if (!actor || !hasAkaviriDangerSense(actor)) {
-    return { attempted: false, succeeded: false, rollTotal: null, target: null };
-  }
-
-  const target = _resolveLuckTarget(actor);
-  if (!Number.isFinite(target)) {
-    return { attempted: false, succeeded: false, rollTotal: null, target: null };
-  }
-
-  try {
-    const result = await doTestRoll(actor, { rollFormula: "1d100", target, allowLucky: true, allowUnlucky: true });
-    return {
-      attempted: true,
-      succeeded: Boolean(result?.isSuccess),
-      rollTotal: Number(result?.rollTotal ?? result?.roll?.total ?? NaN) || null,
-      target
-    };
-  } catch (_e) {
-    return { attempted: true, succeeded: false, rollTotal: null, target };
-  }
 }
 
 export function resolveSurpriseState(actor, { combatContext = game.combat } = {}) {
@@ -111,13 +76,25 @@ export function resolveSurpriseState(actor, { combatContext = game.combat } = {}
 export async function setActorSurprised(actor, { combat = game.combat, surprised = true } = {}) {
   if (!actor || !_isActiveCombat(combat)) return false;
 
-  const blockedByAwakeFlag = Boolean(surprised) && getActorCapabilityFlag(actor, "flags.uesrpg-3ev4.senses.alwaysAwakeForSurprise");
-  const dangerSenseAvoided = Boolean(surprised) && !blockedByAwakeFlag
-    ? await _attemptAkaviriDangerSenseAvoidance(actor)
-    : { attempted: false, succeeded: false, rollTotal: null, target: null };
-  const preventedByDangerSense = dangerSenseAvoided?.succeeded === true;
-
   const cid = _combatId(combat);
+  const blockedByAwakeFlag = Boolean(surprised) && getActorCapabilityFlag(actor, "flags.uesrpg-3ev4.senses.alwaysAwakeForSurprise");
+  let preventedByDangerSense = false;
+  if (surprised && !blockedByAwakeFlag && hasAkaviriDangerSense(actor)) {
+    const priorState = JSON.stringify(_readState(actor) ?? null);
+    const avoided = await confirmDialog({
+      title: "Akaviri Danger-Sense",
+      content: `<p>${escapeHtml(actor.name)} may attempt a Luck test to avoid surprise. Ask the player whether to try and resolve any test manually before choosing.</p><p>Choose Avoided only for a successful test; choose Surprised if the test failed or was declined. Close this dialog to leave the state unchanged.</p>`,
+      yesLabel: "Avoided",
+      noLabel: "Surprised"
+    });
+    if (avoided === null) return false;
+    if (!_isActiveCombat(combat) || _combatId(game.combat) !== cid || JSON.stringify(_readState(actor) ?? null) !== priorState) {
+      ui.notifications?.warn?.("The combat or surprise state changed. Inspect the actor and the Luck test before deciding again.");
+      return false;
+    }
+    preventedByDangerSense = avoided === true;
+  }
+
   const payload = {
     combatId: cid,
     isSurprised: (blockedByAwakeFlag || preventedByDangerSense) ? false : Boolean(surprised),
@@ -125,11 +102,16 @@ export async function setActorSurprised(actor, { combat = game.combat, surprised
     updatedAt: Date.now()
   };
 
-  await requestUpdateDocument(actor, {
-    [`flags.${SYSTEM_ID}.${SURPRISE_FLAG_PATH}`]: payload
-  });
-
-  return true;
+  try {
+    const saved = await requestUpdateDocument(actor, {
+      [`flags.${SYSTEM_ID}.${SURPRISE_FLAG_PATH}`]: payload
+    });
+    if (saved) return true;
+  } catch (_error) {
+    // The write may still have reached the authority; inspect before retrying.
+  }
+  ui.notifications?.warn?.("The surprise state could not be confirmed. Inspect the actor and any Luck test before retrying.");
+  return false;
 }
 
 export async function clearActorSurpriseState(actor) {

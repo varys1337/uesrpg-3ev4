@@ -27,14 +27,16 @@ export function shouldTriggerWound({
   damageApplied = 0,
   woundThreshold = 0,
   isCriticalSuccess = false,
+  oldHp = null,
   newHp = null
 } = {}) {
   const mode = getWoundsMode();
   const dmg = Math.max(0, Number(damageApplied) || 0);
   const wt = Math.max(0, Number(woundThreshold) || 0);
   const crit = isCriticalSuccess === true;
-  const hpAfter = Number(newHp);
-  const reducedToZero = Number.isFinite(hpAfter) ? hpAfter <= 0 : false;
+  const hpBefore = oldHp == null ? NaN : Number(oldHp);
+  const hpAfter = newHp == null ? NaN : Number(newHp);
+  const reducedToZero = Number.isFinite(hpBefore) && hpBefore > 0 && Number.isFinite(hpAfter) && hpAfter <= 0;
 
   if (mode === WOUNDS_MODE.ALTERNATE) {
     return {

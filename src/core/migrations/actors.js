@@ -21,6 +21,8 @@ import { buildDefaultWorshipData, buildDefaultWorshipDomainState } from "../reli
 import { cleanSystemDataWithModel, isTypeDataModelsEnabled } from "../data-models/registry.js";
 import { NPC_THREAT_LEGACY_KEY_MAP } from "../rules/npc-threat-templates.js";
 import { MIGRATION_REVISIONS } from "./revisions.js";
+import { isActiveGMUser } from "../../utils/users.js";
+import { assertDocumentWriteConfirmed } from "../../utils/authority-proxy/shared.js";
 
 const MODULE_ID = SYSTEM_ID;
 const _ACTORS_MIGRATION_REVISION = MIGRATION_REVISIONS.actors;
@@ -236,7 +238,7 @@ function _buildActorMigrationPatch(actor) {
 }
 
 export async function migrateActorsIfNeeded() {
-  if (!game.user.isGM) return;
+  if (!isActiveGMUser(game.user)) return;
 
   const state = getMigrationState();
   if (isMigrationRevisionApplied("actors", _ACTORS_MIGRATION_REVISION, state)) return;
@@ -251,7 +253,9 @@ export async function migrateActorsIfNeeded() {
 
     if (updates.length) {
       console.log(`${MODULE_ID} | Migrating ${updates.length} actor(s)`);
-      await Actor.updateDocuments(updates, { diff: false });
+      const expectedIds = updates.map(row => row._id);
+      const updated = await Actor.updateDocuments(updates, { diff: false });
+      assertDocumentWriteConfirmed(expectedIds, updated, "Actor");
     }
 
     // Record migration version after a successful pass (even if no updates were needed).
@@ -261,12 +265,12 @@ export async function migrateActorsIfNeeded() {
     await setMigrationState(state);
   } catch (err) {
     console.error(`${MODULE_ID} | Actor migration failed`, err);
-    ui.notifications?.error?.("UESRPG actor migration failed; check console for details.");
+    throw err;
   }
 }
 
 export async function migrateNpcThreatTemplateKeysIfNeeded() {
-  if (!game.user?.isGM) return;
+  if (!isActiveGMUser(game.user)) return;
 
   const state = getMigrationState();
   if (isMigrationRevisionApplied(_NPC_THREAT_TEMPLATE_KEYS_MIGRATION_KEY, _NPC_THREAT_TEMPLATE_KEYS_MIGRATION_REVISION, state)) return;
@@ -297,7 +301,9 @@ export async function migrateNpcThreatTemplateKeysIfNeeded() {
 
     if (updates.length) {
       console.log(`${MODULE_ID} | Migrating ${updates.length} NPC threat template key(s)`);
-      await Actor.implementation.updateDocuments(updates, { diff: false });
+      const expectedIds = updates.map(row => row._id);
+      const updated = await Actor.implementation.updateDocuments(updates, { diff: false });
+      assertDocumentWriteConfirmed(expectedIds, updated, "Actor");
     }
 
     markMigrationRevisionApplied(state, _NPC_THREAT_TEMPLATE_KEYS_MIGRATION_KEY, _NPC_THREAT_TEMPLATE_KEYS_MIGRATION_REVISION, {
@@ -306,12 +312,12 @@ export async function migrateNpcThreatTemplateKeysIfNeeded() {
     await setMigrationState(state);
   } catch (err) {
     console.error(`${MODULE_ID} | NPC threat template key migration failed`, err);
-    ui.notifications?.error?.("UESRPG NPC threat template migration failed; check console for details.");
+    throw err;
   }
 }
 
 export async function migrateNpcThreatTemplateOptionsIfNeeded() {
-  if (!game.user?.isGM) return;
+  if (!isActiveGMUser(game.user)) return;
 
   const state = getMigrationState();
   if (isMigrationRevisionApplied(_NPC_THREAT_TEMPLATE_OPTIONS_MIGRATION_KEY, _NPC_THREAT_TEMPLATE_OPTIONS_MIGRATION_REVISION, state)) return;
@@ -333,7 +339,9 @@ export async function migrateNpcThreatTemplateOptionsIfNeeded() {
 
     if (updates.length) {
       console.log(`${MODULE_ID} | Removing persisted NPC threat template option map(s) from ${updates.length} actor(s)`);
-      await Actor.implementation.updateDocuments(updates, { diff: false });
+      const expectedIds = updates.map(row => row._id);
+      const updated = await Actor.implementation.updateDocuments(updates, { diff: false });
+      assertDocumentWriteConfirmed(expectedIds, updated, "Actor");
     }
 
     markMigrationRevisionApplied(state, _NPC_THREAT_TEMPLATE_OPTIONS_MIGRATION_KEY, _NPC_THREAT_TEMPLATE_OPTIONS_MIGRATION_REVISION, {
@@ -342,7 +350,7 @@ export async function migrateNpcThreatTemplateOptionsIfNeeded() {
     await setMigrationState(state);
   } catch (err) {
     console.error(`${MODULE_ID} | NPC threat template option migration failed`, err);
-    ui.notifications?.error?.("UESRPG NPC threat template option migration failed; check console for details.");
+    throw err;
   }
 }
 
@@ -869,7 +877,7 @@ function _buildWarfareNeutralLanePatch(sys) {
  * Version-gated via migrationState key; idempotent.
  */
 export async function migrateWarfareUnitNeutralLanesIfNeeded() {
-  if (!game.user?.isGM) return;
+  if (!isActiveGMUser(game.user)) return;
 
   const state = getMigrationState();
   if (isMigrationRevisionApplied(_WF_NEUTRAL_LANE_MIGRATION_KEY, _WF_NEUTRAL_LANE_MIGRATION_REVISION, state)) return;
@@ -889,7 +897,9 @@ export async function migrateWarfareUnitNeutralLanesIfNeeded() {
 
     if (updates.length) {
       console.log(`${MODULE_ID} | Warfare Unit neutral lane migration: updating ${updates.length} actor(s)`);
-      await Actor.updateDocuments(updates, { diff: false });
+      const expectedIds = updates.map(row => row._id);
+      const updated = await Actor.updateDocuments(updates, { diff: false });
+      assertDocumentWriteConfirmed(expectedIds, updated, "Actor");
     }
 
     // Stamp migration as done regardless of update count (0 actors = no migration needed).
@@ -900,6 +910,6 @@ export async function migrateWarfareUnitNeutralLanesIfNeeded() {
     console.log(`${MODULE_ID} | Warfare Unit neutral lane migration complete (${updates.length} actor(s) updated)`);
   } catch (err) {
     console.error(`${MODULE_ID} | Warfare Unit neutral lane migration failed`, err);
-    ui.notifications?.error?.("UESRPG Warfare Unit neutral lane migration failed; check console for details.");
+    throw err;
   }
 }

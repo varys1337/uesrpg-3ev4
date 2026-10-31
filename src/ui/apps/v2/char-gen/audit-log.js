@@ -1,4 +1,6 @@
-﻿import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
+﻿import { requestAtomicUpdateDocument } from "../../../../utils/authority-proxy.js";
+import { stableStringify } from "../../../../utils/authority-proxy/shared.js";
+import { t } from "../../../../utils/i18n.js";
 import { SYSTEM_ID, templatePath } from "../../../constants.js";
 import {
   extractConfiguredLuckyNumbers,
@@ -13,16 +15,34 @@ function asNumber(value, fallback = 0) {
 
 export async function appendChargenAudit(actor, entry = {}) {
   if (!actor) return [];
-  const chargen = actor.getFlag(SYSTEM_ID, "chargen") ?? {};
-  const log = Array.isArray(chargen.auditLog) ? [...chargen.auditLog] : [];
-  log.push({
-    step: String(entry.step ?? "unknown"),
-    action: String(entry.action ?? "update"),
-    timestamp: new Date().toISOString(),
-    payload: entry.payload ?? {},
+  let record;
+  try {
+    // Normalize shared object references and undefined values as persisted JSON.
+    record = JSON.parse(JSON.stringify({
+      id: foundry.utils.randomID(24),
+      step: String(entry.step ?? "unknown"),
+      action: String(entry.action ?? "update"),
+      timestamp: new Date().toISOString(),
+      payload: entry.payload ?? {},
+    }));
+  } catch (_error) {
+    ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.AuditWriteUncertain"));
+    return [];
+  }
+  const saved = await requestAtomicUpdateDocument(actor, fresh => {
+    const existing = fresh.getFlag(SYSTEM_ID, "chargen")?.auditLog;
+    // An unsupported value needs review; do not overwrite historical data.
+    if (existing != null && !Array.isArray(existing)) return null;
+    return { "flags.uesrpg-3ev4.chargen.auditLog": [...(existing ?? []), record] };
   });
-  await requestUpdateDocument(actor, { "flags.uesrpg-3ev4.chargen.auditLog": log });
-  return log;
+  const observed = actor.getFlag(SYSTEM_ID, "chargen")?.auditLog;
+  const recorded = Array.isArray(observed) && observed.some(row => row?.id === record.id
+    && stableStringify(row) === stableStringify(record));
+  if (!saved || !recorded) {
+    ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.AuditWriteUncertain"));
+    return [];
+  }
+  return observed;
 }
 
 function collectFavoriteCharacteristics(characteristics = {}) {
@@ -95,6 +115,7 @@ export function buildChargenSummary(actor, auditLog = []) {
       source: String(entry?.source ?? (index === 0 ? "initial" : "reroll")).trim() || (index === 0 ? "initial" : "reroll"),
       pool: Array.isArray(entry?.pool) ? entry.pool.map((value) => asNumber(value, 0)) : [],
       luckRoll: asNumber(entry?.luckRoll, 0),
+      ...(Number.isInteger(entry?.rerollIndex) ? { rerollIndex: entry.rerollIndex } : {}),
     }))
     .filter((entry) => entry.pool.length > 0);
 
@@ -164,7 +185,8 @@ export function buildChargenSummaryChatHtml(summary) {
   const spellTotals = summary.spellLearning?.totals ?? {};
   const statsGeneration = summary.statsGeneration ?? {};
   const statsPoolRows = (statsGeneration.rollHistory ?? []).map((entry, index) => {
-    const label = index === 0 ? "Initial Pool" : `Reroll ${index}`;
+    const label = index === 0 ? "Initial Pool" : Number.isInteger(entry?.rerollIndex)
+      ? `Reroll ${index} (set ${entry.rerollIndex + 1})` : `Reroll ${index}`;
     const luckPart = Number(entry?.luckRoll ?? 0) > 0 ? ` | Luck ${asNumber(entry.luckRoll, 0)}` : "";
     return `<li><b>${label}:</b> ${(entry?.pool ?? []).join(", ")}${luckPart}</li>`;
   }).join("");

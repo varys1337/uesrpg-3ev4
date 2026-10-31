@@ -1163,7 +1163,7 @@ function _normalizeCharacteristicDefense(sys) {
   const cd = sys?.engine?.characteristicDefense;
   const validChars = ["str", "end", "agi", "int", "wp", "prc", "prs", "lck"];
   const rawChar = _str(cd?.defenderCharacteristic).toLowerCase();
-  const validModModes = ["spellStrength", "formula"];
+  const validModModes = ["spellStrength", "add", "formula"];
   const rawModMode = _str(cd?.modifierMode);
   const validSuccess = ["negate", "halve", "endEffect"];
   const rawSuccess = _str(cd?.onSuccess).toLowerCase();

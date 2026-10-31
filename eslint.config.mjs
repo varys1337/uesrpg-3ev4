@@ -57,6 +57,18 @@ export default [
     rules: correctnessRules,
   },
   {
+    files: ["tests/**/*.mjs"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "module",
+      globals: globals.node,
+    },
+    rules: {
+      ...correctnessRules,
+      "no-unused-vars": ["error", { args: "none", caughtErrors: "none", ignoreRestSiblings: true }],
+    },
+  },
+  {
     files: ["scripts/**/*.js", "automation/**/*.js"],
     languageOptions: {
       ecmaVersion: "latest",
@@ -70,6 +82,10 @@ export default [
     // repository-wide cleanup on unrelated mechanics.
     files: [
       "src/application/combat/apply-damage-service.js",
+      "src/application/combat/chat-outcome-application-service.js",
+      "src/core/combat/special-action-operations.js",
+      "src/core/combat/special-action-outcomes.js",
+      "src/ui/combat/special-action-review.js",
       "src/core/combat/damage/post-application.js",
       "src/core/combat/damage/aftermath-bundle.js",
       "src/core/combat/opposed/dialogs/advantage-options.js",

@@ -1,5 +1,8 @@
+import { requestXpPurchase } from "../../../../core/advancement/purchase-service.js";
+import { ensureXpPurchasesReviewed, showXpPurchaseFailure } from "../../../advancement/purchase-review.js";
+import { computeCombatSetupCost } from "../../../../core/advancement/combat-style-setup.js";
 import { systemTooltipAttributes } from "../../../shared/system-tooltips.js";
-﻿import { requestCreateActor, requestCreateEmbeddedDocuments, requestUpdateDocument } from "../../../../utils/authority-proxy.js";
+import { requestCreateActor, requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import { RaceMenuAppV2, BirthSignMenuAppV2, rollBirthsignSelection, applyBirthsignSelection } from "../character-creation-menus.js";
 import { onSetBaseCharacteristics, onLuckyMenu } from "../../../sheets/shared/listeners/characteristics-handlers.js";
 import { onStartingResourcesMenu } from "../../../sheets/shared/dialogs/character-menus.js";
@@ -10,13 +13,7 @@ import { appendChargenAudit, buildChargenSummary, buildChargenSummaryChatHtml } 
 import { SPECIAL_ACTIONS } from "../../../../core/config/special-actions.js";
 import { TRAINING_RANK_LABELS } from "../../../../core/config/label-catalog.js";
 import { SYSTEM_ID, templatePath } from "../../../constants.js";
-import {
-  SKILL_RANK_ORDER,
-  SKILL_RANK_XP_COST,
-  normalizeRank,
-  discountCostIfFavored,
-  isFavoredSkillForActor,
-} from "../../../../core/advancement/skill-advancement.js";
+import { normalizeRank } from "../../../../core/advancement/skill-advancement.js";
 import {
   extractConfiguredLuckyNumbers,
   extractConfiguredUnluckyNumbers,
@@ -84,13 +81,9 @@ function _dialogRoot(ref) {
   return node;
 }
 
-function _asNum(value, fallback = 0) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
-}
-
 export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
   static #openByKey = new Map();
+  #finishing = false;
 
   constructor(options = {}) {
     super(withApplicationUniqueId(options, options.actorUuid ?? `global-${game.user?.id ?? "unknown"}`));
@@ -391,10 +384,12 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     }
   }
 
-  #setActor(actor, { tokenActorFreeNavigation = false } = {}) {
+  #setActor(actor, { tokenActorFreeNavigation = false, createdByWizard = false } = {}) {
     if (!actor || actor.documentName !== "Actor") return;
+    if (this._ws.actorUuid !== actor.uuid) this._ws = _defaultWizardState(this._ws.newActorName);
     this._ws.actorUuid = actor.uuid;
     this._ws.completion.actor = true;
+    this._ws.createdByWizard ||= Boolean(createdByWizard);
     const completed = isChargenCompleted(actor);
     this._ws.tokenActorFreeNavigation = Boolean(tokenActorFreeNavigation) || completed;
     if (completed) this.#enableReviewMode();
@@ -560,8 +555,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       return;
     }
 
-    this._ws.createdByWizard = true;
-    this.#setActor(actor, { tokenActorFreeNavigation: false });
+    this.#setActor(actor, { tokenActorFreeNavigation: false, createdByWizard: true });
     await this.render();
   }
 
@@ -583,8 +577,17 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       if (!administrativeReason) return;
     }
 
+    const previousRace = String(actor.system?.race ?? "").trim().toLowerCase();
     const result = await RaceMenuAppV2.prompt(actor, { administrativeReason });
     if (!result) return;
+    const changedRace = previousRace !== String(actor.system?.race ?? "").trim().toLowerCase();
+    if (changedRace && !this._ws.reviewMode) {
+      const hadProgress = this._ws.completion.stats || this._ws.completion.resources || this._ws.completion.luck;
+      this._ws.completion.stats = false;
+      this._ws.completion.resources = false;
+      this._ws.completion.luck = false;
+      if (hadProgress) ui.notifications?.info?.(t("UESRPG.Notifications.CharGen.RaceChangedReview"));
+    }
     this._ws.completion.race = true;
     await appendChargenAudit(actor, {
       step: "race",
@@ -643,7 +646,8 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       administrativeReason = await promptAdministrativeCorrectionReason();
       if (!administrativeReason) return;
     }
-    await onSetBaseCharacteristics.call({ actor }, _eventStub(), target);
+    const stats = await onSetBaseCharacteristics.call({ actor }, _eventStub(), target);
+    if (!stats?.ok) return;
     this._ws.completion.stats = true;
     await appendChargenAudit(actor, {
       step: "stats",
@@ -692,8 +696,8 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
           </select>
         </label>
         <label class="uesrpg-cg-check uesrpg-adv-choice uesrpg-choice-bar">
-          <input type="checkbox" data-role="luck-cost-toggle">
-          <span class="uesrpg-adv-choice__label">${t("UESRPG.Dialogs.CharGen.OptionalLuckRule")}</span>
+          <input type="checkbox" data-role="free-birthsign-choice">
+          <span class="uesrpg-adv-choice__label">${t("UESRPG.Dialogs.CharGen.OptionalFreeBirthsign", "The group agrees to the optional no-cost choice")}</span>
         </label>
       </div>`,
       buttons: {
@@ -704,7 +708,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
             return {
               mode: "roll",
               charge: String(root?.querySelector('[data-role="birthsign-charge"]')?.value ?? "warrior"),
-              luckCostToggle: Boolean(root?.querySelector('[data-role="luck-cost-toggle"]')?.checked),
+              freeChoice: Boolean(root?.querySelector('[data-role="free-birthsign-choice"]')?.checked),
             };
           },
         },
@@ -714,7 +718,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
             const root = html instanceof HTMLElement ? html : html?.[0];
             return {
               mode: "manual",
-              luckCostToggle: Boolean(root?.querySelector('[data-role="luck-cost-toggle"]')?.checked),
+              freeChoice: Boolean(root?.querySelector('[data-role="free-birthsign-choice"]')?.checked),
             };
           },
         },
@@ -724,30 +728,23 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     });
     if (!choice || choice === "cancel") return;
 
-    let ok = false;
-    if (choice.mode === "manual") {
-      let pendingLuckCost = 0;
-      if (choice.luckCostToggle) {
-        const spendLuck = await confirmDialog({
-          title: t("UESRPG.Dialogs.CharGen.OptionalRuleTitle"),
+    const chooseManually = async () => {
+      if (!choice.freeChoice) {
+        const confirmed = await confirmDialog({
+          title: t("UESRPG.Dialogs.CharGen.BirthsignChoiceCostTitle", "Birthsign choice cost"),
           classes: ["uesrpg-chargen-dialog"],
           content: `<p>${t("UESRPG.Dialogs.CharGen.OptionalRuleContent")}</p>`,
-          yesLabel: t("UESRPG.Dialogs.CharGen.Spend5Luck"),
-          noLabel: t("UESRPG.Dialogs.CharGen.NoLuckCost"),
+          yesLabel: t("UESRPG.UI.Continue", "Continue"),
+          noLabel: t("UESRPG.UI.Cancel", "Cancel"),
         });
-        if (spendLuck) pendingLuckCost = 5;
+        if (!confirmed) return false;
       }
-      ok = await BirthSignMenuAppV2.prompt(actor, { administrativeReason });
-      if (ok && pendingLuckCost > 0) {
-        await requestUpdateDocument(actor, {
-          "system.characteristics.lck.base": Math.max(0, Number(actor.system?.characteristics?.lck?.base ?? 0) - pendingLuckCost),
-        });
-        await appendChargenAudit(actor, {
-          step: "birthsign",
-          action: "manualLuckCost",
-          payload: { luckCost: pendingLuckCost },
-        });
-      }
+      return BirthSignMenuAppV2.prompt(actor, { administrativeReason, luckCost: choice.freeChoice ? 0 : 5 });
+    };
+
+    let ok = false;
+    if (choice.mode === "manual") {
+      ok = await chooseManually();
     } else {
       const rollResult = rollBirthsignSelection(choice.charge);
       if (!rollResult?.signKey) return;
@@ -762,13 +759,34 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
         </div>`,
         buttons: {
           accept: { label: t("UESRPG.Dialogs.CharGen.Accept") },
+          ...(!rollResult.starCursed ? { upgrade: { label: t("UESRPG.Dialogs.CharGen.UpgradeStarCursed", "Choose Star-Cursed") } } : {}),
           manual: { label: t("UESRPG.Dialogs.CharGen.ManualInstead") },
           cancel: { label: t("UESRPG.UI.Cancel") },
         },
         default: "accept",
       });
       if (review === "manual") {
-        ok = await BirthSignMenuAppV2.prompt(actor, { administrativeReason });
+        ok = await chooseManually();
+      } else if (review === "upgrade" && !rollResult.starCursed) {
+        const thief = rollResult.signKey === "thief";
+        const confirmed = await confirmDialog({
+          title: t("UESRPG.Dialogs.CharGen.UpgradeStarCursed", "Choose Star-Cursed"),
+          content: `<p>${thief
+            ? t("UESRPG.Dialogs.CharGen.UpgradeThiefConfirm", "A naturally rolled Thief may choose its Star-Cursed version without spending Luck.")
+            : t("UESRPG.Dialogs.CharGen.UpgradeStarCursedConfirm", "Change this rolled sign to its Star-Cursed version by permanently reducing Luck by 5.")}</p>`,
+          yesLabel: t("UESRPG.UI.Confirm", "Confirm"),
+          noLabel: t("UESRPG.UI.Cancel", "Cancel"),
+        });
+        if (!confirmed) return;
+        ok = await applyBirthsignSelection(actor, {
+          signKey: rollResult.signKey,
+          starCursed: true,
+          mode: "roll-upgrade",
+          charge: rollResult.charge,
+          d5Roll: rollResult.d5Roll,
+          luckCost: thief ? 0 : 5,
+          administrativeReason,
+        });
       } else if (review === "accept") {
         ok = await applyBirthsignSelection(actor, {
           signKey: rollResult.signKey,
@@ -827,10 +845,12 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       return;
     }
 
-    await onStartingResourcesMenu.call({ actor }, _eventStub(), target);
+    const resources = await onStartingResourcesMenu.call({ actor }, _eventStub(), target);
+    if (!resources?.ok) return;
     const grantResults = await promptAndApplyAllMissingRacialGrants(actor);
     const failedGrant = grantResults.find((result) => result && !result.ok && !result.cancelled);
     if (failedGrant) ui.notifications?.warn?.(failedGrant.error ?? t("UESRPG.DefectUpdate.GrantApplyFailed", "Unable to apply racial grant."));
+    if (grantResults.some(result => !result?.ok)) { await this.render(); return; }
     this._ws.completion.resources = true;
     await appendChargenAudit(actor, {
       step: "resources",
@@ -876,74 +896,6 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       <input type="checkbox" class="cg-sa" value="${foundry.utils.escapeHTML(sa.id)}">
       <span class="uesrpg-adv-choice__label">${foundry.utils.escapeHTML(sa.name)}</span>
     </label>`).join("");
-
-    const computeCombatSetupCost = (input) => {
-      if (!input || !RANK_OPTIONS.includes(input.rank)) {
-        return { ok: false, reason: t("UESRPG.Notifications.CharGen.InvalidCombatStyleRank") };
-      }
-
-      const styleIsNew = input.styleId === "__new__";
-      const style = styleIsNew ? null : (actor.items.get(input.styleId) ?? null);
-      if (!styleIsNew && !style) {
-        return { ok: false, reason: t("UESRPG.Notifications.CharGen.CombatStyleMissing") };
-      }
-
-      const currentRank = styleIsNew ? "untrained" : normalizeRank(style.system?.rank ?? "untrained");
-      const targetRank = normalizeRank(input.rank);
-      const currentIdx = SKILL_RANK_ORDER.indexOf(currentRank);
-      const targetIdx = SKILL_RANK_ORDER.indexOf(targetRank);
-      if (targetIdx < currentIdx) {
-        return { ok: false, reason: t("UESRPG.Notifications.CharGen.CombatStyleCannotDecrease") };
-      }
-
-      const favored = styleIsNew
-        ? isFavoredSkillForActor(actor, "str,agi")
-        : isFavoredSkillForActor(actor, style.system?.governingCha ?? style.system?.baseCha ?? "");
-      let rankCost = 0;
-      if (targetIdx > currentIdx) {
-        for (let idx = currentIdx + 1; idx <= targetIdx; idx += 1) {
-          const rankKey = SKILL_RANK_ORDER[idx];
-          const base = _asNum(SKILL_RANK_XP_COST[rankKey], 0);
-          rankCost += discountCostIfFavored(base, favored);
-        }
-      }
-
-      const currentTe = styleIsNew
-        ? Array.from({ length: 10 }, () => "")
-        : (Array.isArray(style.system?.trainedEquipment)
-          ? style.system.trainedEquipment.map((v) => String(v ?? "").trim()).slice(0, 10)
-          : Array.from({ length: 10 }, () => ""));
-      while (currentTe.length < 10) currentTe.push("");
-      const desiredTe = Array.from({ length: 10 }, (_, idx) => String(input.trainedEquipment[idx] ?? "").trim());
-      const currentTeCount = currentTe.filter(Boolean).length;
-      const desiredTeCount = desiredTe.filter(Boolean).length;
-      const freeTe = styleIsNew ? 5 : currentTeCount;
-      const teDeltaPaid = Math.max(0, desiredTeCount - freeTe);
-      const teCost = teDeltaPaid > 0 ? 25 * teDeltaPaid : 0;
-
-      const currentSa = styleIsNew ? {} : (style.system?.specialAdvantages ?? {});
-      const currentSaCount = Object.values(currentSa).filter(Boolean).length;
-      const nextSa = { ...currentSa };
-      for (const sa of input.specialAdvantages) nextSa[sa] = true;
-      const nextSaCount = Object.values(nextSa).filter(Boolean).length;
-      const freeSa = styleIsNew ? 1 : currentSaCount;
-      const saDeltaPaid = Math.max(0, nextSaCount - freeSa);
-      const saCost = saDeltaPaid > 0 ? 25 * saDeltaPaid : 0;
-
-      return {
-        ok: true,
-        styleIsNew,
-        style,
-        targetRank,
-        favored,
-        desiredTe,
-        nextSa,
-        actualXpCost: rankCost + teCost + saCost,
-        xpCost: input.freeCombatStyle ? 0 : (rankCost + teCost + saCost),
-        freeCombatStyle: Boolean(input.freeCombatStyle),
-        breakdown: { rankCost, teCost, saCost },
-      };
-    };
 
     const readCombatFormState = (root) => ({
       styleId: String(root?.querySelector('[data-role="combat-style-select"]')?.value ?? "__new__"),
@@ -1051,7 +1003,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
         };
 
         const updateEstimate = () => {
-          const out = computeCombatSetupCost(readCombatFormState(root));
+          const out = computeCombatSetupCost(actor, readCombatFormState(root));
           const valueEl = root.querySelector('[data-role="combat-style-cost"]');
           const breakEl = root.querySelector('[data-role="combat-style-cost-breakdown"]');
           if (valueEl) valueEl.textContent = String(out.ok ? out.xpCost : 0);
@@ -1097,96 +1049,16 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       return;
     }
 
-    const computed = computeCombatSetupCost(result);
+    const computed = computeCombatSetupCost(actor, result);
     if (!computed.ok) {
       ui.notifications?.warn?.(computed.reason ?? t("UESRPG.Notifications.CharGen.InvalidCombatStyleSetup"));
       return;
     }
 
-    let style = computed.style;
-    if (result.styleId === "__new__") {
-      const name = result.styleName || t("UESRPG.Dialogs.CharGen.CombatStyleName");
-      const seed = {
-        name,
-        type: "combatStyle",
-        img: "systems/uesrpg-3ev4/images/Icons/backToBack.webp",
-        "system.rank": "untrained",
-        "system.trainedEquipment": Array.from({ length: 10 }, () => ""),
-        "system.specialAdvantages": {},
-        "system.governingCha": "Str, Agi",
-        "system.baseCha":
-          (actor.system?.characteristics?.str?.total ?? 0) >= (actor.system?.characteristics?.agi?.total ?? 0)
-            ? "str"
-            : "agi",
-      };
-      const created = await requestCreateEmbeddedDocuments(actor, "Item", [seed]);
-      style = created?.[0] ?? null;
-      if (!style) {
-        ui.notifications?.error?.(t("UESRPG.Notifications.CharGen.CreateCombatStyleFailed"));
-        return;
-      }
-    }
-
-    const targetRank = computed.targetRank;
-    const desiredTe = computed.desiredTe;
-    const nextSa = computed.nextSa;
-    const xpCost = computed.xpCost;
-    const freeCombatStyle = Boolean(computed.freeCombatStyle);
-
-    const currentXp = _asNum(actor.system?.xp, 0);
-    if (!freeCombatStyle && xpCost > currentXp) {
-      ui.notifications?.warn?.(tf("UESRPG.Notifications.CharGen.NotEnoughXpCombatStyle", { required: xpCost, available: currentXp }));
+    const purchase = await requestXpPurchase(actor, "combatStyleSetup", { input: result, administrativeReason });
+    if (!purchase.ok) {
+      await showXpPurchaseFailure(actor, purchase);
       return;
-    }
-
-    await requestUpdateDocument(style, {
-      name: result.styleId === "__new__" ? (result.styleName || style.name) : style.name,
-      "system.rank": targetRank,
-      "system.trainedEquipment": desiredTe,
-      "system.specialAdvantages": nextSa,
-    });
-    if (!freeCombatStyle && xpCost > 0) {
-      await requestUpdateDocument(actor, { "system.xp": currentXp - xpCost });
-    }
-
-    if (result.setActive) {
-      await requestUpdateDocument(actor, { "flags.uesrpg-3ev4.activeCombatStyleId": style.id });
-    }
-
-    await requestUpdateDocument(actor, {
-      "flags.uesrpg-3ev4.chargen.combatStyleSetup": {
-        styleId: style.id,
-        styleName: style.name,
-        rank: targetRank,
-        trainedEquipment: desiredTe.filter(Boolean),
-        specialAdvantages: result.specialAdvantages,
-        activeStyleId: result.setActive ? style.id : (actor.getFlag(SYSTEM_ID, "activeCombatStyleId") ?? null),
-        spentXp: xpCost,
-        waivedXp: freeCombatStyle ? _asNum(computed.actualXpCost, 0) : 0,
-        freeCombatStyle,
-      },
-    });
-    await appendChargenAudit(actor, {
-      step: "combatstyle",
-      action: "submit",
-      payload: {
-        styleId: style.id,
-        styleName: style.name,
-        rank: targetRank,
-        trainedEquipment: desiredTe.filter(Boolean),
-        specialAdvantages: result.specialAdvantages,
-        setActive: result.setActive,
-        spentXp: xpCost,
-        waivedXp: freeCombatStyle ? _asNum(computed.actualXpCost, 0) : 0,
-        freeCombatStyle,
-      },
-    });
-    if (administrativeReason) {
-      await appendChargenAudit(actor, buildAdministrativeCorrectionAudit(administrativeReason, {
-        field: "combatStyle",
-        itemUuid: style.uuid,
-        waivedXp: freeCombatStyle ? _asNum(computed.actualXpCost, 0) : 0,
-      }));
     }
     this._ws.completion.combatstyle = true;
     this.#persistState();
@@ -1249,42 +1121,72 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
 
   static async _onFinish(event, target) {
     event?.preventDefault?.();
-    const actor = await this.#resolveActor();
-    if (!actor) {
-      ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.SelectOrCreateActorFirst"));
-      return;
-    }
+    if (this.#finishing) return;
+    this.#finishing = true;
+    try {
+      const actor = await this.#resolveActor();
+      if (!actor) {
+        ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.SelectOrCreateActorFirst"));
+        return;
+      }
+      if (!this._ws.reviewMode && !this._ws.tokenActorFreeNavigation
+          && STAGES.some(stage => stage !== "finish" && !this._ws.completion[stage])) {
+        ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.IncompleteStages"));
+        return;
+      }
+      if (!await ensureXpPurchasesReviewed(actor)) return;
 
-    await requestUpdateDocument(actor, {
-      "flags.uesrpg.charGen.completed": true,
-      "flags.uesrpg.charGen.inProgress": false,
-      [`flags.${SYSTEM_ID}.chargen.completed`]: true,
-      [`flags.${SYSTEM_ID}.chargen.inProgress`]: false,
-    });
-
-    const chargenFlags = actor.getFlag(SYSTEM_ID, "chargen") ?? {};
-    const auditLog = Array.isArray(chargenFlags.auditLog) ? chargenFlags.auditLog : [];
-    const summary = buildChargenSummary(actor, auditLog);
-    const alreadyPosted = Boolean(chargenFlags.finalSummary?.postedAt);
-    await requestUpdateDocument(actor, {
-      "flags.uesrpg-3ev4.chargen.finalSummary": {
-        ...summary,
-        postedAt: alreadyPosted ? chargenFlags.finalSummary.postedAt : new Date().toISOString(),
-      },
-    });
-
-    if (!alreadyPosted) {
-      await ChatMessage.create({
-        user: game.user.id,
-        speaker: ChatMessage.getSpeaker({ actor }),
-        content: buildChargenSummaryChatHtml(summary),
-        style: CONST.CHAT_MESSAGE_STYLES.OTHER,
+      const chargenFlags = actor.getFlag(SYSTEM_ID, "chargen") ?? {};
+      const auditLog = Array.isArray(chargenFlags.auditLog) ? chargenFlags.auditLog : [];
+      const summary = buildChargenSummary(actor, auditLog);
+      const previousSummary = chargenFlags.finalSummary;
+      const alreadyPosted = Boolean(previousSummary?.postedAt);
+      // A previous pending post has an uncertain outcome; never send it again
+      // automatically, even after reopening the wizard.
+      const shouldPost = !previousSummary;
+      const saved = await requestUpdateDocument(actor, {
+        "flags.uesrpg.charGen.completed": true,
+        "flags.uesrpg.charGen.inProgress": false,
+        [`flags.${SYSTEM_ID}.chargen.completed`]: true,
+        [`flags.${SYSTEM_ID}.chargen.inProgress`]: false,
+        [`flags.${SYSTEM_ID}.chargen.finalSummary`]: {
+          ...summary,
+          postedAt: alreadyPosted ? previousSummary.postedAt : null,
+          chatState: alreadyPosted ? "posted" : "pending",
+        },
       });
-    }
+      if (!saved) {
+        ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.FinishSaveFailed"));
+        return;
+      }
 
-    this._ws.completion.finish = true;
-    this.#clearPersistedState();
-    await this.close();
-    actor.sheet?.render?.(true);
+      if (shouldPost) {
+        let message = null;
+        try {
+          message = await ChatMessage.create({
+            user: game.user.id,
+            speaker: ChatMessage.getSpeaker({ actor }),
+            content: buildChargenSummaryChatHtml(summary),
+            style: CONST.CHAT_MESSAGE_STYLES.OTHER,
+          });
+        } catch (error) {
+          console.error("UESRPG | Character generation summary could not be confirmed", error);
+        }
+        const recorded = message && await requestUpdateDocument(actor, {
+          [`flags.${SYSTEM_ID}.chargen.finalSummary.postedAt`]: new Date().toISOString(),
+          [`flags.${SYSTEM_ID}.chargen.finalSummary.chatState`]: "posted",
+        });
+        if (!recorded) ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.SummaryUnconfirmed"));
+      } else if (!alreadyPosted) {
+        ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.SummaryUnconfirmed"));
+      }
+
+      this._ws.completion.finish = true;
+      await this.close();
+      this.#clearPersistedState();
+      actor.sheet?.render?.(true);
+    } finally {
+      this.#finishing = false;
+    }
   }
 }

@@ -16,12 +16,13 @@
  */
 
 import { resolveSpellProfile } from "./spell-profile.js";
-import { canActorCastSpell, getActorMagicka, getSpellCastingSchool } from "./magicka-utils.js";
+import { canActorCastSpell, getActorMagicka, getSpellCastingSchool, getRitualCastingBlockReason } from "./magicka-utils.js";
 import { MagicOpposedWorkflow } from "./opposed-workflow.js";
 import { showSpellOptionsDialog } from "./dialogs/spell-options-dialog.js";
 import { emitPreCast } from "./spell-runtime.js";
 import { isActorInStartedCombatEncounter } from "../combat/combat-scope.js";
 import { t } from "../../utils/i18n.js";
+import { getActionResult, withActionResult } from "../../application/action-results.js";
 
 const _castsInFlight = new Set();
 
@@ -58,6 +59,12 @@ export const SpellCastingService = {
    * @returns {Promise<object|null>} - { success: boolean, messageId: string|null, error: string|null }
    */
   async cast(cfg = {}) {
+    const result = await this._cast(cfg);
+    if (getActionResult(result)) return { ...result, notificationHandled: true };
+    return withActionResult({ ...result, notificationHandled: true }, { owner: "magic", scope: "cast and consequences", status: result.status ?? "rejected",
+      reason: result.error, references: { actorUuid: cfg.casterActorUuid, itemUuid: cfg.spellUuid, messageId: result.messageId } });
+  },
+  async _cast(cfg = {}) {
     const castLockKey = _castLockKey(cfg);
     if (_castsInFlight.has(castLockKey)) {
       ui.notifications?.warn?.(t("UESRPG.DefectUpdate.SpellCastAlreadyResolving", "That spell cast is already being resolved."));
@@ -78,6 +85,11 @@ export const SpellCastingService = {
         ui.notifications.error("Invalid caster actor");
         return { success: false, messageId: null, error: "Invalid caster actor" };
       }
+      const ritualReason = getRitualCastingBlockReason(spell);
+      if (ritualReason) {
+        ui.notifications.warn(ritualReason);
+        return { success: false, status: "blocked", messageId: null, error: ritualReason };
+      }
       
       // 2. Resolve initial spell profile (for dialog and routing hints)
       let profile = resolveSpellProfile(spell, actor, {
@@ -92,7 +104,7 @@ export const SpellCastingService = {
       if (!cfg.skipDialog && !spellOptions) {
         const dialogResult = await this._showSpellOptionsDialog(actor, spell, profile, cfg);
         if (!dialogResult || dialogResult.cancelled) {
-          return { success: false, messageId: null, error: "Casting cancelled by user" };
+          return { success: false, status: "cancelled", messageId: null, error: "Casting cancelled by user" };
         }
         spellOptions = dialogResult.options;
       }
@@ -116,7 +128,7 @@ export const SpellCastingService = {
       const validationResult = await this._validateCastPrerequisites(actor, spell, profile, { ...cfg, spellOptions });
       if (!validationResult.valid) {
         ui.notifications.warn(validationResult.reason);
-        return { success: false, messageId: null, error: validationResult.reason };
+        return { success: false, status: "blocked", messageId: null, error: validationResult.reason };
       }
       
       // 5. Fire preCast hook (cancellable)
@@ -127,7 +139,7 @@ export const SpellCastingService = {
         targetUuids: cfg.targetTokenUuids ?? []
       });
       if (!preCastAllowed) {
-        return { success: false, messageId: null, error: "Casting cancelled by hook" };
+        return { success: false, status: "cancelled", messageId: null, error: "Casting cancelled by hook" };
       }
       
       // 6. Route to appropriate workflow
@@ -141,7 +153,7 @@ export const SpellCastingService = {
     } catch (err) {
       console.error("uesrpg-3ev4 | SpellCastingService.cast error:", err);
       ui.notifications.error(`Spell casting failed: ${err.message}`);
-      return { success: false, messageId: null, error: err.message };
+      return { success: false, messageId: null, error: err.message, ...(err.actionResult ? { actionResult: err.actionResult } : {}) };
     } finally {
       _castsInFlight.delete(castLockKey);
     }
@@ -213,7 +225,9 @@ export const SpellCastingService = {
    */
   async _showSpellOptionsDialog(actor, spell, profile, cfg) {
     // Use the existing shared spell options dialog from UI layer
-    const result = await showSpellOptionsDialog(actor, spell);
+    const result = await showSpellOptionsDialog(actor, spell, {
+      disableSpellSpecialization: cfg?.scrollMode === true || cfg?.castSource?.type === "enchantment"
+    });
     
     if (!result) {
       return { options: null, cancelled: true };
@@ -229,7 +243,8 @@ export const SpellCastingService = {
           castLevel: result.castLevel ?? null,
           level: result.castLevel ?? null,
           useOvercharge: result.useOvercharge ?? false,
-          useMagickaCycling: result.useMagickaCycling ?? false
+          useMagickaCycling: result.useMagickaCycling ?? false,
+          useSpellSpecialization: result.useSpellSpecialization === true
         },
         cancelled: false
       };
@@ -249,9 +264,11 @@ export const SpellCastingService = {
 
     // Propagate scroll-mode flags (consumeMagicka) into spellOptions so workflow
     // methods and magicka-utils can honour them without needing cfg access.
-    const effectiveSpellOptions = cfg.consumeMagicka === false
-      ? { ...spellOptions, consumeMagicka: false }
-      : spellOptions;
+    const effectiveSpellOptions = {
+      ...spellOptions,
+      ...(cfg.consumeMagicka === false ? { consumeMagicka: false } : {}),
+      ...(cfg.scrollMode === true || cfg.castSource?.type === "enchantment" ? { useSpellSpecialization: false } : {}),
+    };
 
     // Determine workflow type
     const hasTargets = targetTokenUuids && targetTokenUuids.length > 0;
@@ -292,7 +309,7 @@ export const SpellCastingService = {
   async _castDirect(actor, spell, profile, spellOptions, cfg = {}) {
     try {
       // Direct casting uses MagicOpposedWorkflow.castDirectTargeted(cfg)
-      const result = await MagicOpposedWorkflow.castDirectTargeted({
+      const result = await MagicOpposedWorkflow.castDirectTargetedResult({
         attackerActorUuid: actor.uuid,
         attackerTokenUuid: cfg.casterTokenUuid ?? null,
         defenderTokenUuids: Array.isArray(cfg.targetTokenUuids) ? cfg.targetTokenUuids : [],
@@ -301,14 +318,15 @@ export const SpellCastingService = {
         castActionType: cfg.castActionType ?? "primary",
       });
       
-      return {
-        success: result !== null,
-        messageId: result?.messageId ?? null,
-        error: result ? null : "Direct cast failed"
-      };
+      return withActionResult({
+        success: result.actionResult.ok,
+        messageId: result.value?.id ?? null,
+        error: result.value ? null : "Direct cast failed"
+      }, result.actionResult);
     } catch (err) {
       console.error("uesrpg-3ev4 | Direct cast error:", err);
-      return { success: false, messageId: null, error: err.message };
+      ui.notifications?.warn?.(`Spell casting was not completed: ${err.message}`);
+      return { success: false, messageId: null, error: err.message, ...(err.actionResult ? { actionResult: err.actionResult } : {}) };
     }
   },
   
@@ -319,7 +337,7 @@ export const SpellCastingService = {
   async _castOpposed(actor, spell, profile, spellOptions, targetTokens, cfg = {}) {
     try {
       // Opposed casting uses MagicOpposedWorkflow.createPending(cfg)
-      const result = await MagicOpposedWorkflow.createPending({
+      const result = await MagicOpposedWorkflow.createPendingResult({
         attackerActorUuid: actor.uuid,
         attackerTokenUuid: cfg.casterTokenUuid ?? null,
         defenderTokenUuids: Array.isArray(cfg.targetTokenUuids)
@@ -334,14 +352,15 @@ export const SpellCastingService = {
         isAoE: Boolean(cfg.aoeConfig),
       });
       
-      return {
-        success: result !== null,
-        messageId: result?.messageId ?? null,
-        error: result ? null : "Opposed cast failed"
-      };
+      return withActionResult({
+        success: result.actionResult.ok,
+        messageId: result.value?.id ?? null,
+        error: result.value ? null : "Opposed cast failed"
+      }, result.actionResult);
     } catch (err) {
       console.error("uesrpg-3ev4 | Opposed cast error:", err);
-      return { success: false, messageId: null, error: err.message };
+      ui.notifications?.warn?.(`Spell casting was not completed: ${err.message}`);
+      return { success: false, messageId: null, error: err.message, ...(err.actionResult ? { actionResult: err.actionResult } : {}) };
     }
   },
   
@@ -352,7 +371,7 @@ export const SpellCastingService = {
   async _castUnopposed(actor, spell, profile, spellOptions, cfg = {}) {
     try {
       // Unopposed casting uses MagicOpposedWorkflow.castUnopposed(cfg)
-      const result = await MagicOpposedWorkflow.castUnopposed({
+      const result = await MagicOpposedWorkflow.castUnopposedResult({
         attackerActorUuid: actor.uuid,
         attackerTokenUuid: cfg.casterTokenUuid ?? null,
         spellUuid: spell.uuid,
@@ -360,14 +379,15 @@ export const SpellCastingService = {
         castActionType: cfg.castActionType ?? "primary",
       });
       
-      return {
-        success: result !== null,
-        messageId: result?.messageId ?? null,
-        error: result ? null : "Unopposed cast failed"
-      };
+      return withActionResult({
+        success: result.actionResult.ok,
+        messageId: result.value?.id ?? null,
+        error: result.value ? null : "Unopposed cast failed"
+      }, result.actionResult);
     } catch (err) {
       console.error("uesrpg-3ev4 | Unopposed cast error:", err);
-      return { success: false, messageId: null, error: err.message };
+      ui.notifications?.warn?.(`Spell casting was not completed: ${err.message}`);
+      return { success: false, messageId: null, error: err.message, ...(err.actionResult ? { actionResult: err.actionResult } : {}) };
     }
   }
 };

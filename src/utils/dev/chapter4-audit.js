@@ -9,6 +9,7 @@
 
 import { getChapter4Catalog } from "../../core/traits/chapter4-catalog.js";
 import { listKnownTalentSlugs } from "../../core/traits/talents-api.js";
+import { getCoreClauseTraces } from "./core-clause-traces.js";
 
 function _sortStrings(values = []) {
   return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
@@ -53,6 +54,7 @@ export function auditChapter4(opts = {}) {
   const generatedAt = typeof opts?.generatedAt === "string" ? opts.generatedAt : null;
 
   const catalog = getChapter4Catalog();
+  const clauseTraces = getCoreClauseTraces(4);
   const talents = Array.isArray(catalog?.talents) ? catalog.talents.map(_toTalentRow) : [];
   const traits = Array.isArray(catalog?.traits) ? catalog.traits : [];
   const powers = Array.isArray(catalog?.powers) ? catalog.powers : [];
@@ -90,6 +92,8 @@ export function auditChapter4(opts = {}) {
     },
     coverage: {
       byAutomationClass,
+      clauseTrace: { items: clauseTraces.length, clauses: clauseTraces.reduce((n, entry) => n + entry.clauses.length, 0),
+        scope: "Selected source clauses only; catalog labels are not proof of execution." },
     },
     gaps: {
       missingFromCatalog,
@@ -103,7 +107,10 @@ export function auditChapter4(opts = {}) {
     },
   };
 
-  if (includeEntries) report.entries = { talents, traits, powers };
+  if (includeEntries) {
+    report.entries = { talents, traits, powers };
+    report.clauseTraces = clauseTraces;
+  }
 
   if (shouldLog) {
     console.groupCollapsed?.("UESRPG | Chapter 4 Audit");

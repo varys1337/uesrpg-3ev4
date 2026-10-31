@@ -5,6 +5,7 @@ import { getFlagValueWithFallback } from "../system/flags.js";
 import { buildEffectChange, getEffectChanges } from "../../utils/compat.js";
 import { buildGenericAEExpiry } from "../active-effects/expiry.js";
 import { buildGenericAEMetadata } from "../active-effects/metadata.js";
+import { computeCharacteristicTN } from "../characteristics/opposed/helpers.js";
 
 export const FEAR_FLAG = "fear";
 export const FEAR_GROUP_PREFIX = "fear.";
@@ -37,8 +38,7 @@ export function escapeFearHtml(str) {
     .replaceAll("'", "&#039;");
 }
 
-export function wpTN(actor, modifier = 0, type = "") {
-  const wp = Number(actor?.system?.characteristics?.wp?.total ?? 0) || 0;
+export function fearTN(actor, modifier = 0, type = "") {
   const fearType = String(type ?? "").trim().toLowerCase();
   const fearBonus = Number(actor?.system?.modifiers?.tests?.fear ?? 0) || 0;
   const typedBonus = fearType === "horror"
@@ -46,7 +46,17 @@ export function wpTN(actor, modifier = 0, type = "") {
     : fearType === "panic"
       ? (Number(actor?.system?.modifiers?.tests?.panic ?? 0) || 0)
       : 0;
-  return wp + Number(modifier || 0) + fearBonus + typedBonus;
+  const bonus = fearBonus + typedBonus;
+  const result = computeCharacteristicTN(actor, "wp", Number(modifier) || 0, bonus);
+  if (bonus) {
+    const entry = result.breakdown.find(part => part.label === "Circumstance Modifier");
+    if (entry) entry.label = "Fear modifiers";
+  }
+  return result;
+}
+
+export function wpTN(actor, modifier = 0, type = "") {
+  return fearTN(actor, modifier, type).finalTN;
 }
 
 export function isFearImmune(actor, type) {
@@ -106,7 +116,7 @@ export async function rollFearD100() {
 
 export async function postFearMessage(actor, title, body) {
   const content = `<div class="uesrpg-chat-card" data-card="fear"><header class="card-header"><h3>${escapeFearHtml(title)}</h3></header><div class="card-content">${body}</div></div>`;
-  await ChatMessage.create({
+  return await ChatMessage.create({
     user: game.user.id,
     speaker: ChatMessage.getSpeaker({ actor }),
     content,
@@ -142,7 +152,7 @@ export async function createFearEffect(actor, {
     }));
   }
 
-  await applyGroupedEffect(actor, {
+  return await applyGroupedEffect(actor, {
     name,
     description: String(description ?? ""),
     img: "icons/magic/control/fear-fright-mask-yellow.webp",
@@ -185,7 +195,7 @@ export async function createOneTurnFearEffect(actor, opts = {}) {
   const hasTurnExpiry = Boolean(genericExpiry?.expiry);
   const combat = game.combat ?? null;
   const fallbackFixedRound = !hasTurnExpiry && combat?.started ? { fixedRounds: 1 } : {};
-  await createFearEffect(actor, {
+  return await createFearEffect(actor, {
     ...opts,
     genericAE: genericExpiry?.metadata ?? null,
     extraFlags: {
@@ -274,7 +284,11 @@ export function getFearActionRestrictions(actor) {
     const fear = fearLane(effect);
     if (!fear) continue;
     if (fear.blockActions === true) restrictions.blockActions = true;
-    if (fear.blockReactions === true) restrictions.blockReactions = true;
+    // Older Lost Composure effects did not store blockReactions. The Core rule
+    // forbids all actions, and reactions are actions, until the effect ends.
+    if (fear.blockReactions === true || (fear.key === "panic.lostComposure" && fear.blockActions === true)) {
+      restrictions.blockReactions = true;
+    }
     if (fear.cannotApproach === true) restrictions.cannotApproach = true;
     const lanePenalty = getEffectChanges(effect)
       .filter((change) => String(change?.key ?? "") === "system.modifiers.tests.all")
@@ -288,7 +302,7 @@ export function getFearActionRestrictions(actor) {
 export async function applyEncounterPenaltyAfterSnapOut(actor, penalty) {
   const p = Number(penalty ?? 0) || 0;
   if (!p) return;
-  await createFearEffect(actor, {
+  return await createFearEffect(actor, {
     key: "fear.lingering",
     name: "Fear: Lingering Stress",
     description: `Residual fear penalty applied after Snapping Out. Suffer a ${p} penalty to all Tests for the remainder of the encounter.`,

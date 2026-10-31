@@ -9,8 +9,9 @@ import { renderTNPill, updateTNPill } from "../../../../ui/shared/tn-presentatio
  */
 
 import { doTestRoll } from "../../../../utils/degree-roll-helper.js";
+import { applyConjurationTalentResult } from "../../../traits/spellcasting-talents.js";
 import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
-import { applySpellRestraintRefund, canActorCastSpell, computeMagicCastingTN, computeSpellAttemptMagickaCost, consumeSpellMagicka, getKnownSpellScalingLevels, getSpellCastingSchool, getSpellCost, getSpellLevel, isHealingSpell } from "../../magicka-utils.js";
+import { applySpellRestraintRefund, canActorCastSpell, computeMagicCastingTN, computeSpellAttemptMagickaCost, consumeSpellMagicka, getKnownSpellScalingLevels, getMatchingSpellSpecialization, getRitualCastingBlockReason, getSpellCastingSchool, getSpellCost, getSpellLevel, isHealingSpell } from "../../magicka-utils.js";
 import { shouldBackfire, triggerBackfire } from "../../backfire.js";
 import { ActionEconomy } from "../../../combat/action-economy.js";
 import { AttackTracker } from "../../../combat/attack-tracker.js";
@@ -20,7 +21,7 @@ import { ensureBankedScaffold, getDefenderEntries } from "../schema.js";
 import { SKILL_DIFFICULTIES } from "../../../skills/skill-tn.js";
 import { spellRequiresOriginAE, createOriginAE, registerLinkedEntity, replaceEnchantmentUpkeepOrigin } from "../../effects/origin-effect.js";
 import { isCharacteristicDefense, computeCharacteristicDefenseTN } from "../../characteristic-defense-service.js";
-import { buildMagicCastContext } from "../cast-context.js";
+import { buildMagicCastContext, captureCastingResult } from "../cast-context.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { FLAG_SCOPE } from "../../../system/namespace.js";
 import { getActorFromResolvedDocument, resolveUuidSync } from "../../../../utils/uuid-cache.js";
@@ -39,6 +40,8 @@ import {
 } from "../cast-source.js";
 import { postMagicOpposedSubRoll } from "../subrolls.js";
 import { resolveCombatantForActor } from "../../../../utils/document-resolution.js";
+import { isCoreRejuvenateSpell, isRejuvenateChoice, promptRejuvenateChoice } from "../../rejuvenate-choice.js";
+import { getCoreRejuvenateConfigurationIssue, getCoreReplenishConfigurationIssue, isCoreReplenishSpell } from "../../services/resource-restoration-service.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
@@ -202,7 +205,7 @@ async function _setEnchantmentUpkeepPointerIfNeeded(attacker, data, spell, origi
 }
 
 function _buildCommitSpellPool(attacker, castActionType = "primary") {
-  const spellsAll = Array.from(attacker?.items ?? []).filter((i) => i?.type === "spell");
+  const spellsAll = Array.from(attacker?.items ?? []).filter((i) => i?.type === "spell" && !getRitualCastingBlockReason(i));
   const byAction = String(castActionType) === "secondary"
     ? spellsAll.filter((s) => s?.system?.isInstant === true)
     : spellsAll;
@@ -285,6 +288,10 @@ async function promptCastingCommitChoice(attacker, attackerState = {}, targetAct
             <label><b>${t("UESRPG.Chat.Common.ManualModifier", "Manual modifier")}</b></label>
             <input type="number" name="manualModifier" value="${startingManual}" step="1" />
           </div>
+          <label class="uesrpg-adv-choice uesrpg-choice-bar" id="ues-spell-specialization" style="display:none;" ${systemTooltipAttributes({ text: t("UESRPG.Dialogs.SpellOptions.SpecializationHint", "Applies only to the matched spell. Do not also include this bonus in the manual modifier.") })}>
+            <input type="checkbox" name="useSpellSpecialization" disabled />
+            <span class="uesrpg-adv-choice__label"><b>${t("UESRPG.Dialogs.SpellOptions.Specialization", "Use spell specialization (+10)")}</b></span>
+          </label>
           <div class="uesrpg-dialog-section-header">${t("UESRPG.Dialogs.SpellOptions.CastingOptions", "Casting Options")}</div>
           <div class="uesrpg-spell-option-grid">
               <label class="uesrpg-adv-choice uesrpg-choice-bar" id="ues-restrain-group" ${systemTooltipAttributes({ text: initialPresentation.restraintHelp })}>
@@ -332,6 +339,7 @@ async function promptCastingCommitChoice(attacker, attackerState = {}, targetAct
                 difficultyKey: String(root?.querySelector('select[name="difficultyKey"]')?.value ?? "average"),
                 circumstanceMod: Number(root?.querySelector('select[name="circumstanceMod"]')?.value ?? 0) || 0,
                 manualModifier: Number(root?.querySelector('input[name="manualModifier"]')?.value ?? 0) || 0,
+                useSpellSpecialization: Boolean(root?.querySelector('input[name="useSpellSpecialization"]')?.checked),
                 isRestrained: Boolean(root?.querySelector('input[name="restrain"]')?.checked),
                 isOverloaded,
                 useOvercharge: Boolean(root?.querySelector('input[name="overcharge"]')?.checked),
@@ -371,6 +379,8 @@ async function promptCastingCommitChoice(attacker, attackerState = {}, targetAct
         const difficultySelect = root?.querySelector('select[name="difficultyKey"]');
         const circumstanceSelect = root?.querySelector('select[name="circumstanceMod"]');
         const manualInput = root?.querySelector('input[name="manualModifier"]');
+        const specializationGroup = root?.querySelector("#ues-spell-specialization");
+        const specializationBox = root?.querySelector('input[name="useSpellSpecialization"]');
 
         const refreshPresentation = () => {
           const selectedSpell = byId.get(String(spellSelect?.value ?? "")) ?? spells[0];
@@ -381,6 +391,7 @@ async function promptCastingCommitChoice(attacker, attackerState = {}, targetAct
             difficultyKey: difficultySelect?.value ?? "average",
             circumstanceMod: Number(circumstanceSelect?.value) || 0,
             manualModifier: Number(manualInput?.value) || 0,
+            useSpellSpecialization: Boolean(specializationBox?.checked),
             isRestrained: Boolean(restrainBox?.checked), isOverloaded: Boolean(overloadBox?.checked),
             useOvercharge: Boolean(overchargeBox?.checked), useMagickaCycling: Boolean(cyclingBox?.checked),
             opposingActor: targetActor, targetActor,
@@ -405,6 +416,13 @@ async function promptCastingCommitChoice(attacker, attackerState = {}, targetAct
         const rebuildForSpell = () => {
           const selectedSpell = byId.get(String(spellSelect?.value ?? "")) ?? spells[0];
           if (!selectedSpell) return;
+
+          const specializationAvailable = Boolean(getMatchingSpellSpecialization(attacker, selectedSpell));
+          if (specializationGroup) specializationGroup.style.display = specializationAvailable ? "" : "none";
+          if (specializationBox) {
+            specializationBox.checked = false;
+            specializationBox.disabled = !specializationAvailable;
+          }
           
           const rawScalingLevels = getKnownSpellScalingLevels(selectedSpell);
           const baseLevel = Number(rawScalingLevels[0]?.level ?? getSpellLevel(selectedSpell)) || 1;
@@ -486,6 +504,7 @@ async function promptCastingCommitChoice(attacker, attackerState = {}, targetAct
         difficultySelect?.addEventListener("change", refreshPresentation);
         circumstanceSelect?.addEventListener("change", refreshPresentation);
         manualInput?.addEventListener("input", refreshPresentation);
+        specializationBox?.addEventListener("change", refreshPresentation);
 
         rebuildForSpell();
       },
@@ -531,11 +550,37 @@ export async function handleAttackerCommit(ctx) {
     if (!picked?.spell) return;
 
     const spell = picked.spell;
-    const spellOptions = picked.spellOptions ?? {};
+    let spellOptions = picked.spellOptions ?? {};
+
+    const ritualReason = getRitualCastingBlockReason(spell);
+    if (ritualReason) { ui.notifications.warn(ritualReason); return; }
 
     if (!canActorCastSpell(attacker, spell)) {
       ui.notifications.warn(`${attacker.name} is untrained in ${getSpellCastingSchool(spell) || "that school"} and cannot cast ${spell.name}.`);
       return;
+    }
+
+    if (isCoreRejuvenateSpell(spell)) {
+      const issue = getCoreRejuvenateConfigurationIssue(spell);
+      if (issue) { ui.notifications.warn(issue); return; }
+      if (getDefenderEntries(data).length !== 1 || !targetActor) {
+        ui.notifications.warn("Rejuvenate requires exactly one recipient. No casting cost was paid.");
+        return;
+      }
+      const choice = await promptRejuvenateChoice(targetActor, spell.name, { confirmRange: true });
+      if (!choice) return;
+      const updatedIssue = getCoreRejuvenateConfigurationIssue(spell);
+      if (updatedIssue) { ui.notifications.warn(updatedIssue); return; }
+      spellOptions = { ...spellOptions, rejuvenateChoice: choice };
+    }
+    if (isCoreReplenishSpell(spell)) {
+      const issue = getCoreReplenishConfigurationIssue(spell, { castSource: data.attacker?.castSource, spellOptions });
+      if (issue) { ui.notifications.warn(issue); return; }
+      if (getDefenderEntries(data).length !== 1 || !targetActor) {
+        ui.notifications.warn("Replenish requires exactly one recipient. No casting cost was paid.");
+        return;
+      }
+      ui.notifications.info("Confirm with the GM that the Replenish recipient is within 1 meter.");
     }
 
     // Commit-time preflight: prevent dead commits that would certainly fail on roll.
@@ -681,8 +726,30 @@ export async function handleAttackerRoll(ctx) {
       return await _releaseAttackerRollClaim(message, workingData, _updateCard, claimId, { persist: true });
     }
 
+    const ritualReason = getRitualCastingBlockReason(spell);
+    if (ritualReason) {
+      ui.notifications.warn(ritualReason);
+      return await _releaseAttackerRollClaim(message, workingData, _updateCard, claimId, { persist: true });
+    }
+
     if (!_ignoreTraining(workingData) && !canActorCastSpell(attacker, spell)) {
       ui.notifications.warn(`${attacker.name} is untrained in ${getSpellCastingSchool(spell) || "that school"} and cannot cast ${spell.name}.`);
+      return await _releaseAttackerRollClaim(message, workingData, _updateCard, claimId, { persist: true });
+    }
+
+    const restorationIssue = getCoreRejuvenateConfigurationIssue(spell) ?? getCoreReplenishConfigurationIssue(spell, {
+      castSource: workingData?.attacker?.castSource, spellOptions: workingData?.attacker?.spellOptions,
+    });
+    if (restorationIssue) {
+      ui.notifications.warn(restorationIssue);
+      return await _releaseAttackerRollClaim(message, workingData, _updateCard, claimId, { persist: true });
+    }
+    if (isCoreReplenishSpell(spell) && getDefenderEntries(workingData).length !== 1) {
+      ui.notifications.warn("Replenish requires exactly one recipient. Inspect any earlier costs before resolving this card.");
+      return await _releaseAttackerRollClaim(message, workingData, _updateCard, claimId, { persist: true });
+    }
+    if (isCoreRejuvenateSpell(spell) && !isRejuvenateChoice(workingData?.attacker?.spellOptions?.rejuvenateChoice)) {
+      ui.notifications.warn("This older Rejuvenate card has no recorded choice. Inspect any previous costs and resolve it with the GM before continuing.");
       return await _releaseAttackerRollClaim(message, workingData, _updateCard, claimId, { persist: true });
     }
 
@@ -849,6 +916,7 @@ export async function handleAttackerRoll(ctx) {
           allowUnlucky: true
         });
     _applyBindingStrengthFloorIfNeeded(workingData, result);
+    await applyConjurationTalentResult(attacker, result, { skillName: getSpellCastingSchool(spell) });
 
     if (!result?.noRoll && result?.roll) {
       await postMagicOpposedSubRoll({
@@ -907,7 +975,7 @@ export async function handleAttackerRoll(ctx) {
           costPaid: Number(workingData.attacker.mpSpent ?? magickaSpend?.consumed ?? 0) || 0,
           scalingChoices: (workingData.attacker?.spellOptions?.castLevel) ? { level: workingData.attacker.spellOptions.castLevel } : null,
           spellOptions: workingData.attacker?.spellOptions ?? {},
-          castContext: workingData.attacker?.castContext ?? null,
+          castContext: { ...workingData.attacker?.castContext, castingResult: captureCastingResult(result) },
           message,
           targetUuids: defUuids,
           castWorldTime: Number(game.time?.worldTime ?? 0) || 0,
@@ -946,7 +1014,7 @@ export async function handleAttackerRoll(ctx) {
       }
     }
 
-    if (originAE?.flags?.[FLAG_SCOPE]?.castContext?.spellStrengthResolved) {
+    if (originAE?.flags?.[FLAG_SCOPE]?.castContext) {
       workingData.attacker.castContext = originAE.flags[FLAG_SCOPE].castContext;
     }
     workingData.attacker.result = result;

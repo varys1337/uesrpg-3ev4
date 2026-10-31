@@ -1,4 +1,5 @@
 import { renderTNSummary, bindTNEstimates } from "../../../../ui/shared/tn-presentation.js";
+import { getSpellBufferPath, getSpellBufferValue, SPELL_BUFFER_TYPES } from "../../../magic/effects/spell-buffers.js";
 /**
  * src/core/combat/damage/resolver/resolve.js
  *
@@ -41,7 +42,7 @@ import {
   isWeaponExpertiseActive
 } from "../../../traits/weapon-expertise/index.js";
 import { recordAssassinStrikeAoOBlock } from "../../../traits/mobility-talents.js";
-import { isActorIncorporeal, getActorTraitValue, hasActorTrait, isActorUndead } from "../../../traits/trait-registry.js";
+import { isActorImmuneToDamageType, isActorIncorporeal, getActorTraitValue, hasActorTrait, isActorUndead } from "../../../traits/trait-registry.js";
 import { postDiseasedCheckCard } from "../../../traits/trait-automation.js";
 import { applyBleeding, applyCondition, hasCondition } from "../../../conditions/condition-engine.js";
 import { getAttackModeFromWeapon } from "../../combat-utils.js";
@@ -484,7 +485,8 @@ export async function applyDamageResolved(targetActor, payload = {}) {
       attackData: {
         variant: ctx.options?.variant ?? "",
         isAllOutAttack: ctx.options?.isAllOutAttack ?? false,
-        isPenetrateArmor: ctx.options?.isPenetrateArmor ?? false,
+        isPenetrateArmor: ctx.options?.penetrateArmorForTriggers === true,
+        attackMode: ctx.options?.attackMode ?? null,
         hitLocation: ctx.options?.hitLocation ?? null
       }
     });
@@ -614,22 +616,24 @@ export async function applyDamageResolved(targetActor, payload = {}) {
   const updateTarget = resolveDamageUpdateTarget(targetActor);
 
   let woundThreshold = baseWoundThreshold;
-  let woundThresholdDelta = 0;
   if (weaponCtx && attackerActor) {
     const mode = String(attackMode ?? "").toLowerCase().trim();
     if (mode === "melee" || mode === "ranged") {
       const delta = getEnemyWoundThresholdDelta({ attacker: attackerActor, attackMode: mode });
       if (Number.isFinite(delta) && delta !== 0) {
-        woundThresholdDelta = delta;
         woundThreshold = Math.max(0, Number(baseWoundThreshold || 0) + Number(delta));
+        traitNotes.push(mode === "melee" ? "Crippling Strikes: WT -1" : "Eye of Vengeance: WT -1");
       }
     }
 
     // Weapon Expertise WT modifiers (Monster Hunter: pike → WT -1).
-    const weDelta = getWeaponExpertiseWTDelta({ attacker: attackerActor, weapon: weaponCtx, attackMode: mode });
+    const weDelta = getWeaponExpertiseWTDelta({ attacker: attackerActor, target: targetActor, weapon: weaponCtx });
     if (Number.isFinite(weDelta) && weDelta !== 0) {
-      woundThresholdDelta += weDelta;
       woundThreshold = Math.max(0, woundThreshold + weDelta);
+      traitNotes.push("Monster Hunter: WT -1 (pike; Large or larger target)");
+    } else if (isWeaponExpertiseActive(attackerActor, weaponCtx, "monsterhunter")
+      && !["puny", "tiny", "small", "standard", "large", "huge", "enormous"].includes(String(targetActor.system?.size ?? "").trim().toLowerCase())) {
+      traitNotes.push("Monster Hunter: target size is unknown; GM must determine whether the WT reduction applies.");
     }
   }
 
@@ -645,24 +649,18 @@ export async function applyDamageResolved(targetActor, payload = {}) {
   const results = [];
   let totalApplied = 0;
   let woundTriggered = false;
-  if (woundThresholdDelta && attackerActor) {
-    if (hasTalent(attackerActor, "cripplingstrikes")) {
-      traitNotes.push("Crippling Strikes: WT -1");
-    } else if (hasTalent(attackerActor, "eyeofvengeance")) {
-      traitNotes.push("Eye of Vengeance: WT -1");
-    } else if (hasTalent(attackerActor, "monsterhunter") && weaponCtx && isWeaponExpertiseActive(attackerActor, weaponCtx, "monsterhunter")) {
-      traitNotes.push("Monster Hunter: WT -1 (pike)");
-    } else {
-      traitNotes.push(`Wound Threshold: ${woundThresholdDelta}`);
-    }
+  for (const component of components) {
+    component.immune = isActorImmuneToDamageType(updateTarget, component.damageType);
   }
-
+  for (const type of new Set(components.filter(component => component.immune).map(component => component.damageType))) {
+    traitNotes.push(`Immunity (${type}): no ${type} damage`);
+  }
   // Spell Absorption (X): negate magic-typed bonus damage and restore MP.
   const spellAbsorptionValue = _maxTraitValue(updateTarget, "spellAbsorption");
   let spellAbsorptionRestored = 0;
   if (spellAbsorptionValue > 0) {
     const typedTotal = components
-      .filter(c => c.kind === "typed" && Number(c.amount ?? 0) > 0)
+      .filter(c => c.kind === "typed" && !c.immune && Number(c.amount ?? 0) > 0)
       .reduce((s, c) => s + Number(c.amount ?? 0), 0);
 
     if (typedTotal > 0) {
@@ -673,7 +671,7 @@ export async function applyDamageResolved(targetActor, payload = {}) {
 
       if (absorbed) {
         for (const c of components) {
-          if (c.kind === "typed") {
+          if (c.kind === "typed" && !c.immune) {
             c.amount = 0;
             c.spellAbsorbed = true;
           }
@@ -722,9 +720,9 @@ export async function applyDamageResolved(targetActor, payload = {}) {
         });
 
     let baseFinal = Number(calc.finalDamage || 0);
-    if (incorporealBlock) baseFinal = 0;
+    if (incorporealBlock || c.immune) baseFinal = 0;
 
-    const adjusted = incorporealBlock
+    const adjusted = incorporealBlock || c.immune
       ? 0
       : c.applyDefenderAdjust
         ? Math.max(0, baseFinal + asNumber(ctx.options?.aeDamageTaken) - asNumber(ctx.options?.aeMitigationFlat))
@@ -744,6 +742,7 @@ export async function applyDamageResolved(targetActor, payload = {}) {
       reductions: calc.reductions,
       finalDamage: baseFinal,
       finalApplied: adjusted,
+      immunity: c.immune ? { isImmune: true, damageType: String(c.damageType ?? "") } : null,
       spellAbsorbed: c.spellAbsorbed === true,
       ignoreArmorOnly: c.ignoreArmorOnly === true,
       incorporealBlock: incorporealBlock ? { isBlocked: true, reason: "non-magic source" } : null,
@@ -786,6 +785,7 @@ export async function applyDamageResolved(targetActor, payload = {}) {
       let remaining = delta;
       for (const r of results) {
         if (remaining === 0) break;
+        if (r.immunity?.isImmune) continue;
         const applied = Number(r.finalApplied ?? 0);
         if (remaining > 0) {
           r.finalApplied = applied + remaining;
@@ -843,16 +843,12 @@ export async function applyDamageResolved(targetActor, payload = {}) {
 
   // Typed buffer absorption (Physical / Magical / Elemental buffers).
   // Maps damage types to the appropriate buffer pool.
-  const buffers = {
-    physical: Math.max(0, Number(targetActor.system?.buffers?.physical ?? 0)),
-    magical: Math.max(0, Number(targetActor.system?.buffers?.magical ?? 0)),
-    elemental: Math.max(0, Number(targetActor.system?.buffers?.elemental ?? 0)),
-  };
+  const buffers = Object.fromEntries(SPELL_BUFFER_TYPES.map(type => [type, getSpellBufferValue(targetActor, type)]));
   const newBuffers = { ...buffers };
   let bufferAbsorbed = 0;
   let bufferAbsorbedDetail = [];
 
-  if (remainingDamage > 0 && (buffers.physical > 0 || buffers.magical > 0 || buffers.elemental > 0)) {
+  if (remainingDamage > 0 && Object.values(buffers).some(value => value > 0)) {
     // Determine which buffer pool(s) to drain based on damage type composition.
     // Physical: physical, silver, sunlight
     // Magical: magic
@@ -866,12 +862,14 @@ export async function applyDamageResolved(targetActor, payload = {}) {
     // Walk through damage-by-type and absorb from matching buffer.
     for (const [dType, dAmount] of Object.entries(damageAppliedByType)) {
       if (remainingDamage <= 0) break;
-      const bufferKey = _bufferMap[dType.toLowerCase()] ?? null;
-      if (!bufferKey || newBuffers[bufferKey] <= 0) continue;
-
+      const type = dType.toLowerCase();
+      // The existing barrier service keeps the strongest applicable pool.
+      // A legacy elemental pool and a specific shield must not add together.
+      const bufferKey = [...new Set([type, _bufferMap[type]].filter(key => Object.hasOwn(newBuffers, key)))]
+        .sort((a, b) => newBuffers[b] - newBuffers[a])[0];
+      if (!bufferKey) continue;
       const absorbable = Math.min(newBuffers[bufferKey], dAmount, remainingDamage);
       if (absorbable <= 0) continue;
-
       newBuffers[bufferKey] -= absorbable;
       remainingDamage -= absorbable;
       bufferAbsorbed += absorbable;
@@ -883,9 +881,7 @@ export async function applyDamageResolved(targetActor, payload = {}) {
 
   const extraUpdates = {};
   if (bufferAbsorbed > 0) {
-    extraUpdates["system.buffers.physical"] = newBuffers.physical;
-    extraUpdates["system.buffers.magical"] = newBuffers.magical;
-    extraUpdates["system.buffers.elemental"] = newBuffers.elemental;
+    for (const type of SPELL_BUFFER_TYPES) if (newBuffers[type] !== buffers[type]) extraUpdates[getSpellBufferPath(type)] = newBuffers[type];
   }
   if (untouchableSpentLp > 0) {
     const nextLp = Math.max(0, untouchableCurrentLp - untouchableSpentLp);
@@ -999,6 +995,7 @@ export async function applyDamageResolved(targetActor, payload = {}) {
     damageApplied: Math.max(0, totalApplied),
     woundThreshold,
     isCriticalSuccess: Boolean(ctx.options?.criticalSuccess ?? ctx.options?.isCritical ?? false),
+    oldHp: currentHP,
     newHp: newHP
   });
   woundTriggered = woundEval.triggered === true;
@@ -1137,7 +1134,8 @@ export async function applyDamageResolved(targetActor, payload = {}) {
         }
         return {
           notes: Array.isArray(wePostResult?.notes) ? wePostResult.notes.length : 0,
-          bleedingApplied: wePostResult?.bleedingApplied === true
+          bleedingApplied: wePostResult?.bleedingApplied === true,
+          failed: wePostResult?.failed === true
         };
       } catch (err) {
         console.warn("UESRPG | Weapon Expertise post-damage effects failed", err);

@@ -172,6 +172,9 @@ function _journal(actor, affected) {
       let ok = true;
       for (const [id, row] of [...records].reverse()) {
         if (!row.touched) continue;
+        // Recreating an origin cannot restore entities removed by its teardown.
+        // The scoped journal must not claim those external changes were undone.
+        if (row.expected === null && getSystemAEFlags(row.before)?.linkedEntities?.length) ok = false;
         try {
           const live = actor.effects.get(id);
           if (!row.before && !live) continue;
@@ -216,18 +219,14 @@ async function _applyStack(actor, effectData, options = {}) {
       const expected = { ...existing.toObject(), ...foundry.utils.expandObject(update) };
       _debug("Refreshing grouped ActiveEffect", { actor: actor.uuid, group: plan.group, policy: plan.policy });
       const updated = await requestUpdateEmbeddedDocuments(actor, "ActiveEffect", [update], {
-        timeout, requireUpdated: transactional,
+        timeout, requireUpdated: true,
         updateOptions: transactional ? { recursive: false } : {},
       });
       // Record our intended write, never adopt a concurrent writer's data for rollback.
       journal?.record(existing.id, expected);
-      if (!updated && transactional) throw new Error("Failed");
+      if (!updated) throw new Error("Active Effect refresh was not confirmed.");
       effect = actor.effects.get(existing.id);
     } else {
-      if (!transactional && ["replace", "keep-strongest"].includes(plan.policy)) {
-        const ids = plan.affected.map(row => row.id);
-        if (ids.length) await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", ids, { timeout });
-      }
       if (transactional) {
         // Knowing the new id also lets compensation inspect a partially failed create.
         effectData = { ...effectData, _id: foundry.utils.randomID() };
@@ -237,12 +236,13 @@ async function _applyStack(actor, effectData, options = {}) {
       }
       effect = await _create(actor, effectData, { timeout, createOptions });
       if (!effect || !actor.effects.get(effect.id)) {
-        if (transactional) throw new Error("Failed");
-        return { effect: null, applied: false };
+        throw new Error("Active Effect creation was not confirmed.");
       }
       journal?.record(effect.id, effect.toObject());
       guard();
-      let remove = !transactional && ["replace", "keep-strongest"].includes(plan.policy) ? [] : plan.affected;
+      // Keep the previous effect until the replacement has been confirmed.
+      // A failed subsequent removal is a partial application, not success.
+      let remove = plan.affected;
       if (plan.policy === "cap" && plan.max > 0) {
         const after = Array.from(actor.effects ?? []).filter(row => _matchesGroup(row, plan.group, plan.policy, plan.origin))
           .sort((a, b) => _effectOrder(a) - _effectOrder(b));
@@ -253,16 +253,18 @@ async function _applyStack(actor, effectData, options = {}) {
       for (const row of remove) {
         guard();
         validateEffect?.(row);
-        const deleted = await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [row.id], { timeout, requireDeleted: transactional });
+        const deleted = await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [row.id], { timeout, requireDeleted: true });
         journal?.record(row.id, null);
-        if (!deleted) throw new Error("Failed");
+        if (!deleted) throw new Error("Previous Active Effect removal was not confirmed.");
       }
     }
     guard();
     const applied = Boolean(effect && actor.effects.get(effect.id));
     return { effect, applied, rollback: journal ? () => journal.rollback() : async () => true, verify: guard };
   } catch (error) {
-    error.rollbackComplete = journal ? await journal.rollback() : true;
+    error.rollbackComplete = journal ? await journal.rollback() : false;
+    error.committed ||= Boolean(effect && actor.effects.get(effect.id)) && !error.rollbackComplete;
+    error.uncertain ||= !error.rollbackComplete;
     throw error;
   }
 }

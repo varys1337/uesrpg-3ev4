@@ -162,6 +162,12 @@ function _getPowerDrawStoredReduction(weapon) {
   }
 }
 
+/** Inspect without consuming the pending effect or the legacy weapon flag. */
+export function hasPendingPowerDraw(actor, weapon) {
+  return _getPowerDrawStoredReduction(weapon) > 0
+    || Boolean(actor && getActiveStaminaEffect(actor, STAMINA_EFFECT_KEYS.POWER_DRAW));
+}
+
 async function _setPowerDrawStoredReduction(weapon, value) {
   if (!weapon) return false;
   const n = Number(value ?? 0);

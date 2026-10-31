@@ -1,0 +1,82 @@
+{
+  "worldTime": 61,
+  "rows": [
+    {
+      "actor": "Core Review - Armor",
+      "hp": 0,
+      "sp": 0,
+      "mp": 0,
+      "fatigue": 0,
+      "fly": 0,
+      "physicalAR": 0,
+      "magicAR": 0,
+      "effects": []
+    },
+    {
+      "actor": "Core Review - Magic Armor",
+      "hp": 0,
+      "sp": 0,
+      "mp": 0,
+      "fatigue": 0,
+      "fly": 0,
+      "physicalAR": 0,
+      "magicAR": 0,
+      "effects": []
+    },
+    {
+      "actor": "Core Review - Levitation",
+      "hp": 0,
+      "sp": 0,
+      "mp": 0,
+      "fatigue": 0,
+      "fly": 0,
+      "physicalAR": 0,
+      "magicAR": 0,
+      "effects": []
+    },
+    {
+      "actor": "Core Review - Healing",
+      "hp": 4,
+      "sp": 0,
+      "mp": 0,
+      "fatigue": 0,
+      "fly": 0,
+      "physicalAR": 0,
+      "magicAR": 0,
+      "effects": []
+    },
+    {
+      "actor": "Core Review - Replenishment",
+      "hp": 0,
+      "sp": 0,
+      "mp": 4,
+      "fatigue": 0,
+      "fly": 0,
+      "physicalAR": 0,
+      "magicAR": 0,
+      "effects": []
+    },
+    {
+      "actor": "Core Review - Rejuvenate",
+      "hp": 0,
+      "sp": 1,
+      "mp": 0,
+      "fatigue": 0,
+      "fly": 0,
+      "physicalAR": 0,
+      "magicAR": 0,
+      "effects": []
+    },
+    {
+      "actor": "Core Review - Rejuvenate Fatigue",
+      "hp": 0,
+      "sp": 0,
+      "mp": 0,
+      "fatigue": 1,
+      "fly": 0,
+      "physicalAR": 0,
+      "magicAR": 0,
+      "effects": []
+    }
+  ]
+}

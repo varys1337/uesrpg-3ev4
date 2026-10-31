@@ -34,6 +34,7 @@ import {
 import { _num, _lower } from "./_primitives.js";
 import { _bool, _strTrim } from "../../utils/coerce.js";
 import { getActorCapabilityFlag } from "../active-effects/modifier-evaluator.js";
+import { customDialog } from "../../utils/dialog-v2-helper.js";
 export {
   getSpellcastingTalentState,
   setSpellcastingPrimedState,
@@ -50,28 +51,6 @@ export {
 // Constants
 // ──────────────────────────────────────────────────────────────────────────────
 
-/** Milestone subsystems that some talents require. */
-const MILESTONE_SUBSYSTEMS = {
-  spells: "Spells Milestone (Conjure Weapon / Bound Items)",
-  items: "Items Milestone (Equipment / Bound Items)",
-  summons: "Summons Milestone (Summoned Creature Management)"
-};
-
-/**
- * Talents that require milestone subsystems not yet implemented.
- * Maps talent slug → { milestone: string, description: string }.
- */
-const MILESTONE_TALENTS = {
-  bladecaller:              { milestone: "spells",  description: "Requires Conjure Weapon spell framework" },
-  weaponecho:               { milestone: "spells",  description: "Requires Conjure Weapon spell framework" },
-  spellsword:               { milestone: "items",   description: "Requires equipment interaction framework" },
-  unfetteredconjuration:    { milestone: "spells",  description: "Requires summoning spell framework" },
-  taskmaster:               { milestone: "spells",  description: "Requires Mindlock / summoning framework" },
-  masterofthehordes:        { milestone: "spells",  description: "Requires Mindlock / summoning framework" },
-  voidchanneler:            { milestone: "spells",  description: "Requires summoned creature management" },
-  themendingtidesoblivion:  { milestone: "spells",  description: "Requires summoned creature management" }
-};
-
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────────────────────────────────────
@@ -83,6 +62,39 @@ const MILESTONE_TALENTS = {
  */
 function _spellSchool(spell) {
   return _lower(spell?.system?.school ?? spell?.metadata?.school);
+}
+
+/** Apply the Chapter 4 Conjuration test talents to the resolved test once. */
+export async function applyConjurationTalentResult(actor, result, { skillName = "", allowPrompt = true } = {}) {
+  if (!actor || !result?.isSuccess || result.noRoll || result.meta?.conjurationTalentsApplied) return result;
+  if (String(skillName).replace(/[^a-z]/gi, "").toLowerCase() !== "conjuration") return result;
+  const rolled = Math.max(0, Number(result.degree) || 0);
+  let chosen = rolled;
+  let choice = "rolled";
+  const skill = Array.from(actor.items ?? []).find(item => item.type === "magicSkill"
+    && String(item.name ?? "").trim().toLowerCase() === "conjuration");
+  if (allowPrompt && skill && hasTalent(actor, "seasonedconjurer")) {
+    const rank = getNamedItemRank(actor, "Conjuration", { types: ["magicSkill"] });
+    if (rank !== rolled) {
+      const selected = await customDialog({
+        title: "Seasoned Conjurer",
+        layout: "workflow",
+        content: `<p>Choose the degrees of success for this Conjuration test.</p><p>Rolled: ${rolled}; skill rank: ${rank}.</p>`,
+        buttons: {
+          rolled: { label: `Use rolled (${rolled})`, callback: () => "rolled" },
+          rank: { label: `Use rank (${rank})`, callback: () => "rank" }
+        },
+        defaultButton: "rolled"
+      });
+      if (selected === "rank") { chosen = rank; choice = "rank"; }
+    }
+  }
+  const strongWilled = hasTalent(actor, "strongwilled");
+  result.degree = chosen + (strongWilled ? 1 : 0);
+  result.textual = `${result.degree} DoS`;
+  result.meta = { ...result.meta, conjurationTalentsApplied: true, conjurationTalentChoice: choice,
+    conjurationRolledDegree: rolled, strongWilled };
+  return result;
 }
 
 /**
@@ -133,41 +145,6 @@ function _hasUpkeep(profile) {
  */
 function _hasOverload(profile) {
   return _bool(profile?.classification?.hasOverload);
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Milestone Talent Warning
-// ──────────────────────────────────────────────────────────────────────────────
-
-/**
- * Check if a talent requires an unimplemented milestone subsystem.
- * If so, warn the GM and return true.
- *
- * @param {string} slug
- * @param {Actor} actor
- * @returns {boolean} true if talent is milestone-dependent and subsystem is missing
- */
-function _checkMilestoneDependency(slug, actor) {
-  const info = MILESTONE_TALENTS[slug];
-  if (!info) return false;
-
-  // Post a GM-only warning
-  if (game.user?.isGM) {
-    console.warn(
-      `UESRPG | Spellcasting talent "${slug}" on ${actor?.name}: ${info.description}. ` +
-      `${MILESTONE_SUBSYSTEMS[info.milestone] ?? "Required subsystem"} is not yet implemented. ` +
-      `Talent has no automated effect.`
-    );
-    ChatMessage.create({
-      content: `<p><strong>⚠ Talent Stub:</strong> <em>${slug}</em> on <strong>${actor?.name ?? "Unknown"}</strong> ` +
-        `requires the <em>${MILESTONE_SUBSYSTEMS[info.milestone] ?? info.milestone}</em> which is not yet implemented. ` +
-        `This talent currently has no automated effect.</p>`,
-      whisper: ChatMessage.getWhisperRecipients("GM"),
-      style: CONST.CHAT_MESSAGE_STYLES.OTHER
-    }).catch(() => {});
-  }
-
-  return true;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -421,12 +398,10 @@ function _applyControl(actor) {
 /**
  * Apply Bend Reality talent: use Alteration in place of Athletics/Acrobatics for 2 MP.
  * This is a skill-substitution talent, not a spell profile modifier.
- * It is handled by the skill test system, not the casting pipeline.
- * We report it for documentation / UI purposes but do not modify the profile.
+ * The substitution and its cost currently require manual resolution.
  */
 function _applyBendReality(_actor, _profile) {
-  // Handled by skill test substitution system, not spell casting.
-  // No modifier returned.
+  // No automatic skill substitution is currently connected here.
   return null;
 }
 
@@ -435,12 +410,10 @@ function _applyBendReality(_actor, _profile) {
  * RAW: "The character can make a Restoration test and spend 10 magicka to perform
  * an hour long ritual in order to treat a wound."
  * This is a standalone ritual action, not a spell profile modifier.
- * Activation is handled via the talent activation system.
+ * The current activation posts manual instructions; it does not perform the ritual.
  */
 function _applyHealer(actor, profile, spell, castContext) {
-  // Healer is a standalone ritual action. When primed, it does not modify
-  // a spell's profile. Instead, it creates a separate "treat wound" workflow.
-  // We include it here to mark the primed state is understood but return null.
+  // Healer is a standalone ritual action and does not modify a spell profile.
   return null;
 }
 
@@ -449,86 +422,10 @@ function _applyHealer(actor, profile, spell, castContext) {
  * RAW: "As a reaction to a spell cast, the character may make a -20 Mysticism skill test.
  * If their degrees of success exceed the spell level of the spell being cast, then the
  * effect of the spell is negated."
- * This is a reaction, not a self-cast modifier. Handled by the opposed defense system.
+ * This is a reaction, not a self-cast modifier. Its test and cancellation are manual.
  */
 function _applyFlowOfMagicka(_actor, _profile) {
   // Reaction-based counter-spell. Not a profile modifier.
-  return null;
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Milestone Talent Stubs
-// ──────────────────────────────────────────────────────────────────────────────
-
-/**
- * Stub for Bladecaller: use WB instead of SB for damage with Conjure Weapon.
- */
-function _applyBladecaller(actor) {
-  if (!hasTalent(actor, "bladecaller")) return null;
-  if (_checkMilestoneDependency("bladecaller", actor)) return null;
-  return null;
-}
-
-/**
- * Stub for Weapon Echo: reduce Conjure Weapon duration and allow floating attacks.
- */
-function _applyWeaponEcho(actor) {
-  if (!hasTalent(actor, "weaponecho")) return null;
-  if (_checkMilestoneDependency("weaponecho", actor)) return null;
-  return null;
-}
-
-/**
- * Stub for Spell Sword: only one free hand needed to cast.
- */
-function _applySpellSword(actor) {
-  if (!hasTalent(actor, "spellsword")) return null;
-  if (_checkMilestoneDependency("spellsword", actor)) return null;
-  return null;
-}
-
-/**
- * Stub for Unfettered Conjuration: summoned creatures don't suffer AP penalty from restraint.
- */
-function _applyUnfetteredConjuration(actor) {
-  if (!hasTalent(actor, "unfetteredconjuration")) return null;
-  if (_checkMilestoneDependency("unfetteredconjuration", actor)) return null;
-  return null;
-}
-
-/**
- * Stub for Taskmaster: reduce AP required by each Mindlock by 1 (min 1).
- */
-function _applyTaskmaster(actor) {
-  if (!hasTalent(actor, "taskmaster")) return null;
-  if (_checkMilestoneDependency("taskmaster", actor)) return null;
-  return null;
-}
-
-/**
- * Stub for Master of the Hordes: reduce Mindlock AP by 1 (min 0), up to WB creatures.
- */
-function _applyMasterOfTheHordes(actor) {
-  if (!hasTalent(actor, "masterofthehordes")) return null;
-  if (_checkMilestoneDependency("masterofthehordes", actor)) return null;
-  return null;
-}
-
-/**
- * Stub for Void Channeler: spend SP to boost summoned Daedra's Natural Toughness.
- */
-function _applyVoidChanneler(actor) {
-  if (!hasTalent(actor, "voidchanneler")) return null;
-  if (_checkMilestoneDependency("voidchanneler", actor)) return null;
-  return null;
-}
-
-/**
- * Stub for The Mending Tides of Oblivion: summoned daedra gain Regeneration (WB).
- */
-function _applyTheMendingTidesOfOblivion(actor) {
-  if (!hasTalent(actor, "themendingtidesoblivion")) return null;
-  if (_checkMilestoneDependency("themendingtidesoblivion", actor)) return null;
   return null;
 }
 
@@ -560,15 +457,6 @@ const PASSIVE_TALENT_APPLICATORS = [
   _applyBendReality,
   _applyHealer,
   _applyFlowOfMagicka,
-  // Milestone stubs:
-  _applyBladecaller,
-  _applyWeaponEcho,
-  _applySpellSword,
-  _applyUnfetteredConjuration,
-  _applyTaskmaster,
-  _applyMasterOfTheHordes,
-  _applyVoidChanneler,
-  _applyTheMendingTidesOfOblivion
 ];
 
 /**

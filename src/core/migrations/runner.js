@@ -9,15 +9,48 @@ import { migrateWorldSettingsIfNeeded } from "./settings.js";
 import { migrateSystemTemplateDirectivesIfNeeded } from "./system-template-directives.js";
 import { isActiveGMUser } from "../../utils/users.js";
 import { t, tf } from "../../utils/i18n.js";
+import { getMigrationFailureCount, getMigrationState, getPendingMigrationKeys } from "./state.js";
+import { MIGRATION_REVISIONS } from "./revisions.js";
+import { createMigrationCoordinator, executeMigrationPasses } from "./execution.js";
 
-let _inFlight = null;
+const _coordinator = createMigrationCoordinator();
+const _settingsPass = {
+  name: "migrateWorldSettingsIfNeeded", run: migrateWorldSettingsIfNeeded,
+  keys: ["timeDefaultsCompositeOrchestratorV1", "automationProfileRemovalDefaultsV2"],
+};
+const _armorPass = {
+  name: "migrateNpcArmorCoverageDefaultsIfNeeded", run: migrateNpcArmorCoverageDefaultsIfNeeded,
+  keys: ["npcArmorCoverageDefaultsV1"],
+};
+const _startupPasses = [_settingsPass, _armorPass];
+const _manualPasses = [
+  _settingsPass,
+  ...[
+    migrateActiveEffectsIfNeeded,
+    migrateSystemTemplateDirectivesIfNeeded,
+    // Repair known Item shapes before older passes validate complete models.
+    migrateItemSheetCompatibilityIfNeeded,
+    migrateActorsIfNeeded,
+    migrateItemsIfNeeded,
+  ].map(run => ({ name: run.name, run })),
+  _armorPass,
+  ...[
+    migrateCombatLegacyIfNeeded,
+    migrateAoeRegionLinksIfNeeded,
+    migrateNpcThreatTemplateKeysIfNeeded,
+    migrateNpcThreatTemplateOptionsIfNeeded,
+    migrateWarfareUnitNeutralLanesIfNeeded,
+    migrateWarfareFlagDocumentsIfNeeded,
+  ].map(run => ({ name: run.name, run })),
+];
 
 function _isGM() {
   return isActiveGMUser(game.user);
 }
 
 /**
- * Run system migrations once, guarded by an in-flight lock.
+ * Run the full manual sequence. Same-scope calls join; startup is a separate
+ * queued scope so a manual request never receives a startup-only result.
  *
  * @param {object} options
  * @param {"startup"|"manual"} [options.origin]
@@ -31,55 +64,49 @@ export async function runSystemMigrations({
   notifySuccess = false,
   notifyFailure = true,
 } = {}) {
-  if (!_isGM()) return { ok: false, reason: "not-active-gm" };
-  if (_inFlight) return _inFlight;
+  return _runMigrations("manual", { origin, notifyStart, notifySuccess, notifyFailure });
+}
 
-  const promise = (async () => {
+/** Only the settings and NPC armor maintenance that already ran at startup. */
+export async function runStartupMigrationMaintenance() {
+  return _runMigrations("startup", { origin: "startup", notifyFailure: true });
+}
+
+function _runMigrations(scope, { origin, notifyStart = false, notifySuccess = false, notifyFailure = true }) {
+  const required = scope === "startup" ? _startupPasses.flatMap(pass => pass.keys) : MIGRATION_REVISIONS;
+  const getPendingKeys = () => getPendingMigrationKeys(required, getMigrationState());
+  if (!_isGM()) return Promise.resolve({ ok: false, reason: "not-active-gm", pendingKeys: getPendingKeys(), failedPass: null });
+
+  return _coordinator.run(scope, async () => {
     const startedAt = Date.now();
-    try {
-      if (notifyStart) {
-        ui.notifications?.info?.(t("UESRPG.Notifications.MigrationsStarted", "UESRPG migration pass started."));
-      }
-
-      await migrateWorldSettingsIfNeeded();
-      await migrateActiveEffectsIfNeeded();
-      await migrateSystemTemplateDirectivesIfNeeded();
-      // Repair known Item shapes before older passes validate complete models.
-      await migrateItemSheetCompatibilityIfNeeded();
-      await migrateActorsIfNeeded();
-      await migrateItemsIfNeeded();
-      await migrateNpcArmorCoverageDefaultsIfNeeded();
-      await migrateCombatLegacyIfNeeded();
-      await migrateAoeRegionLinksIfNeeded();
-      await migrateNpcThreatTemplateKeysIfNeeded();
-      await migrateNpcThreatTemplateOptionsIfNeeded();
-      await migrateWarfareUnitNeutralLanesIfNeeded();
-      await migrateWarfareFlagDocumentsIfNeeded();
-
-      const elapsedMs = Math.max(0, Date.now() - startedAt);
-      const elapsedSec = (elapsedMs / 1000).toFixed(2);
-      console.log(`${SYSTEM_ID} | Migration pass complete`, { origin, elapsedMs });
-
-      if (notifySuccess) {
+    if (notifyStart && _isGM()) {
+      ui.notifications?.info?.(t("UESRPG.Notifications.MigrationsStarted", "UESRPG migration pass started."));
+    }
+    const result = await executeMigrationPasses({
+      passes: scope === "startup" ? _startupPasses : _manualPasses,
+      canRun: _isGM,
+      getPendingKeys,
+      // Historical failures require an explicit manual retry. Do not clear them
+      // or expand startup coverage to make the status look complete.
+      shouldRun: pass => scope !== "startup" || !pass.keys.some(key => getMigrationFailureCount(getMigrationState()?.[key]) > 0),
+    });
+    const elapsedMs = Math.max(0, Date.now() - startedAt);
+    if (result.ok) {
+      console.log(`${SYSTEM_ID} | ${scope === "startup" ? "Startup migration maintenance" : "Migration pass"} complete`, { origin, elapsedMs });
+      if (notifySuccess && _isGM()) {
+        const elapsedSec = (elapsedMs / 1000).toFixed(2);
         ui.notifications?.info?.(tf("UESRPG.Notifications.MigrationsComplete", { elapsed: elapsedSec }, `UESRPG migrations complete (${elapsedSec}s).`));
       }
-
-      return { ok: true, elapsedMs };
-    } catch (err) {
-      console.error(`${SYSTEM_ID} | Migration pass failed`, { origin, err });
-      if (notifyFailure) {
+    } else {
+      console.error(`${SYSTEM_ID} | Migration pass incomplete`, { origin, ...result });
+      if (notifyFailure && _isGM()) {
         ui.notifications?.warn?.(t("UESRPG.Notifications.MigrationsFailed", "UESRPG migration pass failed; check console for details."));
       }
-      return { ok: false, reason: "error", err };
-    } finally {
-      _inFlight = null;
     }
-  })();
-
-  _inFlight = promise;
-  return promise;
+    return { ...result, elapsedMs };
+  });
 }
 
 export function isSystemMigrationRunning() {
-  return _inFlight !== null;
+  return _coordinator.isRunning();
 }

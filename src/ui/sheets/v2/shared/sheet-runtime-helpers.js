@@ -1,6 +1,6 @@
 import { requestDeleteEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
 import { unlinkAllItemsFromContainer, unlinkItemFromContainer } from "../../sheet-containers.js";
-import { isPerfEnabled, perfRecord, perfRecordHealthRefresh, perfApplicationContext } from "../../../../utils/perf-tracker.js";
+import { isPerfEnabled, perfRecord, perfRecordHealthRefresh, perfApplicationContext, startPerfSpan } from "../../../../utils/perf-tracker.js";
 import { localizeChoiceObject, t } from "../../../../utils/i18n.js";
 
 export function localizeSheetChoiceLabels(source, prefix) {
@@ -296,20 +296,32 @@ export function restoreRenderUiState(sheet, state) {
   }
 }
 
+async function measureQueuedRender(sheet, options, partial) {
+  const finish = startPerfSpan("sheet.queue", { phase: "render-call", partial, renderCount: 1 });
+  try {
+    const result = await sheet.render(options);
+    finish({ completedCount: 1 });
+    return result;
+  } catch (error) {
+    finish({ failedCount: 1 });
+    throw error;
+  }
+}
+
 async function renderQueuedParts(sheet, state, queued) {
   if (state.cancelled || closedRenderQueues.has(sheet)) return;
   // Item sheets own restoration for both document and queued renders. Do not
   // apply an older queue snapshot after their lifecycle restores a newer tab.
   const uiState = sheet.constructor.preservesRenderUiState ? null : captureRenderUiState(sheet);
   try {
-    if (queued === null) await sheet.render(true);
-    else if (queued.length) await sheet.render({ parts: queued });
+    if (queued === null) await measureQueuedRender(sheet, true, false);
+    else if (queued.length) await measureQueuedRender(sheet, { parts: queued }, true);
     restoreRenderUiState(sheet, uiState);
     return;
   } catch (partialError) {
     if (state.cancelled || closedRenderQueues.has(sheet)) return;
     try {
-      await sheet.render(true);
+      await measureQueuedRender(sheet, true, false);
       restoreRenderUiState(sheet, uiState);
       console.warn("UESRPG | Partial sheet render failed; full render fallback succeeded.", partialError);
       return;
@@ -348,7 +360,14 @@ function scheduleRenderQueueDrain(sheet, state) {
 export async function queueRenderParts(sheet, parts = []) {
   if (!Array.isArray(parts) || !parts.length) return;
   const state = getRenderQueueState(sheet);
-  if (!state) return;
+  if (!state) {
+    perfRecord({ event: "sheet.queue", phase: "closed-request", requestedCount: 1, skippedCount: 1 });
+    return;
+  }
+  perfRecord({
+    event: "sheet.queue", phase: "request", requestedCount: 1,
+    coalescedCount: state.draining || state.rafId != null ? 1 : 0,
+  });
   for (const part of parts) state.queuedParts.add(part);
 
   const promise = new Promise((resolve) => state.queuedResolvers.push(resolve));
@@ -361,6 +380,10 @@ export function clearQueuedRenderPartsState(sheet) {
   const state = renderQueueStates.get(sheet);
   if (!state) return;
 
+  perfRecord({
+    event: "sheet.queue", phase: "cleanup",
+    cancelledCount: state.queuedResolvers.length, inFlight: state.draining,
+  });
   state.cancelled = true;
   if (state.rafId != null) cancelAnimationFrame(state.rafId);
   state.rafId = null;
@@ -452,10 +475,11 @@ export async function deleteSheetItem(event, target) {
     const itemToDelete = this.document.items.get(itemId)
       ?? this.document.items.find(i => i?._id == itemId);
     if (!itemToDelete) return;
-    if (itemToDelete.type === "container") {
-      await unlinkAllItemsFromContainer(this.document, itemToDelete);
-    } else {
-      await unlinkItemFromContainer(this.document, itemToDelete);
+    const unlinked = itemToDelete.type === "container"
+      ? await unlinkAllItemsFromContainer(this.document, itemToDelete)
+      : await unlinkItemFromContainer(this.document, itemToDelete);
+    if (!unlinked) { ui.notifications?.warn?.("The item could not be safely removed from its container; deletion was stopped."); return; }
+    if (!await requestDeleteEmbeddedDocuments(this.document, "Item", [itemId])) {
+      ui.notifications?.warn?.("The Item deletion was not confirmed. Its contents may already have been released.");
     }
-    await requestDeleteEmbeddedDocuments(this.document, "Item", [itemId]);
   }

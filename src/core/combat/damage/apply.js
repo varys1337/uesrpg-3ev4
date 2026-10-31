@@ -287,6 +287,7 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
     damageApplied: finalDamageAdjusted,
     woundThreshold,
     isCriticalSuccess: Boolean(options?.criticalSuccess ?? options?.isCritical ?? false),
+    oldHp: currentHP,
     newHp: newHP
   });
   const isWounded = woundEval.triggered === true;
@@ -665,7 +666,10 @@ export async function applyHealing(actor, healing, options = {}) {
   const baseHeal = Number(healing || 0);
   const dosBonus = Number(options?.dosBonus ?? 0);
   const totalHealed = Math.max(0, baseHeal + dosBonus);
-  if (totalHealed <= 0) return null;
+  if (totalHealed <= 0) {
+    if (options._application) options._application.noEffect = true;
+    return null;
+  }
 
   const newHP = Math.min(maxHP, currentHP + totalHealed);
   const effectiveHealed = newHP - currentHP;
@@ -783,6 +787,7 @@ async function applyTemporaryHP(actor, amount, source = "Spell", options = {}) {
 
   const grantAmount = Math.max(0, Number(amount || 0));
   if (grantAmount === 0) {
+    if (options._application) options._application.noEffect = true;
     console.warn("UESRPG | applyTemporaryHP: Grant amount is 0");
     return null;
   }

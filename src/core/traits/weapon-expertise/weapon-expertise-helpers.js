@@ -7,7 +7,7 @@
 import { normalizeWeaponName, WEAPON_EXPERTISE } from "./weapon-expertise-map.js";
 import { hasTalent } from "../talents-api.js";
 import { itemHasToken } from "../../combat/damage-automation.js";
-import { getAttackModeFromWeapon, getEffectiveWeaponHands } from "../../combat/combat-utils.js";
+import { getWeaponCombatCapabilities, getEffectiveWeaponHands } from "../../combat/combat-utils.js";
 
 // ---- Weapon name matching ----
 
@@ -89,6 +89,10 @@ const _ALIAS_REVERSE = (() => {
   return map;
 })();
 
+// Longer names must win over their suffixes, e.g. Dai-Katana over Katana.
+const _ALIASES_LONGEST_FIRST = Object.entries(_ALIAS_REVERSE)
+  .sort(([left], [right]) => right.length - left.length);
+
 /**
  * Resolve a weapon item's name to its canonical normalized key.
  * @param {Item} weapon - A weapon Item document
@@ -102,14 +106,9 @@ export function resolveWeaponKey(weapon) {
   // Direct alias match
   if (_ALIAS_REVERSE[raw]) return _ALIAS_REVERSE[raw];
 
-  // Check if the weapon name starts with or contains a known canonical name
-  for (const [canonical, aliases] of Object.entries(WEAPON_DISPLAY_ALIASES)) {
-    for (const alias of aliases) {
-      const norm = normalizeWeaponName(alias);
-      if (raw === norm || raw.startsWith(norm) || raw.endsWith(norm)) {
-        return canonical;
-      }
-    }
+  // Material and custom prefixes or suffixes can surround a known name.
+  for (const [alias, canonical] of _ALIASES_LONGEST_FIRST) {
+    if (raw.startsWith(alias) || raw.endsWith(alias)) return canonical;
   }
 
   return raw;
@@ -145,18 +144,21 @@ export function weaponMatchesTalent(weapon, talentSlug) {
 }
 
 /**
- * Check if the weapon's attack mode matches the talent's required mode.
+ * Check the declared mode, or the weapon's capabilities when displaying notes.
  * @param {Item} weapon - A weapon Item document
  * @param {string} talentSlug - The talent slug key
+ * @param {string|null} [attackMode] - Declared attack mode, when available
  * @returns {boolean}
  */
-export function attackModeMatchesTalent(weapon, talentSlug) {
+export function attackModeMatchesTalent(weapon, talentSlug, attackMode = null) {
   const def = WEAPON_EXPERTISE[talentSlug];
   if (!def) return false;
   if (def.attackMode === "any") return true;
 
-  const mode = getAttackModeFromWeapon(weapon);
-  return mode === def.attackMode;
+  const capabilities = getWeaponCombatCapabilities(weapon);
+  const capable = def.attackMode === "melee" ? capabilities.meleeCapable : capabilities.rangedCapable;
+  const mode = String(attackMode ?? "").trim().toLowerCase();
+  return capable && (!mode || mode === def.attackMode);
 }
 
 /**
@@ -164,13 +166,14 @@ export function attackModeMatchesTalent(weapon, talentSlug) {
  * @param {Actor} actor
  * @param {Item} weapon
  * @param {string} talentSlug
+ * @param {string|null} [attackMode] - Declared attack mode, when available
  * @returns {boolean}
  */
-export function isWeaponExpertiseActive(actor, weapon, talentSlug) {
+export function isWeaponExpertiseActive(actor, weapon, talentSlug, attackMode = null) {
   if (!actor || !weapon) return false;
   if (!hasTalent(actor, talentSlug)) return false;
   if (!weaponMatchesTalent(weapon, talentSlug)) return false;
-  if (!attackModeMatchesTalent(weapon, talentSlug)) return false;
+  if (!attackModeMatchesTalent(weapon, talentSlug, attackMode)) return false;
   return true;
 }
 

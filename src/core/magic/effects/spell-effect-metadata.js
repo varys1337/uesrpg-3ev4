@@ -14,6 +14,22 @@ import { buildMagicCastContext } from "../opposed/cast-context.js";
 import { normalizeCastSourceCostMode, resolveItemContextFromCastSource } from "../opposed/cast-source.js";
 import { getSpellCost, getSpellLevel } from "../magicka-utils.js";
 import { SYSTEM_EFFECT_FLAG_KEYS } from "../../active-effects/effect-flags.js";
+import { getEffectChanges } from "../../../utils/compat.js";
+
+/** Identify the same authored effect across separately imported Item documents. */
+export function getSpellEffectIdentity(spell) {
+  const family = spell?.flags?.["uesrpg-3ev4"]?.coreSource?.family;
+  if (!family) return String(spell?.uuid ?? spell?.id ?? "");
+  const signatures = new Set();
+  for (const effect of spell?.effects ?? []) {
+    if (effect.disabled) continue;
+    for (const change of getEffectChanges(effect)) signatures.add(String(change.key));
+    const condition = effect.flags?.["uesrpg-3ev4"]?.condition?.key;
+    if (condition) signatures.add(`condition:${condition}`);
+  }
+  if (spell.system?.hasBuffer) signatures.add(`buffer:${spell.system.buffer?.type}`);
+  return `${family}::${Array.from(signatures).sort().join(",")}`;
+}
 
 function _str(value) {
   return String(value ?? "").trim();
@@ -77,7 +93,7 @@ function _normalizeCastContext(castContext, spellLevel) {
   const castLevel = _positiveInt(castContext?.castLevel, baseLevel) ?? baseLevel;
   const rawStrength = castContext?.spellStrengthValue;
   const spellStrengthValue = rawStrength != null && Number.isFinite(Number(rawStrength))
-    ? Math.max(0, Math.floor(Number(rawStrength))) : null;
+    ? Math.floor(Number(rawStrength)) : null;
   return {
     ..._clone(castContext),
     baseLevel,
@@ -87,13 +103,14 @@ function _normalizeCastContext(castContext, spellLevel) {
   };
 }
 
-export function buildUpkeepGroupKey({ casterUuid, casterTokenUuid, spellUuid, originalCastWorldTime }) {
+export function buildUpkeepGroupKey({ casterUuid, casterTokenUuid, spellUuid, originalCastWorldTime, castInstanceId = "" }) {
   const cUuid = _str(casterUuid);
   const tUuid = _str(casterTokenUuid);
   const sUuid = _str(spellUuid);
   const castTime = _num(originalCastWorldTime, Number.NaN);
   if (!cUuid || !sUuid || !Number.isFinite(castTime)) return "";
-  return `${cUuid}::${tUuid || "-"}::${sUuid}::${Math.floor(castTime)}`;
+  const base = `${cUuid}::${tUuid || "-"}::${sUuid}::${Math.floor(castTime)}`;
+  return castInstanceId ? `${base}::${castInstanceId}` : base;
 }
 
 export function parseUpkeepGroupKey(groupKey) {
@@ -103,7 +120,8 @@ export function parseUpkeepGroupKey(groupKey) {
     casterUuid: parts[0] || "",
     casterTokenUuid: legacy ? "" : (parts[1] === "-" ? "" : (parts[1] || "")),
     spellUuid: legacy ? (parts[1] || "") : (parts[2] || ""),
-    originalCastWorldTime: _num(legacy ? parts[2] : parts[3], 0)
+    originalCastWorldTime: _num(legacy ? parts[2] : parts[3], 0),
+    castInstanceId: legacy ? "" : (parts[4] || "")
   };
 }
 
@@ -218,6 +236,7 @@ export function buildSpellEffectMetadataFlags({
     spellEffectMetadataVersion: 1,
     spellEffectMetadataTier: 2,
     spellUuid: _str(spell?.uuid),
+    spellEffectIdentity: getSpellEffectIdentity(spell),
     spellName: _str(spell?.name),
     spellSchool: _str(spell?.system?.school),
     spellLevel,
@@ -240,7 +259,8 @@ export function buildSpellEffectMetadataFlags({
       casterUuid: casterActor?.uuid,
       casterTokenUuid,
       spellUuid: spell?.uuid,
-      originalCastWorldTime: resolvedOriginalCastWorldTime
+      originalCastWorldTime: resolvedOriginalCastWorldTime,
+      castInstanceId: normalizedCastContext.castInstanceId
     }),
     castContext: _clone(normalizedCastContext),
     spellOptions: clonedSpellOptions,

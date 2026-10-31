@@ -179,8 +179,8 @@ async function activateThunderChargeTalent({ actor }) {
   });
 }
 
-export async function runTalentActivationAutomation({ item, actor, context = {}, resolver = null } = {}) {
-  if (!item || item.type !== "talent") return;
+export async function runTalentActivationAutomation({ item, actor, context = {}, resolver = null, onOutcome = null } = {}) {
+  if (!item || item.type !== "talent") return false;
   const key = resolveTalentAutomationKey(item);
   activationDebug("UESRPG | TalentAutomation | dispatch", {
     item: item?.name ?? null,
@@ -189,22 +189,38 @@ export async function runTalentActivationAutomation({ item, actor, context = {},
     activationEnabled: Boolean(item?.system?.activation?.enabled)
   });
   try {
-    if (key === "hardtarget" && !await activateHardTargetEffect(actor)) throw new Error("Hard Target could not be applied.");
-    if (key === "defender" && !await activateDefenderTalent({ actor, context, resolver })) throw new Error("Defender did not complete.");
-    if (key === "thundercharge") await activateThunderChargeTalent({ actor });
-    if (key === "inspireheroism" && !await handleInspireHeroismActivation({ actor, item, context })) throw new Error("Inspire Heroism could not be applied.");
-    if (isActivatableSpellcastingTalent(item) && !await activateSpellcastingTalent(actor, item)) throw new Error("Spellcasting talent could not be applied.");
-    await handleRacialTalentActivation({ actor, item, itemKey: key });
+    let handled = false;
+    if (key === "hardtarget") {
+      if (!await activateHardTargetEffect(actor, { onOutcome, combatStep: context.hardTargetCombatStep })) throw new Error("Hard Target could not be applied.");
+      handled = true;
+    }
+    if (key === "defender") {
+      if (!await activateDefenderTalent({ actor, context, resolver })) throw new Error("Defender did not complete.");
+      handled = true;
+    }
+    if (key === "thundercharge") { await activateThunderChargeTalent({ actor }); handled = true; }
+    if (key === "inspireheroism") {
+      if (!await handleInspireHeroismActivation({ actor, item, context, onOutcome })) throw new Error("Inspire Heroism could not be applied.");
+      handled = true;
+    }
+    if (isActivatableSpellcastingTalent(item)) {
+      if (!await activateSpellcastingTalent(actor, item, {
+        onOutcome, activationCostPaid: context.activationCostPaid === true
+      })) throw new Error("Spellcasting talent could not be applied.");
+      handled = true;
+    }
+    const racialHandled = await handleRacialTalentActivation({ actor, item, itemKey: key, onOutcome });
+    return handled || racialHandled === true;
   } catch (err) {
     console.warn(`${SYSTEM_ID} | Talent activation automation failed`, { item: item?.name, key, err });
     throw err;
   }
 }
 
-export async function runPowerActivationAutomation({ item, actor } = {}) {
+export async function runPowerActivationAutomation({ item, actor, context = {}, onOutcome = null } = {}) {
   try {
     const itemKey = resolveTalentAutomationKey(item);
-    await handleRacialPowerActivation({ actor, item, itemKey });
+    return await handleRacialPowerActivation({ actor, item, itemKey, context, onOutcome }) === true;
   } catch (err) {
     console.warn(`${SYSTEM_ID} | Talent activation automation failed`, err);
     throw err;

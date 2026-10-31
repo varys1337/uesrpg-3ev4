@@ -1,4 +1,5 @@
 import { hasTalent } from "../../traits/talents-api.js";
+import { isPassiveFeatureActive } from "../../traits/features/feature-config.js";
 import { isShieldItem } from "../../items/shield-utils.js";
 
 function _pushByType(map, type, item) {
@@ -25,6 +26,8 @@ export function buildActorPrepareContext(actor) {
   for (const item of items) {
     if (!item) continue;
     _pushByType(byType, item.type, item);
+
+    if (["talent", "trait", "power"].includes(item.type) && !isPassiveFeatureActive(item)) continue;
 
     const sys = item.system ?? {};
     if (sys.equipped === true) equippedItems.push(item);

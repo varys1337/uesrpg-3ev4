@@ -23,6 +23,14 @@ export function normalizeTokenLoose(token) {
   return normalizeToken(token).replace(/[\s._-]+/g, "");
 }
 
+/** Resolve the selected equipped Snare weapon on the acting actor. */
+export function getEquippedSnareWeapon(actor, uuid) {
+  const id = String(uuid ?? "").trim();
+  if (!id) return null;
+  return Array.from(actor?.items ?? []).find(item => item.uuid === id && item.type === "weapon"
+    && item.system?.equipped === true && itemHasToken(item, "snare")) ?? null;
+}
+
 /**
  * Collect all quality/trait tokens from an item's structured qualities, traits, and activation data.
  * Returns normalized (lowercase, trimmed) tokens.

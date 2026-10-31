@@ -8,6 +8,10 @@
             {{!-- Attributes Tab --}}
             <div class="tab" data-group="primary" data-tab="attributes">
                 <div class="attribute-tab-container">
+                    <div class="form-group">
+                        <label><input type="checkbox" name="containerLimitQuantity" {{checked containerCapacity.hasQuantityLimit}}>{{localize "UESRPG.Sheets.Container.LimitQuantity"}}</label>
+                        <input type="number" name="containerMaxQuantity" value="{{containerCapacity.maxQuantity}}" min="0" step="1" aria-label="{{localize "UESRPG.Sheets.Container.QuantityCapacity"}}">
+                    </div>
                     <div class="item-selection-container">
                         <h2>{{localize "UESRPG.Sheets.Container.Contents"}}</h2>
                             <table>

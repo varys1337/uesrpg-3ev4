@@ -1,5 +1,8 @@
+import { getActionResult, createActionResult } from "../../application/action-results.js";
+
 export function result(ok, path, extra = {}) {
-  return { ok, path, ...extra };
+  const actionResult = getActionResult(extra.result ?? extra);
+  return { ok, path, ...extra, ...(actionResult ? { ok: actionResult.ok, actionResult } : {}) };
 }
 
 export function resolveToken(actor, explicitToken = null) {
@@ -77,18 +80,26 @@ export async function invokeSheetOrHandler({
   sheetFallback = {},
   successPathSheet,
   successPathHandler,
+  requireActionResult = false,
 } = {}) {
   const resolvedToken = resolveToken(actor, token);
   const event = makeSyntheticEvent(target, { shiftKey });
   const sheet = actor?.sheet ?? { actor, token: resolvedToken, element: null, ...sheetFallback };
 
   if (sheet && typeof sheet?.[sheetMethod] === "function") {
-    await sheet[sheetMethod](event, target, ...handlerArgs);
-    return result(true, successPathSheet);
+    const value = await sheet[sheetMethod](event, target, ...handlerArgs);
+    return forwardedResult(value, successPathSheet, requireActionResult);
   }
 
-  await handler.call(sheet, event, target, ...handlerArgs);
-  return result(true, successPathHandler);
+  const value = await handler.call(sheet, event, target, ...handlerArgs);
+  return forwardedResult(value, successPathHandler, requireActionResult);
+}
+
+function forwardedResult(value, path, required = true) {
+  if (getActionResult(value)) return result(false, path, { result: value });
+  if (!required) return result(true, path);
+  return result(false, path, { actionResult: createActionResult({ owner: "tokenActionHud", scope: "handler dispatch",
+    status: "needsReview", commitment: "uncertain", reason: "The handler did not report an action result. Inspect its card before repeating the action." }) });
 }
 
 export async function routeFeatureActivation({
@@ -103,19 +114,16 @@ export async function routeFeatureActivation({
   if (!item) return result(false, "none", { reason: "no-item" });
 
   if (item.type === "talent") {
-    await activateTalentFromItemSheet({ item, event });
-    return result(true, "shared-handlers.activateTalentFromItemSheet");
+    return forwardedResult(await activateTalentFromItemSheet({ item, event }), "shared-handlers.activateTalentFromItemSheet");
   }
   if (item.type === "power") {
-    await activatePowerFromItemSheet({ item, event });
-    return result(true, "shared-handlers.activatePowerFromItemSheet");
+    return forwardedResult(await activatePowerFromItemSheet({ item, event }), "shared-handlers.activatePowerFromItemSheet");
   }
   if (item.type === "trait") {
-    await activateTraitFromItemSheet({ item, event });
-    return result(true, "shared-handlers.activateTraitFromItemSheet");
+    return forwardedResult(await activateTraitFromItemSheet({ item, event }), "shared-handlers.activateTraitFromItemSheet");
   }
 
-  await executeItemActivation({
+  const value = await executeItemActivation({
     item,
     actor: actor ?? item.actor ?? null,
     event,
@@ -123,7 +131,7 @@ export async function routeFeatureActivation({
     includeImage: true,
     context: {},
   });
-  return result(true, "activation.executeItemActivation");
+  return forwardedResult(value, "activation.executeItemActivation");
 }
 
 export async function routeResourceDialog({

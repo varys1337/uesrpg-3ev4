@@ -6,7 +6,7 @@
  *  - Same interceptor pattern as combat-talents.js: export pure/async functions
  *    that callers invoke at specific combat pipeline milestones.
  *  - No hooks registered here; functions are imported and called directly.
- *  - Permission-safe: uses requestUpdateDocument for mutations.
+ *  - Uses the existing condition service for supported mutations.
  *
  * Integration points (callers):
  *  - Pre-TN:       applyWeaponExpertiseAttackerPreTN()  → called from attacker.js
@@ -17,39 +17,16 @@
  */
 
 import { hasTalent } from "../talents-api.js";
-import { itemHasToken } from "../../combat/damage-automation.js";
-import { applyBleeding, applyCondition } from "../../conditions/condition-engine.js";
-import { getAttackModeFromWeapon, getEffectiveWeaponHands } from "../../combat/combat-utils.js";
+import { applyBleeding } from "../../conditions/condition-engine.js";
 import {
   isWeaponExpertiseActive,
   weaponMatchesTalent,
   weaponMatchesAny,
-  resolveWeaponKey,
   isWeaponThrown,
-  isWeaponHandToHand,
-  getCharBonus
+  isWeaponHandToHand
 } from "./weapon-expertise-helpers.js";
-import { customDialog } from "../../../utils/dialog-v2-helper.js";
 import { WEAPON_EXPERTISE } from "./weapon-expertise-map.js";
-import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { _num as _asNumber, _lower, _buildSituationalMod } from "../_primitives.js";
-
-/**
- * Deduct SP from a target actor (forced loss, not voluntary spend).
- * Uses authority-proxy for permission safety.
- * @param {Actor} target
- * @param {number} amount
- * @returns {Promise<boolean>}
- */
-async function _deductTargetSP(target, amount) {
-  if (!target) return false;
-  const n = Math.max(0, Math.trunc(Number(amount) || 0));
-  if (n <= 0) return false;
-  const cur = Number(target.system?.stamina?.value ?? 0);
-  const next = cur - n;
-  const ok = await requestUpdateDocument(target, { "system.stamina.value": next });
-  return !!ok;
-}
 
 // ---- Pre-TN Phase (Attacker-Side) ----
 
@@ -67,15 +44,16 @@ async function _deductTargetSP(target, amount) {
  * @param {object} params.declaration - { variant, weapon, ... }
  * @param {object[]} params.situationalMods - mutable array of situational mods
  * @param {Item} [params.weapon] - the weapon being used (if available)
+ * @param {string|null} [params.attackMode] - declared attack mode
  */
-export function applyWeaponExpertiseAttackerPreTN({ attacker, declaration, situationalMods, weapon } = {}) {
+export function applyWeaponExpertiseAttackerPreTN({ attacker, declaration, situationalMods, weapon, attackMode = null } = {}) {
   if (!attacker || !declaration || !Array.isArray(situationalMods)) return;
 
   const variant = _lower(declaration?.variant ?? "");
 
   // Executioner: All Out Attack with greataxe/scimitar → bonus to +30 (add +10)
-  if (variant === "allout" || variant === "all-out" || variant === "alloutattack") {
-    if (weapon && isWeaponExpertiseActive(attacker, weapon, "executioner")) {
+  if (variant === "allout") {
+    if (weapon && isWeaponExpertiseActive(attacker, weapon, "executioner", attackMode)) {
       if (!situationalMods.some(m => String(m?.key ?? "") === "talent:executioner-aoa")) {
         situationalMods.push(_buildSituationalMod(
           "talent:executioner-aoa",
@@ -87,9 +65,10 @@ export function applyWeaponExpertiseAttackerPreTN({ attacker, declaration, situa
   }
 
   // Viper's Eye: Precision Strike with spear → only -10 (add +10 to offset -20 → -10)
-  if (variant === "precision" || variant === "precisionstrike") {
-    if (weapon && isWeaponExpertiseActive(attacker, weapon, "viperseye")) {
-      if (!situationalMods.some(m => String(m?.key ?? "") === "talent:viperseye-precision")) {
+  if (variant === "precision") {
+    if (weapon && isWeaponExpertiseActive(attacker, weapon, "viperseye", attackMode)) {
+      const penaltyAlreadyRemoved = situationalMods.some(m => ["talent:precise", "talent:eyeofnight"].includes(String(m?.key ?? "")));
+      if (!penaltyAlreadyRemoved && !situationalMods.some(m => String(m?.key ?? "") === "talent:viperseye-precision")) {
         situationalMods.push(_buildSituationalMod(
           "talent:viperseye-precision",
           "Viper's Eye (Precision -10 only)",
@@ -109,16 +88,13 @@ export function applyWeaponExpertiseAttackerPreTN({ attacker, declaration, situa
  * Mutates damageContext to add bonus damage and notes.
  *
  * Implemented:
- *  - Bruiser: +STR bonus to thrown axes
- *  - Dart Thrower: +AGI bonus to all thrown weapons
+ *  - Bruiser and Dart Thrower: manual thrown-damage reminders
  *  - Executioner: note about +1d4 to STR bonus for quality during AoA (informational — dice expression)
  *  - Knife Fighter: note about +1d4 on Penetrate Armor advantage
- *  - Pugilist: +1 to Slashing/Crushing value of H2H weapons (flat +1 damage)
- *  - Hammerblow: flags for SP loss / Dazed (automated in post-damage)
- *  - Death by a Thousand Cuts: flag for Bleeding(1) (automated in post-damage)
+ *  - Pugilist: manual reminder for its Hand to Hand quality value
+ *  - Hammerblow and Death by a Thousand Cuts: manual choice reminders
  *  - From Oblivion's Heart: flag for Bleeding(1) on wound (automated in post-damage)
- *  - Red Legion Throw: flag for Crippled/Speared (automated in post-damage)
- *  - Whirling School: flag for bola wrap dialog (automated in post-damage)
+ *  - Red Legion Throw and Whirling School: manual resolution reminders
  *
  * @param {object} params
  * @param {Actor} params.attacker
@@ -133,39 +109,28 @@ export function applyWeaponExpertiseDamageModifiers({ attacker, target, weapon, 
   // Ensure talentNotes array exists
   damageContext.talentNotes = Array.isArray(damageContext.talentNotes) ? damageContext.talentNotes : [];
 
-  const weaponKey = resolveWeaponKey(weapon);
-  const attackMode = getAttackModeFromWeapon(weapon);
   const isThrown = isWeaponThrown(weapon);
   const isH2H = isWeaponHandToHand(weapon);
+  const attackMode = attackData?.attackMode ?? null;
   const variant = _lower(attackData?.variant ?? "");
   const isAllOutAttack = (variant === "allout" || variant === "all-out" || variant === "alloutattack" ||
     Boolean(attackData?.isAllOutAttack));
 
-  // --- Bruiser: +STR bonus to thrown axes ---
+  // These bonuses belong to the attack's damage, not a separately mitigated
+  // damage component. The caller cannot always establish a thrown attack here.
   if (isThrown && hasTalent(attacker, "bruiser") && weaponMatchesAny(weapon, ["handaxe"])) {
-    const sb = getCharBonus(attacker, "str");
-    if (sb > 0) {
-      damageContext.talentDamageBonus = _asNumber(damageContext.talentDamageBonus, 0) + sb;
-      damageContext.talentNotes.push(`Bruiser: +${sb} damage (STR bonus for thrown axes)`);
-    }
+    damageContext.talentNotes.push("Bruiser: For a thrown axe attack, include the Strength bonus in damage manually instead of Dart Thrower's Agility bonus; resolve mitigation once with the GM.");
   }
 
-  // --- Dart Thrower: +AGI bonus to all thrown weapons ---
-  // Only if Bruiser did NOT already apply STR bonus for this throwing attack
-  // (Bruiser replaces Dart Thrower's AGI bonus for thrown axes)
   if (isThrown && hasTalent(attacker, "darthrower")) {
     const hasBruiserOnAxe = hasTalent(attacker, "bruiser") && weaponMatchesAny(weapon, ["handaxe"]);
     if (!hasBruiserOnAxe) {
-      const ab = getCharBonus(attacker, "agi");
-      if (ab > 0) {
-        damageContext.talentDamageBonus = _asNumber(damageContext.talentDamageBonus, 0) + ab;
-        damageContext.talentNotes.push(`Dart Thrower: +${ab} damage (AGI bonus for thrown weapons)`);
-      }
+      damageContext.talentNotes.push("Dart Thrower: For a thrown attack, include the Agility bonus in damage manually; resolve mitigation once with the GM.");
     }
   }
 
   // --- Executioner: +1d4 STR bonus for Splitting/Slashing during All Out Attack ---
-  if (isAllOutAttack && isWeaponExpertiseActive(attacker, weapon, "executioner")) {
+  if (isAllOutAttack && isWeaponExpertiseActive(attacker, weapon, "executioner", attackMode)) {
     // This is a dice expression bonus — we can note it; the extra 1d4 is informational
     // since the system's damage formula parsing handles the base quality values.
     // Add a flat approximation (+2 average of 1d4) or note for the player to roll manually.
@@ -177,10 +142,9 @@ export function applyWeaponExpertiseDamageModifiers({ attacker, target, weapon, 
     );
   }
 
-  // --- Pugilist: +1 to Slashing/Crushing value of H2H weapons ---
+  // The quality's armor-dependent trigger and cap must not become flat damage.
   if (isH2H && hasTalent(attacker, "pugilist")) {
-    damageContext.talentDamageBonus = _asNumber(damageContext.talentDamageBonus, 0) + 1;
-    damageContext.talentNotes.push("Pugilist: +1 to Slashing/Crushing (H2H weapon)");
+    damageContext.talentNotes.push("Pugilist: Increase the applicable Slashing or Crushing quality value by 1; resolve manually, including its armor restriction.");
   }
 
   // --- Knife Fighter: +1d4 on Penetrate Armor advantage ---
@@ -194,74 +158,67 @@ export function applyWeaponExpertiseDamageModifiers({ attacker, target, weapon, 
     }
   }
 
-  // --- Hammerblow: target loses 1 SP on hit ---
-  if (isWeaponExpertiseActive(attacker, weapon, "hammerblow")) {
+  // The choice and the Endurance test are resolved manually.
+  if (isWeaponExpertiseActive(attacker, weapon, "hammerblow", attackMode)) {
     if (isAllOutAttack) {
       damageContext.talentNotes.push(
-        "Hammerblow (All Out Attack): Target must test END(+0) or gain Dazed condition."
+        "Hammerblow: On a hit, the attacker may choose 1 SP loss or an END(+0) test; only a failed test causes Dazed. Resolve the choice and test manually."
       );
     } else {
       damageContext.talentNotes.push(
-        "Hammerblow: Target loses 1 Stamina Point on hit."
+        "Hammerblow: On a hit, the attacker may choose to make the target lose 1 SP; resolve manually."
       );
     }
-    // Flag for post-damage processing
-    damageContext._hammerblowActive = true;
-    damageContext._hammerblowAllOut = isAllOutAttack;
   }
 
   // --- Bruiser: All Out Attack with mace → target loses 1 SP on damage ---
   if (isAllOutAttack && hasTalent(attacker, "bruiser") && weaponMatchesAny(weapon, ["mace"])) {
     damageContext.talentNotes.push(
-      "Bruiser (All Out Attack + Mace): Target loses 1 SP if damage dealt after mitigation."
+      "Bruiser (All Out Attack + Mace): If the target takes damage after mitigation, resolve the 1 SP loss manually. Inspect prior changes before applying it."
     );
-    damageContext._bruiserMaceAOA = true;
   }
 
   // --- Bearded Warrior: on damage, may move target 1m ---
-  if (isWeaponExpertiseActive(attacker, weapon, "beardedwarrior")) {
+  if (isWeaponExpertiseActive(attacker, weapon, "beardedwarrior", attackMode)) {
     damageContext.talentNotes.push(
       "Bearded Warrior: On ≥1 damage after mitigation, may move target 1m (cannot increase distance)."
     );
     damageContext._beardedWarriorActive = true;
   }
 
-  // --- Death by a Thousand Cuts: on ≥1 damage, apply Bleeding(1) ---
-  if (isWeaponExpertiseActive(attacker, weapon, "deathbyathousandcuts")) {
+  // --- Death by a Thousand Cuts: the attacker may choose Bleeding(1) ---
+  if (isWeaponExpertiseActive(attacker, weapon, "deathbyathousandcuts", attackMode)) {
     damageContext.talentNotes.push(
-      "Death by a Thousand Cuts: On ≥1 damage after mitigation, apply Bleeding(1)."
+      "Death by a Thousand Cuts: After at least 1 damage following mitigation, the attacker may choose to apply Bleeding(1) manually."
     );
-    damageContext._deathByThousandCutsActive = true;
   }
 
   // --- From Oblivion's Heart: on wound, apply Bleeding(1) ---
-  if (isWeaponExpertiseActive(attacker, weapon, "fromoblivionsheart")) {
+  if (isWeaponExpertiseActive(attacker, weapon, "fromoblivionsheart", attackMode)) {
     damageContext.talentNotes.push(
       "From Oblivion's Heart: If attack inflicts a wound, target gains Bleeding(1)."
     );
     damageContext._fromOblivionsHeartActive = true;
   }
 
-  // --- Red Legion Throw: on damage → Speared (Crippled) ---
-  if (isWeaponExpertiseActive(attacker, weapon, "redlegionthrow")) {
+  // The location-specific condition and shield tracking require manual resolution.
+  if (isWeaponExpertiseActive(attacker, weapon, "redlegionthrow", attackMode)) {
     damageContext.talentNotes.push(
-      "Red Legion Throw: On damage after mitigation → hit location is Speared (Crippled)."
+      "Red Legion Throw: If a thrown javelin deals damage after mitigation, record the speared body or limb and treat it as crippled until the javelin is removed; resolve manually."
     );
-    damageContext._redLegionThrowActive = true;
   }
 
   // --- Whirling School: precision strike with bola → wrap effect ---
-  if (isWeaponExpertiseActive(attacker, weapon, "whirlingschool")) {
-    if (variant === "precision") {
+  if (isWeaponExpertiseActive(attacker, weapon, "whirlingschool", attackMode)) {
+    if (variant === "precision" || variant === "precisionstrike") {
       damageContext.talentNotes.push(
-        "The Whirling School: Bola wrap — choose neck (SP drain) or legs (Immobilized)."
+        "The Whirling School: If this was the special Precision Strike and it hit, resolve the chosen neck or legs effect manually, even if no damage was dealt."
       );
-      damageContext._whirlingSchoolActive = true;
     }
   }
 
   // --- Collect passive quality notes for any active weapon expertise ---
-  _appendPassiveNotes(attacker, weapon, damageContext);
+  _appendPassiveNotes(attacker, weapon, damageContext, attackMode);
 }
 
 /**
@@ -269,12 +226,12 @@ export function applyWeaponExpertiseDamageModifiers({ attacker, target, weapon, 
  * These are informational reminders shown in the damage report.
  * @private
  */
-function _appendPassiveNotes(attacker, weapon, damageContext) {
+function _appendPassiveNotes(attacker, weapon, damageContext, attackMode = null) {
   if (!attacker || !weapon || !damageContext) return;
 
   for (const [slug, def] of Object.entries(WEAPON_EXPERTISE)) {
     if (!def.passive?.length) continue;
-    if (!isWeaponExpertiseActive(attacker, weapon, slug)) continue;
+    if (!isWeaponExpertiseActive(attacker, weapon, slug, attackMode)) continue;
 
     for (const note of def.passive) {
       const prefixed = `${def.label}: ${note}`;
@@ -291,20 +248,20 @@ function _appendPassiveNotes(attacker, weapon, damageContext) {
  * Get weapon expertise WT delta for an attacker's weapon.
  *
  * Implemented:
- *  - Monster Hunter: WT -1 when attacking with a pike.
- *    (RAW: Large+ creatures WT is treated as one lower. We apply universally and note the condition.)
+ *  - Monster Hunter: WT -1 when attacking a Large or larger target with a pike.
  *
  * @param {object} params
  * @param {Actor} params.attacker
+ * @param {Actor} params.target
  * @param {Item} params.weapon
- * @param {string} [params.attackMode]
  * @returns {number} WT delta (negative = lower WT for target)
  */
-export function getWeaponExpertiseWTDelta({ attacker, weapon, attackMode } = {}) {
-  if (!attacker || !weapon) return 0;
+export function getWeaponExpertiseWTDelta({ attacker, target, weapon } = {}) {
+  if (!attacker || !target || !weapon) return 0;
 
   // Monster Hunter: WT -1 with pike
-  if (isWeaponExpertiseActive(attacker, weapon, "monsterhunter")) {
+  if (["large", "huge", "enormous"].includes(_lower(target.system?.size))
+    && isWeaponExpertiseActive(attacker, weapon, "monsterhunter")) {
     return -1;
   }
 
@@ -316,10 +273,8 @@ export function getWeaponExpertiseWTDelta({ attacker, weapon, attackMode } = {})
 export function hasWeaponExpertisePostDamageEffects({ attacker, target, weapon, damageContext, damageApplied, woundTriggered } = {}) {
   if (!attacker || !target || !weapon || !damageContext) return false;
   const dmg = _asNumber(damageApplied, 0);
-  return Boolean(damageContext._hammerblowActive
-    || damageContext._fromOblivionsHeartActive && woundTriggered
-    || dmg >= 1 && (damageContext._deathByThousandCutsActive || damageContext._beardedWarriorActive
-      || damageContext._bruiserMaceAOA || damageContext._redLegionThrowActive || damageContext._whirlingSchoolActive));
+  return Boolean(damageContext._fromOblivionsHeartActive && woundTriggered
+    || dmg >= 1 && damageContext._beardedWarriorActive);
 }
 
 /**
@@ -327,13 +282,8 @@ export function hasWeaponExpertisePostDamageEffects({ attacker, target, weapon, 
  * Called after damage is resolved and applied to the target.
  *
  * Implemented:
- *  - Death by a Thousand Cuts: apply Bleeding(1) on ≥1 damage
  *  - From Oblivion's Heart: apply Bleeding(1) on wound
- *  - Hammerblow: auto SP loss (non-AoA) or auto Dazed condition (AoA)
  *  - Bearded Warrior: note in chat about move option
- *  - Bruiser (mace AoA): auto SP loss on damage
- *  - Red Legion Throw: auto Crippled (Speared) on damage
- *  - Whirling School: dialog prompt → auto Immobilized (legs) or SP drain note (neck)
  *
  * @param {object} params
  * @param {Actor} params.attacker
@@ -354,65 +304,27 @@ export async function applyWeaponExpertisePostDamageEffects({
 } = {}) {
   const notes = [];
   let bleedingApplied = false;
+  let bleedingUnconfirmed = false;
   const dmg = _asNumber(damageApplied, 0);
 
   if (!hasWeaponExpertisePostDamageEffects({ attacker, target, weapon, damageContext, damageApplied, woundTriggered })) return { notes, bleedingApplied };
-
-  // Death by a Thousand Cuts: apply Bleeding(1) on ≥1 damage
-  if (damageContext._deathByThousandCutsActive && dmg >= 1) {
-    try {
-      if (typeof applyBleeding === "function") {
-        await applyBleeding(target, 1);
-        notes.push("Death by a Thousand Cuts: Bleeding(1) applied.");
-        bleedingApplied = true;
-      }
-    } catch (err) {
-      console.warn("UESRPG | Weapon Expertise: Failed to apply Bleeding for Death by a Thousand Cuts:", err);
-      notes.push("Death by a Thousand Cuts: Bleeding(1) should be applied manually.");
-    }
-  }
 
   // From Oblivion's Heart: apply Bleeding(1) on wound
   if (damageContext._fromOblivionsHeartActive && woundTriggered) {
     try {
       if (typeof applyBleeding === "function") {
-        await applyBleeding(target, 1);
-        notes.push("From Oblivion's Heart: Bleeding(1) applied (wound inflicted).");
-        bleedingApplied = true;
+        const applied = await applyBleeding(target, 1, { source: "From Oblivion's Heart", requireConfirmed: true });
+        if (applied) {
+          notes.push("From Oblivion's Heart: Bleeding(1) applied (wound inflicted).");
+          bleedingApplied = true;
+        } else {
+          notes.push("From Oblivion's Heart: Bleeding was not applied; the target may be immune or bloodless.");
+        }
       }
     } catch (err) {
       console.warn("UESRPG | Weapon Expertise: Failed to apply Bleeding for From Oblivion's Heart:", err);
-      notes.push("From Oblivion's Heart: Bleeding(1) should be applied manually.");
-    }
-  }
-
-  // Hammerblow: SP loss (non-AoA) or Dazed condition (AoA)
-  if (damageContext._hammerblowActive) {
-    if (damageContext._hammerblowAllOut) {
-      try {
-        if (typeof applyCondition === "function") {
-          await applyCondition(target, "dazed", {
-            source: `${attacker.name} — Hammerblow (All Out Attack)`
-          });
-          notes.push(
-            `Hammerblow (All Out Attack): Dazed applied to ${target.name}. ` +
-            `Removal: END(+10) as Free Action each round.`
-          );
-        }
-      } catch (err) {
-        console.warn("UESRPG | Weapon Expertise: Failed to apply Dazed for Hammerblow:", err);
-        notes.push(
-          `Hammerblow (All Out Attack): ${target.name} should gain Dazed condition (apply manually). ` +
-          `Removal: END(+10) as Free Action each round.`
-        );
-      }
-    } else {
-      const ok = await _deductTargetSP(target, 1);
-      if (ok) {
-        notes.push(`Hammerblow: ${target.name} lost 1 Stamina Point.`);
-      } else {
-        notes.push(`Hammerblow: ${target.name} should lose 1 SP (apply manually).`);
-      }
+      bleedingUnconfirmed = true;
+      notes.push("From Oblivion's Heart: Bleeding could not be confirmed. Inspect the target's conditions before retrying or resolving it manually.");
     }
   }
 
@@ -424,77 +336,7 @@ export async function applyWeaponExpertisePostDamageEffects({
     );
   }
 
-  // Bruiser mace AoA: SP loss
-  if (damageContext._bruiserMaceAOA && dmg >= 1) {
-    const ok = await _deductTargetSP(target, 1);
-    if (ok) {
-      notes.push(`Bruiser (All Out Attack + Mace): ${target.name} lost 1 Stamina Point.`);
-    } else {
-      notes.push(`Bruiser (All Out Attack + Mace): ${target.name} should lose 1 SP (apply manually).`);
-    }
-  }
-
-  // Red Legion Throw: apply Crippled (Speared)
-  if (damageContext._redLegionThrowActive && dmg >= 1) {
-    try {
-      if (typeof applyCondition === "function") {
-        await applyCondition(target, "crippled", {
-          source: `${attacker.name} — Red Legion Throw (Speared)`
-        });
-        notes.push(
-          `Red Legion Throw: ${target.name}'s hit location is Speared (Crippled). ` +
-          `Removal: Free Action → Bleeding(1), or Secondary Action STR test.`
-        );
-      }
-    } catch (err) {
-      console.warn("UESRPG | Weapon Expertise: Failed to apply Crippled for Red Legion Throw:", err);
-      notes.push(
-        `Red Legion Throw: ${target.name} should gain Crippled (Speared) condition (apply manually).`
-      );
-    }
-  }
-
-  // Whirling School: prompt for bola wrap location, apply condition
-  if (damageContext._whirlingSchoolActive && dmg >= 1) {
-    try {
-      const wrapTarget = await customDialog({
-        layout: "workflow",
-        title: "The Whirling School \u2014 Bola Wrap",
-        content:
-          `<p>Where does <strong>${attacker.name}</strong> wrap the bola ` +
-          `around <strong>${target.name}</strong>?</p>`,
-        buttons: {
-          legs: { label: "Legs (Immobilized)", callback: () => "legs" },
-          neck: { label: "Neck (1 SP/round)", callback: () => "neck" }
-        },
-        default: "legs"
-      }) ?? "legs";
-
-      if (wrapTarget === "legs") {
-        if (typeof applyCondition === "function") {
-          await applyCondition(target, "immobilized", {
-            source: `${attacker.name} — Whirling School (Bola)`
-          });
-          notes.push(
-            `The Whirling School: Bola wraps ${target.name}'s legs → Immobilized. ` +
-            `Removal: Primary Action, +0 STR test by target or ally within 1m.`
-          );
-        }
-      } else {
-        notes.push(
-          `The Whirling School: Bola wraps ${target.name}'s neck → loses 1 SP/round (does not stack). ` +
-          `Removal: Primary Action, +0 STR test by target or ally within 1m.`
-        );
-      }
-    } catch (err) {
-      console.warn("UESRPG | Weapon Expertise: Failed to apply Whirling School effect:", err);
-      notes.push(
-        `The Whirling School: ${target.name} should gain Immobilized or SP drain (apply manually).`
-      );
-    }
-  }
-
-  return { notes, bleedingApplied };
+  return { notes, bleedingApplied, failed: bleedingUnconfirmed };
 }
 
 // ---- Passive Notes Collector ----
@@ -505,15 +347,21 @@ export async function applyWeaponExpertisePostDamageEffects({
  *
  * @param {Actor} actor
  * @param {Item} weapon
+ * @param {object} [options]
+ * @param {string[]} [options.slugs] Restrict the reminders to these talents.
+ * @param {string|null} [options.attackMode] Restrict reminders to the declared mode.
  * @returns {string[]}
  */
-export function collectWeaponExpertiseNotes(actor, weapon) {
+export function collectWeaponExpertiseNotes(actor, weapon, { slugs = null, attackMode = null } = {}) {
   if (!actor || !weapon) return [];
 
   const notes = [];
 
   for (const [slug, def] of Object.entries(WEAPON_EXPERTISE)) {
-    if (!isWeaponExpertiseActive(actor, weapon, slug)) continue;
+    if (Array.isArray(slugs) && !slugs.includes(slug)) continue;
+    if (slug === "pugilist" && !isWeaponHandToHand(weapon)) continue;
+    if (slug === "darthrower" && !isWeaponThrown(weapon)) continue;
+    if (!isWeaponExpertiseActive(actor, weapon, slug, attackMode)) continue;
 
     // Add passive quality notes
     for (const note of (def.passive ?? [])) {

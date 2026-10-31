@@ -1,5 +1,16 @@
-import { runAlchemyItemActivation } from "./operations.js";
+import { runAlchemyItemActivation, consumePotionAuthoritatively, registerPotionConsumptionAuthority } from "./operations.js";
+import { withActionResult, actionResultFromEvidence } from "../../application/action-results.js";
+import { getChatOutcomes, describeChatOutcome } from "../../application/combat/chat-outcome-application-service.js";
 import { measurePerfStage } from "../../utils/perf-tracker.js";
+import { alertDialog, customDialog } from "../../utils/dialog-v2-helper.js";
+import { hasTalent } from "../traits/talents-api.js";
+import { getActorCombatStep, isActorCombatStepCurrent } from "../combat/combat-scope.js";
+import { isSpecialActionUsableNow } from "../combat/combat-style-utils.js";
+import { getActionEligibility } from "../combat/opposed/actions/eligibility.js";
+import { getFearActionRestrictions } from "../fear/index.js";
+import { ensureBurningTurnActionAllowed } from "../conditions/condition-engine.js";
+import { applyActivationCosts, getActivationCostPreview } from "../system/activation/costs-and-usage.js";
+import { ActionEconomy } from "../combat/action-economy.js";
 /**
  * Alchemy Runtime Automation
  *
@@ -21,7 +32,10 @@ import { measurePerfStage } from "../../utils/perf-tracker.js";
  */
 
 import { getEffectByKey } from "./effects.js";
-import { rollPotionBackfire } from "./backfire.js";
+import { restoreStaminaOrRemoveFatigue, getCoreRejuvenateConfigurationIssue, getCoreReplenishConfigurationIssue, isCoreReplenishSpell } from "../magic/services/resource-restoration-service.js";
+import { isCoreRejuvenateSpell, promptRejuvenateChoice, requireRejuvenateChoice } from "../magic/rejuvenate-choice.js";
+import { getRoundTimeSecondsSafe } from "../system/time/round-time.js";
+import { buildEffectDuration } from "../time/effect-duration.js";
 import {
   requestAtomicUpdateDocument,
   requestCreateEmbeddedDocuments,
@@ -36,6 +50,8 @@ import { renderPoisonResistanceCard, renderToxinResistanceCard } from "./render.
 import {
   ALCHEMY_DEFAULT_ICON,
   cloneAlchemyData as _cloneData,
+  COATING_AUTOMATION_PAUSED,
+  COATING_MANUAL_GUIDANCE,
   emitAlchemyRoll3d as _emitAlchemyRoll3d,
   FLAG_NS,
   getAlchemyFlags,
@@ -52,7 +68,6 @@ import {
   applyAlchemyToAmmo as applyAlchemyToAmmoImpl,
   applyAlchemyToTarget as applyAlchemyToTargetImpl,
   applyAlchemyToWeapon as applyAlchemyToWeaponImpl,
-  consumeAlchemyItem as _consumeAlchemyItem,
   pickAlchemyCoatingTarget as pickAlchemyCoatingTargetImpl,
   pickAlchemyWeapon as pickAlchemyWeaponImpl,
 } from "./apply.js";
@@ -64,6 +79,7 @@ import {
 } from "./spell-effects.js";
 import { appendSupplementalDamageReportToMessage } from "../combat/chat-handlers/combat-chat-apply.js";
 import { resolveMagicCastContext } from "../magic/opposed/cast-context.js";
+import { spellNeedsEffectApplication } from "../magic/opposed/spell-helpers.js";
 import { getSpellDamageType, rollSpellHealing } from "../magic/magicka-utils.js";
 import { doTestRoll } from "../../utils/degree-roll-helper.js";
 import {
@@ -90,11 +106,13 @@ import {
   rollEnduranceTest as _rollEnduranceTest,
 } from "./runtime/resource-updates.js";
 import { buildEffectChange, buildEffectChangesData } from "../../utils/compat.js";
-import { buildGenericAEData } from "../active-effects/modifier-evaluator.js";
+import { buildGenericAEData, applyGenericStackPolicy } from "../active-effects/modifier-evaluator.js";
+import { findPotionArmorConflict } from "../active-effects/potion-armor-conflicts.js";
 import { createChatOutcome, chatOutcomeFlags } from "../config/outcome-application-policy.js";
 import { resumeDamageAftermath } from "../combat/damage/deferred-operations.js";
 import { prepareResolvedSpellEffectPayload } from "../magic/effects/spell-effects.js";
 import { resolveActorFromUuidSync } from "../../utils/uuid-cache.js";
+import { stableStringify } from "../../utils/authority-proxy/shared.js";
 
 // ── Flag namespace constant (delegated to canonical FLAG_SCOPE from namespace.js) ──
 const _ALCHEMY_ON_HIT_IN_FLIGHT = new Map();
@@ -102,20 +120,24 @@ const _ALCHEMY_ON_HIT_IN_FLIGHT = new Map();
 function _requireApplication(result, label) {
   if (!result || result.execution?.status === "partial" || result.execution?.status === "failed" || result.aftermathSummary?.failed?.length) {
     const error = new Error(`${label} was not fully confirmed. Do not repeat a committed resource change.`);
-    error.committed = result?.execution?.committed === true || Number(result?.healing ?? result?.damage ?? result?.granted ?? 0) !== 0;
+    error.committed = result?.execution?.committed === true;
+    error.uncertain = !result || result.actionResult?.commitment === "uncertain";
     throw error;
   }
   return result;
 }
 
-async function _prepareAlchemySpellOutcome({ targetActor, sourceActor, syntheticSpell, castContext, normalizedEffect, label, kind, amount, damageType, rollHTML = "" }) {
+async function _prepareAlchemySpellOutcome({ targetActor, sourceActor, syntheticSpell, castContext, normalizedEffect, label, kind, amount, damageType, rollHTML = "", rejuvenateChoice = null }) {
   const prepared = kind === "effect" ? await prepareResolvedSpellEffectPayload({ casterActor: sourceActor, spell: syntheticSpell, payload: { castContext } }) : { castContext };
   return { ok: true, committed: false, noteHtml: _alchemyNoteHtml(label, `${amount || "Effects"} - application pending.`),
     outcome: createChatOutcome({ adapter: "alchemy.spell", kind, sourceActorUuid: sourceActor.uuid,
       targetUuid: targetActor.uuid, label, payload: {
         alchemySpell: true, spellSnapshot: syntheticSpell, spellUuid: syntheticSpell.uuid,
+        ...(rejuvenateChoice ? { spellOptions: { rejuvenateChoice } } : {}),
         casterUuid: sourceActor.uuid, damage: amount, damageType, rollHTML, source: syntheticSpell.name,
-        isHealing: kind === "healing", isDamaging: kind === "damage", needsEffects: kind === "effect",
+        isHealing: kind === "healing", isDamaging: kind === "damage",
+        needsEffects: kind === "effect" && (!(isCoreRejuvenateSpell(syntheticSpell) || isCoreReplenishSpell(syntheticSpell))
+          || Boolean(syntheticSpell.effects?.length) || spellNeedsEffectApplication(syntheticSpell)),
         isTemporary: damageType === "temporaryhealing" || damageType === "temporary healing", ...prepared,
         actualCost: Number(normalizedEffect.cost ?? 0) || 0,
         originalCastWorldTime: Number(game.time.worldTime ?? 0),
@@ -129,8 +151,12 @@ export async function executeChatOutcome(outcome, context) {
     return executeInlineChatOutcome({ ...outcome, magic: true, damage: { _magicPayload: payload } }, context);
   }
   if (outcome.adapter === "alchemy.potion") {
+    if (Number.isFinite(Number(payload.potency)) && Number(payload.potency) < 1) {
+      throw Object.assign(new Error("This older weakened potion outcome may use an obsolete backfire result. The GM must inspect the potion, costs and chat and resolve it manually."), { committed: false });
+    }
+    if (payload.effectKey === "rejuvenate" && Math.floor(payload.potency) > 0) requireRejuvenateChoice(payload.rejuvenateChoice);
     const result = await context.stage("potion", () => _applyPotionEffect(context.actor, getEffectByKey(payload.effectKey),
-      payload.sl, payload.potency, payload.finalDuration, payload.params, { receiptId: context.receiptId, outcomeContext: context }));
+      payload.sl, payload.potency, payload.finalDuration, payload.params, { receiptId: context.receiptId, outcomeContext: context, rejuvenateChoice: payload.rejuvenateChoice }));
     return resumeDamageAftermath(result, context);
   }
   if (outcome.adapter === "alchemy.poison") {
@@ -153,6 +179,7 @@ async function _applySerializedSpellEffect(targetActor, effectEntry, {
   mode = null,
   noteLabelSuffix = "Spell",
   parentApplication = null,
+  rejuvenateChoice = null,
 } = {}) {
   const normalizedResult = await _normalizeStoredSpellEffect(effectEntry, {
     mode: String(mode ?? effectEntry?.mode ?? "potion").trim().toLowerCase() || "potion",
@@ -165,6 +192,13 @@ async function _applySerializedSpellEffect(targetActor, effectEntry, {
   if (!syntheticSpell) {
     return { ok: false, reason: `${_effectLabel(normalizedEffect)} is missing its serialized spell payload.` };
   }
+  if (mode === "potion" && isCoreRejuvenateSpell(syntheticSpell)) {
+    const issue = getCoreRejuvenateConfigurationIssue(syntheticSpell);
+    if (issue) throw Object.assign(new Error(issue), { committed: false });
+    requireRejuvenateChoice(rejuvenateChoice);
+  }
+  const replenishmentIssue = getCoreReplenishConfigurationIssue(syntheticSpell);
+  if (mode === "potion" && replenishmentIssue) throw Object.assign(new Error(replenishmentIssue), { committed: false });
 
   const applicationKind = String(payload?.applicationKind ?? "").trim().toLowerCase();
   const damageType = String(payload?.damageType ?? getSpellDamageType(syntheticSpell) ?? "").trim().toLowerCase();
@@ -243,9 +277,12 @@ async function _applySerializedSpellEffect(targetActor, effectEntry, {
   }
 
   if (applicationKind === "spelleffects") {
-    castContext = await resolveMagicCastContext({}, syntheticSpell, { actor: sourceActor });
+    const selection = isCoreReplenishSpell(syntheticSpell)
+      ? { spellOptions: { castLevel: Number(normalizedEffect?.spellLevel ?? 1) || 1 } }
+      : {};
+    castContext = await resolveMagicCastContext(selection, syntheticSpell, { actor: sourceActor });
     return _prepareAlchemySpellOutcome({ targetActor, sourceActor, syntheticSpell, castContext, normalizedEffect, label,
-      kind: "effect", amount: 0, damageType });
+      kind: "effect", amount: 0, damageType, rejuvenateChoice });
   }
 
   if (applicationKind === "damage") {
@@ -268,45 +305,167 @@ async function _applySerializedSpellEffect(targetActor, effectEntry, {
  * Execute the drink-potion workflow for an alchemy item on a given actor.
  *
  * Resolution order:
- *   1. If the potion is Backfired → roll Potion Backfire Table first.
- *   2. For each effect: apply instant effects immediately; create upkeep AEs for timed ones.
- *   3. Consume the item (reduce qty or delete).
- *   4. Post result chat card.
+ *   1. Confirm accessibility and pay the combat action cost, if applicable.
+ *   2. Prepare any backfire and effect outcomes.
+ *   3. Confirm consumption before posting the outcomes.
  *
  * @param {Actor} actor
  * @param {Item}  potionItem
  */
-export function drinkPotion(actor, potionItem) {
+export function drinkPotion(actor, potionItem, { beforeConsume = null } = {}) {
   return runAlchemyItemActivation(potionItem, async fresh => {
     if (fresh.parent?.uuid !== actor?.uuid) return { ok: false, reason: "Potion does not belong to this Actor.", execution: { status: "failed", committed: false } };
-    const progress = { committed: false, consumed: false, rows: [], outcomes: [], backfireHtml: "", presentationStarted: false };
+    const progress = { committed: false, consumed: false, rows: [], outcomes: [], backfireHtml: "", presentationStarted: false,
+      alchemyFingerprint: stableStringify(getAlchemyFlags(fresh)), beforeConsume };
     try {
+      if (getAlchemyFlags(fresh)?.kind !== "potion") throw new Error(t("UESRPG.Notifications.Alchemy.NotBrewedPotion"));
+      if (!actor.isOwner && !game.user.isGM) throw new Error(t("UESRPG.Notifications.Alchemy.NotOwner"));
+      if (getAlchemyFlags(fresh)?.backfired) {
+        await alertDialog({ title: "Backfired potion: GM resolution",
+          content: "<p>Resolve this potion manually with the GM using the potion backfire table on page 160: roll 1d10 and follow the result, including a 2d8 minor-effect roll where required. Resolve the action cost, potion effects, consequences and consumption once.</p><p>This control has not spent an action cost, removed Aim, changed the potion or applied its effects. Inspect any earlier attempt before resolving it.</p>" });
+        return withActionResult({ ok: false, reason: "Backfired potion requires manual GM resolution.", execution: { status: "blocked", committed: false } },
+          actionResultFromEvidence({ owner: "alchemy", scope: "potion use", blocked: true, reason: "Backfired potion requires manual GM resolution.",
+            references: { actorUuid: actor.uuid, itemUuid: fresh.uuid } }));
+      }
+      progress.rejuvenateChoices = {};
+      const effects = getAlchemyFlags(fresh)?.effects ?? [];
+      for (const [index, entry] of effects.entries()) {
+        let requiresChoice = String(entry?.effectSource ?? "catalog") !== "spell" && entry?.effectKey === "rejuvenate";
+        if (String(entry?.effectSource ?? "catalog") === "spell") {
+          const normalized = await _normalizeStoredSpellEffect(entry, { mode: "potion" });
+          if (!normalized?.ok) throw new Error(normalized?.reason ?? "The stored potion spell is unavailable.");
+          const syntheticSpell = _buildSyntheticSpellFromPayload(normalized.effectEntry);
+          const issue = getCoreRejuvenateConfigurationIssue(syntheticSpell) ?? getCoreReplenishConfigurationIssue(syntheticSpell);
+          if (issue) throw new Error(issue);
+          requiresChoice = isCoreRejuvenateSpell(syntheticSpell);
+        }
+        if (!requiresChoice) continue;
+        const choice = await promptRejuvenateChoice(actor, fresh.name);
+        if (!choice) return withActionResult({ ok: false, reason: "Potion use cancelled.", execution: { status: "cancelled", committed: false } },
+          actionResultFromEvidence({ owner: "alchemy", scope: "potion use", cancelled: true, reason: "Potion use cancelled.",
+            references: { actorUuid: actor.uuid, itemUuid: fresh.uuid } }));
+        progress.rejuvenateChoices[index] = choice;
+      }
+      if (stableStringify(getAlchemyFlags(fresh)) !== progress.alchemyFingerprint) throw new Error("The potion changed during preparation; no potion cost was paid.");
+      const step = getActorCombatStep(actor);
+      const trackedCombat = Boolean(step);
+      progress.encounterUnchanged = () => isActorCombatStepCurrent(actor, step);
+      if (trackedCombat) {
+        const onOwnTurn = isSpecialActionUsableNow(actor, "primary");
+        const quickDraw = hasTalent(actor, "Quick Draw");
+        const itemName = foundry.utils.escapeHTML(fresh.name);
+        const availableAP = Math.max(0, Number(actor.system?.action_points?.value ?? 0) || 0);
+        const actionChoice = onOwnTurn
+          ? `<label>Use as <select name="potionAction"><option value="turn">Secondary Action on this turn</option><option value="reaction">Reaction</option></select></label>`
+          : `<p>This use is a reaction.</p><input type="hidden" name="potionAction" value="reaction">`;
+        const quickDrawChoice = quickDraw
+          ? `<label>Quick Draw <select name="potionCost"><option value="safe">2 AP; no Attack of Opportunity</option><option value="reduced">1 AP; may provoke an Attack of Opportunity</option></select></label>`
+          : `<p>Drinking costs 2 AP and may provoke an Attack of Opportunity.</p><input type="hidden" name="potionCost" value="standard">`;
+        const declaration = await customDialog({
+          title: "Drink Potion",
+          content: `<p>Confirm that <strong>${itemName}</strong> is accessible. Current AP: ${availableAP}.</p>${actionChoice}${quickDrawChoice}<p>For a reaction, confirm the triggering event and reaction limit with the GM; resolve any Burning restriction with the GM if acting outside your turn.</p><p>Confirm that the chosen cost is available, then resolve any applicable Attack of Opportunity before confirming. Paying a 2 AP action over multiple turns is manual.</p>`,
+          yes: { label: "Drink", callback: html => {
+            const root = html instanceof HTMLElement ? html : html?.[0];
+            if (!root) return null;
+            return { action: root.querySelector('[name="potionAction"]')?.value,
+              choice: root.querySelector('[name="potionCost"]')?.value };
+          } },
+          no: { label: "Cancel" },
+          defaultButton: "no",
+        });
+        if (!declaration || !["turn", "reaction"].includes(declaration.action)
+          || (!onOwnTurn && declaration.action !== "reaction")
+          || !(quickDraw ? ["reduced", "safe"] : ["standard"]).includes(declaration.choice)) {
+          return withActionResult({ ok: false, reason: "Potion use cancelled.", execution: { status: "cancelled", committed: false } },
+            actionResultFromEvidence({ owner: "alchemy", scope: "potion use", cancelled: true, reason: "Potion use cancelled.",
+              references: { actorUuid: actor.uuid, itemUuid: fresh.uuid } }));
+        }
+        const isReaction = declaration.action === "reaction";
+        const choice = declaration.choice;
+        const restriction = () => {
+          const eligibility = getActionEligibility(actor, { actionFamily: "utility", actionType: isReaction ? "reaction" : "secondary", combat: game.combat });
+          if (!eligibility.allowed) return `${actor.name} cannot ${isReaction ? "react" : "take this action"}: ${eligibility.reasons.join(", ")}.`;
+          const fear = getFearActionRestrictions(actor);
+          if (isReaction && fear?.blockActions) return `${actor.name} cannot react due to fear effects.`;
+          return null;
+        };
+        const cost = choice === "reduced" ? 1 : 2;
+        const activation = { enabled: true, spendCosts: true, costs: { action_points: cost } };
+        if (!progress.encounterUnchanged()) throw new Error("The combat step changed while preparing the potion; no potion cost was paid.");
+        if (quickDraw && !hasTalent(actor, "Quick Draw")) throw new Error("Quick Draw is no longer active; no potion cost was paid.");
+        const currentRestriction = restriction();
+        if (currentRestriction) throw new Error(currentRestriction);
+        const preview = getActivationCostPreview({ actor, activation, label: "Drink Potion" });
+        if (!preview.ok) {
+          const extended = cost > 1 && Number(actor.system?.action_points?.value ?? 0) > 0
+            ? " Paying the cost across turns is not automated; ask the GM to resolve the extended action manually." : "";
+          throw new Error(`${preview.reason}${extended}`);
+        }
+        if (onOwnTurn) {
+          const burning = await ensureBurningTurnActionAllowed(actor, { actionId: "use-item" });
+          if (!burning.allowed) throw new Error(`${actor.name} cannot take this action while burning.`);
+        }
+        if (!progress.encounterUnchanged()) throw new Error("The combat step changed while preparing the potion; no potion cost was paid.");
+        const finalRestriction = restriction();
+        if (finalRestriction) throw new Error(finalRestriction);
+        if (stableStringify(getAlchemyFlags(fresh)) !== progress.alchemyFingerprint) throw new Error("The potion changed during preparation; no potion cost was paid.");
+        const spent = await applyActivationCosts({ actor, label: "Drink Potion", activation,
+          operationGuard: () => { if (!progress.encounterUnchanged() || restriction() || (quickDraw && !hasTalent(actor, "Quick Draw"))) throw new Error("The combat state changed before payment."); } });
+        if (!spent.ok) throw Object.assign(new Error(spent.reason ?? "The potion action cost was not confirmed."), { uncertain: spent.uncertain === true });
+        progress.committed = spent.spent === true;
+        if (spent.spent) progress.actionNote = `${cost} AP spent. ${choice === "safe"
+          ? "Quick Draw prevents an Attack of Opportunity from drinking."
+          : "Any applicable Attack of Opportunity should have been resolved before drinking."}`;
+      }
+      if (!progress.encounterUnchanged()) throw new Error("The encounter changed while preparing the potion. Review the action before continuing.");
+      await ActionEconomy.breakAim(actor, { reason: "Drink Potion", requireConfirmed: true,
+        onRemoved: () => { progress.committed = true; progress.aimRemoved = true; } });
       return await _drinkPotion(actor, fresh, progress);
     } catch (error) {
       const committed = progress.committed || error?.committed === true;
       const status = committed ? "partial" : "failed";
-      const reason = error?.message ?? String(error);
-      ui.notifications.warn(`Potion ${status}: ${reason}`);
+      const requiresReview = progress.uncertain || error?.uncertain === true;
+      const reason = `${error?.message ?? String(error)}${progress.actionNote ? ` ${progress.actionNote}` : ""}${progress.aimRemoved ? " Aim was removed." : ""}${progress.committed ? " Review the action and potion before retrying." : ""}`;
+      ui.notifications.warn(`Potion ${requiresReview ? "requires review" : status}: ${reason}`);
       if (!progress.presentationStarted) {
         try {
-          await _postAlchemyUseMessage(actor, fresh, committed ? "Potion Partially Completed" : "Potion Not Applied",
+          await _postAlchemyUseMessage(actor, fresh, requiresReview ? "Potion Requires Review" : committed ? "Potion Partially Completed" : "Potion Not Applied",
             progress.backfireHtml + progress.rows.join("\n") + _alchemyNoteHtml("Completion", foundry.utils.escapeHTML(reason), "is-warning"));
         } catch (_error) { /* The completion result still reports the failed presentation. */ }
       }
-      return { ok: false, reason, consumed: progress.consumed, execution: { status, committed } };
+      return withActionResult({ ok: false, reason, consumed: progress.consumed, uncertain: progress.uncertain || error.uncertain === true,
+        execution: { status, committed } }, actionResultFromEvidence({ owner: "alchemy", scope: "potion consumption and managed outcomes",
+        confirmed: committed || progress.targets?.some(target => target.actionResult.commitment === "confirmed"),
+        uncertain: progress.uncertain || error.uncertain === true || progress.targets?.some(target => target.actionResult.commitment === "uncertain"),
+        partial: committed || Boolean(progress.messageId), blocked: !committed && !progress.messageId, reason,
+        references: { actorUuid: actor.uuid, itemUuid: fresh.uuid, messageId: progress.messageId }, targets: progress.targets }));
     }
   });
 }
 
 async function _finishPotionUse(actor, potionItem, title, html, progress) {
-  progress.presentationStarted = true;
-  await measurePerfStage("consumption", "presentation", { itemUuid: potionItem.uuid, writeCount: 1 },
-    () => _postAlchemyUseMessage(actor, potionItem, title, html, chatOutcomeFlags(progress.outcomes)));
-  const consumption = await _consumeAlchemyItem(actor, potionItem);
-  if (!consumption?.ok) throw new Error(consumption?.reason ?? "Potion consumption was not confirmed.");
+  if (!progress.encounterUnchanged()) throw new Error("The encounter changed before potion consumption. Review the action before retrying.");
+  if (typeof progress.beforeConsume === "function") await progress.beforeConsume();
+  if (!progress.encounterUnchanged()) throw new Error("The encounter changed before potion consumption. Review the action before retrying.");
+  const consumption = await consumePotionAuthoritatively(actor, potionItem, progress.alchemyFingerprint);
+  if (!consumption?.ok) throw Object.assign(new Error(consumption?.reason ?? "Potion consumption was not confirmed."), { uncertain: consumption?.uncertain === true });
   progress.consumed = true;
   progress.committed = true;
-  return { ok: true, consumed: true, execution: { status: "completed", committed: true } };
+  progress.presentationStarted = true;
+  progress.uncertain = true;
+  const actionHtml = progress.actionNote ? _alchemyNoteHtml("Drink Potion", foundry.utils.escapeHTML(progress.actionNote)) : "";
+  const message = await measurePerfStage("consumption", "presentation", { itemUuid: potionItem.uuid, writeCount: 1 },
+    () => _postAlchemyUseMessage(actor, potionItem, title, actionHtml + html, chatOutcomeFlags(progress.outcomes)));
+  progress.messageId = message.id;
+  progress.targets = getChatOutcomes(message).map(outcome => ({ targetUuid: outcome.targetUuid, actionResult: describeChatOutcome(message, outcome) }));
+  progress.uncertain = false;
+  const targets = progress.targets;
+  return withActionResult({ ok: true, consumed: true, execution: { status: "completed", committed: true } }, actionResultFromEvidence({
+    owner: "alchemy", scope: "potion consumption and managed outcomes", confirmed: true,
+    pending: targets.some(target => ["pending", "processing"].includes(target.actionResult.status)),
+    uncertain: targets.some(target => target.actionResult.commitment === "uncertain"),
+    partial: targets.some(target => ["partial", "rejected", "blocked"].includes(target.actionResult.status)),
+    references: { messageId: message.id, actorUuid: actor.uuid, itemUuid: potionItem.uuid }, targets }));
 }
 
 async function _drinkPotion(actor, potionItem, progress) {
@@ -322,60 +481,9 @@ async function _drinkPotion(actor, potionItem, progress) {
     return { ok: false, reason: t("UESRPG.Notifications.Alchemy.NotOwner"), execution: { status: "failed", committed: false } };
   }
 
-  let halfPotency = false;
-  let backfireHtml = "";
-
-  // Backfired potion: roll the Potion Backfire Table before applying any effect.
-  if (algData.backfired) {
-    const bfResult = await rollPotionBackfire();
-    _emitAlchemyRoll3d(bfResult?.rollObject ?? null, { actor });
-    _emitAlchemyRoll3d(bfResult?.minorEffect?.rollObject ?? null, { actor });
-    const bfEntry = bfResult.entry;
-    backfireHtml = _alchemyNoteHtml(
-      `Backfire (1d10=${bfResult.roll})`,
-      `${bfEntry?.label ?? "?"} - ${bfEntry?.description ?? ""}`,
-      "is-danger"
-    );
-
-    progress.backfireHtml = backfireHtml;
-    switch (bfEntry?.outcome) {
-      case "no_effect":
-        progress.backfireHtml = backfireHtml;
-        return _finishPotionUse(actor, potionItem, "Potion Consumed — No Effect", backfireHtml, progress);
-
-      case "half_potency":
-        halfPotency = true;
-        break;
-
-      case "minor_effects":
-      case "dangerous":
-        if (bfResult.minorEffect?.entry) {
-          backfireHtml += _alchemyNoteHtml(
-            `Minor Effect (2d8=${bfResult.minorEffect.roll})`,
-            `${bfResult.minorEffect.entry.label} - ${bfResult.minorEffect.entry.description}`,
-            "is-warning"
-          );
-        }
-        if (bfEntry?.outcome === "dangerous") {
-          const dmgRoll = new Roll("1d8");
-          await dmgRoll.evaluate();
-          _emitAlchemyRoll3d(dmgRoll, { actor, damageType: "physical" });
-          progress.outcomes.push(createChatOutcome({ adapter: "damage.resolved", kind: "damage", sourceActorUuid: actor.uuid,
-            targetUuid: actor.uuid, label: "Backfired Potion", payload: { amount: dmgRoll.total,
-              ignoreReduction: true, damageType: "physical", source: "Backfired Potion", skipChatMessage: true } }));
-        }
-        progress.backfireHtml = backfireHtml;
-        return _finishPotionUse(actor, potionItem, "Potion Consumed — Backfire!", backfireHtml, progress);
-
-      case "sickened":
-        backfireHtml += _alchemyNoteHtml("Sickened", "Make an Endurance test or gain Poisoned for 1d6 rounds.", "is-warning");
-        progress.backfireHtml = backfireHtml;
-        return _finishPotionUse(actor, potionItem, "Potion Consumed — Sickened!", backfireHtml, progress);
-
-      default:
-        break;
-    }
-  }
+  // A potion that became backfired while the declaration was open needs
+  // review; an earlier action cost or Aim removal may already have occurred.
+  if (algData.backfired) throw new Error("The potion is backfired and requires manual GM resolution.");
 
   const normalizedEffects = [];
   for (const rawEffect of algData.effects ?? []) {
@@ -394,13 +502,14 @@ async function _drinkPotion(actor, potionItem, progress) {
   // Apply each effect.
   const effectResultRows = progress.rows;
 
-  for (const effectEntry of normalizedEffects) {
+  for (const [effectIndex, effectEntry] of normalizedEffects.entries()) {
     if (String(effectEntry?.effectSource ?? "catalog") === "spell") {
       const resolved = await _applySerializedSpellEffect(actor, effectEntry, {
         casterActor: actor,
-        potency: halfPotency ? 0.5 : 1,
+        potency: 1,
         mode: "potion",
         noteLabelSuffix: "Spell",
+        rejuvenateChoice: progress.rejuvenateChoices?.[effectIndex] ?? null,
       });
       if (!resolved?.ok) {
         throw new Error(resolved?.reason ?? t("UESRPG.Notifications.Alchemy.PotionEffectNotResolved"));
@@ -416,46 +525,51 @@ async function _drinkPotion(actor, potionItem, progress) {
 
     const { effectKey, spellLevel, finalDuration, attributes, params } = effectEntry;
     const effectDef = getEffectByKey(effectKey);
-    if (!effectDef) continue;
+    if (!effectDef) throw new Error(`Potion effect "${String(effectKey ?? "")}" is unavailable; the potion was not consumed.`);
 
     const sl = Number(spellLevel ?? 1);
-    const potency = halfPotency ? 0.5 : 1;
+    const potency = 1;
 
     const resultRow = await measurePerfStage("consumption", "ownedFollowups", { itemUuid: potionItem.uuid, effectKey },
-      () => _applyPotionEffect(actor, effectDef, sl, potency, finalDuration, params, { prepareOnly: true }));
+      () => _applyPotionEffect(actor, effectDef, sl, potency, finalDuration, params, { prepareOnly: true, rejuvenateChoice: progress.rejuvenateChoices?.[effectIndex] ?? null }));
     progress.committed ||= resultRow.committed === true;
     if (resultRow.outcome) progress.outcomes.push(resultRow.outcome);
     effectResultRows.push(resultRow.noteHtml);
   }
 
-  return _finishPotionUse(actor, potionItem, "Potion Consumed", backfireHtml + effectResultRows.join("\n"), progress);
+  return _finishPotionUse(actor, potionItem, "Potion Consumed", effectResultRows.join("\n"), progress);
 }
 
 /**
  * Apply a single potion effect to an actor.
  * Returns an HTML row for the result chat card.
  */
-async function _applyPotionEffect(actor, effectDef, sl, potency, finalDuration, params, { prepareOnly = false, receiptId = null, outcomeContext = null } = {}) {
+async function _applyPotionEffect(actor, effectDef, sl, potency, finalDuration, params, { prepareOnly = false, receiptId = null, outcomeContext = null, rejuvenateChoice = null } = {}) {
+  if (!effectDef) throw Object.assign(new Error("This potion effect is no longer available; review the outcome before retrying."), { committed: false });
   const key = effectDef.key;
   const label = effectDef.label;
-  const magnitude = Math.max(1, Math.floor(sl * potency));
+  const magnitude = Math.max(0, Math.floor(sl * potency));
 
-  if (prepareOnly && effectDef.automation !== "manual" && (["restoreHealth", "heal", "replenish", "restoreMagicka", "restoreStamina"].includes(key)
+  if (prepareOnly && key === "rejuvenate") requireRejuvenateChoice(rejuvenateChoice);
+
+  if (prepareOnly && effectDef.automation !== "manual" && (["restoreHealth", "heal", "replenish", "restoreMagicka", "restoreStamina", "rejuvenate"].includes(key)
     || (effectDef.attributes.includes("upkeep") && finalDuration))) {
     return { committed: false, noteHtml: _alchemyNoteHtml(label, `SL ${sl} - application pending.`),
       outcome: createChatOutcome({ adapter: "alchemy.potion", kind: ["restoreHealth", "heal"].includes(key) ? "healing" : "effect",
         sourceActorUuid: actor.uuid, targetUuid: actor.uuid, label,
-        payload: { effectKey: key, sl, potency, finalDuration, params } }) };
+        payload: { effectKey: key, sl, potency, finalDuration, params, ...(key === "rejuvenate" ? { rejuvenateChoice } : {}) } }) };
   }
 
   if (key === "restoreHealth" || key === "heal") {
-    const amount = key === "heal" ? Math.max(1, Math.floor(2 * sl * potency)) : magnitude;
+    const amount = key === "heal" ? Math.max(0, Math.floor(2 * sl * potency)) : magnitude;
+    if (amount === 0) return { committed: false, message: `${label} restores no HP after potency is rounded down.` };
     const result = _requireApplication(await applyHealing(actor, amount, { source: label, skipChatMessage: true, receiptId, outcomeContext }), label);
     return { ...result, committed: result.execution?.committed === true, noteHtml: _alchemyNoteHtml(label, `+${Number(result.healing ?? 0)} HP restored`) };
   }
 
   if (key === "replenish" || key === "restoreMagicka" || key === "restoreStamina") {
-    const amount = key === "replenish" ? Math.max(1, Math.floor(2 * sl * potency)) : magnitude;
+    const amount = key === "replenish" ? Math.max(0, Math.floor(2 * sl * potency)) : magnitude;
+    if (amount === 0) return { committed: false, message: `${label} restores no resource after potency is rounded down.` };
     let calculated = false;
     let delta = 0;
     const confirmed = await requestAtomicUpdateDocument(actor, fresh => {
@@ -467,8 +581,16 @@ async function _applyPotionEffect(actor, effectDef, sl, potency, finalDuration, 
       delta = next - pool.value;
       return delta === 0 ? null : { [pool.valuePath]: next };
     }, { perfKind: "consumption" });
-    if (!calculated || (delta !== 0 && !confirmed)) throw new Error(`${label} restoration was not confirmed.`);
+    if (!calculated || (delta !== 0 && !confirmed)) throw Object.assign(new Error(`${label} restoration was not confirmed.`), { uncertain: true });
     return { committed: Boolean(confirmed), noteHtml: _alchemyNoteHtml(label, `+${delta} ${key === "restoreStamina" ? "Stamina" : "Magicka"} restored`) };
+  }
+
+  if (key === "rejuvenate") {
+    if (Math.floor(potency) <= 0) return { committed: false, message: "Half potency rounds the Rejuvenate effect down to zero." };
+    requireRejuvenateChoice(rejuvenateChoice);
+    const lines = [];
+    const committed = await restoreStaminaOrRemoveFatigue(actor, { amount: 1, removeFatigueLevels: 1, lines, choice: rejuvenateChoice });
+    return { committed, noteHtml: _alchemyNoteHtml(label, lines.join("; ") || (rejuvenateChoice === "fatigue" ? "No Fatigue to remove." : "Stamina is already full.")) };
   }
 
   if (effectDef.automation === "manual") {
@@ -478,13 +600,23 @@ async function _applyPotionEffect(actor, effectDef, sl, potency, finalDuration, 
 
   // Safely representable upkeep effects create a timed Active Effect.
   if (effectDef.attributes.includes("upkeep") && finalDuration) {
-    const durationRounds = finalDuration.unit === "minutes"
-      ? finalDuration.value * 10   // 1 minute = 10 rounds (6-second rounds)
-      : finalDuration.value;
+    if (magnitude <= 0) return { committed: false, message: `${label} has no effect after potency is rounded down.` };
+    const unit = String(finalDuration.unit ?? "").trim().toLowerCase();
+    const durationValue = Number(finalDuration.value);
+    const secondsPerUnit = { second: 1, seconds: 1, minute: 60, minutes: 60, hour: 3600, hours: 3600,
+      day: 86400, days: 86400, round: getRoundTimeSecondsSafe(), rounds: getRoundTimeSecondsSafe() }[unit];
+    if (!(durationValue > 0) || !Number.isFinite(durationValue) || !secondsPerUnit) {
+      throw Object.assign(new Error(`${label} has an unsupported or invalid duration; review the potion outcome.`), { committed: false });
+    }
+    const durationRounds = durationValue * secondsPerUnit / getRoundTimeSecondsSafe();
 
-    const aeData = _buildPotionAE(actor, effectDef, sl, magnitude, durationRounds, params);
-    const created = await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [aeData]);
-    if (created?.length !== 1) throw new Error(`${label} effect creation was not confirmed.`);
+    const aeData = _buildPotionAE(actor, effectDef, sl, magnitude, durationRounds, params, finalDuration);
+    if (!aeData.changes.length) return { committed: false, noteHtml: _alchemyNoteHtml(label, `SL ${sl} — GM resolves this effect; no automatic modifier was applied.`) };
+    const conflict = ["armor", "magicArmor"].includes(key)
+      ? findPotionArmorConflict(actor, aeData.changes, { incomingPotionKey: key }) : null;
+    if (conflict) throw Object.assign(new Error(`${label} does not stack with ${conflict.name}. The GM must decide which effect applies; remove the other effect before retrying this outcome.`), { committed: false });
+    const created = await applyGenericStackPolicy(actor, aeData);
+    if (!created) throw Object.assign(new Error(`${label} effect creation was not confirmed.`), { uncertain: true });
 
     return { committed: true, noteHtml: `<div class="uesrpg-da-row"><span class="k">${label}</span><span class="v">SL ${sl} — ${finalDuration.value} ${finalDuration.unit}</span></div>` };
   }
@@ -502,9 +634,8 @@ async function _applyPotionEffect(actor, effectDef, sl, potency, finalDuration, 
 /**
  * Build an ActiveEffect data object for a timed potion effect.
  */
-function _buildPotionAE(actor, effectDef, sl, magnitude, durationRounds, _params) {
+function _buildPotionAE(actor, effectDef, sl, magnitude, durationRounds, _params, finalDuration) {
   const changes = _buildAEChanges(effectDef.key, magnitude);
-  const combatActive = !!game.combat?.active;
 
   return buildGenericAEData({
     source: "alchemy",
@@ -517,12 +648,12 @@ function _buildPotionAE(actor, effectDef, sl, magnitude, durationRounds, _params
     name: `${effectDef.label} (Potion SL${sl})`,
     icon: ALCHEMY_DEFAULT_ICON,
     origin: actor.uuid,
-    duration: combatActive
-      ? { rounds: durationRounds, combat: game.combat.id }
-      : { seconds: durationRounds * 6 },
+    duration: buildEffectDuration({ actor, seconds: durationRounds * getRoundTimeSecondsSafe(),
+      rounds: durationRounds, preferCombat: ["round", "rounds"].includes(String(finalDuration.unit ?? "").trim().toLowerCase()) }),
     flags: {
       [FLAG_NS]: {
         spellEffect: true,
+        owner: "system",
         alchemyPotion: true,
         potionEffectKey: effectDef.key,
         potionSL: sl,
@@ -538,6 +669,12 @@ function _buildPotionAE(actor, effectDef, sl, magnitude, durationRounds, _params
  */
 function _buildAEChanges(effectKey, magnitude) {
   switch (effectKey) {
+    case "armor":
+      return [buildEffectChange({ key: "system.modifiers.combat.armorRating", type: "add", value: String(magnitude), priority: 20 })];
+    case "magicArmor":
+      return [buildEffectChange({ key: "system.modifiers.combat.magicArmorRating", type: "add", value: String(magnitude), priority: 20 })];
+    case "levitate":
+      return [buildEffectChange({ key: "system.modifiers.speed.flySpeed", type: "override", value: String(3 * magnitude), priority: 20 })];
     case "shieldSpell":
       return [buildEffectChange({ key: "magic_ar", type: "add", value: String(magnitude), priority: 20 })];
     case "fortifyAttribute":
@@ -590,6 +727,13 @@ async function _onDamageApplied(targetActor, context, { strict = false } = {}) {
   if (!applied) return;
   if (!game.user?.isGM && !doesUserOwnActor(game.user, sourceItem.parent)) {
     if (strict) throw new Error("GM authority is required for alchemy on-hit consequences.");
+    return;
+  }
+
+  // Existing coatings can have a partially recorded hit or resistance card.
+  // Preserve their state until the GM has reviewed the result manually.
+  if (COATING_AUTOMATION_PAUSED && ["poison", "toxin"].includes(applied.kind)) {
+    ui.notifications.warn(COATING_MANUAL_GUIDANCE);
     return;
   }
 
@@ -682,6 +826,11 @@ async function _postPoisonResistanceCard(targetActor, weaponItem, applied, conte
 
 export async function resolvePoisonResistanceFromChat({ messageId, action } = {}) {
   if (String(action ?? "").trim().toLowerCase() !== "roll") return;
+  if (COATING_AUTOMATION_PAUSED) {
+    ui.notifications.warn(COATING_MANUAL_GUIDANCE);
+    return;
+  }
+
   const message = game.messages?.get?.(String(messageId ?? "").trim()) ?? null;
   if (!message) return;
 
@@ -1161,6 +1310,11 @@ async function _resolveToxinOnHit(targetActor, weaponItem, applied, context = {}
  */
 export async function resolveToxinResistanceFromChat({ messageId, action } = {}) {
   if (String(action ?? "").trim().toLowerCase() !== "roll") return;
+  if (COATING_AUTOMATION_PAUSED) {
+    ui.notifications.warn(COATING_MANUAL_GUIDANCE);
+    return;
+  }
+
   const message = game.messages?.get?.(String(messageId ?? "").trim()) ?? null;
   if (!message) return;
 
@@ -1296,6 +1450,7 @@ function _onUpdateCombat(combat, updateData) {
     for (const item of actor?.items ?? []) {
       const applied = _getAppliedAlchemy(item);
       if (!applied) continue;
+      if (COATING_AUTOMATION_PAUSED && ["poison", "toxin"].includes(applied.kind)) continue;
       if (_isAppliedAlchemyExpired(applied)) {
         _clearAppliedAlchemy(item, applied).catch((err) => {
           console.warn("UESRPG | Failed to clear expired alchemy coating", err);
@@ -1336,6 +1491,7 @@ async function _postAlchemyUseMessage(actor, item, title, bodyHtml, flags = {}) 
  * Idempotent — safe to call multiple times; duplicate registrations are silently skipped.
  */
 export function initializeAlchemyRuntime() {
+  registerPotionConsumptionAuthority();
   registerAlchemyRuntimeHooks({
     onDamageApplied: _onDamageApplied,
     onUpdateCombat: _onUpdateCombat,

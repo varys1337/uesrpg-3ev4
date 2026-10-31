@@ -10,9 +10,14 @@ import { registerWarfareCampaignHooks } from "../../core/mass-warfare/campaign/h
 import { registerOnce } from "../_internal/hook-registry.js";
 import { registerGenericAELifecycleHooks } from "../../core/active-effects/lifecycle.js";
 import { registerEffectDrops } from "./register-effect-drops.js";
+import { registerXpPurchaseService } from "../../core/advancement/purchase-service.js";
+import { buildXpPurchasePlan } from "../../core/advancement/purchase-plans.js";
+import { buildRacialGrantPurchasePlan } from "../../ui/apps/v2/char-gen/racial-grants.js";
 
 export function registerCoreSubsystems() {
   registerOnce("hooks:core-subsystems", () => {
+    registerXpPurchaseService((actor, intent, context) => ["racialGrant", "racialRefund"].includes(intent.workflow)
+      ? buildRacialGrantPurchasePlan(actor, intent, context) : buildXpPurchasePlan(actor, intent, context));
     registerConditions();
     registerEngagementFlanking();
     registerWounds();

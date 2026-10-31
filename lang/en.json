@@ -200,8 +200,12 @@
         "StatusCombatLegacyPrefix": "Combat Legacy: {version}",
         "RunNow": "Run Migrations Now",
         "Running": "Migration Running...",
-        "RunHint": "Runs version-gated actor, item, and combat legacy migrations manually.",
+        "RunHint": "Runs all existing version-gated migration passes manually. Pending revisions and failed historical records require a successful retry; the world version stamp does not prove completion.",
         "PendingSummary": "{count} targeted migration(s) are pending.",
+        "Pending": "Pending",
+        "ActiveGMHint": "Only the selected active GM can run migrations. Startup performs settings and NPC armor maintenance only. Back up the world before a manual run.",
+        "FailedRecord": "This saved record reports {count} failed write(s). It remains pending despite its recorded revision until a manual retry succeeds.",
+        "ReviewRequired": "This settings record recommends a manual settings review. Review advice alone is not a migration failure.",
         "RevisionStatus": "Applied revision {applied}; required revision {required}",
         "Migrations": {
           "activeEffectChangeTypes": "Active Effect change types",
@@ -481,6 +485,14 @@
       },
       "DebugSettings": {
         "Title": "Debug Settings",
+        "Export": {
+          "Title": "Support report",
+          "Hint": "Downloads selected version, model, migration and numeric diagnostic metadata. Private documents and raw logs are excluded. Configuration metadata can still be sensitive; inspect the file before sharing. Export does not save these settings or enable diagnostics.",
+          "Modules": "Include active module IDs and versions",
+          "Button": "Download support report",
+          "Requested": "Support report download requested.",
+          "Failed": "The support report could not be downloaded."
+        },
         "Sections": {
           "World": "World (GM)",
           "Client": "Client"
@@ -1053,7 +1065,7 @@
         "CombatOnly": "Combat only",
         "Debug": "Debug",
         "EnableAutomation": "Enable automation",
-        "EnableAutomationTooltip": "Enable automation for this feature.",
+        "EnableAutomationTooltip": "When disabled, this feature's activation and passive contributions are suppressed.",
         "GlobalSettings": "Global settings",
         "OutOfCombat": "Out of combat",
         "Prompt": "Prompt",
@@ -1122,6 +1134,34 @@
       "RecipeValue": "Val"
     },
     "Sheets": {
+      "PreparedValues": {
+        "Modes": {
+          "add": "Add",
+          "set": "Set",
+          "multiply": "Multiply",
+          "boolean": "Boolean"
+        },
+        "Title": "Prepared values",
+        "Hint": "Current prepared fields, copied without recalculation. These fields are not an additive formula. Available feature entries may not describe every influence or the final application order.",
+        "NotRecorded": "Not recorded",
+        "Contributions": "Available prepared feature entries",
+        "Sources": "Other sources",
+        "Stats": {
+          "hp": "Health",
+          "magicka": "Magicka",
+          "stamina": "Stamina",
+          "luck_points": "Luck points",
+          "speed": "Speed",
+          "initiative": "Initiative",
+          "wound_threshold": "Wound threshold"
+        },
+        "Fields": {
+          "base": "Prepared base",
+          "bonus": "Prepared bonus",
+          "max": "Prepared maximum",
+          "value": "Prepared/current value"
+        }
+      },
       "SheetLabels": {
         "Character": "UESRPG Character Sheet",
         "Group": "UESRPG Group Sheet",
@@ -1266,7 +1306,8 @@
         "MR": "MR",
         "AR": "AR",
         "MAR": "MAR",
-        "MBR": "MBR"
+        "MBR": "MBR",
+        "PricePer10": "Price per 10"
       },
       "Item": {
         "ActiveEnchantment": "Active Enchantment",
@@ -1518,6 +1559,8 @@
         "StableImportKey": "Stable import key",
         "ImportSourcePath": "Import source path",
         "DamageType": "Damage Type",
+        "ArrowType": "Arrow Type",
+        "ArrowTypeHint": "Choose Slashing or Splitting for arrows. Leave bolts and other ammunition at None.",
         "DamageTypePlaceholder": "fire / frost / shock ...",
         "StructuredQualities": "Structured Qualities",
         "ActiveEnchantmentRaw": "Active Enchantment (RAW)",
@@ -1541,7 +1584,7 @@
         "Context": "Context",
         "CoreSettings": "Core Settings",
         "EffectDuration": "Effect Duration",
-        "EffectDurationHint": "How long transferred effects last on the target: Permanent until manually removed, or Timed using the Activation duration.",
+        "EffectDurationHint": "Permanent effects require manual removal. Timed effects use the duration configured on each activation Active Effect.",
         "EffectTransfer": "Effect Transfer",
         "EffectTransferHelp": "Clone this item's Active Effects onto targeted actors when activated. This requires a non-self Target Policy and at least one enabled Active Effect on the item.",
         "EnabledHint": "Master toggle; when disabled, this feature is completely inert.",
@@ -1573,7 +1616,7 @@
         "TransferEffectsHint": "Clone this item's Active Effects onto targeted actors when activated.",
         "VisibilityHint": "Control who can see this feature's effects in the inspector and chat.",
         "OutOfCombatHint": "Allow use outside of combat encounters.",
-        "EnableAutomationTooltip": "When unchecked, advanced automation is disabled. Basic activation and transfer behavior still use the native system paths.",
+        "EnableAutomationTooltip": "When disabled, this feature's activation and passive contributions are suppressed.",
         "Flags": "Flags",
         "FlagsOverrides": "Flags & Overrides",
         "Mechanical": "Mechanical",
@@ -1623,6 +1666,7 @@
         "CostsUsage": "Costs & Usage",
         "Current": "Current",
         "Reset": "Reset",
+        "UsageResetHint": "Short- and long-rest uses reset when that rest completes. Day and encounter uses require a manual reset.",
         "Use": "Use",
         "Stats": "Stats",
         "StatLabel": {
@@ -1646,8 +1690,11 @@
         },
         "ActionType": {
           "Passive": "Passive",
+          "Free": "Free",
+          "Secondary": "Secondary",
           "Action": "Action",
-          "Reaction": "Reaction"
+          "Reaction": "Reaction",
+          "Special": "Special"
         },
         "UsagePeriod": {
           "NotSet": "— Not Set —",
@@ -1732,6 +1779,10 @@
         "NoInvocationsKnown": "No invocations known.",
         "NoMagicSkillsTrained": "No magic skills trained.",
         "PPCost": "PP Cost",
+        "OpenRitualReference": "Open ritual description (Left-click) / Post description (Right-click)",
+        "Ritual": "Ritual",
+        "Rituals": "Rituals",
+        "SeeDescription": "See description",
         "SpellEffectsBreakdown": "Spell Effects Breakdown",
         "UpkeepCount": "Upkeep x{count}"
       },
@@ -1757,6 +1808,7 @@
         "NoneRecorded": "No wounds or injury markers recorded.",
         "PressEnterToApply": "Press Enter to apply",
         "Progress": "Progress",
+        "ReviewTreatment": "Review treatment",
         "ShockFailed": "Shock Failed",
         "ShockPassed": "Shock Passed",
         "ShockPending": "Shock Pending",
@@ -1766,6 +1818,7 @@
         "Title": "Wounds & Injuries",
         "Treat": "Treat",
         "Treated": "Treated",
+        "TreatmentNeedsReview": "Treatment in progress or needs review",
         "Untreated": "Untreated"
       },
       "Container": {
@@ -1777,6 +1830,12 @@
         "RemoveFromContainer": "Remove from Container",
         "DeleteItem": "Delete Item",
         "Capacity": "Capacity",
+        "EncCapacity": "Contents ENC / capacity",
+        "NoEncLimit": "0 = no ENC limit",
+        "Shots": "shots",
+        "Objects": "objects",
+        "LimitQuantity": "Limit contents by quantity",
+        "QuantityCapacity": "Maximum total quantity",
         "EmptyMessage": "Container is empty. Click + to add items.",
         "Contents": "Contents"
       },
@@ -1915,9 +1974,10 @@
       "MagickaBarrierUpdated": "Magicka & barriers updated for {actor}",
       "MigrationsAlreadyRunning": "Migration pass is already running.",
       "MigrationsOnlyGM": "Only a GM can run migrations.",
+      "MigrationsOnlyActiveGM": "Only the selected active GM can run migrations.",
       "MigrationsStarted": "UESRPG migration pass started.",
       "MigrationsComplete": "UESRPG migrations complete ({elapsed}s).",
-      "MigrationsFailed": "UESRPG migration pass failed; check console for details.",
+      "MigrationsFailed": "UESRPG migration pass is incomplete. Review pending revisions in Migration settings and check the console for failure details before a manual retry.",
       "MigrationsPending": "UESRPG | World has {count} pending targeted data migration(s). Review or run them from System Settings > Migration.",
       "AutomationSettingsReview": "Automation settings may have been reset by an earlier system version. Review them in System Settings; no values were changed by this update.",
       "MassCombatDisabled": "Enable Warfare in Configure Homebrew before creating a Warfare Unit.",
@@ -1941,7 +2001,7 @@
         "ProfessionNotFound": "Profession not found.",
         "NoAttackerTokenOnCanvas": "No attacker token found on the canvas. Select your token and try again.",
         "CombatAttackHelperUnavailable": "Combat attack helper is unavailable (Uesrpg3e.combat.performWeaponAttack).",
-        "InvalidMedicineTarget": "No valid Profession[Medicine] / Survival test target.",
+        "InvalidMedicineTarget": "No recognized Profession [Medicine] test target.",
         "InvalidWoundTarget": "Invalid wound target.",
         "MissingHealersKit": "Missing healer's kit/supplies.",
         "NoQuickActionWeapon": "No weapon found for that quick action.",
@@ -2037,7 +2097,9 @@
         "DeployedMembers": "Deployed {count} group member(s).",
         "NoTokensDeployed": "No tokens could be deployed.",
         "UsedLastItem": "You have used your last {item}!",
-        "ItemDeleted": "{item} deleted from group inventory."
+        "ItemDeleted": "{item} deleted from group inventory.",
+        "ItemUnlinkFailed": "The item could not be safely removed from its container; deletion was stopped.",
+        "ItemDeletionUnconfirmed": "The Item deletion was not confirmed. Its contents may already have been released."
       },
       "Warfare": {
         "CouldNotFindActor": "Could not find actor.",
@@ -2100,6 +2162,23 @@
         "SelectedTokenNoActor": "The selected token has no actor.",
         "CreateActorFailed": "Failed to create actor.",
         "SelectOrCreateActorFirst": "Select or create an actor first.",
+        "CharacteristicsSaveFailed": "Characteristics could not be saved. This stage has not been completed.",
+        "BaselineUnverified": "This older character has no recorded generation baseline for its race. New roll and point-buy totals use the current bases; review and correct the result values before saving.",
+        "BaselineFromRace": "This older character has no recorded generation baseline. New roll and point-buy totals use the configured race baseline; review it if the character used custom starting values.",
+        "LuckyNumbersSaveFailed": "Lucky and unlucky numbers could not be saved. This stage has not been completed.",
+        "RaceSaveFailed": "The race characteristics could not be saved. Check permissions before trying again.",
+        "RaceChangedReview": "Race changed. Revisit characteristics, resources and luck, and review any existing purchases or other choices affected by the change.",
+        "RaceItemsUncertain": "The race could not be fully saved. Some race Items or characteristics may already have changed; inspect and reconcile the actor before retrying.",
+        "BirthsignSaveFailed": "The birthsign could not be saved. Check permissions before trying again.",
+        "BirthsignSaveUncertain": "The birthsign could not be fully saved. Some birthsign Items may already have been added; inspect and reconcile the actor before retrying.",
+        "BirthsignInsufficientLuck": "A valid Luck base of at least {cost} is required for this choice.",
+        "CursedThiefLuckChoice": "The Star-Cursed Thief cannot be chosen by spending Luck.",
+        "CursedBirthsignLuckCost": "A paid manual Star-Cursed birthsign costs 10 Luck.",
+        "InvalidBirthsignUpgrade": "This Star-Cursed upgrade does not match the recorded normal roll.",
+        "UnfinishedPurchase": "Character generation cannot finish while an XP purchase needs review. A GM must inspect and reconcile the purchase before continuing.",
+        "IncompleteStages": "Complete each required stage before finishing character generation.",
+        "FinishSaveFailed": "Character generation could not be marked complete. Check ownership and try again.",
+        "SummaryUnconfirmed": "Character generation was saved, but the summary chat message could not be confirmed. Check chat before posting it manually; it will not be retried automatically.",
         "InvalidCombatStyleRank": "Invalid combat style rank.",
         "CombatStyleMissing": "Selected combat style no longer exists.",
         "CombatStyleCannotDecrease": "Combat Style setup cannot decrease rank.",
@@ -2110,6 +2189,11 @@
         "NoItemsToEquipType": "{actor} does not have any items of this type to equip.",
         "InvalidRollAssignment": "Invalid roll assignment.",
         "ManualAssignmentDuplicate": "Manual assignment must use each rolled value only once.",
+        "FinishCharacteristicRolls": "Finish the roll pool before assigning characteristics.",
+        "RerollNeedsPermission": "Confirm that the GM has allowed characteristic rerolls.",
+        "RollDraftNeedsReview": "The saved characteristic roll draft is incomplete or inconsistent. Ask the GM to review it before continuing.",
+        "RollDraftWriteUncertain": "The characteristic roll or save could not be confirmed. Stop and ask the GM to inspect the actor's saved roll draft and characteristic values before reopening or retrying.",
+        "AuditWriteUncertain": "The character-generation audit entry could not be confirmed. The preceding change may already be saved; ask the GM to inspect the actor before retrying.",
         "PointBuyAllocationRange": "Each point-buy allocation must be between 0 and 20.",
         "PointBuyTotalExact": "Point buy must total exactly 80 (currently {total}).",
         "SelectExactlyTwoFavored": "Select exactly 2 favored characteristics."
@@ -2332,6 +2416,8 @@
         "AoeEvade": "AoE Evade",
         "AoeEvadeBody": "{defender} successfully evaded {attack}. Can they move 1m to exit the area?",
         "AttackOptionsTitle": "{label} - Attack Options",
+        "WeaponExpertiseManualSummary": "Weapon Expertise: review manual procedures",
+        "WeaponExpertiseManualHint": "Check the calculated TN before adding any modifier.",
         "AttackFamily": "Attack Family",
         "Attacker": "Attacker",
         "AttackVariation": "Attack Variation",
@@ -2445,6 +2531,8 @@
         "Weapon": "Weapon"
       },
       "SpellOptions": {
+        "Specialization": "Use spell specialization (+10)",
+        "SpecializationHint": "Applies only to the matched spell. Do not also include this bonus in the manual modifier.",
         "BaseLevelOption": "Base (Level {level}, {cost} MP)",
         "BaseMpCost": "Base MP Cost: <b>{cost}</b>",
         "CastAtLevel": "Cast at Level",
@@ -2581,12 +2669,20 @@
         "ChargeMage": "Mage",
         "ChargeThief": "Thief",
         "OptionalLuckRule": "Use optional rule: spend 5 Luck to choose sign manually",
+        "OptionalFreeBirthsign": "The group agrees to the optional no-cost choice",
+        "BirthsignChoiceCostTitle": "Birthsign choice cost",
+        "UpgradeStarCursed": "Choose Star-Cursed",
+        "UpgradeStarCursedConfirm": "Change this rolled sign to its Star-Cursed version by permanently reducing Luck by 5.",
+        "UpgradeThiefConfirm": "A naturally rolled Thief may choose its Star-Cursed version without spending Luck.",
         "Roll": "Roll",
         "ManualMenu": "Manual Menu",
         "OptionalRuleTitle": "Optional Rule",
-        "OptionalRuleContent": "Spend 5 Luck and choose your Birthsign manually?",
+        "OptionalRuleContent": "A paid manual Birthsign costs 5 Luck, or 10 for a Star-Cursed sign. The Star-Cursed Thief cannot be chosen by spending Luck. The group can agree to the no-cost optional rule using the checkbox on the previous screen.",
         "Spend5Luck": "Spend 5 Luck",
         "NoLuckCost": "No Luck Cost",
+        "CursedBirthsignCostTitle": "Star-Cursed birthsign cost",
+        "CursedBirthsignCostConfirm": "This choice permanently reduces Luck by 10. Confirm the cost before continuing.",
+        "Spend10Luck": "Spend 10 Luck",
         "BirthsignRollResultTitle": "Birthsign Roll Result",
         "RollResultCharge": "Charge: <b>{charge}</b>",
         "RollResultD5": "d5 roll: <b>{roll}</b>{extra}",
@@ -2912,18 +3008,22 @@
       "SetBaseCharacteristics": {
         "Title": "Set Base Characteristics",
         "RawNote": "Roll seven 2d10 results and add them to the racial baselines. Luck is 2d10 + 30 (maximum 50). Alternatively, distribute exactly 80 points, with no more than 20 in one characteristic.",
-        "RollAssignButton": "Roll + Assign",
-        "RollDistributeButton": "Roll + Distribute",
+        "RollAssignButton": "Roll (fixed order)",
+        "RollDistributeButton": "Roll (choose order)",
         "UsePointBuyButton": "Use Point Buy Mode",
-        "RerollPoolButton": "Reroll Pool",
-        "RerollPoolTitle": "Reroll the result pool up to three times",
+        "RerollPoolButton": "Reroll Selected Set",
+        "RerollPoolTitle": "With GM permission, reroll up to three individual sets before assigning them. Each new result is final; Luck is not rerolled.",
+        "RerollPermission": "The GM has allowed rerolls",
+        "RerollSelection": "Set:",
+        "RollSetOption": "Set {number}: {value}",
+        "FinishRolls": "Finish Rolls and Assign",
         "ModeLabel": "Mode:",
         "PoolLabel": "Pool:",
-        "RerollsLabel": "Rerolls:",
+        "RerollsLabel": "Sets rerolled:",
         "RollMode": "Roll",
         "PointBuyMode": "Point Buy",
         "ReadyToRoll": "Ready to roll",
-        "RollSectionNote": "Choose how the seven rolls are assigned. You may adjust the result fields before applying them.",
+        "RollSectionNote": "The roll pool is saved as it is generated. With GM permission, reroll up to three different sets before finishing and assigning them. New rolled results and Luck are applied from the saved pool.",
         "ManualAssignmentNote": "Manual Assignment (use each roll exactly once):",
         "PointBuyAllocationNote": "Points used",
         "CurrentLabel": "Current",
@@ -3009,6 +3109,18 @@
       "Success": "Success"
     },
     "Chat": {
+      "SpecialActions": {
+        "Review": "Review Special Action",
+        "NeedsReview": "Needs GM review; effects will not be repeated.",
+        "Instructions": "Inspect the saved result and affected documents. Stop the previous processor and repair or verify the documents manually before recording reconciliation. This action only records the decision; it does not apply, refund or undo effects.",
+        "Reason": "Reason and manual inspection or repair performed",
+        "Disposition": "Disposition",
+        "Resolved": "Manually resolved",
+        "Abandoned": "Abandoned without automatic application",
+        "ProcessorStopped": "The previous processor is stopped, and I have inspected or repaired the affected documents.",
+        "Record": "Record Reconciliation",
+        "ReviewChanged": "Reconciliation was not confirmed. Reopen the review to inspect its current state."
+      },
       "Common": {
         "Applied": "{label} Applied",
         "ApplyToTarget": "Apply → {target}",
@@ -3039,6 +3151,7 @@
         "ApplicationPartial": "Partially applied — review remaining effects before retrying.",
         "ApplicationFailed": "Application failed. Review the target before retrying.",
         "OutcomeApplied": "Applied",
+        "OutcomeNoEffect": "No effect applied",
         "OutcomeApply": "Apply Outcome",
         "OutcomeRetry": "Retry Unstarted Work",
         "OutcomeProcessing": "Applying...",
@@ -3088,8 +3201,8 @@
         "DefenderUnavailable": "Defender unavailable",
         "Defense": "Defense",
         "AutoNoDefenseAP": "No Defense selected — insufficient AP.",
-      "PaidDefenseUnavailable": "Not enough Action Points for this defense. Choose an available free defense or No Defense.",
-      "DefenseUnavailable": "Defense unavailable: {reason}",
+        "PaidDefenseUnavailable": "Not enough Action Points for this defense. Choose an available free defense or No Defense.",
+        "DefenseUnavailable": "Defense unavailable: {reason}",
         "Declared": "declared",
         "Evade": "Evade",
         "Initiator": "Initiator",
@@ -3219,6 +3332,69 @@
         "EffectLostLimb": "Lost Limb ({location})",
         "EffectLostEar": "Lost Ear ({location})",
         "EffectLostEye": "Lost Eye ({location})"
+      },
+      "TestExplanation": {
+        "Hint": "Saved committed test values; missing sources are not reconstructed. GM only.",
+        "Attacker": "Attacker",
+        "Defender": "Defender",
+        "NotRecorded": "Not recorded",
+        "Roll": "Recorded roll",
+        "Target": "Recorded test target",
+        "Base": "Saved base TN",
+        "Modifier": "Saved total modifier",
+        "Final": "Saved final TN",
+        "Degree": "Recorded degree",
+        "Success": "Recorded success",
+        "Succeeded": "Success",
+        "Failed": "Failure",
+        "Components": "Saved TN contributions"
+      },
+      "DamageExplanation": {
+        "MessageRolls": "Recorded message rolls",
+        "MessageRollHint": "Saved rolls are separate from target application results.",
+        "NotRecorded": "Not recorded",
+        "AttackTitle": "Recorded attack damage",
+        "AttackHint": "Recorded attack values are separate from damage applied to the target.",
+        "Formula": "Formula",
+        "RollA": "Roll A",
+        "RollB": "Roll B",
+        "AttackResult": "Recorded attack result",
+        "HitLocation": "Hit location",
+        "Components": "Recorded components",
+        "GmTitle": "Recorded target application",
+        "HistoricalHint": "Stored historical report; original input provenance may be incomplete.",
+        "EvidenceHint": "Saved calculation evidence only. Missing inputs are not reconstructed.",
+        "AttributionHint": "Missing input sources are not reconstructed.",
+        "Status": "Application status",
+        "Pending": "Pending",
+        "Processing": "Processing",
+        "NeedsReview": "Needs review",
+        "Failed": "Failed",
+        "WaitingGM": "Waiting for GM",
+        "Completed": "Completed",
+        "TotalApplied": "Recorded application damage",
+        "HP": "HP",
+        "TempHP": "Temporary HP",
+        "Before": "Before",
+        "After": "Recorded final value",
+        "Maximum": "Maximum",
+        "RecordedLoss": "Recorded loss",
+        "Absorbed": "Absorbed",
+        "Buffer": "Buffer",
+        "Remaining": "Remaining",
+        "WoundThreshold": "Recorded wound threshold",
+        "Defeated": "Recorded defeated / unconscious state",
+        "DamageType": "Damage type",
+        "Raw": "Recorded raw damage",
+        "DosBonus": "DoS bonus",
+        "WeaponBonus": "Weapon bonus",
+        "Armor": "Armor after penetration",
+        "Resistance": "Resistance",
+        "Toughness": "Toughness",
+        "Penetrated": "Armor penetrated",
+        "Reduction": "Total reduction",
+        "FinalDamage": "Damage after reductions",
+        "Applied": "Applied component"
       },
       "DamagePanel": {
         "Result": "Result",
@@ -3399,8 +3575,8 @@
         "aldmeri": "Aldmeri",
         "dunmeri": "Dunmeri",
         "bosmeri": "Bosmeri",
-        "yokudan": "Yokudan",
-        "taagra": "Ta'agra",
+        "yokudan": "Yoku",
+        "taagra": "Ta’Agra",
         "jel": "Jel",
         "orcish": "Orcish",
         "nedic": "Nedic",
@@ -3408,10 +3584,13 @@
         "daedric": "Daedric",
         "dovahzul": "Dovahzul",
         "dwemeris": "Dwemeris",
-        "falmeris": "Falmeris",
-        "reachTongue": "Reach Tongue",
+        "falmeris": "Falmer",
+        "reachTongue": "Reach-tongue",
         "nibenese": "Nibenese",
-        "colovian": "Colovian"
+        "colovian": "Colovian",
+        "bretic": "Bretic",
+        "ayleidoon": "Ayleidoon",
+        "akaviri": "Akaviri"
       },
       "Factions": {
         "fightersGuild": "Fighters Guild",
@@ -3724,7 +3903,11 @@
         "combatOutcomeApplicationMode": {
           "Name": "Damage, Healing, and Effects Application",
           "Hint": "Choose who confirms resolved outcomes. GM and Player allows owners to apply incoming damage, and healing or effects involving their actors. Automatic application affects newly resolved outcomes only. Changing modes does not reverse applied results.",
-          "Choices": { "gm": "GM Gated", "owners": "GM and Player", "automatic": "Everything Automated" }
+          "Choices": {
+            "gm": "GM Gated",
+            "owners": "GM and Player",
+            "automatic": "Everything Automated"
+          }
         },
         "tokenRangeMeasurement": {
           "Name": "Combat: Token Range Measurement Mode",
@@ -3953,7 +4136,7 @@
       "Internal": {
         "worldDataVersion": {
           "Name": "World Data Version",
-          "Hint": "Records the system version that last initialized this world. Used by the compatibility gate."
+          "Hint": "Records the system version that last initialized this world. Informational only; it does not indicate migration completion."
         },
         "migrationState": {
           "Name": "Migration State",
@@ -4565,6 +4748,19 @@
       "RecoveryFailed": "The effect transfer failed and recovery was incomplete. Concurrent changes were preserved. Check the source and destination Effects tabs before retrying.",
       "Moved": "Moved {effect} to {actor}, preserving its original expiry.",
       "Applied": "Applied {effect} to {actor}. The reusable definition remains available."
+    },
+    "Purchases": {
+      "Failed": "Purchase {id} ({status}): {reason}",
+      "ReviewTitle": "Review XP Purchases",
+      "ReviewInstructions": "An unfinished purchase blocks further purchases for this Actor. Inspect the recorded Item writes and current resources. A GM must repair uncertain changes manually before recording reconciliation. Recording reconciliation does not change XP or Items.",
+      "RecordReconciliation": "Record Manual Reconciliation",
+      "Reason": "Reconciliation reason",
+      "ProcessorStopped": "I have stopped the previous operation and manually reconciled the affected documents.",
+      "Reconciled": "Manual reconciliation recorded. Further purchases are available.",
+      "CloseWithoutRetry": "Close Sheet Without Retrying",
+      "RacialQuoteTitle": "Confirm Racial Acquisition Cost",
+      "RacialQuote": "Racial option: {option} XP. Enforced Talent learning: {talents} XP. Recorded refund: {refund} XP. New charges: {total} XP.",
+      "NativePreparationFailed": "Talent purchase could not be prepared. Inspect the Actor purchase record."
     }
   },
   "TYPES": {

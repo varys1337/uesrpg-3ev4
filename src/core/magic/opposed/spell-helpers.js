@@ -17,6 +17,8 @@ import { canTokenEscapeArea } from "../../../utils/aoe-utils.js";
 
 import { canUserRollActor } from "../../../utils/permissions.js";
 import { getNpcThreatDamageModifier } from "../../rules/npc-threat-templates.js";
+import { isCoreRejuvenateSpell } from "../rejuvenate-choice.js";
+import { hasSpellResourceRestoration, isCoreReplenishSpell } from "../services/resource-restoration-service.js";
 
 
 async function _postSpellDamageRollMessage({
@@ -58,6 +60,8 @@ export function spellHasFiniteDuration(spell) {
  */
 export function spellNeedsEffectApplication(spell) {
   if (!spell) return false;
+  if (spell.flags?.["uesrpg-3ev4"]?.chapter6Utility?.kind === "cure-disease"
+    || ["Cure Disease", "Curing Touch"].includes(spell.name)) return true;
   if (Boolean(spell.system?.hasUpkeep)) return true;
   if (Boolean(spell.system?.hasOverTime)) return true;
   if ((spell.effects?.size ?? 0) > 0) return true;
@@ -73,6 +77,7 @@ export function spellNeedsEffectApplication(spell) {
 export function spellNeedsDeferredDirectApplication(spell) {
   if (!spell) return false;
   if (spellNeedsEffectApplication(spell)) return true;
+  if ((isCoreRejuvenateSpell(spell) || isCoreReplenishSpell(spell)) && hasSpellResourceRestoration(spell)) return true;
 
   const damageType = getSpellDamageType(spell);
   if (isHealingType(damageType)) return true;

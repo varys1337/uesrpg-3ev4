@@ -1,0 +1,23 @@
+{
+  "target": "Scene.NUEDEFAULTSCENE0.Token.5bQfJ5cBSnQuNX08",
+  "combatantCount": 0,
+  "initial": {
+    "round": 5,
+    "turn": 1,
+    "duration": "1 round",
+    "startCombatant": "C9sib6sR8Q9vpJKx"
+  },
+  "beforeTurnEnd": {
+    "round": 6,
+    "turn": 1,
+    "present": true,
+    "remaining": 0,
+    "expired": false
+  },
+  "afterTurnEnd": {
+    "round": 7,
+    "turn": 0,
+    "present": false
+  },
+  "scope": "Manual native outcome and turn controls in isolated Foundry 14.369; not a cross-client or combat-ended check."
+}

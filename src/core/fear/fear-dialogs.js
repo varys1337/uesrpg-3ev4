@@ -1,6 +1,6 @@
 import { renderTNSummary, bindTNEstimates } from "../../ui/shared/tn-presentation.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
-import { escapeFearHtml, wpTN, isFearImmune } from "./effects-and-restrictions.js";
+import { escapeFearHtml, fearTN, isFearImmune } from "./effects-and-restrictions.js";
 import { t } from "../../utils/i18n.js";
 
 export async function showFearTestDialog({ actors = [], defaultType = "panic", defaultModifier = 0, defaultSource = "Fear Source" } = {}) {
@@ -15,11 +15,7 @@ export async function showFearTestDialog({ actors = [], defaultType = "panic", d
       if (!targets.length) return [{ key: "test", result: null, reason: "Select an actor to estimate this Fear test." }];
       return targets.map((actor, index) => ({ key: `fear-${index}`, label: actor.name,
         status: isFearImmune(actor, type) ? "Immune" : null,
-        result: { finalTN: wpTN(actor, modifier, type), breakdown: [
-          { key: "base", label: "Willpower", value: Number(actor.system?.characteristics?.wp?.total ?? 0) },
-          { label: "Manual Modifier", value: modifier },
-          { label: "Fear modifiers", value: Number(actor.system?.modifiers?.tests?.fear ?? 0) + Number(actor.system?.modifiers?.tests?.[type] ?? 0) },
-        ] } }));
+        result: fearTN(actor, modifier, type) }));
     }),
     content: `
       <div style="display:grid;gap:var(--form-gap,6px);padding:0 4px 4px">

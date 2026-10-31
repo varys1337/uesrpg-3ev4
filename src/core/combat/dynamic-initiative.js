@@ -90,7 +90,7 @@ export async function resolveCombatantInitiative(combat, combatant, opts = {}) {
 
   const formula = tacticianChoice?.mode === "provider"
     ? `${Number(tacticianChoice.initiative)}`
-    : (isSurprised ? `${normalIR}` : (useCombatSenses ? `${ir}` : `${dice} + ${ir}`));
+    : (isSurprised ? `${normalIR}` : `${dice} + ${ir}`);
 
   const roll = combatant.getInitiativeRoll(formula);
   await roll.evaluate();

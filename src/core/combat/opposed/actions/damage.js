@@ -451,6 +451,7 @@ export async function handleDamageRoll(ctx) {
   // Execute Special Advantage automation (free + auto-win)
   if (Array.isArray(selection.specialActionsSelected) && selection.specialActionsSelected.length) {
     await executeAdvantageSpecialActions({
+      sourceMessage: message, sourceState: data,
       specialActionIds: selection.specialActionsSelected,
       actor: attacker,
       opponent: _resolveActorViaToken(data?.defender?.actorUuid, data?.defender?.tokenUuid),
@@ -462,7 +463,7 @@ export async function handleDamageRoll(ctx) {
       sourceWeaponUuid: weapon?.uuid ?? null,
       source: "advantage-attacker-free",
       
-      onAutoWinSuccess: () => _pushAdvantageMarker(data, {
+      onAutoWinAccepted: () => _pushAdvantageMarker(data, {
         actor: attacker, actorUuid: data.attacker?.actorUuid ?? null,
         tokenUuid: data.attacker?.tokenUuid ?? null, kind: "attacker-special-advantage",
       }),

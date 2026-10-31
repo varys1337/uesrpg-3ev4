@@ -7,30 +7,49 @@ assignees: jamesjtb
 
 ---
 
-**Browser:**
-*Only chromium-based browsers -- like chrome, opera, etc --and the native Foundry VTT client are supported*
+**Environment:**
 
+- Foundry VTT exact version and build:
+- UESRPG system version (and source checkpoint if known):
+- Browser/client name and exact version:
+- Operating system:
+- Relevant module IDs and versions:
 
-**Foundry VTT version:**
-*You should be on the latest Foundry VTT application version before reporting issues*
+Report the versions that failed. Upgrading is not required before reporting. Record any later version comparison separately in a backed-up test world; these fields do not imply a new browser or module compatibility claim.
 
+**User and document context:**
 
-**uesrpg-3ev4 version:**
-*Your current version of the uesrpg-3ev4 system module. You should check for updates to the system before reporting issues*
+- GM, owner player or non-owner:
+- PC/NPC/Item sheet, chat, macro or HUD action:
+- World Actor, linked Token or unlinked Token:
+- Relevant automation/application mode, if known:
 
+Use anonymous labels such as Actor A and Token B. Do not include user names, private document names or unnecessary UUIDs.
 
-**What happened?:**
-*A description of what is prompting this bug report*
+**What happened?**
 
+Describe the observed behavior and whether the action remained pending, completed, partially applied or requested review. For interrupted work, state whether it was retried and whether the GM inspected its existing record; do not repeatedly submit it just to obtain a log.
 
-**What did you expect to happen?:**
-*A description of what you think should have happened*
+**What did you expect?**
 
+Describe the expected behavior separately from the observation.
 
 **Steps to reproduce:**
-*A specific set of steps describing what you did that led to the undesired behavior.*
-*E.g. "Open a Player Character sheet, click 'birthsign', select 'atronach', press 'submit'"*
 
+1. Starting state and relevant settings:
+2. Exact controls/actions used:
+3. Result, including persistence after reopen/reload if tested:
 
-**Logs:**
-*Press `f12`, or sometimes `ctrl+shift+i`. This should bring up a devtools window - usually docked within the webpage. Click on the `Console` tab within the devtools. Then, perform the action which led to the issue that you're reporting and take a screenshot of your window with the logs in clear view. Attach that screenshot to your bug report.*
+**Isolation in a disposable copied world:**
+
+- Same case without external modules: PASS / FAIL / NOT RUN
+- Relevant module combination and exact versions: PASS / FAIL / NOT RUN
+- Changed settings or versions between comparisons:
+
+Use a coherent copied-world backup before stateful tests. Do not clear purchase/application records or migration markers to force a retry. If a check was not performed, leave it NOT RUN.
+
+**Redacted evidence:**
+
+Include only the relevant error text/code and focused diagnostic facts. Screenshots are optional; crop/redact them and inspect the final attachment. Remove credentials, session/invitation tokens, server addresses, private chat, notes, Actor/Item descriptions, names, user identifiers and unnecessary UUIDs. Keep exact versions, reproduction steps and consistent anonymous aliases. Configuration/module metadata can identify an environment, so include only what is relevant.
+
+Raw console dumps, performance exports and Feature Inspector data are not automatically sanitized. Ask the GM/maintainer for the relevant diagnostic lane instead of enabling everything. The repository's `docs/architecture.md` support section explains the existing diagnostics and recovery boundaries. Do not attach a world backup or database to a public report.

@@ -85,12 +85,12 @@
                                         <span class="school-name section-header__label">{{schoolData.label}}</span>
                                         <span class="school-count">({{schoolData.count}})</span>
                                       </button>
-                                        <span class="npc-school-rank" onclick="event.stopPropagation();">
+                                        {{#unless schoolData.isRitualGroup}}<span class="npc-school-rank" onclick="event.stopPropagation();">
                                             <label class="npc-school-rank__label">{{localize "UESRPG.Sheets.Magic.EffectiveRank"}}</label>
                                             <select name="flags.uesrpg-3ev4.npcMagicSchoolRanks.{{schoolData.key}}" class="npc-school-rank-select">
                                                 {{selectOptions @root.actor.ui.npcMagicRankOptions selected=schoolData.effectiveRank localize=true}}
                                             </select>
-                                        </span>
+                                        </span>{{/unless}}
                                     </div>
                                     <table class="spell-school-table">
                                         <thead>
@@ -105,10 +105,15 @@
                                             {{#each schoolData.spells as |spell|}}
                                                 <tr class="spell-row item active" data-item-id="{{spell._id}}">
                                                     <td class="spell-name-cell">
+                                                        {{#if spell.system.uiIsRitual}}
+                                                        {{> "systems/uesrpg-3ev4/templates/partials/sheets/skill-roll-icon.hbs" action="itemOpen" rollTargetClass="uesrpg-spell-roll-icon magic-roll" rollLabel=(localize "UESRPG.Sheets.Magic.OpenRitualReference") img=spell.img label=spell.name}}
+                                                        {{else}}
                                                         {{> "systems/uesrpg-3ev4/templates/partials/sheets/skill-roll-icon.hbs" action="castMagic" rollTargetClass="uesrpg-spell-roll-icon magic-roll" rollLabel=(localize "UESRPG.Sheets.Magic.CastSpellPostDescription") img=spell.img label=spell.name}}
+                                                        {{/if}}
                                                         <button type="button" class="item-name uesrpg-semantic-control uesrpg-plain-control" data-action="itemOpen">{{spell.name}}</button>
                                                     </td>
                                                     <td class="spell-rank-cell">
+                                                        {{#if spell.system.uiIsRitual}}{{localize "UESRPG.Sheets.Magic.Ritual"}}{{else}}
                                                         {{#if (eq spell.system.level 1)}}{{localize "UESRPG.Choices.Ranks.novice"}}{{/if}}
                                                         {{#if (eq spell.system.level 2)}}{{localize "UESRPG.Choices.Ranks.apprentice"}}{{/if}}
                                                         {{#if (eq spell.system.level 3)}}{{localize "UESRPG.Choices.Ranks.adept"}}{{/if}}
@@ -116,8 +121,9 @@
                                                         {{#if (eq spell.system.level 5)}}{{localize "UESRPG.Choices.Ranks.master"}}{{/if}}
                                                         {{#if (eq spell.system.level 6)}}{{localize "UESRPG.Choices.Ranks.grandmaster"}}{{/if}}
                                                         {{#if (eq spell.system.level 7)}}{{localize "UESRPG.Choices.Ranks.legendary"}}{{/if}}
+                                                        {{/if}}
                                                     </td>
-                                                    <td class="spell-mp-cell">{{spell.system.cost}}</td>
+                                                    <td class="spell-mp-cell">{{#if spell.system.uiIsRitual}}{{localize "UESRPG.Sheets.Magic.SeeDescription"}}{{else}}{{spell.system.cost}}{{/if}}</td>
                                                     <td class="spell-actions-cell">
                                                         <button type="button" class="item-delete uesrpg-semantic-control uesrpg-plain-control" data-action="itemDelete" data-tooltip="UESRPG.UI.Delete" aria-label="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash"></i></button>
                                                     </td>

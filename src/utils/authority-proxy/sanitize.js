@@ -56,6 +56,7 @@ export function sanitizeChatMessageUpdatePayload(payload) {
   if (sysFlags && typeof sysFlags === "object") {
     const cleanedSysFlags = {};
     if (Object.prototype.hasOwnProperty.call(sysFlags, "skillTest")) cleanedSysFlags.skillTest = deepClonePlain(sysFlags.skillTest);
+    if (Object.prototype.hasOwnProperty.call(sysFlags, "imperialLuck")) cleanedSysFlags.imperialLuck = deepClonePlain(sysFlags.imperialLuck);
     if (Object.prototype.hasOwnProperty.call(sysFlags, "reroll")) cleanedSysFlags.reroll = deepClonePlain(sysFlags.reroll);
     if (Object.prototype.hasOwnProperty.call(sysFlags, "luckUsedOnTest")) cleanedSysFlags.luckUsedOnTest = deepClonePlain(sysFlags.luckUsedOnTest);
     if (Object.prototype.hasOwnProperty.call(sysFlags, "staminaUsedOnTest")) cleanedSysFlags.staminaUsedOnTest = deepClonePlain(sysFlags.staminaUsedOnTest);
@@ -87,6 +88,7 @@ export function isChatMessageUpdateFresh(message, payload) {
     const lanes = [];
     if (Object.prototype.hasOwnProperty.call(incoming, "opposed")) lanes.push("opposed");
     if (Object.prototype.hasOwnProperty.call(incoming, "skillOpposed")) lanes.push("skillOpposed");
+    if (Object.prototype.hasOwnProperty.call(incoming, "specialActionOpposed")) lanes.push("specialActionOpposed");
     if (Object.prototype.hasOwnProperty.call(incoming, "magicOpposed")) lanes.push("magicOpposed");
     if (Object.prototype.hasOwnProperty.call(incoming, "charOpposed")) lanes.push("charOpposed");
     if (Object.prototype.hasOwnProperty.call(incoming, "warfareClash")) lanes.push("warfareClash");
@@ -99,10 +101,10 @@ export function isChatMessageUpdateFresh(message, payload) {
           seq: Number(obj?.opposed?.context?.updatedSeq ?? 0)
         };
       }
-      if (lane === "skillOpposed") {
+      if (lane === "skillOpposed" || lane === "specialActionOpposed") {
         return {
-          ts: Number(obj?.skillOpposed?.state?.context?.updatedAt ?? 0),
-          seq: Number(obj?.skillOpposed?.state?.context?.updatedSeq ?? 0)
+          ts: Number(obj?.[lane]?.state?.context?.updatedAt ?? 0),
+          seq: Number(obj?.[lane]?.state?.context?.updatedSeq ?? 0)
         };
       }
       if (lane === "magicOpposed") {
@@ -175,7 +177,7 @@ export function sanitizeGenericUpdatePayload(doc, payload) {
   }
 
   if (docName === "Token") {
-    const allowedTokenKeys = new Set(["x", "y", "overlayEffect", "statuses", "effects"]);
+    const allowedTokenKeys = new Set(["x", "y", "disposition", "overlayEffect", "statuses", "effects"]);
     for (const [k, v] of Object.entries(payload)) {
       if (allowedTokenKeys.has(k)) {
         out[k] = deepClonePlain(v);

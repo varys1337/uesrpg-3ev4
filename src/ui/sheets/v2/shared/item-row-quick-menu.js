@@ -9,6 +9,7 @@ import { castScrollFromItem } from "../../../../core/magic/scroll-casting.js";
 import { drinkPotion, applyAlchemyToTarget, pickAlchemyCoatingTarget } from "../../../../core/alchemy/runtime.js";
 import { onCastEnchantmentAction } from "../../shared/listeners/enchanting-cast.js";
 import { getCastEnchantmentSlots } from "../../../../core/enchanting/runtime/cast-enchantment-sources.js";
+import { getCoreArcaneItemUse, showCoreArcaneItemUse } from "../../../../core/magic/arcane-item-use.js";
 
 const SYSTEM_ID = "uesrpg-3ev4";
 const SETTING_KEY = "enableItemRowQuickMenu";
@@ -79,7 +80,7 @@ function _isUsableItem(sheet, item) {
   if (item?.system?.activation?.enabled === true) return true;
   if (_hasLinkedScrollSpell(item)) return true;
   if (_getAlchemyKind(item)) return true;
-  return _hasCastEnchantmentSource(item);
+  return _hasCastEnchantmentSource(item) || Boolean(getCoreArcaneItemUse(item));
 }
 
 async function _useContextItem(sheet, target) {
@@ -91,8 +92,7 @@ async function _useContextItem(sheet, target) {
   const fakeEvent = _buildSyntheticEvent(row);
 
   if (FEATURE_TYPES.has(item.type) || item?.system?.activation?.enabled === true) {
-    await executeItemActivation({ item, actor, includeImage: _includeImage(sheet), event: fakeEvent });
-    return;
+    return executeItemActivation({ item, actor, includeImage: _includeImage(sheet), event: fakeEvent });
   }
 
   if (_hasLinkedScrollSpell(item)) {
@@ -101,7 +101,7 @@ async function _useContextItem(sheet, target) {
       casterActor: actor,
       castActionType: "primary",
     });
-    if (result?.error) {
+    if (result?.error && !result.notificationHandled && result.actionResult?.status !== "cancelled") {
       ui.notifications?.warn?.(result.error);
       return;
     }
@@ -113,19 +113,19 @@ async function _useContextItem(sheet, target) {
 
   const alchemyKind = _getAlchemyKind(item);
   if (alchemyKind === "potion") {
-    await drinkPotion(actor, item);
-    return;
+    return drinkPotion(actor, item);
   }
   if (alchemyKind === "poison" || alchemyKind === "toxin") {
     const targetItem = await pickAlchemyCoatingTarget(actor);
     if (!targetItem) return;
-    await applyAlchemyToTarget(actor, item, targetItem);
-    return;
+    return applyAlchemyToTarget(actor, item, targetItem);
   }
 
   if (_hasCastEnchantmentSource(item)) {
-    await onCastEnchantmentAction.call(sheet, fakeEvent, row, item);
+    return onCastEnchantmentAction.call(sheet, fakeEvent, row, item);
   }
+
+  return showCoreArcaneItemUse(item);
 }
 
 async function _openItemInfoDialog(item) {

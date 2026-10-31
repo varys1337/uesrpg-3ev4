@@ -152,6 +152,20 @@ export function normalizeItemFormData(item, formData) {
   const source = item?.toObject?.(true) ?? item ?? {};
   const system = source.system ?? {};
   let soulEnergyIssue = null;
+  if (itemType === "container" && (Object.hasOwn(formData, "containerLimitQuantity") || Object.hasOwn(formData, "containerMaxQuantity"))) {
+    const path = "flags.uesrpg-3ev4.inventoryRules.capacity.maxQuantity";
+    const current = source.flags?.["uesrpg-3ev4"]?.inventoryRules?.capacity?.maxQuantity;
+    const enabled = Object.hasOwn(formData, "containerLimitQuantity") ? _bool(formData.containerLimitQuantity) : current != null;
+    if (enabled) {
+      const limit = Number(formData.containerMaxQuantity ?? current ?? 0);
+      if (!Number.isSafeInteger(limit) || limit < 0) throw new Error("Container quantity capacity must be a nonnegative whole number.");
+      formData[path] = limit;
+    } else if (current != null) {
+      formData[path] = foundry.data.operators.ForcedDeletion.create();
+    }
+    delete formData.containerLimitQuantity;
+    delete formData.containerMaxQuantity;
+  }
   if (Object.prototype.hasOwnProperty.call(formData, "system.enc")) {
     const enc = Number(formData["system.enc"]);
     formData["system.enc"] = Number.isFinite(enc) ? Math.max(0, enc) : 0;

@@ -54,6 +54,7 @@ export function resolveSelectionAndComputeTN({
       role: side,
       ...(side === "defender" ? { defenseType: DEFAULT_COMBAT_STYLE_DEFENSE_TYPE } : {}),
       styleUuid: decl.skillUuid,
+      selectedCharacteristicKey: String(decl.selectedCharacteristicKey ?? defaultCharacteristic ?? ""),
       manualMod: decl.manualMod,
       situationalMods,
       ...(side === "attacker" ? {

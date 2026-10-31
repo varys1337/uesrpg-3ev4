@@ -69,6 +69,11 @@ export async function consumePendingAmmo(pendingAmmo) {
   if (!pendingAmmo) return true;
 
   const { ammoUuid, actorUuid, ammoId, qtyAfter, ammoName } = pendingAmmo;
+  const intendedQuantity = Number(qtyAfter);
+  if (qtyAfter == null || !Number.isInteger(intendedQuantity) || intendedQuantity < 0) {
+    ui.notifications.warn(`${ammoName || "Ammunition"}: the pending quantity is invalid. Inspect the Item and attack card before retrying.`);
+    return false;
+  }
 
   try {
     // Attempt 1: consume via Actor + embedded Item id
@@ -78,9 +83,17 @@ export async function consumePendingAmmo(pendingAmmo) {
 
       if (ammo && ammo.type === "ammunition") {
         const qty = Number(ammo.system?.quantity ?? 0);
-        const next = Math.min(qty, Math.max(0, Number(qtyAfter ?? 0)));
+        if (!Number.isInteger(qty) || qty < 0) {
+          ui.notifications.warn(`${ammoName || "Ammunition"}: its quantity is invalid. Inspect the Item before retrying.`);
+          return false;
+        }
+        const next = Math.min(qty, intendedQuantity);
         if (next !== qty) {
-          await setOwnedItemQuantityOrDelete({ actor, itemId: ammoId, item: ammo, quantity: next });
+          const result = await setOwnedItemQuantityOrDelete({ actor, itemId: ammoId, item: ammo, quantity: next });
+          if (!result.ok) {
+            ui.notifications.warn(`${ammoName || "Ammunition"}: consumption was not confirmed. Inspect the Item and attack card before retrying.`);
+            return false;
+          }
         }
         return true;
       }
@@ -89,14 +102,22 @@ export async function consumePendingAmmo(pendingAmmo) {
     // Attempt 2: consume by resolving the embedded Item UUID directly
     if (ammoUuid) {
       const doc = await fromUuid(ammoUuid);
-      if (!doc) {
+      if (!doc || doc.type !== "ammunition") {
         ui.notifications.warn(`${ammoName || "Ammunition"}: could not be resolved for consumption.`);
         return false;
       }
       const qty = Number(doc.system?.quantity ?? 0);
-      const next = Math.min(qty, Math.max(0, Number(qtyAfter ?? 0)));
+      if (!Number.isInteger(qty) || qty < 0) {
+        ui.notifications.warn(`${ammoName || "Ammunition"}: its quantity is invalid. Inspect the Item before retrying.`);
+        return false;
+      }
+      const next = Math.min(qty, intendedQuantity);
       if (next !== qty) {
-        await setOwnedItemQuantityOrDelete({ actor: doc.parent, itemId: doc.id, item: doc, quantity: next });
+        const result = await setOwnedItemQuantityOrDelete({ actor: doc.parent, itemId: doc.id, item: doc, quantity: next });
+        if (!result.ok) {
+          ui.notifications.warn(`${ammoName || "Ammunition"}: consumption was not confirmed. Inspect the Item and attack card before retrying.`);
+          return false;
+        }
       }
       return true;
     }
@@ -105,7 +126,7 @@ export async function consumePendingAmmo(pendingAmmo) {
     return false;
   } catch (err) {
     console.error("UESRPG | Failed to consume ammo", { pendingAmmo, err });
-    ui.notifications.error(`${ammoName || "Ammunition"}: failed to consume. See console for details.`);
+    ui.notifications.error(`${ammoName || "Ammunition"}: consumption was interrupted. Inspect the Item and attack card before retrying.`);
     return false;
   }
 }

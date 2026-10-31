@@ -18,6 +18,7 @@ import { hasCondition } from "../../../conditions/condition-engine.js";
 
 import { buildSpecialActionsForActor } from "../../combat-style-utils.js";
 import { hasTalent } from "../../../traits/talents-api.js";
+import { collectWeaponExpertiseNotes, MANUAL_WEAPON_EXPERTISE_REMINDERS } from "../../../traits/weapon-expertise/index.js";
 import { 
   getContextAttackMode, 
   canUseExploitAdvantage as _canUseExploitAdvantage,
@@ -118,6 +119,7 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
   <div class="uesrpg-attack-declare uesrpg-dialog-stack uesrpg-adv-dialog uesrpg-adv-dialog--attacker uesrpg-adv-dialog--choice-bars">
     ${styleSelect}
     ${weaponSelect}
+    <div data-weapon-expertise-reminders aria-live="polite" hidden></div>
     <div class="uesrpg-dialog-section-header">${t("UESRPG.Dialogs.Opposed.AttackVariation", "Attack Variation")}</div>
     <div class="uesrpg-adv-grid uesrpg-attack-grid">
       <div class="uesrpg-adv-choice-group">
@@ -327,6 +329,18 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
         }
       };
 
+      const refreshWeaponReminders = () => {
+        const container = form.querySelector("[data-weapon-expertise-reminders]");
+        if (!container) return;
+        const weaponUuid = form.querySelector('[name="weaponUuid"]')?.value ?? preferredWeaponUuid;
+        const weapon = _resolveItemViaActor(weaponUuid, attackerActor);
+        const notes = collectWeaponExpertiseNotes(attackerActor, weapon, { slugs: MANUAL_WEAPON_EXPERTISE_REMINDERS });
+        container.hidden = notes.length === 0;
+        container.innerHTML = notes.length
+          ? `<details><summary>${_escapeHtml(t("UESRPG.Dialogs.Opposed.WeaponExpertiseManualSummary", "Weapon Expertise: review manual procedures"))}</summary><p>${_escapeHtml(t("UESRPG.Dialogs.Opposed.WeaponExpertiseManualHint", "Check the calculated TN before adding any modifier."))}</p><ul>${notes.map(note => `<li>${_escapeHtml(note)}</li>`).join("")}</ul></details>`
+          : "";
+      };
+
       const sync = () => {
         const variant = form.querySelector('input[name="attackVariant"]:checked')?.value ?? "normal";
         const precisionOn = variant === "precision";
@@ -367,7 +381,9 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
       for (const name of ["styleUuid", "weaponUuid", "circMod", "applyBlinded", "applyDeafened", "eyeOfNight"]) {
         form.querySelector(`[name="${name}"]`)?.addEventListener("change", refreshTN);
       }
+      form.querySelector('[name="weaponUuid"]')?.addEventListener("change", refreshWeaponReminders);
       form.querySelector('[name="manualMod"]')?.addEventListener("input", refreshTN);
+      refreshWeaponReminders();
       sync();
     },
   });

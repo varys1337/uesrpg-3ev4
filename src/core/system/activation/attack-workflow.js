@@ -1,4 +1,5 @@
 import { OpposedWorkflow } from "../../combat/opposed-workflow.js";
+import { actionResultFromEvidence, addActionErrorContext } from "../../../application/action-results.js";
 import { getHitLocationFromRoll } from "../../combat/combat-utils.js";
 import { filterTargetsBySpellRange, getSpellAoEConfig, getSpellRangeType, getSpellMaxRangeMeters } from "../../magic/spell-range.js";
 import { AoEService, AOE_SOURCE_TYPES } from "../../aoe/index.js";
@@ -196,7 +197,21 @@ export async function prepareAttackActivationContext({
   };
 }
 
-export async function startAttackWorkflow({
+export async function startAttackWorkflow(options = {}) {
+  return (await startAttackWorkflowResult(options)).value;
+}
+
+export async function startAttackWorkflowResult(options = {}) {
+  try {
+    const message = await createActivationAttack(options);
+    return { value: Boolean(message), actionResult: actionResultFromEvidence({ owner: "itemActivation", scope: "attack submission",
+      pending: Boolean(message), blocked: !message, accepted: Boolean(message),
+      references: { messageId: message?.id, actorUuid: options.actor?.uuid, itemUuid: options.item?.uuid } }) };
+  } catch (error) { throw addActionErrorContext(error, { owner: "itemActivation", scope: "attack submission", status: "needsReview", commitment: "uncertain",
+    reason: String(error.message ?? error), references: { actorUuid: options.actor?.uuid, itemUuid: options.item?.uuid } }); }
+}
+
+async function createActivationAttack({
   actor,
   item,
   activation,
@@ -254,7 +269,7 @@ export async function startAttackWorkflow({
   const activationApCost = Number(activation?.costs?.action_points ?? 0) || 0;
   const activationPrepaidBaseAttackAP = Boolean(activation?.spendCosts && activationApCost > 0);
 
-  await OpposedWorkflow.createPending({
+  const message = await OpposedWorkflow.createPending({
     attackerTokenUuid: attackerToken.document?.uuid ?? attackerToken.uuid,
     defenderTokenUuids: defenderTokens.map((token) => token?.document?.uuid ?? token?.uuid).filter(Boolean),
     attackerActorUuid: actor.uuid,
@@ -270,5 +285,5 @@ export async function startAttackWorkflow({
     activationPrepaidBaseAttackAP
   });
 
-  return true;
+  return message ?? false;
 }

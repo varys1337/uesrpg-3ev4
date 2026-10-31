@@ -75,7 +75,7 @@ export async function dispatchAction(message, action, opts, workflow, renderCard
   // Resolve spell if needed
   if (data.attacker?.spellUuid) {
     ctx.spell = await ctx._uuidResolver.resolve(data.attacker.spellUuid);
-    if (!ctx.spell && (action === "attacker-roll" || action === "block-resolve" || action === "ward-resolve" || action === "defender-characteristic-test")) {
+    if (!ctx.spell && (action === "attacker-roll" || action === "block-resolve" || action === "ward-resolve")) {
       ui.notifications.error("Could not resolve spell.");
       return;
     }

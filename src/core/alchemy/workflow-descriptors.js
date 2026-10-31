@@ -22,7 +22,9 @@ import {
   isHealingSpell,
 } from "../magic/magicka-utils.js";
 import { classifySpellForRouting } from "../magic/spell-runtime.js";
-import { spellNeedsEffectApplication } from "../magic/opposed/spell-helpers.js";
+import { spellNeedsEffectApplication, spellNeedsDeferredDirectApplication } from "../magic/opposed/spell-helpers.js";
+import { isCoreRejuvenateSpell } from "../magic/rejuvenate-choice.js";
+import { isCoreReplenishSpell } from "../magic/services/resource-restoration-service.js";
 
 export function normalizeRecipeSlot(slot) {
   const effectSource = String(slot?.effectSource ?? (slot?.spellUuid ? "spell" : "catalog")).trim().toLowerCase() || "catalog";
@@ -124,7 +126,8 @@ export function buildDirectAlchemyPayloadForSpell(spell, {
     || Boolean(snapshot?.system?.hasOverTime)
     || Boolean(snapshot?.system?.hasBuffer)
     || Boolean(snapshot?.system?.duration?.value)
-    || Boolean(spellNeedsEffectApplication(snapshot));
+    || Boolean(spellNeedsEffectApplication(snapshot))
+    || ((isCoreRejuvenateSpell(snapshot) || isCoreReplenishSpell(snapshot)) && spellNeedsDeferredDirectApplication(snapshot));
 
   if (normalizedMode === "potion") {
     if (routing.isAttack || routing.isCharacteristicDefense) {
@@ -295,9 +298,19 @@ export function getAlchemyInventoryState(actor, { items = null } = {}) {
   } catch (_err) {
     // Settings are unavailable during isolated domain checks; RAW defaults apply.
   }
-  const toolsPresent = actorItems.some((item) => ALCHEMY_TOOL_RX.test(item?.name ?? ""));
+  let toolsPresent = false;
+  let coreFieldKitPresent = false;
+  for (const item of actorItems) {
+    toolsPresent ||= ALCHEMY_TOOL_RX.test(item?.name ?? "");
+    const source = item?.flags?.[SYSTEM_ID]?.coreSource;
+    const quantity = Number(item?.system?.quantity ?? 1);
+    coreFieldKitPresent ||= source?.book === "UESRPG 3e v4 - Rules Compendium" && source.rule === "Alchemy Field Kit"
+      && Number.isFinite(quantity) && quantity > 0;
+    if (toolsPresent && coreFieldKitPresent) break;
+  }
   return {
     toolsPresent,
+    coreFieldKitPresent,
     requireLab: Boolean(requireLab),
     requirementMet: !requireLab || toolsPresent,
     gatheringEnabled: Boolean(gatheringEnabled),

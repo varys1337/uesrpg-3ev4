@@ -69,5 +69,6 @@ export function applyHumanoidCharacteristicsStage(stage) {
     }
   }
 
-  stage.characteristicBonuses = bonuses;
+  stage.characteristicBonuses = Object.fromEntries(Object.keys(bonuses)
+    .map(key => [key, Number(actorSystemData.characteristics[key].bonus)]));
 }

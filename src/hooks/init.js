@@ -10,7 +10,7 @@ import { registerSheets } from "./init/register-sheets.js";
 import { registerHandlebarsHelpers } from "./init/register-handlebars.js";
 import { registerApi } from "./init/register-api.js";
 import { createTokenActionHudApi } from "../integrations/token-action-hud/api.js";
-import { registerChat, registerSpecialActionOutcomeHook } from "./init/register-chat.js";
+import { registerChat } from "./init/register-chat.js";
 import { registerChatCommands } from "./init/register-chat-commands.js";
 import { registerMigrations } from "./init/register-migrations.js";
 import { registerKeybindings } from "./init/register-keybindings.js";
@@ -47,7 +47,6 @@ import { evaluatePredicate, isPredicate, selfTestPredicate } from "../core/rules
 import { normalizeRollOption, buildBaseRollOptions } from "../core/rules/roll-options.js";
 import { buildRollContext } from "../core/rules/roll-context.js";
 import { compileConditionsToPredicate } from "../core/traits/features/conditions-to-predicate.js";
-import { executeSpecialAction } from "../core/combat/special-actions-helper.js";
 import { runCombatLegacyReadinessScan } from "../core/combat/legacy-readiness-scanner.js";
 import * as automationPolicyApi from "../core/config/automation-policy.js";
 import { registerStaleEmbeddedDeleteSuppression } from "../utils/embedded-delete-guard.js";
@@ -102,6 +101,9 @@ export default function initHandler() {
     applyDamage: ApplyDamageService.applySimple.bind(ApplyDamageService),
     applyHealing: ApplyDamageService.applyHealing.bind(ApplyDamageService),
     applyDamageResolved: ApplyDamageService.applyResolved.bind(ApplyDamageService),
+    applyDamageResult: ApplyDamageService.applySimpleResult.bind(ApplyDamageService),
+    applyHealingResult: ApplyDamageService.applyHealingResult.bind(ApplyDamageService),
+    applyDamageResolvedResult: ApplyDamageService.applyResolvedResult.bind(ApplyDamageService),
     DAMAGE_TYPES,
     resolveSurpriseState,
     setActorSurprised,
@@ -119,6 +121,10 @@ export default function initHandler() {
         apply: ApplyDamageService.applyResolved.bind(ApplyDamageService),
         applySimple: ApplyDamageService.applySimple.bind(ApplyDamageService),
         applyHealing: ApplyDamageService.applyHealing.bind(ApplyDamageService),
+        applyResult: ApplyDamageService.applyResolvedResult.bind(ApplyDamageService),
+        applySimpleResult: ApplyDamageService.applySimpleResult.bind(ApplyDamageService),
+        applyHealingResult: ApplyDamageService.applyHealingResult.bind(ApplyDamageService),
+        applyChatCardResult: ApplyDamageService.applyChatCardResult.bind(ApplyDamageService),
       },
     },
     authorityApi: {
@@ -240,5 +246,4 @@ export default function initHandler() {
 
   registerMigrations();
 
-  registerSpecialActionOutcomeHook({ executeSpecialAction });
 }

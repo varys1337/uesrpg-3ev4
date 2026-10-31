@@ -19,6 +19,9 @@ import {
   hasAnyArmorCoverage,
 } from "../items/armor-coverage.js";
 import { FLAG_SCOPE } from "../constants.js";
+import { prepareNativeTalentPurchases, finalizeNativeTalentPurchases } from "../advancement/purchase-service.js";
+import { getInventoryPlacementIssue } from "../items/container-capacity.js";
+import { getInventoryRules } from "../items/inventory-encumbrance.js";
 
 const ARMOR_COVERAGE_MODE_PATH = `flags.${FLAG_SCOPE}.coverageMode`;
 
@@ -33,11 +36,69 @@ function hasChangedPath(changed, path) {
 }
 
 export class SimpleItem extends Item {
+  // Documented v14 batch lifecycle: prepare before persistence, complete after
+  // individual creation callbacks. The existing instance lifecycle stays intact.
+  static async _preCreateOperation(documents, operation, user) {
+    const allowed = await super._preCreateOperation(documents, operation, user);
+    if (allowed === false) return false;
+    if (!this._validateInventoryOperation(documents)) return false;
+    if (!await prepareNativeTalentPurchases(documents, operation, user)) return false;
+    return allowed;
+  }
+
+  static async _preUpdateOperation(documents, operation, user) {
+    const allowed = await super._preUpdateOperation(documents, operation, user);
+    if (allowed === false) return false;
+    const updates = new Map(operation.updates.map(update => [update._id, update]));
+    return this._validateInventoryOperation(documents, updates) ? allowed : false;
+  }
+
+  /** Final batch preflight: simultaneous moves/quantity edits see one proposed inventory. */
+  static _validateInventoryOperation(documents, updates = null) {
+    const actors = new Map();
+    for (const item of documents) {
+      if (!item.actor) continue;
+      const update = updates?.get(item.id);
+      const keys = update ? Object.keys(foundry.utils.flattenObject(update)) : [];
+      const relevant = keys.filter(key => /^(system\.(enc|quantity|material|attackMode|qualities|qualitiesStructured|qualitiesTraits|containerStats|container_enc)|flags\.uesrpg-3ev4\.inventoryRules)(\.|$)/.test(key));
+      if (updates && !relevant.length) continue;
+      // Existing overfilled/invalid inventories must still allow consumption and repairs.
+      const reducingQuantity = updates && relevant.every(key => key === "system.quantity")
+        && Number(readChangedValue(update, "system.quantity")) <= Number(item.system.quantity);
+      if (!actors.has(item.actor)) actors.set(item.actor, []);
+      const data = item.toObject();
+      if (update) foundry.utils.mergeObject(data, foundry.utils.expandObject(update));
+      actors.get(item.actor).push({ data, check: !reducingQuantity });
+    }
+    for (const [actor, proposals] of actors) {
+      const drafts = proposals.map(proposal => proposal.data);
+      const ids = new Set(drafts.map(draft => draft._id));
+      const inventory = Array.from(actor.items).filter(item => !ids.has(item.id)).concat(drafts);
+      for (const { data: draft, check } of proposals) {
+        if (!check) continue;
+        const issue = getInventoryPlacementIssue(actor, draft, { inventory });
+        if (issue) { ui.notifications?.warn?.(issue); return false; }
+      }
+    }
+    return true;
+  }
+
+  static async _onCreateOperation(documents, operation, user) {
+    await super._onCreateOperation(documents, operation, user);
+    await finalizeNativeTalentPurchases(documents);
+  }
+
   async _preCreate(data, options, user) {
+    // Model defaults do not indicate whether the creation request supplied a rank.
+    const hasExplicitRank = hasChangedPath(data, "system.rank");
     const allowed = await super._preCreate(data, options, user);
     if (allowed === false) return false;
 
     const owningActor = this.actor ?? (this.parent?.documentName === "Actor" ? this.parent : null);
+    if (owningActor && getInventoryRules(this).portable === false) {
+      ui.notifications?.warn?.("This tool set requires its own workspace and cannot be carried by an actor.");
+      return false;
+    }
     if (this.type === "armor" && owningActor?.type === "NPC") {
       const coverageMode = String(this.getFlag?.(FLAG_SCOPE, "coverageMode") ?? "").trim().toLowerCase();
       const categoryCoverage = getArmorCategoryCoverage(this.system);
@@ -53,7 +114,7 @@ export class SimpleItem extends Item {
       case 'combatStyle':
       case 'skill':
       case 'magicSkill':
-        this.updateSource({ 'system.rank': 'untrained' });
+        if (!hasExplicitRank) this.updateSource({ 'system.rank': 'untrained' });
         break;
     }
     return allowed;

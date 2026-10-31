@@ -1,0 +1,5 @@
+{{#if capacity.hasQuantityLimit}}
+    {{capacity.quantity}} / {{capacity.maxQuantity}} {{#if capacity.ammunitionOnly}}{{localize "UESRPG.Sheets.Container.Shots"}}{{else}}{{localize "UESRPG.Sheets.Container.Objects"}}{{/if}}
+{{else}}
+    {{capacity.enc}} / {{#if capacity.hasEncLimit}}{{capacity.maxEnc}}{{else}}∞{{/if}} {{localize "UESRPG.Sheets.Equipment.ENC"}}
+{{/if}}

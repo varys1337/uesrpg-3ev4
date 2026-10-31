@@ -133,6 +133,8 @@ function _ensureModifierLanes(system) {
   system.modifiers.combat.evadeAoOCost ??= 0;
 
   system.modifiers.tests ??= {};
+  system.modifiers.tests.characteristics ??= {};
+  for (const key of CHARACTERISTIC_KEYS) system.modifiers.tests.characteristics[key] ??= 0;
   system.modifiers.tests.all ??= 0;
   system.modifiers.tests.fear ??= 0;
   system.modifiers.tests.social ??= 0;

@@ -1,4 +1,5 @@
 import { FLAG_SCOPE } from "../system/namespace.js";
+import { isTransferEffectActive } from "../active-effects/transfer.js";
 
 function _num(value, fallback = 0) {
   const n = Number(value);
@@ -47,6 +48,14 @@ function _turnIndex(combat, combatant) {
  * Foundry's ActiveEffectRegistry can own remaining-time and expiry behavior.
  */
 export class UESRPGActiveEffect extends foundry.documents.ActiveEffect {
+  /** Respect feature configuration in Foundry's native effect application too. */
+  get isSuppressed() {
+    if (super.isSuppressed) return true;
+    const item = this.parent?.documentName === "Item" ? this.parent : null;
+    if (!this.transfer || !item?.actor || !["talent", "trait", "power"].includes(item.type)) return false;
+    return !isTransferEffectActive(item.actor, item, this);
+  }
+
   async _preCreate(data, options, user) {
     // Relocation and rollback carry existing native anchors, unlike a newly cast spell.
     // Snapshot before core's documented _preCreate and restore via updateSource afterwards.
