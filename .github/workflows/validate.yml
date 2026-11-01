@@ -30,6 +30,7 @@ jobs:
 
       - name: Validate source and dependencies
         run: |
+          npm test
           npm run syntax:check
           npm run lint
           npm audit --audit-level=high

@@ -67,7 +67,7 @@ Get-ChildItem -LiteralPath $sourceSnapshot -Force | Copy-Item -Destination $gith
 git -C $githubCheckout status --short
 ```
 
-After the applicable acceptance and publication decision, inspect and commit the accepted source first. Use the existing npm version lifecycle and `automation/release-metadata.js` for version changes; do not hand-edit one version or invent package URLs. The release tag must equal the package version without a leading `v` and resolve to the exact release commit. Pushing the matching numeric tag starts the workflow that creates, verifies and publishes `system.json` and `uesrpg-3ev4.zip`; a tag alone is not a downloadable release. Do not commit the local `dist` wrapper or push a tag as a verification exercise.
+After the applicable acceptance and publication decision, inspect and commit the accepted source first. Use the existing npm version lifecycle and `automation/release-metadata.js` for version changes; do not hand-edit one version or invent package URLs. Normally the release tag equals the numeric package version; `14.3.4` is an explicit exception using tag and Foundry manifest version `v14.3.4`, created manually rather than by `npm version`. The tag must resolve to the exact release commit. Pushing the matching tag starts the workflow that creates, verifies and publishes `system.json` and `uesrpg-3ev4.zip`; a tag alone is not a downloadable release. Do not commit the local `dist` wrapper or push a tag as a verification exercise.
 
 ## Local deployment
 

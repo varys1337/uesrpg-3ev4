@@ -1,12 +1,13 @@
 {
   "name": "uesrpg-3ev4",
-  "version": "14.3.3",
+  "version": "14.3.4",
   "private": true,
   "engines": {
     "node": ">=24 <25"
   },
   "scripts": {
-    "lint": "eslint src scripts automation eslint.config.mjs",
+    "test": "node --test tests/release-metadata.test.mjs",
+    "lint": "eslint src scripts automation tests eslint.config.mjs",
     "syntax:check": "node scripts/javascript-syntax.js",
     "schema:check": "node scripts/generate-schema-defaults.js",
     "schema:generate": "node scripts/generate-schema-defaults.js --write",

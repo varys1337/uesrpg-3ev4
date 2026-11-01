@@ -1,5 +1,10 @@
 # Changelog
 
+## v14.3.4
+
+- Uses a temporary `v`-prefixed system version to address Foundry version comparison against the upstream RC.81 listing; the shared package-catalogue identity conflict remains unresolved.
+- Changes release metadata and validation only; no gameplay, document schema, or user-facing system behavior was intentionally changed.
+
 ## 14.3.3
 
 - Uses numeric release tags and matching package versions and download URLs, and retains the stable update-manifest URL.

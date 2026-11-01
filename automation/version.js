@@ -44,7 +44,7 @@ try {
 const manifestUrl = releaseMetadata.manifestUrl;
 const downloadUrl = releaseMetadata.downloadUrl;
 
-systemObj.version = rawVersion;
+systemObj.version = releaseMetadata.manifestVersion;
 systemObj.manifest = manifestUrl;
 systemObj.download = downloadUrl;
 

@@ -15,7 +15,6 @@ const ROOT = path.resolve(__dirname, "..");
 const SYSTEM_PREFIX = "systems/uesrpg-3ev4/";
 const RELEASE_FOLDER_NAME = "uesrpg-3ev4";
 const GITHUB_SOURCE_FOLDER_NAME = "github-source";
-const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const RELEASE_DIRECTORIES = Object.freeze(["docs", "fonts", "images", "lang", "packs", "src", "styles", "templates"]);
 const RELEASE_FILES = Object.freeze(["system.json", "template.json"]);
 const OPTIONAL_RELEASE_FILES = Object.freeze(["CHANGELOG.md", "LICENSE.txt", "README.md"]);
@@ -1018,13 +1017,15 @@ function validateReleaseAutomation() {
   const requiredReleaseFragments = [
     "tags:",
     '"[0-9]*"',
-    `expected_tag="$(node -p "require('./package.json').version")"`,
+    '"v14.3.4"',
+    `expected_tag="$(node -p "require('./automation/release-metadata.js').getReleaseMetadata(require('./package.json').version).tag")"`,
     "Validate tag, commit, and release identity",
     "--draft",
     "verify-github-release.js --draft",
     "verify-github-release.js --published",
     "npm audit --audit-level=high",
     "npm run schema:check",
+    "npm test",
   ];
   for (const fragment of requiredReleaseFragments) {
     if (!releaseWorkflow.includes(fragment)) fail(`Release workflow is missing ${fragment}`);
@@ -1032,7 +1033,7 @@ function validateReleaseAutomation() {
   if (/workflow_dispatch|--clobber/.test(releaseWorkflow)) {
     fail("Release workflow permits a manual or mutable release path");
   }
-  for (const fragment of ["npm run syntax:check", "npm run lint", "npm audit --audit-level=high", "npm run schema:check", "npm run validate", "npm run build:folder"]) {
+  for (const fragment of ["npm test", "npm run syntax:check", "npm run lint", "npm audit --audit-level=high", "npm run schema:check", "npm run validate", "npm run build:folder"]) {
     if (!validationWorkflow.includes(fragment)) fail(`Validation workflow is missing ${fragment}`);
   }
   notes.push("Validated immutable tag-release and pull-request workflow safeguards.");
@@ -1043,17 +1044,15 @@ function validateSourceLayout(manifest, packageJson, packageLock) {
 
 
   if (manifest.id !== packageJson.name) fail(`Manifest id ${manifest.id} does not match package name ${packageJson.name}`);
-  if (manifest.version !== packageJson.version) fail(`Manifest version ${manifest.version} does not match package version ${packageJson.version}`);
   if (packageLock.name !== packageJson.name || packageLock.packages?.[""]?.name !== packageJson.name) {
     fail(`package-lock.json package name does not match package.json name ${packageJson.name}`);
   }
   if (packageLock.version !== packageJson.version || packageLock.packages?.[""]?.version !== packageJson.version) {
     fail(`package-lock.json version does not match package.json version ${packageJson.version}`);
   }
-  if (!SEMVER_PATTERN.test(String(manifest.version ?? ""))) fail(`Manifest version ${manifest.version} is not plain SemVer`);
   try {
     const metadata = getReleaseMetadata(packageJson.version);
-    if (metadata.tag !== packageJson.version) fail("Release tag must equal the numeric package version");
+    if (manifest.version !== metadata.manifestVersion) fail(`Manifest version must be ${metadata.manifestVersion} for package version ${packageJson.version}`);
     if (manifest.manifest !== metadata.manifestUrl) fail(`Manifest URL must be ${metadata.manifestUrl}`);
     if (manifest.download !== metadata.downloadUrl) fail(`Download URL must be ${metadata.downloadUrl}`);
   } catch (error) {
@@ -1218,9 +1217,10 @@ function validateBuiltGithubSourceFolder(destination, sourceFiles, manifest) {
     const stagedManifest = JSON.parse(fs.readFileSync(path.join(destination, "system.json"), "utf8"));
     const stagedPackage = JSON.parse(fs.readFileSync(path.join(destination, "package.json"), "utf8"));
     const stagedLock = JSON.parse(fs.readFileSync(path.join(destination, "package-lock.json"), "utf8"));
-    const versions = [stagedManifest.version, stagedPackage.version, stagedLock.version, stagedLock.packages?.[""]?.version];
-    if (versions.some((version) => version !== manifest?.version)) {
-      fail(`GitHub source version metadata must consistently equal ${manifest?.version}`);
+    const metadata = getReleaseMetadata(stagedPackage.version);
+    const versions = [stagedPackage.version, stagedLock.version, stagedLock.packages?.[""]?.version];
+    if (versions.some((version) => version !== metadata.version) || stagedManifest.version !== metadata.manifestVersion || stagedManifest.version !== manifest?.version) {
+      fail(`GitHub source version metadata must match release ${metadata.version}`);
     }
   } catch (error) {
     fail(`GitHub source version metadata is missing or invalid: ${error.message}`);
@@ -1376,15 +1376,16 @@ function validateArchive(archiveArgument, manifest) {
   }
 
   try {
-    const archivedManifest = JSON.parse(readZipEntry(zip, "system.json").toString("utf8"));
+    const archivedManifestBytes = readZipEntry(zip, "system.json");
+    const archivedManifest = JSON.parse(archivedManifestBytes.toString("utf8"));
+    if (!archivedManifestBytes.equals(fs.readFileSync(path.join(ROOT, "system.json")))) {
+      fail("Archived system.json differs from the standalone source manifest; release manifests must match byte-for-byte");
+    }
     if (archivedManifest.id !== manifest?.id) {
       fail(`Archived manifest id ${archivedManifest.id} does not match source manifest id ${manifest?.id}`);
     }
     if (archivedManifest.version !== manifest?.version) {
       fail(`Archived manifest version ${archivedManifest.version} does not match source manifest version ${manifest?.version}`);
-    }
-    if (!SEMVER_PATTERN.test(String(archivedManifest.version ?? ""))) {
-      fail(`Archived manifest version ${archivedManifest.version} is not plain SemVer`);
     }
   } catch (error) {
     fail(`Archived system.json is missing or invalid: ${error.message}`);
