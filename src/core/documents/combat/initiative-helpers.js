@@ -1,3 +1,5 @@
+import { SYSTEM_ID } from "../../system/namespace.js";
+
 export function numericOr(value, fallback = 0) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -21,10 +23,12 @@ export function getCombatSensesInitiativeRating(actor) {
   return (2 * prcBonus) + 2;
 }
 
-export function getInitiativeTieBreakTuple(combatant, initiativeValue = combatant?.initiative) {
+export function getInitiativeTieBreakTuple(combatant, initiativeValue = combatant?.initiative, ratingOverride = null) {
   const actor = combatant?.actor ?? null;
   const initiativeTotal = numericOr(initiativeValue, Number.NEGATIVE_INFINITY);
-  const initiativeRating = numericOr(actor?.system?.initiative?.value, 0);
+  const saved = combatant?.flags?.[SYSTEM_ID]?.initiativeRating;
+  const savedRating = saved && Number(saved.initiative) === initiativeTotal ? saved.rating : null;
+  const initiativeRating = numericOr(ratingOverride ?? savedRating ?? actor?.system?.initiative?.value, 0);
   const luckBonus = getLuckBonus(actor);
   const pcPrecedence = getPcPrecedence(actor);
   const stableId = String(combatant?.id ?? combatant?._id ?? "");
@@ -42,3 +46,4 @@ export function compareInitiativeTuples(a, b) {
 export function compareProjectedInitiativeEntries(a, b) {
   return compareInitiativeTuples(a?.tuple ?? [], b?.tuple ?? []);
 }
+

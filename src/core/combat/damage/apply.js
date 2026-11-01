@@ -11,6 +11,7 @@ import { calculateDamage } from "./calc.js";
 import { DAMAGE_TYPES } from "./types.js";
 import { isItemMagicSource } from "./reduction.js";
 import { isActorImmuneToDamageType, isActorIncorporeal } from "../../traits/trait-registry.js";
+import { getActorDamageWeakness, hasAmbiguousWeaknessResistance } from "../../active-effects/weakness.js";
 import { requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { normalizeActiveEffectOrigin } from "../../../utils/compat.js";
 import { isAnyDebugEnabled } from "../../../utils/debug.js";
@@ -254,6 +255,13 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
   let finalDamageAdjusted = Math.max(0, finalDamage + aeDamageTaken - aeMitigationFlat);
   if (damageCalc.immunity?.isImmune) finalDamageAdjusted = 0;
   if (damageCalc.incorporealBlock?.isBlocked) finalDamageAdjusted = 0;
+  const landedDamage = options._weaknessLanded === true || Number(damageCalc.totalDamage ?? rawDamage) > 0;
+  const weakness = landedDamage && options._skipDamageWeakness !== true
+    && !damageCalc.immunity?.isImmune && !damageCalc.incorporealBlock?.isBlocked
+    ? getActorDamageWeakness(actor, damageType, { attackerActor }) : 0;
+  const weaknessNeedsReview = landedDamage && options._skipDamageWeakness !== true
+    && hasAmbiguousWeaknessResistance(actor, damageType, { attackerActor });
+  finalDamageAdjusted += weakness;
 
   // Wound Threshold: canonical trigger behavior is routed through wounds/wound-rules.js
   // to support both standard and alternate rules modes.
@@ -298,7 +306,7 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
 
   if (!await applyPostDamageUpdate(actor, {
     newHP, newTempHP, application: options._application,
-    result: { damage: finalDamageAdjusted, oldHP: currentHP, newHP, oldTempHP: currentTempHP, newTempHP, tempHPAbsorbed, woundStatus },
+    result: { damage: finalDamageAdjusted, weakness, weaknessNeedsReview, oldHP: currentHP, newHP, oldTempHP: currentTempHP, newTempHP, tempHPAbsorbed, woundStatus },
   })) return null;
 
   // Emit damage-applied hook for downstream automation (wounds, conditions, etc.)
@@ -375,6 +383,13 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
 
     if (damageCalc.incorporealBlock?.isBlocked) {
       parts.push(`<div class="uesrpg-da-row"><span class="k">Trait</span><span class="v">Incorporeal (non-magic source)</span></div>`);
+    }
+
+    if (weakness > 0) {
+      parts.push(`<div class="uesrpg-da-row"><span class="k">Weakness</span><span class="v">+${weakness}</span></div>`);
+    }
+    if (weaknessNeedsReview) {
+      parts.push(`<div class="uesrpg-da-row"><span class="k">Weakness</span><span class="v">Customized resistance change requires GM review</span></div>`);
     }
 
     if (damageCalc.incorporealAttack?.ignoreNonMagicArmor) {
@@ -565,6 +580,8 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
     aeDamageTaken,
     aeMitigationFlat,
     reductions: damageCalc.reductions,
+    weakness,
+    weaknessNeedsReview,
     immunity: damageCalc.immunity ?? null,
     incorporealBlock: damageCalc.incorporealBlock ?? null,
     incorporealAttack: damageCalc.incorporealAttack ?? null,

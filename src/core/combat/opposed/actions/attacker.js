@@ -867,6 +867,7 @@ export async function handleAttackerAction(action, ctx) {
     isCriticalFailure: res.isCriticalFailure,
     talentDoSChoice: res?.talentDoSChoice ?? null,
     talentDoSChoiceSource: res?.talentDoSChoiceSource ?? null,
+    talentDoSChoiceValue: res?.talentDoSChoiceValue ?? null,
     ...(Array.isArray(res?.talentNotes) && res.talentNotes.length ? { talentNotes: res.talentNotes } : {})
   };
 

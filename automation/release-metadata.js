@@ -8,9 +8,9 @@ const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$
 function getReleaseMetadata(version) {
   const normalized = String(version ?? "").trim();
   if (!SEMVER_PATTERN.test(normalized)) throw new Error(`Invalid release version: ${normalized || "<empty>"}`);
-  // A one-release compatibility exception for Foundry's version comparison.
-  const manifestVersion = normalized === "14.3.4" ? `v${normalized}` : normalized;
-  const tag = manifestVersion;
+  const tag = `v${normalized}`;
+  // Keep the prefix used by the installed fork so Foundry compares future releases consistently.
+  const manifestVersion = tag;
   const base = `https://github.com/${REPOSITORY}/releases`;
   return Object.freeze({
     version: normalized,

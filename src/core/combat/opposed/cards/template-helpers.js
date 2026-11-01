@@ -446,9 +446,11 @@ export function _buildResolvedActions({ outcome, defender, advantage, resolution
 }
 
 /** Render public spell calculations from saved outcome data, never from an Item. */
-function _buildSpellPanelDetails(damageData, metadataHtml, componentsHtml, total, damageLabel) {
+function _buildSpellPanelDetails(damageData, metadataHtml) {
   const payload = damageData._magicPayload ?? {};
   const context = payload.castContext ?? {};
+  // This is the existing persisted Roll.render() output, not newly evaluated dice.
+  const rollHtml = String(payload.rollHTML ?? damageData.damageString ?? "").trim();
   const rows = [];
   const addRow = (label, value) => {
     if (value == null || String(value).trim() === "") return;
@@ -458,8 +460,10 @@ function _buildSpellPanelDetails(damageData, metadataHtml, componentsHtml, total
     .map((roll) => roll?.total)
     .filter((value) => value != null && Number.isFinite(Number(value)))
     .join(" / ");
-  addRow(t("UESRPG.Chat.DamagePanel.StrengthFormula", "Spell Strength formula"), context.spellStrengthFormula);
-  addRow(t("UESRPG.Chat.DamagePanel.StrengthRolls", "Spell Strength rolls"), rollTotals(context.spellStrengthRolls));
+  if (!rollHtml) {
+    addRow(t("UESRPG.Chat.DamagePanel.StrengthFormula", "Spell Strength formula"), context.spellStrengthFormula);
+    addRow(t("UESRPG.Chat.DamagePanel.StrengthRolls", "Spell Strength rolls"), rollTotals(context.spellStrengthRolls));
+  }
   if (payload.isOvercharged) {
     const totals = (Array.isArray(payload.overchargeTotals) ? payload.overchargeTotals : [])
       .filter((value) => value != null && Number.isFinite(Number(value))).join(" / ");
@@ -478,12 +482,7 @@ function _buildSpellPanelDetails(damageData, metadataHtml, componentsHtml, total
     addRow(t("UESRPG.Chat.DamagePanel.WardRating", "Ward rating"), ward.wardBR);
     if (ward.isAoE) addRow(t("UESRPG.Chat.DamagePanel.AfterWard", "After ward"), ward.reducedDamage);
   }
-  if (total !== null && (damageData.mode === "healing" || payload.isDamaging !== false)) {
-    addRow(tf("UESRPG.Chat.DamagePanel.ResultTotal", { label: damageLabel }, `${damageLabel} total`), total);
-  }
-  // This is the existing persisted Roll.render() output, not newly evaluated dice.
-  const rollHtml = String(payload.rollHTML ?? damageData.damageString ?? "").trim();
-  const content = metadataHtml + rows.join("") + componentsHtml
+  const content = metadataHtml + rows.join("")
     + (rollHtml ? `<div class="dmg-roll-html">${rollHtml}</div>` : "");
   return content ? `<div class="dmg-public-details">${content}</div>` : "";
 }
@@ -491,23 +490,9 @@ function _buildSpellPanelDetails(damageData, metadataHtml, componentsHtml, total
 /** Public weapon explanation from saved fields; also used to hydrate historical cards locally. */
 export function renderWeaponDamageExplanation(damageData) {
   const model = projectWeaponDamageExplanation(damageData);
-  const missing = t("UESRPG.Chat.DamageExplanation.NotRecorded", "Not recorded");
-  if ([model.formula, model.rollA, model.rollB, model.result, model.hitLocation].every(value => value === null)
-    && !model.components.length) return `<div class="dmg-public-details dmg-weapon-details"><p class="uesrpg-chat-damage-note">${_escapeHtml(missing)}</p></div>`;
-  const display = value => _escapeHtml(value === null ? missing : String(value));
-  const row = (key, fallback, value) => `<div class="uesrpg-chat-kv-row"><span>${_escapeHtml(t(`UESRPG.Chat.DamageExplanation.${key}`, fallback))}</span><span>${display(value)}</span></div>`;
-  const components = model.components.map(component => `<div class="dmg-component-line"><span class="dmg-component-source">${display(component.label ? maybeT(component.label, component.label) : null)}</span><span class="dmg-component-value">${display(component.amount)} ${display(component.damageType ? _localizeDamageType(component.damageType) : null)}</span></div>`).join("");
-  return `<div class="dmg-public-details dmg-weapon-details">
-    <div class="uesrpg-chat-details-panel__title">${_escapeHtml(t("UESRPG.Chat.DamageExplanation.AttackTitle", "Recorded attack damage"))}</div>
-    <p class="uesrpg-chat-damage-note">${_escapeHtml(t("UESRPG.Chat.DamageExplanation.AttackHint", "Recorded attack values are separate from damage applied to the target."))}</p>
-    ${row("Formula", "Formula", model.formula)}
-    ${row("RollA", "Roll A", model.rollA)}
-    ${row("RollB", "Roll B", model.rollB)}
-    ${row("AttackResult", "Recorded attack result", model.result)}
-    ${row("HitLocation", "Hit location", model.hitLocation)}
-    <div class="uesrpg-chat-damage-note">${_escapeHtml(t("UESRPG.Chat.DamageExplanation.Components", "Recorded components"))}</div>
-    ${components || `<div class="uesrpg-chat-damage-note">${_escapeHtml(missing)}</div>`}
-  </div>`;
+  const row = (key, fallback, value) => value == null ? "" : `<div class="uesrpg-chat-kv-row"><span>${_escapeHtml(t(`UESRPG.Chat.DamageExplanation.${key}`, fallback))}</span><span>${_escapeHtml(String(value))}</span></div>`;
+  const rows = row("Formula", "Formula", model.formula) + row("RollA", "Roll A", model.rollA) + row("RollB", "Roll B", model.rollB);
+  return rows ? `<div class="dmg-public-details dmg-weapon-details">${rows}</div>` : "";
 }
 
 /**
@@ -607,7 +592,7 @@ export function _buildDamagePanel(damageData, { showHeader = true, showHitLocati
     ? `<div class="dmg-gm-breakdown-anchor" data-ues-gm-damage-report-key="${_escapeHtml(gmReportKey)}" data-ues-gm-damage-target="${_escapeHtml(String(p.targetUuid ?? "").trim())}"></div>`
     : "";
 
-  const publicDetails = isMagic ? _buildSpellPanelDetails(damageData, metadataHtml, damageComponents.length ? componentsHtml : "", total, damageLabel)
+  const publicDetails = isMagic ? _buildSpellPanelDetails(damageData, metadataHtml)
     : renderWeaponDamageExplanation(damageData);
   const damageDetailsHtml = (publicDetails || (!fullyBlocked && gmDetailsAnchor)) ? `
     <details class="dmg-details">

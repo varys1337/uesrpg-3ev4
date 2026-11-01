@@ -2,6 +2,13 @@
 setlocal
 cd /d "%~dp0"
 
+node automation\sync-build-metadata.js
+if errorlevel 1 (
+  echo.
+  echo UESRPG build metadata synchronization failed. No build was produced.
+  exit /b 1
+)
+
 call npm run build:folder
 if errorlevel 1 (
   echo.

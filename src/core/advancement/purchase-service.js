@@ -111,6 +111,23 @@ async function authorityFor(data) {
   return actor ? (getActiveGMUser() ?? getActorOwnerUser(actor)) : null;
 }
 
+export function encodeXpPurchaseIntent(intent) {
+  return { actorUuid: intent.actorUuid, intentJson: JSON.stringify(intent) };
+}
+
+export function decodeXpPurchaseIntent(data) {
+  if (!data || typeof data !== "object") return null;
+  if (Object.hasOwn(data, "intentJson")) {
+    if (Object.hasOwn(data, "intent") || typeof data.intentJson !== "string" || typeof data.actorUuid !== "string") return null;
+    try {
+      const intent = JSON.parse(data.intentJson);
+      return intent && typeof intent === "object" && !Array.isArray(intent) && intent.actorUuid === data.actorUuid ? intent : null;
+    } catch (_error) { return null; }
+  }
+  // Requests already persisted before an update remain readable.
+  return data.intent && typeof data.intent === "object" && !Array.isArray(data.intent) ? data.intent : null;
+}
+
 function outcome(status, record = null, code = null, reason = "", replayed = false) {
   return {
     ok: status === "complete", status, code, reason,
@@ -301,7 +318,7 @@ async function applySteps(actor, record, plan) {
 }
 
 async function execute({ requester, data }) {
-  const intent = data?.intent;
+  const intent = decodeXpPurchaseIntent(data);
   if (!intent || intent.version !== VERSION || !safeId(intent.id) || !buildPlan) return envelope(outcome("rejected", null, CODES.INVALID_REQUEST, "Invalid purchase request."));
   const respond = (result, prepared = false) => envelope({ ...result,
     operationId: result.operationId ?? intent.id, actorUuid: result.actorUuid ?? intent.actorUuid }, prepared);
@@ -452,7 +469,15 @@ export async function requestXpPurchase(actor, workflow, choices, { quote = null
     }
     pendingIntents.set(cacheKey, intent);
   }
-  const response = await requestAuthorityIntent(COMMAND, { intent, phase }, { timeout: 15_000 });
+  // User document updates expand dotted keys inside objects. Preserve the
+  // canonical intent as JSON until the selected authority reads the request.
+  let encodedIntent;
+  try { encodedIntent = encodeXpPurchaseIntent(intent); }
+  catch (_error) {
+    pendingIntents.delete(cacheKey);
+    return outcome("rejected", null, CODES.INVALID_REQUEST, "Invalid purchase request.");
+  }
+  const response = await requestAuthorityIntent(COMMAND, { ...encodedIntent, phase }, { timeout: 15_000 });
   const result = response?.data?.purchase;
   if (result?.ok && phase !== "prepareNative") pendingIntents.delete(cacheKey);
   if (result?.status === "rejected") pendingIntents.delete(cacheKey);

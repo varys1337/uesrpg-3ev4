@@ -305,6 +305,7 @@ function _injectTalentRerollButton(message, root) {
     const eligibility = getGeneralTalentRerollEligibility(actor, {
       skillName,
       useSpecialization: Boolean(st.useSpecialization),
+      specializationName: st.specializationName,
     });
     if (!eligibility) return;
 

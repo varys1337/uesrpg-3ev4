@@ -3,6 +3,7 @@ import { createEvaluationMemo, effectMatchesContext } from "./conditions.js";
 import { getEffectChangePriority, isAddMode, isOverrideMode, toNumericEffectValue } from "./reducers.js";
 import { expandCreatureTypeConditionalKeys } from "../rules/creature-types.js";
 import { getEffectChanges, getEffectChangeTypeValue } from "../../utils/compat.js";
+import { isLegacyWeaknessResistanceChange } from "./weakness-compat.js";
 
 /**
  * @typedef {object} AEEvaluateOptions
@@ -106,6 +107,7 @@ function _evaluateCore(actor, keys, options = {}) {
     for (const change of changes) {
       const key = change?.key;
       if (!keySet.has(key)) continue;
+      if (isLegacyWeaknessResistanceChange(effect, change)) continue;
 
       const mode = getEffectChangeTypeValue(change);
       const rawValue = change?.value;

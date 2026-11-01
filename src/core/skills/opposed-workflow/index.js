@@ -147,15 +147,31 @@ export const SkillOpposedWorkflow = {
         allowUnlucky: true
       });
 
-      if (talentChoices && typeof talentChoices === "object") {
-        if (talentChoices.keenIntuitionChoice) res.keenIntuitionChoice = talentChoices.keenIntuitionChoice;
-        if (talentChoices.hyperAwarenessChoice) res.hyperAwarenessChoice = talentChoices.hyperAwarenessChoice;
+      const skillTest = getFlagValueWithFallback(rollMessage, "skillTest");
+      const matchingSkillTest = skillTest && String(skillTest.actorUuid ?? "") === String(side.actorUuid)
+        && String(skillTest.skillUuid ?? "") === String(side.skillUuid ?? "") ? skillTest : null;
+      const savedChoices = talentChoices ?? matchingSkillTest;
+      if (savedChoices && typeof savedChoices === "object") {
+        if (savedChoices.keenIntuitionChoice) res.keenIntuitionChoice = savedChoices.keenIntuitionChoice;
+        if (savedChoices.hyperAwarenessChoice) res.hyperAwarenessChoice = savedChoices.hyperAwarenessChoice;
+        if (savedChoices.hyperAwarenessChoiceValue != null) res.hyperAwarenessChoiceValue = savedChoices.hyperAwarenessChoiceValue;
       }
 
-      // Awareness talent automation: Keen Intuition (Observe) / Hyper Awareness (Evade).
+      let skillItem = null;
+      const skillUuid = String(side?.skillUuid ?? "").trim();
+      if (skillUuid) {
+        try {
+          const doc = uuid.resolveSync(skillUuid);
+          if (doc?.documentName === "Item" && doc.actor?.uuid === actor.uuid) skillItem = doc;
+        } catch (_e) {
+          skillItem = null;
+        }
+      }
+
+      // Awareness talent automation uses a saved choice on replay.
       // Do not prompt in banked/external rolls; use stored choices when available.
       await applyKeenIntuitionToResult(actor, side?.skillLabel ?? "", res, { allowPrompt: false });
-      await applyHyperAwarenessToResult(actor, side?.skillLabel ?? "", res, { allowPrompt: false });
+      await applyHyperAwarenessToResult(actor, side?.skillLabel ?? "", res, { allowPrompt: false, isCombatStyle: skillItem?.type === "combatStyle" });
 
       // Intellectual talent DoS overrides: apply a stored override from the roll message (no prompt).
       try {
@@ -166,12 +182,14 @@ export const SkillOpposedWorkflow = {
           getFlagValueWithFallback(rollMessage, "skillTest") ??
           null;
         const isInterrogationTest = Boolean(st?.isInterrogationTest ?? side?.declared?.isInterrogationTest ?? false);
+        const isQuestioningTest = Boolean(st?.isQuestioningTest ?? side?.declared?.isQuestioningTest ?? false);
 
         await applyIntellectualTalentDoSOverrides({
           actor,
           skillName: side?.skillLabel ?? "",
           result: res,
           isInterrogationTest,
+          isQuestioningTest,
           storedOverride,
           allowPrompt: false
         });
@@ -189,17 +207,6 @@ export const SkillOpposedWorkflow = {
         targetToken = _resolveToken(data?.attacker?.tokenUuid, { resolver: uuid });
       }
 
-      let skillItem = null;
-      const skillUuid = String(side?.skillUuid ?? "").trim();
-      if (skillUuid) {
-        try {
-          const doc = uuid.resolveSync(skillUuid);
-          if (doc?.documentName === "Item") skillItem = doc;
-        } catch (_e) {
-          skillItem = null;
-        }
-      }
-
       return {
         rollTotal: res.rollTotal,
         target: res.target,
@@ -207,7 +214,10 @@ export const SkillOpposedWorkflow = {
         degree: res.degree,
         textual: res.textual,
         isCriticalSuccess: res.isCriticalSuccess,
-        isCriticalFailure: res.isCriticalFailure
+        isCriticalFailure: res.isCriticalFailure,
+        ...(res.keenIntuitionChoice != null ? { keenIntuitionChoice: res.keenIntuitionChoice } : {}),
+        ...(res.hyperAwarenessChoice != null ? { hyperAwarenessChoice: res.hyperAwarenessChoice } : {}),
+        ...(res.hyperAwarenessChoiceValue != null ? { hyperAwarenessChoiceValue: res.hyperAwarenessChoiceValue } : {})
       };
     };
 

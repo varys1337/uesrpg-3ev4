@@ -12,6 +12,8 @@
 import { getDifficultyByKey } from "./skill-tn.js";
 import { createDebugLogger } from "../../utils/debug.js";
 import { normalizeCharacteristicKey } from "../../utils/maps/characteristics.js";
+import { parseSpecializations } from "../advancement/skill-advancement.js";
+import { customDialog } from "../../utils/dialog-v2-helper.js";
 
 const SKILL_ROLL_REQUEST_VERSION = 1;
 
@@ -39,10 +41,34 @@ export function normalizeSkillRollOptions(raw = {}, fallback = {}) {
     circumstanceMod: clampNumber(raw.circumstanceMod ?? fallback.circumstanceMod ?? 0, { min: -30, max: 30 }),
     manualMod: clampNumber(raw.manualMod ?? fallback.manualMod ?? 0, { min: -200, max: 200 }),
     useSpec: Boolean(raw.useSpec ?? fallback.useSpec ?? false),
+    specializationName: String(raw.specializationName ?? "").trim(),
     selectedCharacteristicKey,
     applyBlinded: Boolean(raw.applyBlinded ?? fallback.applyBlinded ?? false),
     applyDeafened: Boolean(raw.applyDeafened ?? fallback.applyDeafened ?? false)
   };
+}
+
+/** Select the specialization used for this roll, without guessing between several. */
+export async function chooseRollSpecialization(skillItem) {
+  const choices = parseSpecializations(skillItem?.system?.trainedItems);
+  if (!choices.length) return "";
+  if (choices.length === 1) return choices[0];
+  const escape = foundry.utils.escapeHTML;
+  try {
+    const selected = await customDialog({
+      layout: "workflow",
+      title: "Choose Specialization",
+      content: `<div class="form-group"><label>Specialization used for this test</label><select name="specializationName">${choices.map((name, index) => `<option value="${index}">${escape(name)}</option>`).join("")}</select></div>`,
+      buttons: {
+        ok: { label: "Continue", callback: html => Number(html?.querySelector?.('[name="specializationName"]')?.value ?? -1) },
+        cancel: { label: "Cancel", callback: () => null }
+      },
+      default: "ok"
+    });
+    return Number.isInteger(selected) && selected >= 0 && selected < choices.length ? choices[selected] : null;
+  } catch (_error) {
+    return null;
+  }
 }
 
 /**

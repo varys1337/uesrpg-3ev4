@@ -1,0 +1,43 @@
+{
+  "description": "Generated plain source data; not Foundry Documents or player exports.",
+  "actor": {
+    "type": "Player Character",
+    "system": {
+      "xp": 400,
+      "xpTotal": 1000,
+      "characteristics": {
+        "str": { "base": 30, "total": 30, "bonus": 3, "favored": false },
+        "agi": { "base": 35, "total": 35, "bonus": 3, "favored": false }
+      }
+    }
+  },
+  "skill": {
+    "name": "Fixture Skill",
+    "type": "skill",
+    "system": { "rank": "novice", "governingCha": "Str", "trainedItems": "" }
+  },
+  "combatStyle": {
+    "name": "Fixture Combat Style",
+    "type": "combatStyle",
+    "system": {
+      "rank": "novice",
+      "governingCha": "Str, Agi",
+      "trainedEquipment": ["Sword", "Shield", "", "", "", "", "", "", "", ""]
+    }
+  },
+  "campaignBoundaries": [
+    { "xp": -1, "label": "Novice", "key": "novice" },
+    { "xp": 0, "label": "Novice", "key": "novice" },
+    { "xp": 999, "label": "Novice", "key": "novice" },
+    { "xp": 1000, "label": "Apprentice", "key": "apprentice" },
+    { "xp": 2499, "label": "Apprentice", "key": "apprentice" },
+    { "xp": 2500, "label": "Journeyman", "key": "journeyman" },
+    { "xp": 3999, "label": "Journeyman", "key": "journeyman" },
+    { "xp": 4000, "label": "Adept", "key": "adept" },
+    { "xp": 5499, "label": "Adept", "key": "adept" },
+    { "xp": 5500, "label": "Expert", "key": "expert" },
+    { "xp": 6999, "label": "Expert", "key": "expert" },
+    { "xp": 7000, "label": "Master", "key": "master" },
+    { "xp": 100000, "label": "Master", "key": "master" }
+  ]
+}

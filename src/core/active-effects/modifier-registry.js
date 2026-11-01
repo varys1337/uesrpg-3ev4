@@ -116,6 +116,7 @@ const _RES_TYPE_KEYS = new Set(_RES_TYPES.map(([key]) => key));
 for (const [key, label] of _RES_TYPES) {
   _reg(`system.resistance.${key}`, `Resistance: ${label}`, "resistance", "numeric", true);
   _reg(`system.modifiers.resistance.${key}`, `Resistance Mod: ${label}`, "resistance", "numeric", true);
+  _reg(`system.traits.weakness.${key.slice(0, -1)}`, `Weakness: ${label}`, "resistance", "numeric", true);
 }
 _reg("system.resistances.poison", "Resistance: Poison (Alias)", "resistance");
 _reg("system.resistances.disease", "Resistance: Disease (Alias)", "resistance");

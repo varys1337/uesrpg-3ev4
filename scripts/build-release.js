@@ -1012,20 +1012,14 @@ function validateCoreIntegrationSafety() {
 function validateReleaseAutomation() {
   const releaseWorkflow = fs.readFileSync(path.join(ROOT, ".github", "workflows", "main.yml"), "utf8");
   const validationWorkflow = fs.readFileSync(path.join(ROOT, ".github", "workflows", "validate.yml"), "utf8");
-  const npmConfig = fs.readFileSync(path.join(ROOT, ".npmrc"), "utf8");
-  if (!/^tag-version-prefix=\s*$/m.test(npmConfig)) fail("npm version must create numeric release tags without a prefix");
   const requiredReleaseFragments = [
     "tags:",
-    '"[0-9]*"',
-    '"v14.3.4"',
-    `expected_tag="$(node -p "require('./automation/release-metadata.js').getReleaseMetadata(require('./package.json').version).tag")"`,
     "Validate tag, commit, and release identity",
     "--draft",
     "verify-github-release.js --draft",
     "verify-github-release.js --published",
     "npm audit --audit-level=high",
     "npm run schema:check",
-    "npm test",
   ];
   for (const fragment of requiredReleaseFragments) {
     if (!releaseWorkflow.includes(fragment)) fail(`Release workflow is missing ${fragment}`);
@@ -1033,8 +1027,17 @@ function validateReleaseAutomation() {
   if (/workflow_dispatch|--clobber/.test(releaseWorkflow)) {
     fail("Release workflow permits a manual or mutable release path");
   }
-  for (const fragment of ["npm test", "npm run syntax:check", "npm run lint", "npm audit --audit-level=high", "npm run schema:check", "npm run validate", "npm run build:folder"]) {
+  for (const fragment of ["npm run syntax:check", "npm run lint", "npm audit --audit-level=high", "npm run schema:check", "npm run validate", "npm run build:folder"]) {
     if (!validationWorkflow.includes(fragment)) fail(`Validation workflow is missing ${fragment}`);
+  }
+  for (const [label, workflow] of [["Release", releaseWorkflow], ["Validation", validationWorkflow]]) {
+    const testRuns = [...workflow.matchAll(/^\s*run: npm test\s*$/gm)];
+    const installAt = workflow.indexOf("run: npm ci");
+    const validationAt = workflow.indexOf("- name: Validate source and dependencies");
+    if (testRuns.length !== 1 || installAt < 0 || validationAt < 0
+        || testRuns[0].index < installAt || testRuns[0].index > validationAt) {
+      fail(`${label} workflow must run npm test once after npm ci and before source validation.`);
+    }
   }
   notes.push("Validated immutable tag-release and pull-request workflow safeguards.");
 }
@@ -1042,6 +1045,9 @@ function validateReleaseAutomation() {
 function validateSourceLayout(manifest, packageJson, packageLock) {
   if (!manifest || !packageJson || !packageLock) return;
 
+  if (packageJson.scripts?.test !== 'node --test "tests/unit/*.test.mjs"') {
+    fail("The canonical npm test command must use the dedicated Node rules-test glob.");
+  }
 
   if (manifest.id !== packageJson.name) fail(`Manifest id ${manifest.id} does not match package name ${packageJson.name}`);
   if (packageLock.name !== packageJson.name || packageLock.packages?.[""]?.name !== packageJson.name) {

@@ -166,6 +166,13 @@ async function _rollSpellDamageComponentSet(spell, commonRollOptions, { attacker
     rolls.push(roll);
     const baseDamage = Math.max(0, Number(roll.total ?? 0) || 0);
     const elemBonusInfo = computeElementalDamageBonus(attacker, component.damageType, { opposingActor: targetActor, targetActor });
+    if (elemBonusInfo?.needsTalentReview) {
+      commonRollOptions.elementalReviewNotices ??= new Set();
+      if (!commonRollOptions.elementalReviewNotices.has(elemBonusInfo.needsTalentReview)) {
+        commonRollOptions.elementalReviewNotices.add(elemBonusInfo.needsTalentReview);
+        ui.notifications?.warn?.(`${elemBonusInfo.needsTalentReview}: check whether the existing damage effect already includes the talent's +1 before applying damage.`);
+      }
+    }
     const elementalBonus = Math.max(0, Number(elemBonusInfo?.bonus ?? 0) || 0);
     const amount = baseDamage + elementalBonus;
     total += amount;

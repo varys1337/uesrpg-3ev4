@@ -22,7 +22,8 @@ export function buildQuickDeclaration({ selectedSkillUuid, defaults, defaultChar
     selectedCharacteristicKey: defaults.selectedCharacteristicKey ?? defaultCharacteristic,
     applyBlinded: (defaults.applyBlinded ?? true),
     applyDeafened: (defaults.applyDeafened ?? true),
-    isInterrogationTest: false
+    isInterrogationTest: false,
+    isQuestioningTest: false
   };
 }
 

@@ -20,6 +20,7 @@ import { getSpellBufferPath, getSpellBufferValue, SPELL_BUFFER_TYPES } from "../
  */
 
 import { buildDamageContext } from "./context.js";
+import { getActorDamageWeakness, hasAmbiguousWeaknessResistance } from "../../../active-effects/weakness.js";
 import { getAETwitterMods, collectTypedBonusDamage } from "./ae-mods.js";
 import { asNumber } from "./normalize.js";
 import { listArmorSourcesForLocation } from "./armor.js";
@@ -799,6 +800,24 @@ export async function applyDamageResolved(targetActor, payload = {}) {
     }
   }
 
+  // Weakness applies once per damage type to a landed component, even if reductions absorbed its damage.
+  const weaknessTypes = new Set();
+  for (const result of results) {
+    const type = String(result.damageType ?? "").trim().toLowerCase();
+    if (weaknessTypes.has(type) || result.immunity?.isImmune || result.spellAbsorbed || result.incorporealBlock?.isBlocked) continue;
+    if (Number(result.rawDamage || 0) + Number(result.dosBonus || 0) + Number(result.weaponBonus || 0) <= 0) continue;
+    weaknessTypes.add(type);
+    if (hasAmbiguousWeaknessResistance(updateTarget, type, { attackerActor })) {
+      traitNotes.push(`Weakness (${type}): customized resistance change requires GM review`);
+    }
+    const weakness = getActorDamageWeakness(updateTarget, type, { attackerActor });
+    if (weakness <= 0) continue;
+    result.finalApplied += weakness;
+    result.weakness = weakness;
+    totalApplied += weakness;
+    traitNotes.push(`Weakness (${type}): +${weakness} damage`);
+  }
+
   // Untouchable (Chapter 4): after being hit, the defender may spend LP to increase WT for this attack only.
   let untouchableSpentLp = 0;
   let untouchableCurrentLp = 0;
@@ -959,8 +978,12 @@ export async function applyDamageResolved(targetActor, payload = {}) {
   // Cutthroat: apply Bleeding after post-mitigation damage when applicable.
   if (totalApplied > 0 && attackerActor && weaponCtx && hasTalent(attackerActor, "cutthroat")) {
     let bleedAdd = 0;
-    const sneakApplied = Number(results.find(r => r.kind === "sneak")?.finalApplied ?? 0) || 0;
-    if (sneakApplied > 0) bleedAdd += 1;
+    // The shared bonus component is also used for unrelated weapon-expertise
+    // damage. Only an explicitly identified Sneak Attack can satisfy this clause.
+    if (talentContext._isSneakAttack === true) bleedAdd += 1;
+    else if (ctx.options?.attackFromHidden === true && hasTalent(attackerActor, "sneakattack")) {
+      traitNotes.push("Cutthroat: If this was a damaging Sneak Attack, apply Bleeding (1) after checking the existing result.");
+    }
 
     const hasSmall = itemHasToken(weaponCtx, "small");
     if (hasSmall && hasCondition(updateTarget, "bleeding")) bleedAdd += 1;

@@ -107,7 +107,9 @@ export async function buildXpPurchasePlan(actor, intent, { requester, nativeItem
       }
       return finishPurchaseProjection(state, intent);
     }
-    if (actor.type !== "Player Character") throw new Error("XP purchases require a Player Character.");
+    if (actor.type !== "Player Character") {
+      throw new Error(`XP purchases require a Player Character. The selected Actor's type is ${String(actor.type ?? "unknown")}.`);
+    }
 
     if (workflow === "itemSheet") {
       const item = resolveItem(state, choices.itemId);

@@ -102,6 +102,7 @@ export async function applyExternalRollMessage(rollMessage, deps) {
   selectDefenderEntry(data, { defenderIndex, defenderTokenUuid: meta?.defenderTokenUuid, defenderActorUuid: meta?.defenderActorUuid });
 
   let dirty = false;
+  let freshResult = false;
   // Per-invocation UUID cache — deduplicates actor/token lookups within this banking call.
   const applyResult = async (side) => {
     if (!side?.actorUuid) return null;
@@ -160,6 +161,7 @@ export async function applyExternalRollMessage(rollMessage, deps) {
       const r = await applyResult(data.attacker);
       if (!r) return;
       data.attacker.result = r;
+      freshResult = true;
       if (rollId) {
         data.attacker.rollMessageId = rollId;
         data.attacker.rolledAt = Date.now();
@@ -180,6 +182,7 @@ export async function applyExternalRollMessage(rollMessage, deps) {
       const r = await applyResult(data.defender);
       if (!r) return;
       data.defender.result = r;
+      freshResult = true;
       if (rollId) {
         data.defender.rollMessageId = rollId;
         data.defender.rolledAt = Date.now();
@@ -207,7 +210,7 @@ export async function applyExternalRollMessage(rollMessage, deps) {
 
   // Post-roll adjustments (schema-safe).
   // Dueling Weapon: grants +1 Degree of Success on successful Parry or Counter-Attack.
-  if (stage === "defender-roll" && data.defender?.result?.isSuccess && !Number(data.defender.result.duelingBonus)) {
+  if (freshResult && stage === "defender-roll" && data.defender?.result?.isSuccess && !Number(data.defender.result.duelingBonus)) {
     const dt = String(data.defender?.defenseType ?? "");
     if (dt === "parry" || dt === "counter") {
       try {
@@ -230,7 +233,7 @@ export async function applyExternalRollMessage(rollMessage, deps) {
   }
 
   // Buckler: +1 DoS on successful Parry.
-  if (stage === "defender-roll" && data.defender?.result?.isSuccess && !Number(data.defender.result.bucklerBonus)) {
+  if (freshResult && stage === "defender-roll" && data.defender?.result?.isSuccess && !Number(data.defender.result.bucklerBonus)) {
     const dt = String(data.defender?.defenseType ?? "");
     if (dt === "parry") {
       try {
@@ -255,11 +258,12 @@ export async function applyExternalRollMessage(rollMessage, deps) {
     const dActor = resolveActor(data?.defender?.actorUuid);
     const aTok = resolveToken(data?.attacker?.tokenUuid);
     const dTok = resolveToken(data?.defender?.tokenUuid);
-    if (stage === "attacker-roll" && data?.attacker?.result && aActor && dActor) {
+    if (freshResult && stage === "attacker-roll" && data?.attacker?.result && aActor && dActor) {
       const storedChoice = meta?.commit?.attacker?.talentDoSChoice ?? null;
       const storedSource = meta?.commit?.attacker?.talentDoSChoiceSource ?? null;
       if (storedChoice) data.attacker.result.talentDoSChoice = storedChoice;
       if (storedSource) data.attacker.result.talentDoSChoiceSource = storedSource;
+      if (meta?.commit?.attacker?.talentDoSChoiceValue != null) data.attacker.result.talentDoSChoiceValue = meta.commit.attacker.talentDoSChoiceValue;
 
       const adj = await applyCombatTalentDoSAdjustments({
         attacker: aActor,
@@ -278,11 +282,23 @@ export async function applyExternalRollMessage(rollMessage, deps) {
       if (Array.isArray(adj?.notes) && adj.notes.length) data.attacker.result.talentNotes = adj.notes;
     }
 
-    if (stage === "defender-roll" && data?.defender?.result && aActor && dActor) {
+    if (freshResult && stage === "defender-roll" && data?.defender?.result && aActor && dActor) {
       const storedChoice = meta?.commit?.defender?.talentDoSChoice ?? null;
       const storedSource = meta?.commit?.defender?.talentDoSChoiceSource ?? null;
       if (storedChoice) data.defender.result.talentDoSChoice = storedChoice;
       if (storedSource) data.defender.result.talentDoSChoiceSource = storedSource;
+      if (meta?.commit?.defender?.talentDoSChoiceValue != null) data.defender.result.talentDoSChoiceValue = meta.commit.defender.talentDoSChoiceValue;
+
+      // Match the original roll order: apply the Evade choice before other DoS adjustments.
+      if (String(data.defender.defenseType ?? "") === "evade") {
+        if (meta?.commit?.defender?.hyperAwarenessChoice) {
+          data.defender.result.hyperAwarenessChoice = meta.commit.defender.hyperAwarenessChoice;
+        }
+        if (meta?.commit?.defender?.hyperAwarenessChoiceValue != null) {
+          data.defender.result.hyperAwarenessChoiceValue = meta.commit.defender.hyperAwarenessChoiceValue;
+        }
+        await applyHyperAwarenessToResult(dActor, "Evade", data.defender.result, { allowPrompt: false });
+      }
 
       const adj = await applyCombatTalentDoSAdjustments({
         attacker: aActor,
@@ -300,13 +316,6 @@ export async function applyExternalRollMessage(rollMessage, deps) {
       if (adj?.changed) dirty = true;
       if (Array.isArray(adj?.notes) && adj.notes.length) data.defender.result.talentNotes = adj.notes;
 
-      // Hyper Awareness: apply stored choice for Evade results without prompting.
-      if (String(data.defender.defenseType ?? "") === "evade") {
-        if (meta?.commit?.defender?.hyperAwarenessChoice) {
-          data.defender.result.hyperAwarenessChoice = meta.commit.defender.hyperAwarenessChoice;
-        }
-        await applyHyperAwarenessToResult(dActor, "Evade", data.defender.result, { allowPrompt: false });
-      }
     }
   } catch (err) {
     console.warn("UESRPG | combat talent DoS adjustment (external roll commit) failed", err);

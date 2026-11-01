@@ -1,5 +1,10 @@
 # Changelog
 
+## v14.3.5
+
+- Updates initiative, talent roll workflows, typed weakness damage, damage reports, character-generation purchases and casting-condition handling.
+- The talent and Active Effect reviews and target-owned spell tracking remain incomplete; these changes have not been verified in Foundry. See [the release notes](docs/releases/v14.3.5.md).
+
 ## v14.3.4
 
 - Uses a temporary `v`-prefixed system version to address Foundry version comparison against the upstream RC.81 listing; the shared package-catalogue identity conflict remains unresolved.

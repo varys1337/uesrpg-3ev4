@@ -146,7 +146,10 @@ function _buildMagicGmDamageReport({
         }
       : null,
     buffers: [],
-    traitNotes: [],
+    traitNotes: [
+      ...(Number(result?.weakness) > 0 ? [`Weakness (${damageType}): +${Number(result.weakness)} damage`] : []),
+      ...(result?.weaknessNeedsReview ? ["Customized weakness resistance change requires GM review"] : [])
+    ],
     woundTriggered: String(result?.woundStatus ?? "") === "wounded",
     woundThreshold: 0,
     defeated: Number(result?.newHP ?? 0) === 0,
@@ -332,10 +335,14 @@ async function runMagicDamage(targetActor, damage, damageType, spell, options, e
       || (typedComponents.length === 1 && typedComponents[0].damageType && typedComponents[0].damageType !== dt);
     if (shouldApplyTypedComponents) {
       const results = [];
+      const weaknessTypes = new Set();
       let totalApplied = 0;
       for (const [componentIndex, component] of typedComponents.entries()) {
+        const skipDamageWeakness = weaknessTypes.has(component.damageType);
+        weaknessTypes.add(component.damageType);
         const result = await runMagicDamage(targetActor, component.amount, component.damageType, spell, {
           ...options,
+          _skipDamageWeakness: skipDamageWeakness,
           receiptId: options.receiptId ? `${options.receiptId}:component:${componentIndex}` : undefined,
           _additionalDamageReceipts: componentIndex === 0 ? options._additionalDamageReceipts : [],
           damageComponents: null,
@@ -448,6 +455,8 @@ async function runMagicDamage(targetActor, damage, damageType, spell, options, e
       hitLocation,
       rollHTML,
       ignoreReduction: true,
+      _weaknessLanded: adjustedDamage > 0,
+      _skipDamageWeakness: options._skipDamageWeakness === true,
       magicSource: true,
       attackerActor: casterActor,
       skipChatMessage,
@@ -500,6 +509,7 @@ async function runMagicDamage(targetActor, damage, damageType, spell, options, e
     hitLocation,
     rollHTML,
     magicSource: true,
+    _skipDamageWeakness: options._skipDamageWeakness === true,
     attackerActor: casterActor,
     skipChatMessage,
     extraBreakdownLines,

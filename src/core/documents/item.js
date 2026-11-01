@@ -22,6 +22,7 @@ import { FLAG_SCOPE } from "../constants.js";
 import { prepareNativeTalentPurchases, finalizeNativeTalentPurchases } from "../advancement/purchase-service.js";
 import { getInventoryPlacementIssue } from "../items/container-capacity.js";
 import { getInventoryRules } from "../items/inventory-encumbrance.js";
+import { isPassiveFeatureActive } from "../traits/features/feature-config.js";
 
 const ARMOR_COVERAGE_MODE_PATH = `flags.${FLAG_SCOPE}.coverageMode`;
 
@@ -279,7 +280,7 @@ async _duplicateContainedItemsOnActor(actorData, itemData) {
     // Chapter 4 (Arms Master): ignore the usual -20 untrained penalty for Combat Styles.
     // We treat possession of the Arms Master talent as an implicit untrained-exception.
     const hasArmsMaster = Array.isArray(items) && items.some((i) => {
-      if (String(i?.type ?? "") !== "talent") return false;
+      if (String(i?.type ?? "") !== "talent" || !isPassiveFeatureActive(i)) return false;
       const slug = String(i?.system?.slug ?? i?.system?.key ?? i?.system?.id ?? "").toLowerCase();
       const name = String(i?.name ?? "").toLowerCase();
       return slug === "armsmaster" || name === "arms master";

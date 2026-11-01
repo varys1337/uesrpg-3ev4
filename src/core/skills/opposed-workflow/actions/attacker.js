@@ -11,7 +11,7 @@
 import { doTestRoll } from "../../../../utils/degree-roll-helper.js";
 import { applyConjurationTalentResult } from "../../../traits/spellcasting-talents.js";
 import { requireUserCanRollActor } from "../../../../utils/permissions.js";
-import { buildSkillRollRequest, normalizeSkillRollOptions, skillRollDebug, validateSkillRollRequest } from "../../roll-request.js";
+import { buildSkillRollRequest, chooseRollSpecialization, normalizeSkillRollOptions, skillRollDebug, validateSkillRollRequest } from "../../roll-request.js";
 import { buildResistanceBonusMods } from "../../../traits/trait-resistance-ui.js";
 import { consumePhysicalExertionForSkill } from "../../../stamina/stamina-integration-hooks.js";
 import { applyKeenIntuitionToResult, applyHyperAwarenessToResult } from "../../../traits/awareness-talents.js";
@@ -141,6 +141,12 @@ export async function handleAttackerRoll(ctx, action) {
       ui.notifications.warn("Selected test is not legal for this Special Action.");
       return;
     }
+    if (decl.useSpec) {
+      const selectedSkill = skills.find(s => String(s?.uuid ?? "") === String(decl.skillUuid ?? ""));
+      const specializationName = await chooseRollSpecialization(selectedSkill?.item);
+      if (specializationName === null) return;
+      decl.specializationName = specializationName;
+    }
 
     // Bank choices into the parent card; do not roll until both sides have committed.
     const freshMsgA = game.messages.get(message.id) ?? message;
@@ -178,6 +184,7 @@ export async function handleAttackerRoll(ctx, action) {
       circumstanceMod: decl.circumstanceMod,
       manualMod: decl.manualMod,
       useSpec: Boolean(decl.useSpec),
+      specializationName: decl.specializationName,
       selectedCharacteristicKey: String(decl.selectedCharacteristicKey ?? defaultCharacteristic),
       applyBlinded: Boolean(decl.applyBlinded),
       applyDeafened: Boolean(decl.applyDeafened)
@@ -202,8 +209,10 @@ export async function handleAttackerRoll(ctx, action) {
     circumstanceMod: decl.circumstanceMod,
     manualMod: decl.manualMod,
     useSpec: Boolean(decl.useSpec),
+    specializationName: decl.specializationName || null,
     selectedCharacteristicKey: String(decl.selectedCharacteristicKey ?? defaultCharacteristic),
     isInterrogationTest: Boolean(decl?.isInterrogationTest),
+    isQuestioningTest: Boolean(decl?.isQuestioningTest),
     histskinUnderwater: Boolean(decl?.histskinUnderwater)
   };
 
@@ -230,8 +239,8 @@ export async function handleAttackerRoll(ctx, action) {
   }
 
   await applyKeenIntuitionToResult(attacker, skillLabel, res, { allowPrompt: true });
-  await applyHyperAwarenessToResult(attacker, skillLabel, res, { allowPrompt: true });
-  await applyIntellectualTalentDoSOverrides({ actor: attacker, skillName: skillLabel, result: res, isInterrogationTest: Boolean(decl?.isInterrogationTest), allowPrompt: true });
+  await applyHyperAwarenessToResult(attacker, skillLabel, res, { allowPrompt: true, isCombatStyle: skillItem?.type === "combatStyle" });
+  await applyIntellectualTalentDoSOverrides({ actor: attacker, skillName: skillLabel, result: res, isInterrogationTest: Boolean(decl?.isInterrogationTest), isQuestioningTest: Boolean(decl?.isQuestioningTest), allowPrompt: true });
   await applyConjurationTalentResult(attacker, res, { skillName: skillLabel });
 
   if (concussiveApplied > 0) {

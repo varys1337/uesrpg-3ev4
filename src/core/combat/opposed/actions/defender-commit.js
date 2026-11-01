@@ -815,7 +815,9 @@ export async function handleDefenderRollCommitted(ctx) {
     isCriticalFailure: res.isCriticalFailure,
     talentDoSChoice: res?.talentDoSChoice ?? null,
     talentDoSChoiceSource: res?.talentDoSChoiceSource ?? null,
+    talentDoSChoiceValue: res?.talentDoSChoiceValue ?? null,
     ...(res?.hyperAwarenessChoice != null ? { hyperAwarenessChoice: res.hyperAwarenessChoice } : {}),
+    ...(res?.hyperAwarenessChoiceValue != null ? { hyperAwarenessChoiceValue: res.hyperAwarenessChoiceValue } : {}),
     ...(Array.isArray(res?.talentNotes) && res.talentNotes.length ? { talentNotes: res.talentNotes } : {})
   };
   await _consumeInspireHeroismEffect(defender);

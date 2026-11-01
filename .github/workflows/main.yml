@@ -3,8 +3,7 @@ name: Build and Publish Foundry System
 on:
   push:
     tags:
-      - "[0-9]*"
-      - "v14.3.4"
+      - "v*"
 
 permissions:
   contents: write
@@ -58,9 +57,11 @@ jobs:
       - name: Install development dependencies
         run: npm ci
 
+      - name: Run deterministic rules tests
+        run: npm test
+
       - name: Validate source and dependencies
         run: |
-          npm test
           npm run syntax:check
           npm run lint
           npm audit --audit-level=high

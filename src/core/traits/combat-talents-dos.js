@@ -106,7 +106,7 @@ export async function applyCombatTalentDoSAdjustments({
   const opponentActor = isAttackerSide ? defender : attacker;
   const opponentToken = isAttackerSide ? (defenderToken || getActorCanvasToken(defender)) : (attackerToken || getActorCanvasToken(attacker));
 
-  if (!actor || !token || !opponentActor || !opponentToken) return { changed: false, notes };
+  if (!actor) return { changed: false, notes };
 
   const canPrompt = (game?.user?.isGM || actor?.isOwner);
   if (!canPrompt) allowPrompt = false;
@@ -117,8 +117,9 @@ export async function applyCombatTalentDoSAdjustments({
   const isEvadeTest = (dt === "evade");
   const isCombatStyleTest = !isEvadeTest;
 
-  const opponentsInMelee = countOpponentsInMeleeRange(token, { reachMeters });
-  const withinMeleeOfOpponent = isWithinMeleeRange(token, opponentToken, reachMeters);
+  const hasCombatTokens = Boolean(token && opponentActor && opponentToken);
+  const opponentsInMelee = hasCombatTokens ? countOpponentsInMeleeRange(token, { reachMeters }) : 0;
+  const withinMeleeOfOpponent = hasCombatTokens && isWithinMeleeRange(token, opponentToken, reachMeters);
 
   let bonusDoS = 0;
   if (withinMeleeOfOpponent) {
@@ -213,11 +214,14 @@ export async function applyCombatTalentDoSAdjustments({
   let changed = false;
 
   if (replaceOptions.length) {
-    const best = replaceOptions.reduce((a, b) => (b.rankDoS > a.rankDoS ? b : a));
     const storedChoice = String(result?.talentDoSChoice ?? "").trim().toLowerCase();
     const hasStored = storedChoice === "rank" || storedChoice === "roll" || storedChoice === "rolled";
+    const storedSource = String(result?.talentDoSChoiceSource ?? "").trim().toLowerCase();
+    const best = hasStored && storedSource
+      ? replaceOptions.find(option => option.slug === storedSource) ?? null
+      : replaceOptions.reduce((a, b) => (b.rankDoS > a.rankDoS ? b : a));
 
-    if (!hasStored && allowPrompt) {
+    if (best && !hasStored && allowPrompt) {
       const picked = await promptDoSReplacement({
         title: `${best.title} — Degrees of Success`,
         rolledDoS,
@@ -226,16 +230,18 @@ export async function applyCombatTalentDoSAdjustments({
       });
       result.talentDoSChoice = (picked?.choice === "rank") ? "rank" : "roll";
       result.talentDoSChoiceSource = best.slug;
+      result.talentDoSChoiceValue = result.talentDoSChoice === "rank" ? best.rankDoS : rolledDoS;
     }
 
     const choice = String(result?.talentDoSChoice ?? "").trim().toLowerCase();
     const emitted = choice === "rank" || hasStored || allowPrompt;
-    if (choice === "rank") {
-      finalDoS = Math.max(1, best.rankDoS);
+    if (choice === "rank" && best) {
+      const savedValue = Number(result.talentDoSChoiceValue);
+      finalDoS = Math.max(1, Number.isFinite(savedValue) && savedValue > 0 ? savedValue : best.rankDoS);
       notes.push(`${best.title}: used ${best.rankLabel}`);
     } else {
       finalDoS = rolledDoS;
-      if (emitted && !bonusDoS) notes.push(`${best.title}: used rolled DoS`);
+      if (best && emitted && !bonusDoS) notes.push(`${best.title}: used rolled DoS`);
     }
   }
 
@@ -322,10 +328,12 @@ export async function applyCombatTalentDoSAdjustmentsUnopposed({
     });
     result.talentDoSChoice = (picked?.choice === "rank") ? "rank" : "roll";
     result.talentDoSChoiceSource = best.slug;
+    result.talentDoSChoiceValue = result.talentDoSChoice === "rank" ? best.rankDoS : rolledDoS;
   }
 
   if (String(result?.talentDoSChoice ?? "").trim().toLowerCase() === "rank") {
-    finalDoS = Math.max(1, best.rankDoS);
+    const savedValue = Number(result.talentDoSChoiceValue);
+    finalDoS = Math.max(1, Number.isFinite(savedValue) && savedValue > 0 ? savedValue : best.rankDoS);
     notes.push(`${best.title}: used ${best.rankLabel}`);
   }
 

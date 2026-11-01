@@ -29,11 +29,11 @@ test("checked-in manifests match the release identity and package lock", () => {
   assert.equal(manifest.download, metadata.downloadUrl);
 });
 
-test("numeric releases retain their identities and malformed versions fail", () => {
+test("releases use matching prefixed identities and malformed versions fail", () => {
   for (const version of ["14.3.2", "14.3.3", "14.3.5"]) {
     const metadata = getReleaseMetadata(version);
-    assert.equal(metadata.tag, version);
-    assert.equal(metadata.manifestVersion, version);
+    assert.equal(metadata.tag, `v${version}`);
+    assert.equal(metadata.manifestVersion, `v${version}`);
   }
   for (const invalid of ["v14.3.4", "14.3", "", "14.3.4/other"]) {
     assert.throws(() => getReleaseMetadata(invalid), /Invalid release version/);

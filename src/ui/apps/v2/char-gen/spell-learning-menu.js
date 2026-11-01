@@ -198,12 +198,14 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
     const idx = this.#draftEntries.findIndex((e) => String(e.id) === String(entryId));
     if (idx < 0) return;
     this.#draftEntries.splice(idx, 1);
+    if (!this.#draftEntries.length) this.#captureSessionBase();
     this.#recomputeDraftDerived();
     await this.render();
   }
 
   async #clearDraft() {
     this.#draftEntries = [];
+    this.#captureSessionBase();
     this.#recomputeDraftDerived();
     await this.render();
   }

@@ -82,6 +82,7 @@ export function aggregateItemStats(actor, actorData) {
   // data populated, the per-item sum and the traitDamage post-loop would double-count.
   // We track the trait-item schema contribution so we can subtract the overlap below.
   const traitSchemaResist = { diseaseR:0, fireR:0, frostR:0, shockR:0, poisonR:0, magicR:0, natToughnessR:0, silverR:0, sunlightR:0 };
+  const weaknessSchemaResist = {};
   let toughBonus = 0;
   let flyerSpeed = 0;
 
@@ -137,15 +138,15 @@ export function aggregateItemStats(actor, actorData) {
       // Track trait-item schema resistance values for de-duplication with
       // collectTraitDamageModifiers (highest-wins) in the post-loop below.
       if (itemType === 'trait') {
-        traitSchemaResist.diseaseR += Number(sys.diseaseR || 0);
-        traitSchemaResist.fireR += Number(sys.fireR || 0);
-        traitSchemaResist.frostR += Number(sys.frostR || 0);
-        traitSchemaResist.shockR += Number(sys.shockR || 0);
-        traitSchemaResist.poisonR += Number(sys.poisonR || 0);
-        traitSchemaResist.magicR += Number(sys.magicR || 0);
-        traitSchemaResist.natToughnessR += Number(sys.natToughnessR || 0);
-        traitSchemaResist.silverR += Number(sys.silverR || 0);
-        traitSchemaResist.sunlightR += Number(sys.sunlightR || 0);
+        const itemProfile = collectTraitDamageModifiers([item]);
+        for (const category of ["resistance", "weakness"]) {
+          const destination = category === "resistance" ? traitSchemaResist : weaknessSchemaResist;
+          for (const [type, value] of Object.entries(itemProfile[category])) {
+            const key = getResistanceKeyForTraitType(type);
+            if (!key || !value) continue;
+            destination[key] = Number(destination[key] ?? 0) + Number(sys[key] || 0);
+          }
+        }
       }
 
       // swim / fly / flags
@@ -237,13 +238,14 @@ export function aggregateItemStats(actor, actorData) {
     }
   }
 
-  // Same de-duplication for weakness values (applied as negative resistance).
+  // Remove duplicated legacy resistance fields from weakness traits. Weakness
+  // is applied separately after mitigation, rather than as negative resistance.
   for (const [typeKey, value] of Object.entries(traitDamage.weakness ?? {})) {
     const resKey = getResistanceKeyForTraitType(typeKey);
     if (!resKey || !Number.isFinite(value) || !value) continue;
     if (Object.prototype.hasOwnProperty.call(stats.resist, resKey)) {
-      const overlap = Number(traitSchemaResist[resKey] ?? 0);
-      stats.resist[resKey] = Number(stats.resist[resKey] ?? 0) - overlap - Number(value);
+      const overlap = Number(weaknessSchemaResist[resKey] ?? 0);
+      stats.resist[resKey] = Number(stats.resist[resKey] ?? 0) - overlap;
     }
   }
 

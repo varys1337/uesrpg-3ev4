@@ -14,7 +14,7 @@
  */
 
 import { _num, _str } from "./_primitives.js";
-import { collectApplicableEffects, evaluateAEModifierKeys } from "../active-effects/modifier-evaluator.js";
+import { collectApplicableEffects, evaluateAEModifierKeys, evaluateAEModifierKeysDetailed, getApplicableEffectsCached } from "../active-effects/modifier-evaluator.js";
 import { isPassiveFeatureActive } from "../traits/features/feature-config.js";
 
 function _hasItemNamed(actor, type, name) {
@@ -251,20 +251,47 @@ export function computeElementalDamageBonus(actor, damageType, options = {}) {
   const dt = _str(damageType).toLowerCase();
   if (!dt) return { bonus: 0, label: "" };
   const aeKey = `system.modifiers.magic.damage.${dt}`;
-  const aeBonus = Number(
-    evaluateAEModifierKeys(actor, [aeKey], {
+  const evaluated = evaluateAEModifierKeysDetailed(actor, [aeKey], {
       context: {
         attackMode: "magic",
         opposingActor: options?.opposingActor ?? options?.targetActor ?? options?.defenderActor ?? null,
       },
       enforceConditions: true,
       dedupeByOrigin: true
-    })?.[aeKey] ?? 0
-  ) || 0;
-  if (aeBonus !== 0) return { bonus: aeBonus, label: `Active Effects: ${aeBonus > 0 ? "+" : ""}${aeBonus}` };
-  if (dt === "fire" && actorHasTalent(actor, "Pyromancer")) return { bonus: 1, label: "Pyromancer: +1" };
-  if (dt === "frost" && actorHasTalent(actor, "Cryomancer")) return { bonus: 1, label: "Cryomancer: +1" };
-  if (dt === "shock" && actorHasTalent(actor, "Electromancer")) return { bonus: 1, label: "Electromancer: +1" };
+    });
+  const aeBonus = Number(evaluated?.totalsByKey?.[aeKey] ?? 0) || 0;
+  const talentName = { fire: "Pyromancer", frost: "Cryomancer", shock: "Electromancer" }[dt] ?? "";
+  const talents = talentName ? Array.from(actor?.items ?? []).filter(item => item?.type === "talent"
+    && _str(item.name).trim().toLowerCase() === talentName.toLowerCase() && isPassiveFeatureActive(item)) : [];
+  const aeLabel = `Active Effects: ${aeBonus > 0 ? "+" : ""}${aeBonus}`;
+  if (talents.length) {
+    const contributions = evaluated?.detailsByKey?.[aeKey]?.contributions ?? [];
+    if (!contributions.length) return { bonus: aeBonus + 1, label: `${talentName}: +1` };
+
+    // Only combine a talent with an effect when all nonzero contributions can
+    // be attributed to a different embedded Item. Unknown or overriding
+    // effects retain the existing result for manual review.
+    const effects = getApplicableEffectsCached(actor);
+    const items = Array.from(actor.items ?? []);
+    const talentUuids = new Set(talents.map(item => item.uuid).filter(Boolean));
+    const origins = contributions.map(contribution => {
+      if (contribution.mode !== "add" || !contribution.effectUuid) return "unknown";
+      const effect = effects.find(entry => entry?.uuid === contribution.effectUuid);
+      const parent = effect?.parent?.documentName === "Item" ? effect.parent : null;
+      const originItem = parent ?? items.find(item => item?.uuid && effect?.origin === item.uuid);
+      if (!originItem?.uuid) return "unknown";
+      return talentUuids.has(originItem.uuid) ? "talent" : "other";
+    });
+    if (origins.every(origin => origin === "other")) {
+      return { bonus: aeBonus + 1, label: `${aeLabel}; ${talentName}: +1` };
+    }
+    if (!origins.includes("talent")) {
+      return aeBonus !== 0
+        ? { bonus: aeBonus, label: aeLabel, needsTalentReview: talentName }
+        : { bonus: 1, label: `${talentName}: +1`, needsTalentReview: talentName };
+    }
+  }
+  if (aeBonus !== 0) return { bonus: aeBonus, label: aeLabel };
   return { bonus: 0, label: "" };
 }
 

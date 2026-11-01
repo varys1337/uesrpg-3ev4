@@ -1,0 +1,12 @@
+{
+  "description": "Generated initiative inputs with ASCII ids for portable ordering.",
+  "combatants": [
+    { "id": "npc10", "initiative": 20, "actor": { "type": "NPC", "system": { "initiative": { "value": 12 }, "characteristics": { "lck": { "bonus": 4 } } } } },
+    { "id": "pc", "initiative": 20, "actor": { "type": "Player Character", "system": { "initiative": { "value": 12 }, "characteristics": { "lck": { "bonus": 4 } } } } },
+    { "id": "high-luck", "initiative": 20, "actor": { "type": "NPC", "system": { "initiative": { "value": 12 }, "characteristics": { "lck": { "bonus": 5 } } } } },
+    { "id": "npc2", "initiative": 20, "actor": { "type": "NPC", "system": { "initiative": { "value": 12 }, "characteristics": { "lck": { "bonus": 4 } } } } },
+    { "id": "high-initiative", "initiative": 21, "actor": { "type": "NPC", "system": { "initiative": { "value": 0 }, "characteristics": { "lck": { "bonus": 0 } } } } },
+    { "id": "high-rating", "initiative": 20, "actor": { "type": "NPC", "system": { "initiative": { "value": 13 }, "characteristics": { "lck": { "bonus": 0 } } } } }
+  ],
+  "expectedOrder": ["high-initiative", "high-rating", "high-luck", "pc", "npc2", "npc10"]
+}

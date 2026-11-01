@@ -13,6 +13,7 @@ import { getApplicableEffectsCached } from "../../active-effects/modifier-evalua
 import { applyNumericModifierChange, createModifierTotal, isAddMode, isOverrideMode, mergeModifierTotals } from "../../active-effects/reducers.js";
 import { isActorUndead } from "../../traits/trait-registry.js";
 import { getEffectChanges } from "../../../utils/compat.js";
+import { isLegacyWeaknessResistanceChange } from "../../active-effects/weakness-compat.js";
 import { getCachedAETotals, setCachedAETotals } from "../derived-cache/actor-derived-cache.js";
 
 const RESISTANCE_AE_PATHS = Object.freeze({
@@ -135,7 +136,9 @@ export function collectAEModifiersForKeys(actor, targetKeys = []) {
       if (!ch) continue;
       const key = ch.key;
       if (!out[key]) continue;
-      applyNumericModifierChange(out[key], ch);
+      if (isLegacyWeaknessResistanceChange(effect, ch)) continue;
+      const item = effect?.parent?.documentName === "Item" ? effect.parent : (effect?.item ?? null);
+      applyNumericModifierChange(out[key], ch, { actor, item, effect });
     }
   }
 
@@ -167,7 +170,9 @@ export function collectAEModifiersForKeySetMerged(actor, keySet = []) {
       if (!ch) continue;
       const key = ch.key;
       if (!keyLookup.has(key)) continue;
-      applyNumericModifierChange(out, ch);
+      if (isLegacyWeaknessResistanceChange(effect, ch)) continue;
+      const item = effect?.parent?.documentName === "Item" ? effect.parent : (effect?.item ?? null);
+      applyNumericModifierChange(out, ch, { actor, item, effect });
     }
   }
 

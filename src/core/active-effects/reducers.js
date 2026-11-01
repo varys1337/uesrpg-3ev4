@@ -21,10 +21,10 @@ export function toNumericEffectValue(value, context = {}) {
   return resolveNumericEffectValue(value, context);
 }
 
-export function applyNumericModifierChange(total, change) {
+export function applyNumericModifierChange(total, change, context = {}) {
   if (!total || !change) return total;
 
-  const value = toNumericEffectValue(change.value);
+  const value = toNumericEffectValue(change.value, context);
   if (value === null) return total;
 
   if (isOverrideMode(change)) {

@@ -32,6 +32,7 @@ import { getNpcThreatDamageModifier } from "../rules/npc-threat-templates.js";
 import { resolveEffectiveSkillCharacteristicKey } from "../skills/skill-tn-characteristics.js";
 import { getCompendiumItemOriginIds } from "../compendium/access-service.js";
 import { parseSpecializations } from "../advancement/skill-advancement.js";
+import { hasAppliedCondition } from "../conditions/engine/queries.js";
 
 // Re-export for backward compatibility - canonical definition lives in magic-modifiers.js
 export { getActorWillpowerBonus };
@@ -1405,6 +1406,10 @@ export function isActorTrainedInMagicSchool(actor, school) {
   return getMagicSkillLevel(actor, school) > 0;
 }
 
+function _hasCastingCondition(actor, key, appliedEffects) {
+  return Boolean(actor?.system?.traits?.condition?.[key]) || hasAppliedCondition(actor, key, appliedEffects);
+}
+
 /**
  * Resolve whether the caster has two free hands for spellcasting.
  * RAW: lacking two free hands applies a -20 casting penalty.
@@ -1412,15 +1417,14 @@ export function isActorTrainedInMagicSchool(actor, school) {
  * @param {Actor} actor
  * @returns {boolean}
  */
-function _hasTwoFreeHandsForCasting(actor) {
+function _hasTwoFreeHandsForCasting(actor, appliedEffects) {
   if (!actor) return false;
   if (getActorCapabilityFlag(actor, "flags.uesrpg-3ev4.magic.ignoreSomaticComponents") || hasTalent(actor, "thoughtcaster")) {
     return true;
   }
 
-  const conditions = actor?.system?.traits?.condition ?? {};
   // Movement-restricting states that would prevent free hand motions.
-  if (conditions.restrained || conditions.paralyzed || conditions.immobilized || conditions.unconscious) return false;
+  if (["restrained", "paralyzed", "immobilized", "unconscious"].some(key => _hasCastingCondition(actor, key, appliedEffects))) return false;
 
   const items = Array.from(actor.items ?? []);
   const _hasToken = (item, key) => {
@@ -1530,6 +1534,9 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
   const aeModifier = aeKeys.reduce((sum, k) => sum + (Number(aeTotalsByKey?.[k] ?? 0) || 0), 0);
 
   const ignoresVerbalComponents = getActorCapabilityFlag(actor, "flags.uesrpg-3ev4.magic.ignoreVerbalComponents") || hasTalent(actor, "thoughtcaster");
+  const appliedEffects = actor?.appliedEffects ?? [];
+  const silencePenalty = !ignoresVerbalComponents && _hasCastingCondition(actor, "silenced", appliedEffects) ? -20 : 0;
+  const noFreeHandsPenalty = _hasTwoFreeHandsForCasting(actor, appliedEffects) ? 0 : -20;
 
   // NPCs do not use embedded Magic Skill items for casting.
   // They rely on the NPC sheet "Magic Profession" lane (system.professions.magic).
@@ -1548,11 +1555,6 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
     const carryPenalty = _num(sys?.carry_rating?.penalty, 0);
     const woundPenalty = _num(sys?.woundPenalty, 0);
     const manualMod = _num(options?.manualModifier ?? options?.manualMod, 0);
-
-    // RAW (Silence): Silenced characters suffer -20 casting TN (unable to speak).
-    const isSilenced = Boolean(actor?.system?.traits?.condition?.silenced) && !ignoresVerbalComponents;
-    const silencePenalty = isSilenced ? -20 : 0;
-    const noFreeHandsPenalty = _hasTwoFreeHandsForCasting(actor) ? 0 : -20;
 
     const modifiers = [
       { label: "Base TN", value: baseTN, keepZero: true },
@@ -1602,11 +1604,6 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
   const manualMod = _num(options?.manualModifier ?? options?.manualMod, 0);
   const specialization = options?.useSpellSpecialization === true ? getMatchingSpellSpecialization(actor, spell) : null;
   const specializationMod = specialization ? 10 : 0;
-
-  // RAW (Silence): Silenced characters suffer -20 casting TN (unable to speak).
-  const isSilenced = Boolean(actor?.system?.traits?.condition?.silenced) && !ignoresVerbalComponents;
-  const silencePenalty = isSilenced ? -20 : 0;
-  const noFreeHandsPenalty = _hasTwoFreeHandsForCasting(actor) ? 0 : -20;
 
   const modifiers = [
     { label: "Base TN", value: baseTN, keepZero: true },

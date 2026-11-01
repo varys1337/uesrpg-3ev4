@@ -616,6 +616,9 @@ export async function handleDefenderRoll(ctx) {
       isCriticalFailure: res.isCriticalFailure,
       talentDoSChoice: res?.talentDoSChoice ?? null,
       talentDoSChoiceSource: res?.talentDoSChoiceSource ?? null,
+      talentDoSChoiceValue: res?.talentDoSChoiceValue ?? null,
+      ...(res?.hyperAwarenessChoice != null ? { hyperAwarenessChoice: res.hyperAwarenessChoice } : {}),
+      ...(res?.hyperAwarenessChoiceValue != null ? { hyperAwarenessChoiceValue: res.hyperAwarenessChoiceValue } : {}),
       ...(Array.isArray(res?.talentNotes) && res.talentNotes.length ? { talentNotes: res.talentNotes } : {})
     };
 

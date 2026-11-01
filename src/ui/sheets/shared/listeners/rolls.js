@@ -21,7 +21,7 @@ import { getPhysicalExertionSkillBonus, consumePhysicalExertionForSkill } from "
 import { isItemEffectActive } from "../../../../core/active-effects/transfer.js";
 import { getUserSpellTargets, shouldUseTargetedSpellWorkflow, shouldUseModernSpellWorkflow, debugMagicRoutingLog } from "../../../../core/magic/spell-runtime.js";
 import { buildResistanceBonusSection, readResistanceBonusSelections, buildResistanceBonusMods } from "../../../../core/traits/trait-resistance-ui.js";
-import { buildSkillRollRequest, normalizeSkillRollOptions, skillRollDebug } from "../../../../core/skills/roll-request.js";
+import { buildSkillRollRequest, chooseRollSpecialization, normalizeSkillRollOptions, skillRollDebug } from "../../../../core/skills/roll-request.js";
 import { applyKeenIntuitionToResult, applyHyperAwarenessToResult } from "../../../../core/traits/awareness-talents.js";
 import { hasTalent } from "../../../../core/traits/talents-api.js";
 import { applyIntellectualTalentDoSOverrides } from "../../../../core/traits/intellectual-talents.js";
@@ -353,6 +353,11 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
   decl.isInterrogationTest = isInterrogationTest;
   decl.isQuestioningTest = isQuestioningTest;
   decl.histskinUnderwater = histskinUnderwater;
+  if (hasSpec && decl.useSpec) {
+    const specializationName = await chooseRollSpecialization(skillItem);
+    if (specializationName === null) return;
+    decl.specializationName = specializationName;
+  }
 
   await setLast({
     difficultyKey: decl.difficultyKey,
@@ -375,6 +380,7 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
       difficultyKey: decl.difficultyKey,
       manualMod: decl.manualMod,
       useSpec: Boolean(decl.useSpec),
+      specializationName: decl.specializationName,
       selectedCharacteristicKey: String(decl.selectedCharacteristicKey ?? defaultCharacteristic)
     },
     context: { source: "sheet", quick: quickShift }
@@ -449,7 +455,7 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
   if (decl.selectedCharacteristicKey) {
     declaredParts.push(`Cha ${getCharacteristicLabel(decl.selectedCharacteristicKey) || String(decl.selectedCharacteristicKey).toUpperCase()}`);
   }
-  if (hasSpec && decl.useSpec) declaredParts.push("Spec +10");
+  if (hasSpec && decl.useSpec) declaredParts.push(`Spec ${foundry.utils.escapeHTML(decl.specializationName || "")} +10`);
   if (decl.isInterrogationTest) declaredParts.push("Interrogation");
   if (decl.isQuestioningTest) declaredParts.push("Questioning");
   if (decl.histskinUnderwater) declaredParts.push("Histskin +30");
@@ -475,6 +481,9 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
     rollFormula: SYSTEM_ROLL_FORMULA,
     rollMode,
     useSpecialization: Boolean(hasSpec && decl.useSpec),
+    specializationName: decl.specializationName || null,
+    ...(res.hyperAwarenessChoice != null ? { hyperAwarenessChoice: res.hyperAwarenessChoice } : {}),
+    ...(res.hyperAwarenessChoiceValue != null ? { hyperAwarenessChoiceValue: res.hyperAwarenessChoiceValue } : {}),
     isInterrogationTest: Boolean(decl?.isInterrogationTest),
     isQuestioningTest: Boolean(decl?.isQuestioningTest),
     rollOptions: {
@@ -684,6 +693,8 @@ export const onCombatRoll = asyncGuardSheet(async function onCombatRoll(event, t
             allowUnlucky: true
           });
 
+          await applyHyperAwarenessToResult(this.actor, item.name, res, { allowPrompt: true, isCombatStyle: item.type === "combatStyle" });
+
           const degreeLine = res.isSuccess
             ? `<b style="color:green;">${formatResultSummary(res, { uppercase: true, includeDegree: true, degreeStyle: "dash" })}</b>`
             : `<b style="color:rgb(168, 5, 5);">${formatResultSummary(res, { uppercase: true, includeDegree: true, degreeStyle: "dash" })}</b>`;
@@ -718,6 +729,9 @@ export const onCombatRoll = asyncGuardSheet(async function onCombatRoll(event, t
             user: game.user.id,
             speaker: ChatMessage.getSpeaker({ actor: this.actor }),
             flavor,
+            ...(res.hyperAwarenessChoice != null ? { flags: { "uesrpg-3ev4": {
+              talentChoices: { hyperAwarenessChoice: res.hyperAwarenessChoice, hyperAwarenessChoiceValue: res.hyperAwarenessChoiceValue }
+            } } } : {}),
             rollMode: getCoreRollMode()
           });
 

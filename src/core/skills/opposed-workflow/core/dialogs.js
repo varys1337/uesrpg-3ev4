@@ -88,6 +88,7 @@ export async function _skillRollDialog({
       </div>`;
 
   const canInterrogate = Boolean(actor && hasTalent(actor, "interrogator"));
+  const canQuestion = Boolean(actor && hasTalent(actor, "questioning"));
   const canHistskin = Boolean(actor && hasTalent(actor, "histskin"));
   const selectedName = (() => {
     const byList = Array.isArray(skills) ? (skills.find(s => String(s?.uuid ?? "") === String(selectedSkillUuid ?? ""))?.name ?? null) : null;
@@ -106,6 +107,14 @@ export async function _skillRollDialog({
         <label class="uesrpg-inline-check uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: interrogationDisabled ? "Interrogator talent: requires a Persuade test." : "Interrogator talent: applies to this Persuade test." })} ${interrogationDisabled ? 'tabindex="0"' : ""}>
           <input type="checkbox" name="isInterrogationTest" ${interrogationDisabled ? "disabled" : ""} />
           <span class="uesrpg-adv-choice__label"><b>Interrogation</b></span>
+        </label>
+      </div>` : "";
+
+  const questioningRow = canQuestion ? `
+      <div class="form-group">
+        <label class="uesrpg-inline-check uesrpg-adv-choice uesrpg-choice-bar" ${systemTooltipAttributes({ text: "Questioning: applies to a Persuade test to obtain information through conversation." })}>
+          <input type="checkbox" name="isQuestioningTest" ${isPersuadeSelected ? "" : "disabled"} />
+          <span class="uesrpg-adv-choice__label"><b>Questioning</b></span>
         </label>
       </div>` : "";
 
@@ -139,6 +148,7 @@ export async function _skillRollDialog({
     const circumstanceMod = Number.parseInt(String(root?.querySelector('select[name="circumstanceMod"]')?.value ?? "0"), 10) || 0;
     const useSpec = Boolean(root?.querySelector('input[name="useSpec"]')?.checked);
     const isInterrogationTest = Boolean(root?.querySelector('input[name="isInterrogationTest"]')?.checked);
+    const isQuestioningTest = Boolean(root?.querySelector('input[name="isQuestioningTest"]')?.checked);
     const histskinUnderwater = Boolean(root?.querySelector('input[name="histskinUnderwater"]')?.checked);
     const applyBlinded = Boolean(root?.querySelector('input[name="applyBlinded"]')?.checked);
     const applyDeafened = Boolean(root?.querySelector('input[name="applyDeafened"]')?.checked);
@@ -146,7 +156,7 @@ export async function _skillRollDialog({
 
     const rawManual = root?.querySelector('input[name="manualMod"]')?.value ?? "0";
     const manualMod = Number.parseInt(String(rawManual), 10) || 0;
-    return { skillUuid, selectedCharacteristicKey, difficultyKey, circumstanceMod, useSpec, manualMod, applyBlinded, applyDeafened, resistanceSelected: selectedRes, isInterrogationTest, histskinUnderwater };
+    return { skillUuid, selectedCharacteristicKey, difficultyKey, circumstanceMod, useSpec, manualMod, applyBlinded, applyDeafened, resistanceSelected: selectedRes, isInterrogationTest, isQuestioningTest, histskinUnderwater };
   };
 
   const content = `
@@ -168,6 +178,7 @@ export async function _skillRollDialog({
       ${characteristicRow}
 
       ${interrogationRow}
+      ${questioningRow}
 
       ${histskinRow}
 
@@ -191,6 +202,7 @@ export async function _skillRollDialog({
     const sel = form?.querySelector('select[name="skillUuid"]');
     const cb = form?.querySelector('input[name="useSpec"]');
     const interrogationCb = form?.querySelector('input[name="isInterrogationTest"]');
+    const questioningCb = form?.querySelector('input[name="isQuestioningTest"]');
     const histskinCb = form?.querySelector('input[name="histskinUnderwater"]');
     const chaRow = form?.querySelector('[data-ues-char-row="1"]');
     const chaSelect = form?.querySelector('select[name="selectedCharacteristicKey"]');
@@ -215,6 +227,12 @@ export async function _skillRollDialog({
         interrogationCb.disabled = !isPersuade;
         if (!isPersuade) interrogationCb.checked = false;
         setSystemOptionTooltip(interrogationCb, isPersuade ? "Interrogator talent: applies to this Persuade test." : "Interrogator talent: requires a Persuade test.");
+      }
+
+      if (questioningCb) {
+        const isPersuade = String(opt?.dataset?.skillName ?? '').trim().toLowerCase() === 'persuade';
+        questioningCb.disabled = !isPersuade;
+        if (!isPersuade) questioningCb.checked = false;
       }
 
       if (histskinCb) {

@@ -3,13 +3,14 @@
  *
  * Deterministic initiative preparation helpers used by:
  * - SystemCombat.rollInitiative (manual orchestration)
- * - SystemCombat._preUpdate dynamic round rerolls (non-interactive)
+ * - SystemCombat._preUpdate dynamic round rerolls
  */
 
 import { hasTalent } from "../traits/talents-api.js";
 import { listGroupActorsForMember } from "../traits/intellectual-talents.js";
 import { resolveSurpriseState } from "./surprise-state.js";
 import { resolveActorFromUuidSync } from "../../utils/uuid-cache.js";
+import { SYSTEM_ID } from "../system/namespace.js";
 import {
   compareProjectedInitiativeEntries,
   getCombatSensesInitiativeRating,
@@ -102,6 +103,7 @@ export async function resolveCombatantInitiative(combat, combatant, opts = {}) {
 
   return {
     initiative,
+    rating: ir,
     formula,
     roll,
     choice,
@@ -115,16 +117,10 @@ export async function resolveCombatantInitiative(combat, combatant, opts = {}) {
  *
  * @param {Combat} combat
  * @param {object} [opts]
- * @param {boolean} [opts.interactive=false]
- * @param {boolean} [opts.suppressChat=true]
- * @returns {Promise<{combatantUpdates: Array<{_id: string, initiative: number}>, orderedCombatantIds: string[], startingTurn: number, summary: {round: number, rows: Array<{combatantId: string, combatantName: string, initiative: number, formula: string, choice: string, tacticianName: string|null, roll: Roll|null}>}, projectedFirstCombatantId: string|null}>}
+ * @param {Function} [opts.chooseCombatSenses] Resolve the choice for a combatant; null cancels the round update.
+ * @returns {Promise<object|null>} The prepared update, or null when a choice was cancelled.
  */
 export async function prepareDynamicRoundInitiativeUpdate(combat, opts = {}) {
-  const _interactive = opts?.interactive === true;
-  const _suppressChat = opts?.suppressChat !== false;
-  void _interactive;
-  void _suppressChat;
-
   const combatants = Array.from(combat?.combatants ?? []).filter((c) => c?.actor);
   const ordered = combatants.slice().sort((a, b) => {
     const aT = hasTalent(a?.actor, "tactician") ? 0 : 1;
@@ -141,11 +137,31 @@ export async function prepareDynamicRoundInitiativeUpdate(combat, opts = {}) {
   const summaryRows = [];
 
   for (const combatant of ordered) {
+    const actor = combatant.actor;
+    const provider = _findDeterministicTacticianProvider(actor, initiativeByActorUuid);
+    const surprised = resolveSurpriseState(actor, { combatContext: combat })?.onlyReactions === true;
+    let useCombatSenses = false;
+    let tacticianChoice = null;
+    let deterministicTactician = true;
+    if (!surprised && hasTalent(actor, "combatsenses")) {
+      if (typeof opts.chooseCombatSenses !== "function") return null;
+      const choice = await opts.chooseCombatSenses(actor, provider);
+      if (choice === null) return null;
+      useCombatSenses = choice === true || choice === "combatSenses";
+      deterministicTactician = false;
+      if (choice === "tactician" && provider) {
+        tacticianChoice = { mode: "provider", initiative: provider.initiative, tacticianName: provider.name };
+      }
+    }
     const result = await resolveCombatantInitiative(combat, combatant, {
-      deterministicTactician: true,
-      initiativeByActorUuid
+      deterministicTactician,
+      tacticianChoice,
+      initiativeByActorUuid,
+      useCombatSenses
     });
-    updates.push({ _id: String(combatant.id), initiative: Number(result.initiative) });
+    updates.push({ _id: String(combatant.id), initiative: Number(result.initiative),
+      flags: { [SYSTEM_ID]: { initiativeRating: result.choice === "combatSenses"
+        ? { initiative: Number(result.initiative), rating: result.rating } : null } } });
     initiativeByActorUuid.set(String(combatant.actor.uuid), Number(result.initiative));
     summaryRows.push({
       combatantId: String(combatant.id),
@@ -159,11 +175,13 @@ export async function prepareDynamicRoundInitiativeUpdate(combat, opts = {}) {
   }
 
   const projected = combatants.map((c) => {
-    const nextInitiative = Number(updates.find((u) => u._id === c.id)?.initiative ?? Number.NEGATIVE_INFINITY);
+    const update = updates.find((u) => u._id === c.id);
+    const nextInitiative = Number(update?.initiative ?? Number.NEGATIVE_INFINITY);
     return {
       combatantId: String(c.id),
       defeated: Boolean(c?.defeated),
-      tuple: getInitiativeTieBreakTuple(c, nextInitiative)
+      tuple: getInitiativeTieBreakTuple(c, nextInitiative,
+        update?.flags?.[SYSTEM_ID]?.initiativeRating?.rating ?? Number(c.actor?.system?.initiative?.value ?? 0))
     };
   }).sort(compareProjectedInitiativeEntries);
 

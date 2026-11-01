@@ -1,6 +1,9 @@
 import { getConditionIndex } from "./index-cache.js";
+import { FLAG_SCOPE } from "../constants.js";
+import { isEffectCurrentlyApplicable } from "../../active-effects/collect.js";
 import {
   coreStatusAliasesForKey,
+  effectHasCoreStatus,
   findCoreStatusEffect,
   getEffectsArray,
   normalizeConditionKey,
@@ -29,18 +32,30 @@ export function findAllConditionEffects(actor, key) {
   ];
 }
 
+function conditionNameMatches(effect, aliases) {
+  const name = String(effect?.name ?? "").trim().toLowerCase();
+  return aliases.some(alias => name === alias || name.startsWith(`${alias} (`) || name.startsWith(`${alias} `));
+}
+
 function fallbackHasConditionByName(actor, key) {
   const normalized = normalizeConditionKey(key);
   if (!normalized) return false;
   if (findCoreStatusEffect(actor, normalized)) return true;
 
-  const aliases = new Set(coreStatusAliasesForKey(normalized));
-  return getEffectsArray(actor).some((effect) => {
-    const name = String(effect?.name ?? "").trim().toLowerCase();
-    for (const alias of aliases) {
-      if (name === alias || name.startsWith(`${alias} (`) || name.startsWith(`${alias} `)) return true;
-    }
-    return false;
+  const aliases = coreStatusAliasesForKey(normalized);
+  return getEffectsArray(actor).some(effect => conditionNameMatches(effect, aliases));
+}
+
+/** Check conditions on effects currently applied to this Actor, including transferred effects. */
+export function hasAppliedCondition(actor, key, effects = actor?.appliedEffects ?? []) {
+  const normalized = normalizeConditionKey(key);
+  if (!actor || !normalized) return false;
+  const aliases = coreStatusAliasesForKey(normalized);
+  return effects.some(effect => {
+    if (effect?.active === false || !isEffectCurrentlyApplicable(effect)) return false;
+    const conditionKey = normalizeConditionKey(effect.getFlag?.(FLAG_SCOPE, "condition")?.key);
+    return conditionKey === normalized || aliases.some(alias => effectHasCoreStatus(effect, alias))
+      || conditionNameMatches(effect, aliases);
   });
 }
 

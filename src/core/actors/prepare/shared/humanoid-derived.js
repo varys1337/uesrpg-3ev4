@@ -8,7 +8,7 @@ import { applyTraitDerived } from "../../../traits/trait-registry.js";
 import { getPredictionInitiativeAgiBonus } from "../../../traits/intellectual-talents.js";
 import { applyRacialTalentDerivedBonuses, applyRacialTalentPostSpeedDerived } from "../../../traits/racial-talents.js";
 import { hasTalent } from "../../../traits/talents-api.js";
-import { collectFeatureMods, applyFeatureModTotals, filterModsForApplication, applyWeaknessToResistance } from "../../../traits/features/collect-feature-mods.js";
+import { collectFeatureMods, applyFeatureModTotals, filterModsForApplication } from "../../../traits/features/collect-feature-mods.js";
 import { reduceAllByStacking } from "../../../traits/features/stacking.js";
 import { getSpeedAgiMultiplier } from "../../../system/homebrew.js";
 import {
@@ -62,7 +62,6 @@ export function applyHumanoidDerivedStage(stage) {
     const applyMods = filterModsForApplication(featureMods);
     const { totals: applyTotals } = reduceAllByStacking(applyMods);
     applyFeatureModTotals(actorSystemData, applyTotals);
-    applyWeaknessToResistance(actorSystemData);
   } catch (_featureErr) {
     if (isDebugEnabled("aeLifecycleDebug")) {
       console.debug("uesrpg | Feature mod collection failed (non-critical)", _featureErr);

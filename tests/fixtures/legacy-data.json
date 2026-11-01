@@ -1,0 +1,32 @@
+{
+  "description": "Generated legacy shapes; contains no world database, secrets or real documents.",
+  "defaults": {
+    "profile": { "label": "Fixture", "value": 0, "enabled": false, "entries": [], "optional": null }
+  },
+  "source": {
+    "profile": {
+      "label": "Edited label", "value": "3", "enabled": "true",
+      "entries": { "0": { "name": "First" }, "1": { "name": "Second" } },
+      "optional": "Retained", "custom": "Preserved"
+    },
+    "extra": 7
+  },
+  "normalized": {
+    "profile": {
+      "label": "Edited label", "value": 3, "enabled": true,
+      "entries": [{ "name": "First" }, { "name": "Second" }],
+      "optional": "Retained", "custom": "Preserved"
+    },
+    "extra": 7
+  },
+  "migrationState": {
+    "numeric": 3,
+    "current": { "revision": 2, "systemVersion": "14.2.0" },
+    "numericString": { "revision": "2" },
+    "legacyText": "14.0.0",
+    "legacyRecord": { "systemVersion": "14.0.0", "appliedAt": 123 },
+    "legacyBoolean": true,
+    "notApplied": false,
+    "malformedRevision": { "revision": "unknown" }
+  }
+}

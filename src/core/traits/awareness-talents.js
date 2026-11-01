@@ -6,7 +6,7 @@
  *  - Honed Senses: halves penalties from sense-loss (round toward 0).
  *  - One with All: negates penalties from sense-loss.
  *  - Keen Intuition: on a successful Observe test, replace DoS with Observe rank.
- *  - Hyper Awareness: on a successful Evade test, choose rolled DoS or Observe rank.
+ *  - Hyper Awareness: on a successful Combat Style or Evade test, choose rolled DoS or Observe rank.
  *
  * Design constraints:
  *  - Schema-safe: no new system.* data fields are introduced.
@@ -33,36 +33,37 @@ async function _applyObserveRankReplacement({
   talentSlug,
   title,
   choiceKey,
+  promptKey = `${choiceKey}Prompted`,
   allowPrompt = false,
   allowSkill = () => false
 } = {}) {
   if (!actor || !result || typeof result !== "object") return false;
   if (!result.isSuccess) return false;
   if (!allowSkill(skillName)) return false;
+  if (result?.[promptKey]) return false;
+
+  const stored = String(result?.[choiceKey] ?? "").trim().toLowerCase();
+  const valueKey = `${choiceKey}Value`;
+  const savedValue = Number(result?.[valueKey]);
+  if ((stored === "rank" || stored === "rolled") && Number.isFinite(savedValue) && savedValue > 0) {
+    result.degree = savedValue;
+    result.textual = `${savedValue} DoS`;
+    result[promptKey] = true;
+    return true;
+  }
   if (!hasTalent(actor, talentSlug)) return false;
 
   const observeRank = getSkillRank(actor, "Observe");
   if (!Number.isFinite(observeRank) || observeRank <= 0) return false;
 
   const rolledDoS = Math.max(1, _asNumber(result.degree, 1));
-  const stored = String(result?.[choiceKey] ?? "").trim().toLowerCase();
 
   // If we are not allowed to prompt, honor stored choice when present.
   if (!allowPrompt || !_canPromptChoice(actor)) {
     if (stored === "rank") {
       result.degree = observeRank;
       result.textual = `${observeRank} DoS`;
-      return true;
-    }
-    return false;
-  }
-
-  // Avoid duplicate prompts for the same roll object.
-  const promptKey = `${choiceKey}Prompted`;
-  if (result?.[promptKey]) {
-    if (stored === "rank") {
-      result.degree = observeRank;
-      result.textual = `${observeRank} DoS`;
+      result[promptKey] = true;
       return true;
     }
     return false;
@@ -76,6 +77,7 @@ async function _applyObserveRankReplacement({
   });
   const choice = String(picked?.choice ?? "rolled").toLowerCase();
   result[choiceKey] = choice;
+  result[valueKey] = choice === "rank" ? observeRank : rolledDoS;
   result[promptKey] = true;
   if (choice === "rank") {
     result.degree = observeRank;
@@ -110,50 +112,10 @@ export async function applyKeenIntuitionToResult(actor, skillName, result, { all
   });
 }
 
-export async function applyHyperAwarenessToResult(actor, skillName, result, { allowPrompt = false } = {}) {
-  if (!actor || !result || typeof result !== "object") return false;
-  if (!result.isSuccess) return false;
-  if (normalizeTalentKey(skillName) !== "evade") return false;
-  if (!hasTalent(actor, "hyperawareness")) return false;
-
-  const observeRank = getSkillRank(actor, "Observe");
-  if (!Number.isFinite(observeRank) || observeRank <= 0) return false;
-
-  const rolledDoS = Math.max(1, _asNumber(result.degree, 1));
-  const stored = String(result?.hyperAwarenessChoice ?? "").trim().toLowerCase();
-
-  if (!allowPrompt || !_canPromptChoice(actor)) {
-    if (stored === "rank") {
-      result.degree = observeRank;
-      result.textual = `${observeRank} DoS`;
-      return true;
-    }
-    return false;
-  }
-
-  if (result?.hyperAwarenessPrompted) {
-    if (stored === "rank") {
-      result.degree = observeRank;
-      result.textual = `${observeRank} DoS`;
-      return true;
-    }
-    return false;
-  }
-
-  const picked = await promptDoSReplacement({
-    title: "Hyper Awareness",
-    rolledDoS,
-    rankDoS: observeRank,
-    rankLabel: "Observe Rank"
+export async function applyHyperAwarenessToResult(actor, skillName, result, { allowPrompt = false, isCombatStyle = false } = {}) {
+  return _applyObserveRankReplacement({
+    actor, skillName, result, talentSlug: "hyperawareness", title: "Hyper Awareness",
+    choiceKey: "hyperAwarenessChoice", promptKey: "hyperAwarenessPrompted", allowPrompt,
+    allowSkill: name => isCombatStyle || normalizeTalentKey(name) === "evade"
   });
-  const choice = String(picked?.choice ?? "rolled").toLowerCase();
-  result.hyperAwarenessChoice = choice;
-  result.hyperAwarenessPrompted = true;
-
-  if (choice === "rank") {
-    result.degree = observeRank;
-    result.textual = `${observeRank} DoS`;
-    return true;
-  }
-  return false;
 }

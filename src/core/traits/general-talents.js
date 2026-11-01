@@ -12,16 +12,21 @@ import { normalizeTalentKey } from "./talents-api.js";
 import { doTestRoll } from "../../utils/degree-roll-helper.js";
 import { createDebugLogger } from "../../utils/debug.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
-import { resolveActorFromUuidSync } from "../../utils/uuid-cache.js";
+import { acquireLock, releaseLock } from "../../utils/authority-proxy/shared.js";
+import { resolveActorFromUuidSync, resolveUuidSync } from "../../utils/uuid-cache.js";
 import { getCoreRollMode } from "../../utils/chat-roll-mode.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
 import { getFlagValueWithFallback, getCanonicalFlags, getLegacyFlags } from "../system/flags.js";
+import { isPassiveFeatureActive } from "./features/feature-config.js";
+import { parseSpecializations } from "../advancement/skill-advancement.js";
+import { applyHyperAwarenessToResult } from "./awareness-talents.js";
 
 const _dlog = createDebugLogger("skillRollDebug", "[UESRPG][GeneralTalents]");
 
 function _iterTalentItems(actor) {
   const items = actor?.items ?? [];
-  return Array.isArray(items) ? items : Array.from(items);
+  return (Array.isArray(items) ? items : Array.from(items))
+    .filter(item => item?.type === "talent" && isPassiveFeatureActive(item));
 }
 
 function _extractChoiceFromName(name, { base } = {}) {
@@ -81,10 +86,7 @@ function _collectExpertSpecializationChoices(actor) {
 }
 
 function _matchesChoice({ choiceKey, skillKey }) {
-  if (!choiceKey || !skillKey) return false;
-  if (choiceKey === skillKey) return true;
-  // Tolerate authoring variants like "Stealth [Urban]" vs "Stealth".
-  return choiceKey.includes(skillKey) || skillKey.includes(choiceKey);
+  return Boolean(choiceKey && skillKey && choiceKey === skillKey);
 }
 
 /**
@@ -110,10 +112,10 @@ export function hasGrandmasterForSkill(actor, skillName) {
  *  - Prefer Grandmaster over Expert when both could apply.
  *
  * @param {Actor} actor
- * @param {{skillName: string, useSpecialization?: boolean}} params
+ * @param {{skillName: string, useSpecialization?: boolean, specializationName?: string}} params
  * @returns {{source: "grandmaster"|"expert", label: string}|null}
  */
-export function getGeneralTalentRerollEligibility(actor, { skillName, useSpecialization = false } = {}) {
+export function getGeneralTalentRerollEligibility(actor, { skillName, useSpecialization = false, specializationName = "" } = {}) {
   if (!actor || !skillName) return null;
   const skillKey = normalizeTalentKey(skillName);
   if (!skillKey) return null;
@@ -124,14 +126,15 @@ export function getGeneralTalentRerollEligibility(actor, { skillName, useSpecial
   // Expert requires the roll to be explicitly marked as using a specialization.
   if (!useSpecialization) return null;
 
-  const expertChoices = _collectExpertSpecializationChoices(actor);
-
-  // If the user authored only a single Expert choice (and that choice does not include the skill name),
-  // allow it to apply when "Use Specialization" was explicitly toggled. This avoids having to guess
-  // between multiple Expert specializations.
-  if (expertChoices.length === 1) return { source: "expert", label: expertChoices[0].choiceLabel };
-
-  const ex = expertChoices.find(c => _matchesChoice({ choiceKey: c.choiceKey, skillKey })) ?? null;
+  const specializationKey = normalizeTalentKey(specializationName);
+  if (!specializationKey) return null;
+  const matchingSkills = Array.from(actor.items ?? []).filter(item =>
+    (item?.type === "skill" || item?.type === "magicSkill")
+    && parseSpecializations(item?.system?.trainedItems).some(name => normalizeTalentKey(name) === specializationKey));
+  const unambiguousSkill = matchingSkills.length === 1
+    && normalizeTalentKey(matchingSkills[0]?.name) === skillKey;
+  const ex = _collectExpertSpecializationChoices(actor).find(c =>
+    (unambiguousSkill && c.choiceKey === specializationKey) || c.choiceKey === `${skillKey}-${specializationKey}`) ?? null;
   if (ex) return { source: "expert", label: ex.choiceLabel };
 
   return null;
@@ -154,6 +157,7 @@ export async function rerollSkillTestFromChatMessage(message) {
 
   const st = getFlagValueWithFallback(message, "skillTest");
   if (!st || typeof st !== "object") return false;
+  if (st.isSuccess !== false) return false;
 
   const reroll = getFlagValueWithFallback(message, "reroll") ?? {};
   if (reroll?.used === true) return false;
@@ -168,7 +172,7 @@ export async function rerollSkillTestFromChatMessage(message) {
   if (!skillName) return false;
 
   const useSpecialization = Boolean(st.useSpecialization);
-  const eligibility = getGeneralTalentRerollEligibility(actor, { skillName, useSpecialization });
+  const eligibility = getGeneralTalentRerollEligibility(actor, { skillName, useSpecialization, specializationName: st.specializationName });
   if (!eligibility) return false;
 
   const target = Number(st.target ?? NaN);
@@ -176,49 +180,76 @@ export async function rerollSkillTestFromChatMessage(message) {
 
   const rollFormula = String(st.rollFormula ?? "1d100").trim() || "1d100";
   const rollMode = String(st.rollMode ?? getCoreRollMode()).trim();
+  const lockKey = `talent-reroll:${message.uuid ?? message.id}`;
+  if (!await acquireLock(lockKey, { wait: false })) return false;
+  try {
+    const currentMessage = game.messages.get(message.id) ?? message;
+    const currentReroll = getFlagValueWithFallback(currentMessage, "reroll") ?? {};
+    if (currentReroll.used === true || currentReroll.isReroll === true) return false;
 
-  _dlog("reroll", { messageId: message.id, actor: actor.name, skillName, source: eligibility.source, target });
+    _dlog("reroll", { messageId: message.id, actor: actor.name, skillName, source: eligibility.source, target });
 
-  const res = await doTestRoll(actor, { rollFormula, target, allowLucky: true, allowUnlucky: true });
+    const res = await doTestRoll(actor, { rollFormula, target, allowLucky: true, allowUnlucky: true });
+    const skillItem = st.skillUuid ? resolveUuidSync(st.skillUuid) : null;
+    await applyHyperAwarenessToResult(actor, skillName, res, {
+      allowPrompt: true,
+      isCombatStyle: skillItem?.type === "combatStyle" && skillItem?.actor?.uuid === actor.uuid
+    });
 
-  // Mark original as used FIRST to avoid double-click racing.
-  await requestUpdateDocument(message, {
-    [`flags.${FLAG_SCOPE}.reroll.used`]: true,
-    [`flags.${FLAG_SCOPE}.reroll.source`]: eligibility.source,
-    [`flags.${FLAG_SCOPE}.reroll.usedAt`]: Date.now()
-  });
+    // Mark original as used FIRST to avoid double-click racing.
+    const marked = await requestUpdateDocument(currentMessage, {
+      [`flags.${FLAG_SCOPE}.reroll.used`]: true,
+      [`flags.${FLAG_SCOPE}.reroll.source`]: eligibility.source,
+      [`flags.${FLAG_SCOPE}.reroll.usedAt`]: Date.now()
+    });
+    if (!marked) {
+      ui.notifications?.warn?.("The reroll could not be recorded. Check the original roll before trying again.");
+      return false;
+    }
 
-  const flavor = `
-    <div class="uesrpg">
-      <div><b>${foundry.utils.escapeHTML(skillName)}</b> \u2014 Reroll (Talent: ${eligibility.source === "grandmaster" ? "Grandmaster" : "Expert"})</div>
-      <div style="opacity:0.85; font-size:12px;"><b>Target Number:</b> ${target}</div>
-    </div>
-  `;
+    const flavor = `
+      <div class="uesrpg">
+        <div><b>${foundry.utils.escapeHTML(skillName)}</b> \u2014 Reroll (Talent: ${eligibility.source === "grandmaster" ? "Grandmaster" : "Expert"})</div>
+        <div style="opacity:0.85; font-size:12px;"><b>Target Number:</b> ${target}</div>
+        <div><b>Result:</b> ${res.isSuccess ? "Success" : "Failure"} (${foundry.utils.escapeHTML(String(res.textual ?? ""))})</div>
+      </div>
+    `;
 
-  await res.roll.toMessage({
-    user: game.user.id,
-    speaker: ChatMessage.getSpeaker({ actor }),
-    flavor,
-    flags: {
-      [FLAG_SCOPE]: {
-        ...getLegacyFlags(message),
-        ...getCanonicalFlags(message),
-        reroll: {
-          isReroll: true,
-          parentMessageId: message.id,
-          source: eligibility.source
+    try {
+      await res.roll.toMessage({
+        user: game.user.id,
+        speaker: ChatMessage.getSpeaker({ actor }),
+        flavor,
+        flags: {
+          [FLAG_SCOPE]: {
+            ...getLegacyFlags(message),
+            ...getCanonicalFlags(message),
+            reroll: {
+              isReroll: true,
+              parentMessageId: message.id,
+              source: eligibility.source
+            },
+            skillTest: {
+              ...st,
+              isReroll: true,
+              isSuccess: Boolean(res.isSuccess),
+              degree: Number(res.degree ?? 0) || 0,
+              textual: String(res.textual ?? ""),
+              hyperAwarenessChoice: res.hyperAwarenessChoice ?? null,
+              hyperAwarenessChoiceValue: res.hyperAwarenessChoiceValue ?? null
+            }
+          }
         },
-        skillTest: {
-          ...st,
-          isReroll: true,
-          isSuccess: Boolean(res.isSuccess),
-          degree: Number(res.degree ?? 0) || 0,
-          textual: String(res.textual ?? "")
-        }
-      }
-    },
-    rollMode
-  });
+        rollMode
+      });
+    } catch (error) {
+      console.warn("UESRPG | Talent reroll was recorded but its chat message failed", error);
+      ui.notifications?.warn?.("The reroll was recorded, but its chat message could not be posted. Review the original roll before continuing.");
+      return false;
+    }
 
-  return true;
+    return true;
+  } finally {
+    releaseLock(lockKey);
+  }
 }

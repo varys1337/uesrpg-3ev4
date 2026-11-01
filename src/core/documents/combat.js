@@ -22,6 +22,8 @@ import { emitDynamicInitiativeRoundSummary } from "./combat/initiative-ui.js";
 
 import { registerCombatApHooks } from "./combat/hooks.js";
 import { isActiveGMUser } from "../../utils/users.js";
+import { SYSTEM_ID } from "../system/namespace.js";
+import { acquireLock, assertDocumentWriteConfirmed, releaseLock } from "../../utils/authority-proxy/shared.js";
 
 export { getInitiativeTieBreakTuple } from "./combat/initiative-helpers.js";
 
@@ -118,7 +120,6 @@ export class SystemCombat extends Combat {
     const allowed = await super._preUpdate(data, options, user);
     if (allowed === false) return false;
 
-    if (!isActiveGMUser(game.user)) return allowed;
     if (!this.dynamicInitiativeEnabled) return allowed;
     if (!this.started) return allowed;
 
@@ -126,14 +127,28 @@ export class SystemCombat extends Combat {
     if (!Number.isFinite(nextRound)) return allowed;
     if (nextRound <= Number(this.round ?? 0)) return allowed;
     if (Array.isArray(data?.combatants) && data.combatants.length > 0) return allowed;
+    if (!isActiveGMUser(game.user)) {
+      ui.notifications.warn("The active GM must advance the round while dynamic initiative is enabled.");
+      return false;
+    }
 
     const _perf = isPerfEnabled();
     const _t0 = _perf ? monoMs() : 0;
 
+    const roundBefore = this.round;
+    const turnBefore = this.turn;
+    const combatantsBefore = Array.from(this.combatants ?? [], c => `${c.id}:${c.initiative}`).sort().join("|");
     const prepared = await prepareDynamicRoundInitiativeUpdate(this, {
-      interactive: false,
-      suppressChat: true
+      chooseCombatSenses: (actor, provider) => provider
+        ? this._promptDynamicCombatSensesChoice(actor, provider)
+        : this._promptCombatSensesChoice(actor)
     });
+    if (!prepared) return false;
+    const currentCombatants = Array.from(this.combatants ?? [], c => `${c.id}:${c.initiative}`).sort().join("|");
+    if (this.round !== roundBefore || this.turn !== turnBefore || currentCombatants !== combatantsBefore) {
+      ui.notifications.warn("Combat changed while initiative choices were being made. Advance the round again.");
+      return false;
+    }
 
     data.combatants = prepared.combatantUpdates;
     data.turn = Number(prepared.startingTurn ?? 0);
@@ -158,12 +173,6 @@ export class SystemCombat extends Combat {
 
   /** @override */
   _onDelete(options, userId) {
-    // Clean up session-scoped initiative choice cache for this combat.
-    for (const key of SystemCombat._initiativeChoiceCache.keys()) {
-      if (key.endsWith(`|${this.id}`)) {
-        SystemCombat._initiativeChoiceCache.delete(key);
-      }
-    }
     // Clean up AP dedup map for this combat.
     SystemCombat._apLastProcessedRound.delete(this.id);
     for (const key of SystemCombat._dynamicInitiativeExpectedFirstByBoundary.keys()) {
@@ -233,8 +242,45 @@ export class SystemCombat extends Combat {
       return super.rollInitiative(idList, { formula, updateTurn, messageOptions });
     }
 
+    const lockKey = `initiative:${this.uuid}`;
+    if (!await acquireLock(lockKey, { wait: false })) {
+      ui.notifications?.warn?.("An initiative roll is already in progress for this encounter.");
+      return this;
+    }
+    try {
     const updates = [];
     const rolls = [];
+    const pendingMessages = new Map();
+    const commitInitiative = async (bucket) => {
+      try {
+        const committed = await this.updateEmbeddedDocuments("Combatant", bucket);
+        assertDocumentWriteConfirmed(bucket.map(update => update._id), committed, "Combatant");
+        for (const update of bucket) {
+          const combatant = committed.find(entry => entry.id === update._id);
+          const expected = update.flags[SYSTEM_ID].initiativeRating;
+          const actual = combatant?.flags?.[SYSTEM_ID]?.initiativeRating ?? null;
+          if (Number(combatant?.initiative) !== update.initiative
+            || (expected ? Number(actual?.initiative) !== expected.initiative || Number(actual?.rating) !== expected.rating : actual !== null)) {
+            throw new Error(`Initiative update was not confirmed for Combatant.${update._id}`);
+          }
+        }
+        for (const combatant of committed) {
+          const pending = pendingMessages.get(combatant.id);
+          if (!pending) continue;
+          try {
+            await pending.roll.toMessage(pending.message);
+          } catch (error) {
+            console.warn("UESRPG | Initiative was updated but its chat message failed", error);
+            ui.notifications?.warn?.("Initiative was updated, but its chat message could not be posted.");
+          }
+        }
+        return true;
+      } catch (error) {
+        console.warn("UESRPG | Initiative update could not be confirmed", error);
+        ui.notifications?.error?.("Initiative update could not be confirmed. Check the tracker before retrying.");
+        return false;
+      }
+    };
 
     // Important: The system expects initiative to derive from actor.system.initiative.value
     // so Active Effects can influence initiative deterministically.
@@ -294,7 +340,9 @@ export class SystemCombat extends Combat {
 	        const providers = listTacticianInitiativeProvidersForActor(actor, this);
 	        const canPrompt = providers.length > 0 && (game.user?.isGM === true || actor.isOwner);
 	        if (canPrompt) {
-	          tacticianChoice = await this._promptTacticianInitiativeChoice(actor, providers);
+	          const choice = await this._promptTacticianInitiativeChoice(actor, providers);
+	          if (choice === null) return;
+	          tacticianChoice = choice.mode === "provider" ? choice : null;
 	        }
 	      }
 	
@@ -309,11 +357,6 @@ export class SystemCombat extends Combat {
 	      } else if (!isSurprised && !tacticianChoice && batchCombatSensesChoice?.useCombatSenses === true && hasTalent(actor, "combatsenses")) {
 	        useCombatSenses = true;
 	      }
-	      if (useCombatSenses) {
-	        ui.notifications.warn(`${actor.name}: resolve Combat Senses initiative manually with the GM. Roll 1d6 plus twice Perception Bonus plus 2; apply Lightning Reflexes if eligible. Check prior rolls and initiative before recording the result and tie-break.`);
-	        return;
-	      }
-
 	      const normalIR = Number(actor?.system?.initiative?.value ?? 0) || 0;
 	      const combatSensesIR = this._combatSensesInitiativeRating(actor);
 	      const resolved = await resolveCombatantInitiative(this, combatant, {
@@ -342,28 +385,26 @@ export class SystemCombat extends Combat {
 	      });
 	
 	      // Update initiative.
-	      updateBucket.push({ _id: combatant.id, initiative: Number(resolved.initiative) });
+	      updateBucket.push({ _id: combatant.id, initiative: Number(resolved.initiative),
+	        flags: { [SYSTEM_ID]: { initiativeRating: resolved.choice === "combatSenses"
+	          ? { initiative: Number(resolved.initiative), rating: resolved.rating } : null } } });
 	      rolls.push(finalRoll);
 	
-	      // Chat message.
-	      try {
-	        const tokenDoc = (combatant?.token && typeof combatant.token === "object" && combatant.token.documentName === "Token")
-	          ? combatant.token
-	          : null;
-	        const speaker = ChatMessage.getSpeaker({ actor, token: tokenDoc });
-	        const flavorParts = ["Initiative"];
-	        if (tacticianChoice?.mode === "provider") flavorParts.push(`(Tactician: ${tacticianChoice.tacticianName})`);
-	        if (useCombatSenses) flavorParts.push("(Combat Senses)");
-	        if (!tacticianChoice?.mode && hasTalent(actor, "lightningreflexes")) flavorParts.push("(Lightning Reflexes)");
-	        await finalRoll.toMessage({
-	          speaker,
-	          flavor: `${actor.name} \u2014 ${flavorParts.join(" ")}`,
-	          rollMode: getCoreRollMode(),
-	          ...messageOptions
-	        });
-	      } catch (err) {
-	        console.warn("UESRPG | initiative roll message failed", err);
-	      }
+	      // Post only after the corresponding initiative update is confirmed.
+	      const tokenDoc = (combatant?.token && typeof combatant.token === "object" && combatant.token.documentName === "Token")
+	        ? combatant.token
+	        : null;
+	      const speaker = ChatMessage.getSpeaker({ actor, token: tokenDoc });
+	      const flavorParts = ["Initiative"];
+	      if (tacticianChoice?.mode === "provider") flavorParts.push(`(Tactician: ${tacticianChoice.tacticianName})`);
+	      if (useCombatSenses) flavorParts.push("(Combat Senses)");
+	      if (!tacticianChoice?.mode && hasTalent(actor, "lightningreflexes")) flavorParts.push("(Lightning Reflexes)");
+	      pendingMessages.set(combatant.id, { roll: finalRoll, message: {
+	        speaker,
+	        flavor: `${actor.name} \u2014 ${flavorParts.join(" ")}`,
+	        rollMode: getCoreRollMode(),
+	        ...messageOptions
+	      } });
 	    };
 	
 	    // Roll tacticians first so their initiatives exist for ally selection.
@@ -372,18 +413,7 @@ export class SystemCombat extends Combat {
 	    }
 	
 	    if (earlyUpdates.length) {
-	      try {
-	        await this.updateEmbeddedDocuments("Combatant", earlyUpdates);
-	      } catch (err) {
-	        console.error("UESRPG | initiative update failed", {
-	          combatId: this.id,
-	          phase: "early",
-	          updates: earlyUpdates,
-	          err
-	        });
-	        ui.notifications?.error?.("Failed to apply initiative updates.");
-	        return rolls;
-	      }
+	      if (!await commitInitiative(earlyUpdates)) return rolls;
 	    }
 	
 	    for (const id of otherIds) {
@@ -391,18 +421,7 @@ export class SystemCombat extends Combat {
 	    }
 	
 	    if (updates.length) {
-	      try {
-	        await this.updateEmbeddedDocuments("Combatant", updates);
-	      } catch (err) {
-	        console.error("UESRPG | initiative update failed", {
-	          combatId: this.id,
-	          phase: "main",
-	          updates,
-	          err
-	        });
-	        ui.notifications?.error?.("Failed to apply initiative updates.");
-	        return rolls;
-	      }
+	      if (!await commitInitiative(updates)) return rolls;
 	    }
 
     // Preserve the currently active combatant turn index where possible.
@@ -418,6 +437,9 @@ export class SystemCombat extends Combat {
     }
 
     return rolls;
+    } finally {
+      releaseLock(lockKey);
+    }
   }
 
   _combatSensesInitiativeRating(actor) {
@@ -453,6 +475,23 @@ export class SystemCombat extends Combat {
       defaultButton: "normal",
     });
     return typeof result === "boolean" ? result : null;
+  }
+
+  async _promptDynamicCombatSensesChoice(actor, provider) {
+    const actorName = foundry.utils.escapeHTML(String(actor?.name ?? "Actor"));
+    const providerName = foundry.utils.escapeHTML(String(provider?.name ?? "Tactician"));
+    const result = await customDialog({
+      layout: "workflow",
+      title: "Combat Senses",
+      content: `<p><b>${actorName}</b> may roll initiative or use ${providerName}'s initiative (${Number(provider.initiative)}).</p>`,
+      buttons: {
+        normal: { label: "Use Normal Initiative", callback: () => "normal" },
+        senses: { label: "Use Combat Senses", callback: () => "combatSenses" },
+        tactician: { label: "Use Tactician", callback: () => "tactician" }
+      },
+      defaultButton: "normal"
+    });
+    return ["normal", "combatSenses", "tactician"].includes(result) ? result : null;
   }
 
   /**
@@ -499,7 +538,7 @@ export class SystemCombat extends Combat {
 	   *
 	   * @param {Actor} actor
 	   * @param {Array<{tactician: Actor, initiative: number, group: Actor}>} providers
-	   * @returns {Promise<{mode:"provider", initiative:number, tacticianName:string}|null>}
+	   * @returns {Promise<{mode:"normal"}|{mode:"provider", initiative:number, tacticianName:string}|null>}
 	   */
 	  async _promptTacticianInitiativeChoice(actor, providers = []) {
 	    const a = actor;
@@ -528,7 +567,7 @@ export class SystemCombat extends Combat {
 	      title: "Tactician",
 	      content,
 	      buttons: {
-	        normal: { label: "Roll Normally", callback: () => null },
+	        normal: { label: "Roll Normally", callback: () => ({ mode: "normal" }) },
 	        use: {
 	          label: "Use Tactician",
 	          callback: (html) => {

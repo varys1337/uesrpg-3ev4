@@ -37,7 +37,11 @@ export async function commitLaneResult({
     degree: res.degree,
     textual: res.textual,
     isCriticalSuccess: res.isCriticalSuccess,
-    isCriticalFailure: res.isCriticalFailure
+    isCriticalFailure: res.isCriticalFailure,
+    ...(res.keenIntuitionChoice != null ? { keenIntuitionChoice: res.keenIntuitionChoice } : {}),
+    ...(res.hyperAwarenessChoice != null ? { hyperAwarenessChoice: res.hyperAwarenessChoice } : {}),
+    ...(res.hyperAwarenessChoiceValue != null ? { hyperAwarenessChoiceValue: res.hyperAwarenessChoiceValue } : {}),
+    ...(res.uesrpgDosOverride != null ? { uesrpgDosOverride: res.uesrpgDosOverride } : {})
   };
   freshData.context ??= {};
   freshData.context.specialActionOperationsVersion = 1;

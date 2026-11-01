@@ -1,0 +1,29 @@
+{
+  "sourceUuid": "ChatMessage.generated-special-result",
+  "sourceKind": "skillOpposed",
+  "state": {
+    "specialActionId": "bash",
+    "context": {"specialActionOperationsVersion": 1, "updatedSeq": 7, "updatedAt": 1000},
+    "attacker": {"actorUuid": "Actor.generated-a", "tokenUuid": "Scene.generated.Token.a", "rollMessageId": "generated-roll-a", "result": {"rollTotal": 18, "target": 55, "isSuccess": true, "degree": 4}},
+    "defender": {"actorUuid": "Actor.generated-b", "tokenUuid": "Scene.generated.Token.b", "rollMessageId": "generated-roll-b", "result": {"rollTotal": 72, "target": 40, "isSuccess": false, "degree": 3}},
+    "outcome": {"winner": "attacker", "degrees": 4, "text": "Generated result"}
+  },
+  "recoveryCases": [
+    {"name": "before any checkpoint", "sourceStatus": "pending", "expected": "apply"},
+    {"name": "after Actor checkpoint in the current processor", "sourceStatus": "pending", "receiptStatus": "processing", "expected": "processing"},
+    {"name": "after source checkpoint but before stage start", "sourceStatus": "processing", "receiptStatus": "processing", "expected": "processing"},
+    {"name": "duplicate event after stage start", "sourceStatus": "processing", "receiptStatus": "processing", "stageStatus": "started", "expected": "processing"},
+    {"name": "GM takeover before stage start", "sourceStatus": "processing", "receiptStatus": "processing", "changedProcessor": true, "expected": "review"},
+    {"name": "reload before effect commitment", "sourceStatus": "processing", "receiptStatus": "processing", "stageStatus": "started", "changedSession": true, "expected": "review"},
+    {"name": "effect committed before stage acknowledgement", "sourceStatus": "processing", "receiptStatus": "partial", "stageStatus": "started", "expected": "review"},
+    {"name": "stage acknowledged before final receipt", "sourceStatus": "processing", "receiptStatus": "processing", "stageStatus": "applied", "changedSession": true, "expected": "review"},
+    {"name": "resource commit before final acknowledgement", "sourceStatus": "processing", "receiptStatus": "applied", "stageStatus": "applied", "expected": "replay"},
+    {"name": "completed receipt before card synchronization", "sourceStatus": "pending", "receiptStatus": "applied", "expected": "replay"},
+    {"name": "completed card after receipt pruning", "sourceStatus": "applied", "expected": "review"},
+    {"name": "source checkpoint after an inconsistent Actor restore", "sourceStatus": "processing", "expected": "review"},
+    {"name": "preflight rejection with no started stage", "sourceStatus": "failed", "receiptStatus": "failed", "expected": "apply"},
+    {"name": "known completed preparation waiting for permission", "sourceStatus": "waitingGM", "receiptStatus": "waitingGM", "stageStatus": "applied", "expected": "apply"},
+    {"name": "unconfirmed stage waiting for permission", "sourceStatus": "waitingGM", "receiptStatus": "waitingGM", "stageStatus": "partial", "expected": "review"},
+    {"name": "optional output failed after completed receipt", "sourceStatus": "processing", "receiptStatus": "applied", "expected": "replay"}
+  ]
+}

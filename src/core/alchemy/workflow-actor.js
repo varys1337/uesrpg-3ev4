@@ -2,6 +2,7 @@ import { hasGrandmasterForSkill } from "../traits/general-talents.js";
 import { resolveAlchemyIngredientData } from "./ingredients.js";
 import { getAlchemyFlags } from "./shared.js";
 import { getActorItemsArray, normalizeAlchemyName } from "./utils.js";
+import { isPassiveFeatureActive } from "../traits/features/feature-config.js";
 
 const RANK_TO_NUMERIC = Object.freeze({
   untrained: -1,
@@ -76,7 +77,7 @@ export function getAlchemySkillSnapshot(actor, { skill = null, items = null } = 
 
 export function getAlchemyTalents(actor, { items = null } = {}) {
   const actorItems = Array.isArray(items) ? items : getActorItemsArray(actor);
-  const talents = actorItems.filter((item) => item?.type === "talent");
+  const talents = actorItems.filter((item) => item?.type === "talent" && isPassiveFeatureActive(item));
 
   const hasName = (name) =>
     talents.some((t) => String(t.name ?? "").toLowerCase() === name.toLowerCase());

@@ -2,12 +2,24 @@ import { emitDynamicInitiativeRoundSummary } from "./initiative-ui.js";
 import { getActionPointAutomationSetting, isDynamicInitiativeEnabledSetting } from "./settings.js";
 import { isPerfEnabled, perfRecord } from "../../../utils/perf-tracker.js";
 import { isActiveGMUser } from "../../../utils/users.js";
+import { SYSTEM_ID } from "../../system/namespace.js";
 
 let _combatApHooksRegistered = false;
 
 export function registerCombatApHooks(SystemCombatClass) {
   if (_combatApHooksRegistered) return;
   _combatApHooksRegistered = true;
+
+  // A later initiative edit without our rating must not keep an earlier tie-break.
+  Hooks.on("preUpdateCombatant", (combatant, changed) => {
+    if (!Object.hasOwn(changed, "initiative")) return;
+    if (changed.flags?.[SYSTEM_ID] && Object.hasOwn(changed.flags[SYSTEM_ID], "initiativeRating")) return;
+    if (Object.hasOwn(changed, `flags.${SYSTEM_ID}.initiativeRating`)) return;
+    if (combatant.flags?.[SYSTEM_ID]?.initiativeRating == null) return;
+    changed.flags ??= {};
+    changed.flags[SYSTEM_ID] ??= {};
+    changed.flags[SYSTEM_ID].initiativeRating = null;
+  });
 
   Hooks.on("combatStart", async (combat) => {
     if (!isActiveGMUser(game.user)) return;
